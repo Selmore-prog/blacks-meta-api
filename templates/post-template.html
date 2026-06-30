@@ -1,0 +1,145 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<style>
+  :root {
+    --black: {{COLOR_BLACK}};
+    --white: {{COLOR_WHITE}};
+    --orange: {{COLOR_ORANGE}};
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  html, body {
+    width: 1080px;
+    height: 1350px;
+    font-family: 'Helvetica Neue', Arial, sans-serif;
+    background: var(--{{BG_VAR}});
+    overflow: hidden;
+  }
+
+  .canvas {
+    width: 1080px;
+    height: 1350px;
+    position: relative;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 56px 64px 0 64px;
+  }
+
+  .wordmark {
+    font-size: 34px;
+    font-weight: 800;
+    letter-spacing: 2px;
+    color: var(--{{TEXT_VAR}});
+  }
+
+  .badge {
+    background: var(--orange);
+    color: var(--white);
+    font-weight: 700;
+    font-size: 22px;
+    padding: 10px 22px;
+    border-radius: 4px;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+  }
+
+  .product-area {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 24px 64px;
+  }
+
+  .product-area img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+  }
+
+  .product-placeholder {
+    width: 100%;
+    height: 100%;
+    border: 2px dashed var(--{{TEXT_VAR}});
+    opacity: 0.25;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 28px;
+    color: var(--{{TEXT_VAR}});
+  }
+
+  .footer {
+    padding: 0 64px 64px 64px;
+  }
+
+  .title {
+    font-size: 48px;
+    font-weight: 800;
+    line-height: 1.15;
+    color: var(--{{TEXT_VAR}});
+    max-width: 90%;
+    margin-bottom: 24px;
+  }
+
+  .price-row {
+    display: flex;
+    align-items: baseline;
+    gap: 18px;
+  }
+
+  .price {
+    font-size: 40px;
+    font-weight: 800;
+    color: var(--orange);
+  }
+
+  .cta {
+    font-size: 22px;
+    font-weight: 600;
+    color: var(--{{TEXT_VAR}});
+    opacity: 0.75;
+  }
+
+  .accent-bar {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    width: 100%;
+    height: 14px;
+    background: var(--orange);
+  }
+</style>
+</head>
+<body>
+  <div class="canvas">
+    <div class="header">
+      <div class="wordmark">BLACKS</div>
+      {{BADGE_HTML}}
+    </div>
+
+    <div class="product-area">
+      {{PRODUCT_IMAGE_HTML}}
+    </div>
+
+    <div class="footer">
+      <div class="title">{{TITLE}}</div>
+      <div class="price-row">
+        {{PRICE_HTML}}
+        <div class="cta">{{CTA_TEXT}}</div>
+      </div>
+    </div>
+
+    <div class="accent-bar"></div>
+  </div>
+</body>
+</html>

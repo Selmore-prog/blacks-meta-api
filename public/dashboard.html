@@ -1,0 +1,36 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>BLACKS — Panel de contenido</title>
+<link rel="stylesheet" href="/dashboard.css" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="wordmark">BLACKS <span>· panel de contenido</span></div>
+    <div class="topbar-actions">
+      <button class="btn-insights" onclick="showInsightsModal()">Ver Métricas e Insights</button>
+    </div>
+  </header>
+
+  <main id="calendar-list" class="calendar-list">
+    <p class="loading">Cargando calendario...</p>
+  </main>
+
+  <!-- Modal de Insights -->
+  <div id="insights-modal" class="modal-overlay" style="display: none;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h2>Rendimiento e Insights por Pilar</h2>
+        <button class="btn-close" onclick="closeInsightsModal()">&times;</button>
+      </div>
+      <div id="insights-body" class="modal-body">
+        <p class="loading">Cargando reporte...</p>
+      </div>
+    </div>
+  </div>
+
+  <script src="/dashboard.js"></script>
+</body>
+</html>

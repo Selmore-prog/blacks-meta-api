@@ -1,0 +1,46 @@
+name: BLACKS Cron Jobs
+
+on:
+  schedule:
+    # Generación diaria a las 10:00 AM UTC (07:00 AM ARG)
+    - cron: '0 10 * * *'
+    # Publicación automática diaria a las 11:00 AM UTC (08:00 AM ARG)
+    - cron: '0 11 * * *'
+    # Sincronización semanal de métricas e insights los lunes a las 12:00 UTC
+    - cron: '0 12 * * 1'
+  workflow_dispatch:
+    inputs:
+      job:
+        description: 'Elegí la tarea a ejecutar manualmente'
+        required: true
+        default: 'generate-daily'
+        type: choice
+        options:
+          - generate-daily
+          - publish-daily
+          - sync-insights
+
+jobs:
+  run-cron:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Determinar endpoint
+        id: determine
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "endpoint=/api/cron/${{ github.event.inputs.job }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.schedule }}" = "0 10 * * *" ]; then
+            echo "endpoint=/api/cron/generate-daily" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.schedule }}" = "0 11 * * *" ]; then
+            echo "endpoint=/api/cron/publish-daily" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event.schedule }}" = "0 12 * * 1" ]; then
+            echo "endpoint=/api/cron/sync-insights" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Llamar al endpoint de Cron
+        run: |
+          echo "Invocando ${{ secrets.PUBLIC_BASE_URL }}${{ steps.determine.outputs.endpoint }}..."
+          curl -s -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            "${{ secrets.PUBLIC_BASE_URL }}${{ steps.determine.outputs.endpoint }}"
