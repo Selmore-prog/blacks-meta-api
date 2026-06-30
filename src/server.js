@@ -14,6 +14,10 @@ const app = express();
 app.use(express.json());
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
+app.get('/', (req, res) => {
+  res.sendFile(path.join(__dirname, '..', 'public', 'dashboard.html'));
+});
+
 // Middleware para validar secreto de Cron en endpoints automatizados
 function authCron(req, res, next) {
   const authHeader = req.headers['authorization'];
