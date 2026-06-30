@@ -50,6 +50,17 @@ async function renderPostBuffer({ title, price, ctaText, badgeText, imageUrl, th
     '--disable-setuid-sandbox',
     '--disable-dev-shm-usage',
     '--disable-gpu',
+    '--single-process',
+    '--no-zygote',
+    '--disable-extensions',
+    '--disable-background-networking',
+    '--disable-default-apps',
+    '--disable-sync',
+    '--disable-translate',
+    '--mute-audio',
+    '--no-first-run',
+    '--metrics-recording-only',
+    '--js-flags=--max-old-space-size=128',
   ];
 
   const launchOptions = {
