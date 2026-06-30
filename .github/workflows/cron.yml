@@ -2,8 +2,10 @@ name: BLACKS Cron Jobs
 
 on:
   schedule:
-    # Generación diaria a las 10:00 AM UTC (07:00 AM ARG)
+    # Generación diaria de copy + imagen a las 10:00 AM UTC (07:00 AM ARG)
     - cron: '0 10 * * *'
+    # Backfill de video de Reels pendientes cada 30 min (corre en el runner, no en Render)
+    - cron: '*/30 * * * *'
     # Publicación automática diaria a las 11:00 AM UTC (08:00 AM ARG)
     - cron: '0 11 * * *'
     # Sincronización semanal de métricas e insights los lunes a las 12:00 UTC
@@ -17,30 +19,70 @@ on:
         type: choice
         options:
           - generate-daily
+          - render-reels
           - publish-daily
           - sync-insights
 
 jobs:
-  run-cron:
+  # Genera copy + imagen (Puppeteer) corriendo directo en el runner de GitHub
+  # (no en el servicio web de Render) para no competir por la RAM del free tier.
+  generate-daily:
+    if: github.event.schedule == '0 10 * * *' || github.event.inputs.job == 'generate-daily'
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_STORAGE_BUCKET: ${{ secrets.SUPABASE_STORAGE_BUCKET }}
+      GROQ_API_KEY: ${{ secrets.GROQ_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run generate:daily
+      - run: npm run render:reels
+
+  # Renderiza con ffmpeg el video de los Reels que todavía no lo tienen
+  # (generados desde el dashboard o por generate-daily). Corre en el runner
+  # de GitHub (~7GB RAM) en vez del servicio web de Render (512MB).
+  render-reels:
+    if: github.event.schedule == '*/30 * * * *' || github.event.inputs.job == 'render-reels'
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_STORAGE_BUCKET: ${{ secrets.SUPABASE_STORAGE_BUCKET }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run render:reels
+
+  # Publicación y sync de insights son llamadas livianas a la API de Meta,
+  # eso sí se queda en el servicio web de Render.
+  publish-daily:
+    if: github.event.schedule == '0 11 * * *' || github.event.inputs.job == 'publish-daily'
     runs-on: ubuntu-latest
     steps:
-      - name: Determinar endpoint
-        id: determine
+      - name: Llamar al endpoint de publicación
         run: |
-          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
-            echo "endpoint=/api/cron/${{ github.event.inputs.job }}" >> $GITHUB_OUTPUT
-          elif [ "${{ github.event.schedule }}" = "0 10 * * *" ]; then
-            echo "endpoint=/api/cron/generate-daily" >> $GITHUB_OUTPUT
-          elif [ "${{ github.event.schedule }}" = "0 11 * * *" ]; then
-            echo "endpoint=/api/cron/publish-daily" >> $GITHUB_OUTPUT
-          elif [ "${{ github.event.schedule }}" = "0 12 * * 1" ]; then
-            echo "endpoint=/api/cron/sync-insights" >> $GITHUB_OUTPUT
-          fi
-
-      - name: Llamar al endpoint de Cron
-        run: |
-          echo "Invocando ${{ secrets.PUBLIC_BASE_URL }}${{ steps.determine.outputs.endpoint }}..."
-          curl -s -X POST \
+          curl -sf -X POST \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
-            "${{ secrets.PUBLIC_BASE_URL }}${{ steps.determine.outputs.endpoint }}"
+            "${{ secrets.PUBLIC_BASE_URL }}/api/cron/publish-daily"
+
+  sync-insights:
+    if: github.event.schedule == '0 12 * * 1' || github.event.inputs.job == 'sync-insights'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Llamar al endpoint de insights
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            "${{ secrets.PUBLIC_BASE_URL }}/api/cron/sync-insights"

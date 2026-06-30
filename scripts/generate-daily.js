@@ -2,7 +2,6 @@ const pool = require('../src/db');
 const { seedCalendar, getPendingForDate } = require('../src/calendar');
 const { generateCopy } = require('../src/copywriter');
 const { renderPostBuffer } = require('../src/imageRenderer');
-const { renderReelVideo } = require('../src/videoRenderer');
 const config = require('../src/config');
 
 async function pickProductForSlot(slot) {
@@ -32,7 +31,7 @@ async function generateForSlot(slot) {
     product,
   });
 
-  const { url: imagePath, buffer: imageBuffer } = await renderPostBuffer({
+  const { url: imagePath } = await renderPostBuffer({
     title: product ? product.name : slot.pillar_detail || slot.pillar,
     price: product ? product.price : null,
     ctaText: copy.cta,
@@ -41,25 +40,17 @@ async function generateForSlot(slot) {
     theme: slot.id % 2 === 0 ? 'light' : 'dark',
   });
 
-  let videoPath = null;
-  if (slot.post_type === 'reel') {
-    console.log(`[generate-daily] Generando Reel para slot #${slot.id}...`);
-    try {
-      videoPath = await renderReelVideo({ imageBuffer, duration: 8 });
-    } catch (err) {
-      console.error(`[generate-daily] Advertencia: falló renderizado de Reel video:`, err.message);
-    }
-  }
-
+  // El video del Reel NO se renderiza acá (ffmpeg es pesado en memoria).
+  // Lo completa después scripts/render-pending-reels.js, corrido en GitHub Actions.
   await pool.query(
     `INSERT INTO generated_assets (calendar_id, product_id, caption, hashtags, cta, image_path, video_path, status)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, 'draft')`,
-    [slot.id, product ? product.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, videoPath]
+     VALUES ($1, $2, $3, $4, $5, $6, NULL, 'draft')`,
+    [slot.id, product ? product.id : null, copy.caption, copy.hashtags, copy.cta, imagePath]
   );
 
   await pool.query(`UPDATE content_calendar SET status = 'draft' WHERE id = $1`, [slot.id]);
 
-  console.log(`[generate-daily] Generado slot #${slot.id} (${slot.pillar}/${slot.post_type}) -> Img: ${imagePath}${videoPath ? ` | Vid: ${videoPath}` : ''}`);
+  console.log(`[generate-daily] Generado slot #${slot.id} (${slot.pillar}/${slot.post_type}) -> Img: ${imagePath}`);
 }
 
 async function generateDaily() {
