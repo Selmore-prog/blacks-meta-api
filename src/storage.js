@@ -1,5 +1,13 @@
 const fs = require('fs');
 const path = require('path');
+
+// @supabase/supabase-js (realtime-js) requiere WebSocket global; en Node <22
+// no existe nativo, así que lo completamos con 'ws' para evitar el error
+// "Node.js detected but native WebSocket not found".
+if (typeof globalThis.WebSocket === 'undefined') {
+  globalThis.WebSocket = require('ws');
+}
+
 const { createClient } = require('@supabase/supabase-js');
 const config = require('./config');
 
