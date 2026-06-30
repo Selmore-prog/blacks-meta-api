@@ -41,6 +41,7 @@ async function renderReelVideo({ imageBuffer, duration = 8, filename }) {
         '-b:a 128k',
         `-t ${duration}`,
         '-movflags +faststart',
+        '-map 1:a',
       ])
       // Filtro: crea un fondo difuminado 1080x1920 y centra la pieza 1080x1350 con un ligero zoom lento
       .complexFilter([
@@ -49,7 +50,6 @@ async function renderReelVideo({ imageBuffer, duration = 8, filename }) {
         '[bg][fg]overlay=(W-w)/2:(H-h)/2[outv]',
       ])
       .map('[outv]')
-      .map('1:a')
       .save(tmpVidPath)
       .on('end', async () => {
         try {
