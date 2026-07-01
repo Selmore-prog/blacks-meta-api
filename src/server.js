@@ -10,6 +10,8 @@ const { publishAssetById, publishDailyAuto } = require('./publishService');
 const { syncPostInsights, analyzePerformance } = require('./insights');
 const { getBrandProfile } = require('./brandProfile');
 const styleService = require('./styleService');
+const { importDriveFolder } = require('./driveService');
+const { analyzeAccountPerformance } = require('./accountAnalyzer');
 const { hasGemini } = require('./ai');
 
 const app = express();
@@ -211,6 +213,18 @@ app.delete('/api/style/:id', wrap(async (req, res) => {
 app.post('/api/style/analyze', wrap(async (req, res) => {
   const includeAccount = req.body ? req.body.includeAccount !== false : true;
   res.json(await styleService.runStyleAnalysis({ includeAccount }));
+}));
+
+// Importa imágenes de una carpeta PÚBLICA de Google Drive como referencias de estilo.
+app.post('/api/style/drive-import', wrap(async (req, res) => {
+  const { url, maxImages } = req.body || {};
+  if (!url) return res.status(400).json({ error: 'Falta el link de la carpeta de Drive.' });
+  res.json(await importDriveFolder(url, { maxImages: Math.min(Number(maxImages) || 40, 80) }));
+}));
+
+/* ----------------------- Análisis de cuenta (IG) ----------------------- */
+app.get('/api/account/analysis', wrap(async (req, res) => {
+  res.json(await analyzeAccountPerformance(Number(req.query.limit) || 60));
 }));
 
 /* ----------------------- Manejo de errores ----------------------- */

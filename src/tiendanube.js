@@ -102,4 +102,36 @@ async function fetchAllProducts() {
   return all;
 }
 
-module.exports = { fetchAllProducts, fetchProduct, normalizeProduct, detectBrand, pickText };
+/**
+ * Suma unidades vendidas por producto desde `sinceISO` (para ranking de más vendidos).
+ * Devuelve un Map productId -> unidades. Ignora pedidos cancelados.
+ */
+async function fetchSalesSince(sinceISO) {
+  const sales = new Map();
+  let page = 1;
+  while (true) {
+    const url = `${config.tiendanube.apiBase}/${config.tiendanube.storeId}/orders?created_at_min=${encodeURIComponent(sinceISO)}&per_page=200&page=${page}&fields=id,status,products`;
+    const res = await fetch(url, {
+      headers: { ...buildAuthHeader(), 'User-Agent': config.tiendanube.userAgent, 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) {
+      if (page === 1) throw new Error(`Tiendanube orders ${res.status}: ${(await res.text()).slice(0, 160)}`);
+      break;
+    }
+    const batch = await res.json();
+    if (!Array.isArray(batch) || batch.length === 0) break;
+    for (const order of batch) {
+      if (order.status === 'cancelled') continue;
+      for (const p of order.products || []) {
+        const pid = Number(p.product_id);
+        if (!pid) continue;
+        sales.set(pid, (sales.get(pid) || 0) + Number(p.quantity || 1));
+      }
+    }
+    if (batch.length < 200) break;
+    page += 1;
+  }
+  return sales;
+}
+
+module.exports = { fetchAllProducts, fetchProduct, fetchSalesSince, normalizeProduct, detectBrand, pickText };

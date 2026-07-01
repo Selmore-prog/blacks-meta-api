@@ -8,6 +8,7 @@
     "dev": "node src/server.js",
     "migrate": "node src/migrate.js",
     "sync": "node scripts/sync-products.js",
+    "sync:sales": "node scripts/sync-sales.js",
     "generate:daily": "node scripts/generate-daily.js",
     "render:reels": "node scripts/render-pending-reels.js"
   },

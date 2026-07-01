@@ -67,35 +67,109 @@ async function loadConfig() {
 }
 
 /* ============ calendario ============ */
+let calItems = [];
+let calView = 'list';
+
+function groupByDate(items) {
+  const groups = {};
+  for (const it of items) {
+    const key = String(it.scheduled_date).slice(0, 10);
+    (groups[key] = groups[key] || []).push(it);
+  }
+  return groups;
+}
+
 async function loadCalendar() {
   const list = document.getElementById('calendar-list');
   list.innerHTML = '<p class="loading">Cargando calendario...</p>';
   try {
-    const items = await api('/api/calendar?days=14');
-    if (!items.length) { list.innerHTML = '<p class="empty">No hay slots todavía.</p>'; return; }
-
-    const groups = {};
-    for (const it of items) {
-      const key = String(it.scheduled_date).slice(0, 10);
-      (groups[key] = groups[key] || []).push(it);
-    }
-
-    list.innerHTML = '';
-    for (const key of Object.keys(groups).sort()) {
-      const group = groups[key];
-      const g = document.createElement('div');
-      g.className = 'day-group';
-      const theme = group.find((x) => x.theme_title)?.theme_title || '';
-      g.innerHTML = `<div class="day-head">
-        <span class="date">${formatDate(key)}</span>
-        ${theme ? `<span class="theme">· ${esc(theme)}</span>` : ''}
-        <span class="line"></span></div>`;
-      for (const it of group) g.appendChild(renderCard(it));
-      list.appendChild(g);
-    }
+    calItems = await api('/api/calendar?days=21');
+    document.getElementById('next-plan').innerHTML =
+      `🤖 <b>Automático:</b> genera piezas todos los días a las <b>07:00 ARG</b> y auto-publica lo aprobado a las <b>08:00</b>. El resto lo revisás vos acá.`;
+    renderCalView();
   } catch (e) {
     list.innerHTML = `<p class="empty">Error cargando el calendario: ${esc(e.message)}</p>`;
   }
+}
+
+function setCalView(mode) {
+  calView = mode;
+  document.getElementById('vt-list').classList.toggle('active', mode === 'list');
+  document.getElementById('vt-grid').classList.toggle('active', mode === 'grid');
+  renderCalView();
+}
+
+function renderCalView() {
+  const list = document.getElementById('calendar-list');
+  const grid = document.getElementById('calendar-grid');
+  list.classList.toggle('hidden', calView !== 'list');
+  grid.classList.toggle('hidden', calView !== 'grid');
+  if (calView === 'list') renderCalList(); else renderCalGrid();
+}
+
+function renderCalList() {
+  const list = document.getElementById('calendar-list');
+  if (!calItems.length) { list.innerHTML = '<p class="empty">No hay slots todavía.</p>'; return; }
+  const groups = groupByDate(calItems);
+  list.innerHTML = '';
+  for (const key of Object.keys(groups).sort()) {
+    const group = groups[key];
+    const g = document.createElement('div');
+    g.className = 'day-group';
+    const theme = group.find((x) => x.theme_title)?.theme_title || '';
+    g.innerHTML = `<div class="day-head">
+      <span class="date">${formatDate(key)}</span>
+      ${theme ? `<span class="theme">· ${esc(theme)}</span>` : ''}
+      <span class="line"></span></div>`;
+    for (const it of group) g.appendChild(renderCard(it));
+    list.appendChild(g);
+  }
+}
+
+const DOW = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom'];
+function renderCalGrid() {
+  const grid = document.getElementById('calendar-grid');
+  const groups = groupByDate(calItems);
+  const keys = Object.keys(groups).sort();
+  if (!keys.length) { grid.innerHTML = '<p class="empty">No hay slots todavía.</p>'; return; }
+
+  // Rango: desde el lunes de la semana del primer día, 4 semanas.
+  const first = new Date(keys[0] + 'T00:00:00');
+  const start = new Date(first);
+  const dow = (start.getDay() + 6) % 7; // 0 = lunes
+  start.setDate(start.getDate() - dow);
+  const todayKey = new Date().toLocaleDateString('sv-SE'); // YYYY-MM-DD local
+
+  let html = '<div class="cal-grid"><div class="cal-head">' + DOW.map((d) => `<div>${d}</div>`).join('') + '</div><div class="cal-body">';
+  for (let i = 0; i < 28; i++) {
+    const d = new Date(start); d.setDate(start.getDate() + i);
+    const key = d.toLocaleDateString('sv-SE');
+    const items = groups[key] || [];
+    const has = items.length > 0;
+    const isToday = key === todayKey;
+    const dots = items.slice(0, 4).map((it) => {
+      const st = it.asset_status || it.status;
+      const cls = it.pillar === 'repost' ? 'muted' : (st === 'published' ? 'pub' : st === 'approved' ? 'appr' : it.asset_id ? 'draft' : 'pend');
+      return `<span class="cal-dot ${cls}"></span>`;
+    }).join('');
+    html += `<div class="cal-cell ${has ? 'has' : ''} ${isToday ? 'today' : ''}" ${has ? `data-day="${key}"` : ''}>
+      <div class="cal-num">${d.getDate()}</div>
+      <div class="cal-dots">${dots}</div>
+    </div>`;
+  }
+  html += '</div></div><div class="cal-legend"><span class="cal-dot pend"></span>Sin generar <span class="cal-dot draft"></span>Borrador <span class="cal-dot appr"></span>Aprobado <span class="cal-dot pub"></span>Publicado</div>';
+  grid.innerHTML = html;
+  grid.querySelectorAll('[data-day]').forEach((c) => c.addEventListener('click', () => openDayDetail(c.dataset.day)));
+}
+
+function openDayDetail(key) {
+  const groups = groupByDate(calItems);
+  const items = groups[key] || [];
+  const theme = items.find((x) => x.theme_title)?.theme_title || '';
+  const overlay = showInfoModal(`${formatDate(key)}${theme ? ' · ' + esc(theme) : ''}`, '<div id="day-detail"></div>');
+  const holder = overlay.querySelector('#day-detail');
+  if (!items.length) { holder.innerHTML = '<p class="empty">Sin contenido este día.</p>'; return; }
+  for (const it of items) holder.appendChild(renderCard(it));
 }
 
 function renderPreview(item) {
@@ -352,6 +426,24 @@ async function deleteRef(id) {
   catch (e) { toast(e.message, 'err'); }
 }
 
+async function importDrive() {
+  const el = document.getElementById('drive-input');
+  const btn = document.getElementById('drive-btn');
+  if (!el.value.trim()) { toast('Pegá el link de la carpeta de Drive'); return; }
+  btn.disabled = true; btn.textContent = 'Importando… (puede tardar)';
+  try {
+    const d = await api('/api/style/drive-import', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: el.value.trim() }),
+    });
+    const out = document.getElementById('drive-out');
+    out.innerHTML = `<div class="voice-out">📁 Carpeta <b>${esc(d.rootName)}</b> · subcarpetas: ${esc((d.subfolders || []).join(', '))}<br>
+      Importadas <b>${d.imported}</b> · ya estaban ${d.skipped} · fallaron ${d.failed} (de ${d.totalFound} encontradas).</div>`;
+    toast(`Importadas ${d.imported} piezas de Drive`, 'ok');
+    loadStyle();
+  } catch (e) { toast(e.message, 'err'); }
+  finally { btn.disabled = false; btn.textContent = '📁 Importar Drive'; }
+}
+
 async function analyzeStyle() {
   const btn = document.getElementById('analyze-btn');
   btn.disabled = true; btn.textContent = '🧠 Analizando… (puede tardar 20-40s)';
@@ -387,6 +479,30 @@ async function loadMetrics() {
     }
     body.innerHTML = html;
   } catch (e) { body.innerHTML = `<p class="empty">Error: ${esc(e.message)}</p>`; }
+}
+
+/* ============ análisis de cuenta ============ */
+async function analyzeAccount() {
+  const btn = document.getElementById('account-btn');
+  const out = document.getElementById('account-out');
+  btn.disabled = true; btn.textContent = '📊 Analizando…';
+  try {
+    const d = await api('/api/account/analysis');
+    const rank = (arr, key, unit) => arr.length
+      ? `<div class="rank">${arr.map((x) => `<span class="rank-item"><b>${esc(x[key])}${unit || ''}</b> · ${x.avgEngagement} eng</span>`).join('')}</div>`
+      : '<span class="hint">Sin datos suficientes.</span>';
+    out.innerHTML = `
+      <div class="analysis">
+        <div class="an-block"><span class="fmt-label">Analizadas</span> ${d.analyzed} publicaciones · engagement promedio <b>${d.avgEngagement}</b></div>
+        <div class="an-block"><span class="fmt-label">🕐 Mejores horarios</span>${rank(d.bestHours, 'hour', ' hs')}</div>
+        <div class="an-block"><span class="fmt-label">📅 Mejores días</span>${rank(d.bestDays, 'day')}</div>
+        <div class="an-block"><span class="fmt-label">🎬 Formato que más rinde</span>${rank(d.byFormat, 'format')}</div>
+        <div class="an-block"><span class="fmt-label"># Hashtags que más rinden</span>${rank(d.topHashtags, 'tag')}</div>
+        <div class="an-block hint">ℹ️ ${esc(d.note)}</div>
+      </div>`;
+  } catch (e) {
+    out.innerHTML = `<p class="hint" style="color:var(--amber)">No pude analizar: ${esc(e.message)} (revisá permisos de Instagram insights).</p>`;
+  } finally { btn.disabled = false; btn.textContent = '📊 Analizar mi cuenta'; }
 }
 
 /* ============ init ============ */

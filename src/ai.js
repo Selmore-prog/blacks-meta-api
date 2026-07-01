@@ -1,4 +1,5 @@
 const config = require('./config');
+const { resizeImage } = require('./imageUtils');
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
@@ -28,7 +29,28 @@ REGLAS DURAS PARA QUE NO SUENE A IA (si rompés esto, está mal):
 - Máximo 1 o 2 emojis por pieza, sólo si suman. Muchas veces, ninguno.
 - Un solo CTA claro por pieza. Nunca dos llamados a la acción.
 
+SITIO WEB: es ${config.brand.site}. NUNCA menciones "blackshop.com.ar" ni ningún dominio viejo: ese sitio ya no existe.
+
 HASHTAGS: 4 a 6, mezclando marca (#BlacksIndumentaria), rubro (#RopaDeTrabajo #CalzadoDeSeguridad #IndumentariaLaboral), la marca/producto puntual y algo local cuando aplique (#Argentina). Nada de #instagood ni genéricos vacíos.`;
+
+/** Reemplaza dominios viejos por el sitio actual en cualquier texto generado. */
+function sanitizeText(text) {
+  if (!text) return text;
+  let out = String(text);
+  for (const old of config.brand.oldSites || []) {
+    out = out.replace(new RegExp(old.replace(/[.]/g, '\\.'), 'gi'), config.brand.site);
+  }
+  return out;
+}
+
+function sanitizeCopy(copy) {
+  return {
+    overlay: sanitizeText(copy.overlay),
+    caption: sanitizeText(copy.caption),
+    hashtags: sanitizeText(copy.hashtags),
+    cta: sanitizeText(copy.cta),
+  };
+}
 
 function formatGuidance(postType, format) {
   if (format === 'story' && postType !== 'reel') {
@@ -45,6 +67,17 @@ function formatGuidance(postType, format) {
   return `FORMATO: Post de feed (imagen 4:5).
 - "overlay" = título corto y potente para poner sobre la imagen (máx ~7 palabras).
 - "caption" = 2 a 5 líneas para el pie del posteo. Primera línea = gancho fuerte (se ve antes del "ver más").`;
+}
+
+// Temporada del hemisferio SUR (Argentina) según el mes actual.
+function seasonContext(date = new Date()) {
+  const m = date.getMonth();
+  let estacion, nota;
+  if (m === 11 || m <= 1) { estacion = 'verano'; nota = 'hace calor: remeras, chombas, ropa fresca y liviana para el laburo.'; }
+  else if (m <= 4) { estacion = 'otoño'; nota = 'refresca: buzos, camperas livianas, media estación.'; }
+  else if (m <= 7) { estacion = 'invierno'; nota = 'hace frío: camperas, buzos, polares, softshell, ropa térmica, abrigo para el laburo a la intemperie.'; }
+  else { estacion = 'primavera'; nota = 'empieza a templar: buzos livianos, camperas rompeviento, media estación.'; }
+  return `Estamos en ${estacion} en Argentina — ${nota} Si encaja, mencioná el clima/temporada de forma natural (sin forzar).`;
 }
 
 function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, brandProfile, interactionHint }) {
@@ -64,7 +97,8 @@ function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, bran
 
 Pilar de contenido: ${pillar}
 Ángulo/detalle: ${pillarDetail || 'sin detalle adicional'}
-${productInfo}${interaction}${voice}
+${productInfo}
+Temporada: ${seasonContext()}${interaction}${voice}
 
 Escribí el copy siguiendo la voz de marca y las reglas. Devolvé SOLO un JSON válido con esta forma exacta:
 {"overlay": "...", "caption": "...", "hashtags": "...", "cta": "..."}`;
@@ -87,18 +121,26 @@ function parseCopyJson(text) {
  * GEMINI: llamadas de bajo nivel
  * ========================================================================= */
 
+// Las keys nuevas (AQ.) y las viejas (AIza) funcionan igual con este header en el
+// endpoint nativo. Usamos x-goog-api-key (recomendado) en vez de ?key=.
 async function geminiGenerateContent(model, body) {
-  const res = await fetch(`${GEMINI_BASE}/models/${model}:generateContent?key=${config.gemini.apiKey}`, {
+  const res = await fetch(`${GEMINI_BASE}/models/${model}:generateContent`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.gemini.apiKey },
     body: JSON.stringify(body),
   });
   if (!res.ok) {
     const t = await res.text().catch(() => '');
-    throw new Error(`Gemini ${model} ${res.status}: ${t.slice(0, 600)}`);
+    const err = new Error(`Gemini ${model} ${res.status}: ${t.slice(0, 300)}`);
+    err.status = res.status;
+    throw err;
   }
   return res.json();
 }
+
+// Si un modelo de imagen devuelve 429 (cuota agotada / plan gratuito), dejamos de
+// intentar generar imágenes en este proceso para no acumular errores ni demoras.
+let imageQuotaHit = false;
 
 function textFromResponse(data) {
   const parts = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
@@ -161,14 +203,31 @@ async function generateCopy(opts) {
       const data = await geminiGenerateContent(config.gemini.textModel, {
         systemInstruction: { parts: [{ text: VOICE_CORE }] },
         contents: [{ role: 'user', parts: [{ text: promptUser }] }],
-        generationConfig: { temperature: 0.85, maxOutputTokens: 800, responseMimeType: 'application/json' },
+        generationConfig: {
+          temperature: 0.85,
+          maxOutputTokens: 1200,
+          responseMimeType: 'application/json',
+          // gemini-2.5-flash "piensa" por defecto y se come el presupuesto de tokens
+          // (devolvía JSON truncado/vacío). Lo apagamos para copy.
+          thinkingConfig: { thinkingBudget: 0 },
+          responseSchema: {
+            type: 'object',
+            properties: {
+              overlay: { type: 'string' },
+              caption: { type: 'string' },
+              hashtags: { type: 'string' },
+              cta: { type: 'string' },
+            },
+            required: ['overlay', 'caption', 'hashtags', 'cta'],
+          },
+        },
       });
-      return parseCopyJson(textFromResponse(data));
+      return sanitizeCopy(parseCopyJson(textFromResponse(data)));
     } catch (err) {
       console.warn(`[ai] Gemini copy falló, caigo a Groq: ${err.message}`);
     }
   }
-  return groqCopy(promptUser);
+  return sanitizeCopy(await groqCopy(promptUser));
 }
 
 /**
@@ -177,7 +236,7 @@ async function generateCopy(opts) {
  * Devuelve { buffer, mimeType } o null.
  */
 async function generateBackground({ theme, format = 'feed', referenceImages = [] } = {}) {
-  if (!config.ai.useAiImages || !hasGemini()) return null;
+  if (!config.ai.useAiImages || !hasGemini() || imageQuotaHit) return null;
 
   const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
   const prompt = `Generá una imagen de fondo ${ratio} para una pieza de redes de una marca argentina de ropa de trabajo y calzado de seguridad llamada BLACKS.
@@ -195,7 +254,42 @@ IMPORTANTE: SIN texto, SIN logos, SIN letras. Dejá aire/espacio negativo en el 
     });
     return inlineImageFromResponse(data);
   } catch (err) {
-    console.warn(`[ai] generateBackground falló (sigo con diseño plano): ${err.message}`);
+    if (err.status === 429) { imageQuotaHit = true; console.warn('[ai] Imágenes IA sin cuota gratis (429): uso plantilla. Activá facturación en Google para habilitarlas.'); }
+    else console.warn(`[ai] generateBackground falló (sigo con diseño plano): ${err.message}`);
+    return null;
+  }
+}
+
+/**
+ * Genera una ESCENA PROFESIONAL con el producto real adentro (foto de producto como
+ * referencia). Devuelve { buffer, mimeType } o null (best-effort, con fallback).
+ */
+async function generateProductScene({ productImageUrl, productName, theme, format = 'feed' } = {}) {
+  if (!config.ai.useAiImages || !hasGemini() || imageQuotaHit || !productImageUrl) return null;
+
+  let ref;
+  try {
+    const r = await fetch(productImageUrl);
+    if (!r.ok) return null;
+    let buf = Buffer.from(await r.arrayBuffer());
+    buf = await resizeImage(buf, 1024).catch(() => buf);
+    ref = { data: buf.toString('base64'), mimeType: 'image/jpeg' };
+  } catch (_) { return null; }
+
+  const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
+  const prompt = `Usá EXACTAMENTE el producto de la imagen de referencia (no lo cambies) y ponelo en una escena de catálogo profesional ${ratio} para una marca argentina de ropa de trabajo y calzado de seguridad (BLACKS).
+Estilo: foto de estudio premium, industrial y real (obra/taller/depósito), fondo degradado neutro u oscuro con acentos naranja (#C1440C). Iluminación cinematográfica, sombras suaves.
+IMPORTANTE: mantené el producto fiel al de la referencia. SIN texto, SIN logos, SIN letras. Dejá aire en el centro y abajo para sobreimprimir texto después. Tema/contexto: ${theme || productName || 'ropa de trabajo'}.`;
+
+  try {
+    const data = await geminiGenerateContent(config.gemini.imageModel, {
+      contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: ref }] }],
+      generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+    });
+    return inlineImageFromResponse(data);
+  } catch (err) {
+    if (err.status === 429) { imageQuotaHit = true; console.warn('[ai] Imágenes IA sin cuota gratis (429): uso plantilla con la foto del producto.'); }
+    else console.warn(`[ai] generateProductScene falló (uso plantilla): ${err.message}`);
     return null;
   }
 }
@@ -235,7 +329,7 @@ Devolvé SOLO un JSON válido con esta forma:
 
   const data = await geminiGenerateContent(config.gemini.visionModel, {
     contents: [{ role: 'user', parts }],
-    generationConfig: { temperature: 0.4, responseMimeType: 'application/json' },
+    generationConfig: { temperature: 0.4, responseMimeType: 'application/json', maxOutputTokens: 2048, thinkingConfig: { thinkingBudget: 0 } },
   });
 
   const parsed = JSON.parse(String(textFromResponse(data)).replace(/```json|```/g, '').trim());
@@ -248,7 +342,9 @@ Devolvé SOLO un JSON válido con esta forma:
 module.exports = {
   generateCopy,
   generateBackground,
+  generateProductScene,
   analyzeStyle,
+  sanitizeText,
   hasGemini,
   VOICE_CORE,
 };

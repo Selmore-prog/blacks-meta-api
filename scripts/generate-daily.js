@@ -15,38 +15,61 @@ async function updateCacheFromLive(live) {
   );
 }
 
-/** Elige un producto con stock, y refresca precio/stock EN VIVO contra Tiendanube. */
+// Palabras clave de producto según la temporada (hemisferio sur / Argentina).
+function seasonKeywords(date = new Date()) {
+  const m = date.getMonth();
+  if (m === 11 || m <= 1) return ['%remera%', '%chomba%', '%short%', '%gorra%', '%manga corta%']; // verano
+  if (m <= 4) return ['%buzo%', '%campera%', '%rompeviento%', '%canguro%']; // otoño
+  if (m <= 7) return ['%campera%', '%buzo%', '%polar%', '%softshell%', '%term%', '%abrigo%', '%canguro%', '%sweater%']; // invierno
+  return ['%buzo%', '%campera%', '%rompeviento%', '%remera%']; // primavera
+}
+
+/**
+ * Trae un producto entre los 10 más vendidos que tengan STOCK y PRECIO real
+ * (se excluye "Consultar precio" = sin precio). Filtros opcionales: marca y temporada.
+ */
+async function topInStock({ brand, seasonal } = {}) {
+  const conds = ['stock > 0', 'price IS NOT NULL', 'price > 0'];
+  const params = [];
+  if (brand) { params.push(`%${brand}%`); conds.push(`brand ILIKE $${params.length}`); }
+  if (seasonal && seasonal.length) {
+    params.push(seasonal);
+    conds.push(`(name ILIKE ANY($${params.length}) OR category ILIKE ANY($${params.length}))`);
+  }
+  const { rows } = await pool.query(
+    `SELECT * FROM (
+       SELECT * FROM products_cache WHERE ${conds.join(' AND ')}
+       ORDER BY sales_30d DESC NULLS LAST, stock DESC LIMIT 10
+     ) t ORDER BY random() LIMIT 1`,
+    params
+  );
+  return rows[0] || null;
+}
+
+/** Elige un producto (marca > temporada > más vendido) y refresca precio/stock EN VIVO. */
 async function pickProductForSlot(slot) {
   const mentionedBrand = config.brand.knownBrands.find((b) =>
     (slot.pillar_detail || '').toLowerCase().includes(b.toLowerCase())
   );
+  const kw = seasonKeywords();
 
-  let candidate = null;
-  if (mentionedBrand) {
-    const { rows } = await pool.query(
-      `SELECT * FROM products_cache WHERE brand ILIKE $1 AND stock > 0 ORDER BY random() LIMIT 1`,
-      [`%${mentionedBrand}%`]
-    );
-    candidate = rows[0] || null;
-  }
-  if (!candidate) {
-    const { rows } = await pool.query(`SELECT * FROM products_cache WHERE stock > 0 ORDER BY random() LIMIT 1`);
-    candidate = rows[0] || null;
-  }
+  let candidate =
+    (mentionedBrand && await topInStock({ brand: mentionedBrand, seasonal: kw })) ||
+    (mentionedBrand && await topInStock({ brand: mentionedBrand })) ||
+    await topInStock({ seasonal: kw }) ||
+    await topInStock({});
   if (!candidate) return null;
 
-  // Precio/stock en tiempo real: si ya no hay stock, buscamos otro.
+  // Precio/stock en tiempo real: si se quedó sin stock o pasó a "Consultar precio", buscamos otro.
   const live = await fetchProduct(candidate.id);
   if (live) {
     await updateCacheFromLive(live).catch(() => {});
-    if (live.stock !== null && live.stock <= 0) {
-      const { rows } = await pool.query(
-        `SELECT * FROM products_cache WHERE stock > 0 AND id <> $1 ORDER BY random() LIMIT 1`,
-        [candidate.id]
-      );
-      if (rows[0]) {
-        const live2 = await fetchProduct(rows[0].id);
-        return live2 || rows[0];
+    const invalid = (live.stock !== null && live.stock <= 0) || !live.price || Number(live.price) <= 0;
+    if (invalid) {
+      const alt = (await topInStock({ seasonal: kw })) || (await topInStock({}));
+      if (alt && alt.id !== candidate.id) {
+        const liveAlt = await fetchProduct(alt.id);
+        return liveAlt && liveAlt.price > 0 ? liveAlt : alt;
       }
     }
     return live;
@@ -88,7 +111,8 @@ async function generateForSlot(slot) {
     cta: copy.cta,
     badgeText,
     productImageUrl: product ? product.image_url : null,
-    // Fondo con IA para piezas sin foto de producto (marca / educativo / ugc / engagement).
+    // Con producto: escena profesional con IA (foto real adentro). Sin producto: fondo temático.
+    useAiProductScene: Boolean(product),
     useAiBackground: !product,
     bgTheme: slot.pillar_detail || slot.theme_title,
     interactionLabel: interactionChip(slot),

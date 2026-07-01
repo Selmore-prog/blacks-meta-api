@@ -1,7 +1,7 @@
 const puppeteer = require('puppeteer');
 const config = require('./config');
 const { uploadAsset } = require('./storage');
-const { generateBackground } = require('./ai');
+const { generateBackground, generateProductScene } = require('./ai');
 
 const DIMS = {
   feed: { w: 1080, h: 1350 },   // 4:5
@@ -142,15 +142,24 @@ async function renderPostBuffer(options) {
   const { w, h } = DIMS[format];
   const outFile = options.filename || `${format}-${Date.now()}-${Math.floor(Math.random() * 1000)}.jpg`;
 
-  // Fondo con IA opcional (no rompe si falla). Sólo cuando no hay foto de producto protagonista
-  // o cuando el pilar es de marca/lifestyle (lo decide quien llama vía options.useAiBackground).
+  // Imagen con IA opcional (no rompe si falla).
   let bgImageUrl = options.bgImageUrl || null;
+  let productImageUrl = options.productImageUrl || null;
+
+  // 1) Si hay producto, intentamos meterlo en una escena profesional generada con IA.
+  if (!bgImageUrl && options.useAiProductScene && productImageUrl) {
+    const scene = await generateProductScene({
+      productImageUrl, productName: options.overlayTitle, theme: options.bgTheme, format,
+    });
+    if (scene) { bgImageUrl = `data:${scene.mimeType};base64,${scene.buffer.toString('base64')}`; productImageUrl = null; }
+  }
+  // 2) Si no hay producto (marca/lifestyle), generamos un fondo temático.
   if (!bgImageUrl && options.useAiBackground) {
     const bg = await generateBackground({ theme: options.bgTheme || options.overlayTitle, format });
     if (bg) bgImageUrl = `data:${bg.mimeType};base64,${bg.buffer.toString('base64')}`;
   }
 
-  const html = buildHtml({ ...options, format, bgImageUrl });
+  const html = buildHtml({ ...options, format, bgImageUrl, productImageUrl });
 
   const launchArgs = [
     '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu',

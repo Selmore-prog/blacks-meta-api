@@ -28,12 +28,18 @@
         <h2>Calendario de contenido</h2>
         <div class="sub">Próximas piezas · horarios de Argentina (GMT-3)</div>
       </div>
-      <div style="display:flex; gap:8px;">
-        <button class="btn-ghost" onclick="generateAllPending()">⚡ Generar pendientes de hoy</button>
+      <div style="display:flex; gap:8px; align-items:center;">
+        <div class="view-toggle">
+          <button class="vt active" id="vt-list" onclick="setCalView('list')">☰ Lista</button>
+          <button class="vt" id="vt-grid" onclick="setCalView('grid')">▦ Calendario</button>
+        </div>
+        <button class="btn-ghost" onclick="generateAllPending()">⚡ Generar hoy</button>
         <button class="btn-ghost" onclick="loadCalendar()">↻ Refrescar</button>
       </div>
     </div>
+    <div class="next-plan" id="next-plan"></div>
     <div id="calendar-list"><p class="loading">Cargando calendario...</p></div>
+    <div id="calendar-grid" class="hidden"></div>
   </section>
 
   <!-- ===== Estilo de marca ===== -->
@@ -53,9 +59,15 @@
           <input type="file" id="file-input" accept="image/*" multiple hidden />
         </div>
         <div style="margin-top:14px; display:flex; gap:8px;">
-          <input class="input" id="link-input" placeholder="Pegá un link de Google Drive o una URL de imagen" />
+          <input class="input" id="link-input" placeholder="Pegá una URL de imagen suelta" />
           <button class="btn-primary btn-sm" onclick="addLink()">Agregar</button>
         </div>
+        <div style="margin-top:10px; display:flex; gap:8px;">
+          <input class="input" id="drive-input" placeholder="Link de carpeta pública de Google Drive" />
+          <button class="btn-ghost btn-sm" id="drive-btn" onclick="importDrive()">📁 Importar Drive</button>
+        </div>
+        <p class="hint" style="margin:8px 0 0;">La carpeta tiene que estar compartida como “Cualquiera con el enlace”. Trae varias imágenes de cada subcarpeta (FEED/HISTORIAS).</p>
+        <div id="drive-out"></div>
         <div class="ref-grid" id="ref-grid"></div>
       </div>
 
@@ -80,7 +92,15 @@
       </div>
       <button class="btn-ghost" onclick="loadMetrics()">↻ Refrescar</button>
     </div>
-    <div id="metrics-body"><p class="loading">Cargando métricas...</p></div>
+
+    <div class="panel" style="margin-bottom:20px;">
+      <h3>Análisis de tu cuenta de Instagram</h3>
+      <p class="hint">Mira tus publicaciones reales y detecta qué horario, día, formato y hashtags rindieron mejor (engagement = likes + comentarios).</p>
+      <button class="btn-primary" id="account-btn" onclick="analyzeAccount()">📊 Analizar mi cuenta</button>
+      <div id="account-out"></div>
+    </div>
+
+    <div id="metrics-body"><p class="loading">Cargando métricas por pilar...</p></div>
   </section>
 
   <!-- Modal edición -->

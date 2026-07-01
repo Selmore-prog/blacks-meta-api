@@ -36,17 +36,21 @@ module.exports = {
 
   gemini: {
     apiKey: geminiKey,
-    // Modelos gratuitos del tier de Google AI Studio.
-    textModel: required('GEMINI_TEXT_MODEL', 'gemini-2.0-flash'),
-    imageModel: required('GEMINI_IMAGE_MODEL', 'gemini-2.0-flash-preview-image-generation'),
-    visionModel: required('GEMINI_VISION_MODEL', 'gemini-2.0-flash'),
+    // gemini-2.5-flash: texto/visión GRATIS en el tier de Google AI Studio.
+    textModel: required('GEMINI_TEXT_MODEL', 'gemini-2.5-flash'),
+    // gemini-2.5-flash-image (Nano Banana): generación de imágenes. OJO: NO es gratis
+    // (da 429 en el tier gratuito). Sólo se usa si AI_IMAGES=true y activaste facturación.
+    imageModel: required('GEMINI_IMAGE_MODEL', 'gemini-2.5-flash-image'),
+    visionModel: required('GEMINI_VISION_MODEL', 'gemini-2.5-flash'),
   },
 
   ai: {
     // 'gemini' usa Gemini si hay key y cae a Groq si falla; 'groq' fuerza Groq.
     provider: required('AI_PROVIDER', geminiKey ? 'gemini' : 'groq'),
-    // Generar imágenes con IA (Gemini) en vez de solo la plantilla Puppeteer.
-    useAiImages: bool('AI_IMAGES', Boolean(geminiKey)),
+    // Generar imágenes con IA (paga en Gemini). Por defecto APAGADO para no incurrir en costo:
+    // las piezas se arman con la plantilla profesional (gratis). Activá AI_IMAGES=true sólo
+    // si habilitaste facturación en Google y querés escenas generadas con IA.
+    useAiImages: bool('AI_IMAGES', false),
   },
 
   supabase: {
@@ -70,6 +74,9 @@ module.exports = {
   brand: {
     name: 'BLACKS',
     instagram: '@blacks.indumentaria',
+    site: 'www.blacksindumentaria.com.ar',
+    // Dominios viejos que NO deben aparecer nunca en el copy generado.
+    oldSites: ['blackshop.com.ar', 'blackshop.com', 'www.blackshop.com.ar', 'blackshop'],
     colors: {
       black: '#0A0A0A',
       white: '#FFFFFF',

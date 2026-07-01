@@ -44,6 +44,7 @@ jobs:
           node-version: 22
       - run: npm ci
       - run: npm run sync
+      - run: npm run sync:sales
 
   # Genera copy + imagen (Puppeteer/Gemini) en el runner de GitHub (no en Render)
   # para no competir por la RAM del free tier.
