@@ -12,7 +12,7 @@ const { getBrandProfile } = require('./brandProfile');
 const styleService = require('./styleService');
 const { importDriveFolder } = require('./driveService');
 const { analyzeAccountPerformance } = require('./accountAnalyzer');
-const { hasGemini } = require('./ai');
+const { hasGemini, buildVideoPrompt } = require('./ai');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -185,6 +185,28 @@ app.post('/api/assets/:assetId/discard', wrap(async (req, res) => {
   if (!id) return res.status(400).json({ error: 'assetId inválido' });
   await pool.query(`UPDATE generated_assets SET status = 'discarded', updated_at = now() WHERE id = $1`, [id]);
   res.json({ ok: true });
+}));
+
+// Súper-prompt para generar una escena de video a mano en Gemini/Veo.
+app.get('/api/assets/:assetId/video-prompt', wrap(async (req, res) => {
+  const id = intParam(req.params.assetId);
+  if (!id) return res.status(400).json({ error: 'assetId inválido' });
+  const { rows } = await pool.query(
+    `SELECT a.caption, a.image_path, c.pillar_detail, c.theme_title, c.format,
+            p.name as product_name, p.image_url as product_image_url
+     FROM generated_assets a JOIN content_calendar c ON c.id = a.calendar_id
+     LEFT JOIN products_cache p ON p.id = a.product_id WHERE a.id = $1`,
+    [id]
+  );
+  const r = rows[0];
+  if (!r) return res.status(404).json({ error: 'No existe el asset' });
+  res.json(buildVideoPrompt({
+    productName: r.product_name,
+    productImageUrl: r.product_image_url || r.image_path,
+    theme: r.pillar_detail || r.theme_title,
+    format: r.format,
+    caption: r.caption,
+  }));
 }));
 
 app.post('/api/assets/:assetId/publish', wrap(async (req, res) => {

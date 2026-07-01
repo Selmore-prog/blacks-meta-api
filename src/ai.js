@@ -388,11 +388,32 @@ Devolvé SOLO un JSON válido con esta forma:
   };
 }
 
+/**
+ * Arma un súper-prompt listo para pegar en Gemini/Veo (Omni) y generar una escena
+ * de video a medida. No llama a la API (es texto): la generación la hace el usuario a mano.
+ */
+function buildVideoPrompt({ productName, productImageUrl, theme, format = 'story', caption } = {}) {
+  const ratio = format === 'feed' ? '4:5' : '9:16 vertical';
+  const prompt = `Creá un video comercial ${ratio} de ~8 segundos para BLACKS, una marca argentina de ropa de trabajo y calzado de seguridad.
+PRODUCTO: usá EXACTAMENTE el producto de la imagen de referencia adjunta (${productName || 'producto de trabajo'}). No lo cambies ni le alteres colores/logos.
+ESCENA: mostralo en un entorno real y con contexto (${theme || 'obra / taller / depósito / fábrica'}), usado por un trabajador argentino real. Ambiente creíble, no de estudio.
+CÁMARA: movimiento lento y cinematográfico (dolly-in suave u órbita corta), profundidad de campo, partículas de polvo, luz de golden hour o luz industrial cálida.
+ESTÉTICA: robusta, premium, alto contraste, look de aviso publicitario moderno. Sin texto en pantalla (el texto lo agrego después). Terminá en un plano hero limpio del producto.`;
+  const instructions = [
+    'Abrí Gemini (Veo) o la herramienta de video.',
+    'Subí la foto del producto (link abajo) como referencia.',
+    `Pegá el prompt. Elegí formato ${ratio} y ~8s.`,
+    'Descargá el .mp4 y subilo como Reel desde el panel o desde Instagram.',
+  ];
+  return { prompt: caption ? `${prompt}\n\nCONTEXTO DEL POSTEO (para el tono): ${caption}` : prompt, instructions, productImageUrl: productImageUrl || null };
+}
+
 module.exports = {
   generateCopy,
   generateBackground,
   generateProductScene,
   analyzeStyle,
+  buildVideoPrompt,
   sanitizeText,
   hasGemini,
   VOICE_CORE,

@@ -77,6 +77,8 @@ module.exports = {
     site: 'www.blacksindumentaria.com.ar',
     // Dominios viejos que NO deben aparecer nunca en el copy generado.
     oldSites: ['blackshop.com.ar', 'blackshop.com', 'www.blackshop.com.ar', 'blackshop'],
+    // Texto fijo del beneficio por transferencia (aparece en el bloque de precio).
+    transferNote: required('BRAND_TRANSFER_NOTE', '10% de descuento pagando con transferencia'),
     colors: {
       black: '#0A0A0A',
       white: '#FFFFFF',

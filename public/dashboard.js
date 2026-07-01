@@ -348,6 +348,8 @@ function renderCard(item) {
   const statusBadge = aid ? `<span class="badge status-${item.asset_status || item.status}">${item.asset_status || item.status}</span>` : '';
 
   const regenBtn = `<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Regenerar</button>`;
+  const videoBtn = (item.post_type === 'reel' && aid)
+    ? `<button class="btn-ghost btn-sm" data-act="videoprompt" data-id="${aid}">${icon('film')} Prompt video IA</button>` : '';
 
   let actions = '';
   if (isRepost) {
@@ -358,13 +360,13 @@ function renderCard(item) {
   } else if (status === 'draft') {
     actions = `<button class="btn-approve" data-act="approve" data-id="${aid}">${icon('check')} Aprobar</button>
       <button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Editar</button>
-      ${regenBtn}
+      ${regenBtn}${videoBtn}
       <button class="btn-discard btn-sm" data-act="discard" data-id="${aid}">${icon('trash')} Descartar</button>`;
   } else if (status === 'approved') {
     actions = (isSemi
       ? `<button class="btn-manual" data-act="publish" data-id="${aid}">${icon('info')} Cómo publicarla</button>`
       : `<button class="btn-publish" data-act="publish" data-id="${aid}">${icon('send')} Publicar ahora</button>`) +
-      `<button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Editar</button>${regenBtn}`;
+      `<button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Editar</button>${regenBtn}${videoBtn}`;
   } else if (status === 'published') {
     actions = `<span class="badge status-published">${icon('check')} Publicado ${item.meta_post_id ? `· ${esc(item.meta_post_id)}` : ''}</span>`;
   } else if (status === 'discarded') {
@@ -414,6 +416,8 @@ async function handleAction(act, id, btn, card, item) {
       openEdit(id);
     } else if (act === 'regen') {
       openRegen(item || calItems.find((x) => String(x.id) === String(id)));
+    } else if (act === 'videoprompt') {
+      openVideoPrompt(id);
     } else if (act === 'publish') {
       await doPublish(id, btn);
     }
@@ -463,6 +467,25 @@ function openRegen(item) {
       overlay.remove(); toast('Pieza regenerada', 'ok'); loadCalendar();
     } catch (e) { toast(e.message, 'err'); go.disabled = false; go.innerHTML = `${icon('wand')} Regenerar con IA`; }
   });
+}
+
+async function openVideoPrompt(assetId) {
+  try {
+    const d = await api(`/api/assets/${assetId}/video-prompt`);
+    const body = `
+      <p class="hint" style="margin-top:0;">Para una escena de video a medida (fábrica, calle, obra…) generala a mano en Gemini/Veo con esto:</p>
+      <div class="field"><label>Pasos</label>
+        <ol style="line-height:1.8; padding-left:20px; font-size:14px; margin:0;">${d.instructions.map((i) => `<li>${esc(i)}</li>`).join('')}</ol></div>
+      ${d.productImageUrl ? `<div class="field"><label>Foto del producto a mandar</label>
+        <a href="${esc(d.productImageUrl)}" target="_blank">${esc(d.productImageUrl)}</a></div>` : ''}
+      <div class="field"><label>Prompt (copialo y pegalo)</label>
+        <textarea class="input" id="vp-text" readonly style="min-height:190px">${esc(d.prompt)}</textarea></div>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button class="btn-primary" id="vp-copy">${icon('copy')} Copiar prompt</button></div>`;
+    const ov = showInfoModal('Prompt para video con IA', body);
+    ov.querySelector('#vp-copy').addEventListener('click', () =>
+      navigator.clipboard.writeText(d.prompt).then(() => toast('Prompt copiado', 'ok')));
+  } catch (e) { toast(e.message, 'err'); }
 }
 
 async function doPublish(id, btn) {

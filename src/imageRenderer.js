@@ -10,7 +10,7 @@ const DIMS = {
 
 function formatPrice(price) {
   if (price === null || price === undefined) return null;
-  return Number(price).toLocaleString('es-AR');
+  return Math.round(Number(price)).toLocaleString('es-AR');
 }
 
 function esc(s) {
@@ -21,57 +21,63 @@ function esc(s) {
 }
 
 /**
- * Construye el HTML de la pieza. Estética estudio-minimalista (fondo claro, producto
- * con sombra suave, tipografía fuerte, footer con dominio). Si hay una escena generada
- * con IA (bgImageUrl) usa tratamiento oscuro a sangre. Respeta zonas seguras en historias.
+ * Construye el HTML de la pieza estilo diseñador: foto a sangre (full-bleed) con
+ * overlays — wordmark arriba, bloque de precio (ANTES tachado / % OFF / AHORA /
+ * transferencia) abajo, y footer con el dominio. Respeta zonas seguras en historias.
  */
 function buildHtml(opts) {
   const {
     format = 'feed',
     overlayTitle,
     price,
-    cta,
+    promoPrice,
     badgeText,
     productImageUrl,
     bgImageUrl,
     logoUrl,
     interactionLabel,
-    poll,
   } = opts;
 
   const { w, h } = DIMS[format] || DIMS.feed;
   const isStory = format === 'story';
   const accent = opts.accent || config.brand.colors.darkOrange;
   const site = String(config.brand.site || '').toUpperCase();
-  const dark = Boolean(bgImageUrl); // escena IA => texto claro sobre foto
+  const transfer = String(config.brand.transferNote || '').toUpperCase();
 
-  const padX = isStory ? 96 : 88;
-  const padTop = isStory ? 210 : 88;
-  const padBottom = isStory ? 300 : 88;
+  const cover = bgImageUrl || productImageUrl || null;
+  const hasCover = Boolean(cover);
 
-  const ink = dark ? '#ffffff' : '#151517';
-  const sub = dark ? 'rgba(255,255,255,.82)' : '#6c6c72';
-  const pageBg = dark
-    ? '#0a0a0a'
-    : 'radial-gradient(130% 100% at 50% 0%, #ffffff 0%, #f0f0f2 55%, #e3e3e7 100%)';
-  const prodShadow = dark ? 'drop-shadow(0 30px 60px rgba(0,0,0,.55))' : 'drop-shadow(0 44px 55px rgba(20,20,20,.20))';
+  // Zonas seguras (la UI de IG tapa arriba/abajo en historias).
+  const padX = isStory ? 72 : 60;
+  const wmTop = isStory ? 150 : 56;
+  const footBottom = isStory ? 250 : 150;
+  const domainBottom = isStory ? 118 : 52;
 
-  const bgLayer = dark ? `<img class="bg" src="${esc(bgImageUrl)}" alt=""/><div class="scrim"></div>` : '';
-  const stage = (productImageUrl && !dark)
-    ? `<div class="stage"><img class="prod" src="${esc(productImageUrl)}" alt=""/></div>`
-    : `<div class="stage"></div>`;
+  // Lógica de precio: ANTES / % OFF / AHORA.
+  const hasPromo = price && promoPrice && Number(promoPrice) < Number(price);
+  const off = hasPromo ? Math.round((1 - Number(promoPrice) / Number(price)) * 100) : 0;
+  const now = hasPromo ? promoPrice : price;
+
+  let priceBlock = '';
+  if (price) {
+    priceBlock = `<div class="pblock">
+      ${hasPromo ? `<div class="lbl">ANTES</div><div class="antes">$${formatPrice(price)}</div>
+        <div class="hr"></div><div class="off">-${off}% OFF</div>` : ''}
+      <div class="lbl">${hasPromo ? 'AHORA' : 'PRECIO'}</div>
+      <div class="now">$${formatPrice(now)}</div>
+      ${transfer ? `<div class="transfer">${esc(transfer)}</div>` : ''}
+    </div>`;
+  } else if (overlayTitle) {
+    priceBlock = `<div class="headline">${esc(overlayTitle)}</div>`;
+  }
 
   const brandMark = logoUrl
     ? `<img class="logo" src="${esc(logoUrl)}" alt="BLACKS"/>`
     : `<div class="wordmark">BLACKS</div>`;
-  const badgeHtml = badgeText ? `<div class="badge">${esc(badgeText)}</div>` : '<span></span>';
-  const priceHtml = price ? `<div class="price">$${formatPrice(price)}</div>` : '';
-  const ctaHtml = cta ? `<div class="cta">${esc(cta)}</div>` : '';
+  const badgeHtml = badgeText ? `<div class="badge">${esc(badgeText)}</div>` : '';
   const interactionHtml = interactionLabel ? `<div class="interaction">${esc(interactionLabel)}</div>` : '';
-  const pollHtml = poll && poll.options && poll.options.length === 2
-    ? `<div class="poll"><div class="poll-q">${esc(poll.question || '¿Vos qué elegís?')}</div>
-        <div class="poll-opts"><div class="poll-opt">${esc(poll.options[0])}</div><div class="poll-opt">${esc(poll.options[1])}</div></div></div>`
-    : '';
+
+  const bgFallback = 'radial-gradient(130% 100% at 50% 0%, #ffffff 0%, #eeeef0 55%, #e2e2e6 100%)';
 
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -79,51 +85,47 @@ function buildHtml(opts) {
   <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
-    html,body { width:${w}px; height:${h}px; overflow:hidden; background:${pageBg};
-      font-family:'Inter','Helvetica Neue',Arial,sans-serif; color:${ink}; }
-    .canvas { position:relative; width:${w}px; height:${h}px; display:flex; flex-direction:column;
-      padding:${padTop}px ${padX}px ${padBottom}px ${padX}px; }
-    .bg { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:0; }
-    .scrim { position:absolute; inset:0; z-index:1;
-      background:linear-gradient(to bottom, rgba(10,10,10,.45) 0%, rgba(10,10,10,.05) 32%, rgba(10,10,10,.35) 62%, rgba(10,10,10,.9) 100%); }
-    .canvas > * { position:relative; z-index:2; }
-    .top { display:flex; justify-content:space-between; align-items:center; }
-    .wordmark { font-family:'Anton',sans-serif; font-size:${isStory ? 44 : 40}px; letter-spacing:6px; color:${ink}; }
-    .logo { height:${isStory ? 92 : 78}px; max-width:55%; object-fit:contain;
-      ${dark ? 'filter:drop-shadow(0 4px 12px rgba(0,0,0,.5));' : ''} }
-    .badge { font-family:'Inter'; background:${accent}; color:#fff; font-weight:800; font-size:22px;
-      padding:11px 22px; border-radius:100px; text-transform:uppercase; letter-spacing:2px; }
-    .stage { flex:1; display:flex; align-items:center; justify-content:center; padding:${isStory ? 40 : 28}px 0; min-height:0; }
-    .prod { max-width:92%; max-height:100%; object-fit:contain; filter:${prodShadow}; }
-    .foot { display:flex; flex-direction:column; gap:${isStory ? 26 : 20}px; }
-    .title { font-family:'Anton',sans-serif; font-weight:400; font-size:${isStory ? 82 : 72}px; line-height:.96;
-      letter-spacing:.5px; text-transform:uppercase; color:${ink}; max-width:96%; }
-    .row { display:flex; align-items:center; gap:22px; flex-wrap:wrap; }
-    .price { font-family:'Anton',sans-serif; font-size:${isStory ? 70 : 62}px; color:${accent}; letter-spacing:1px; }
-    .cta { font-size:26px; font-weight:600; color:${sub}; }
-    .interaction { align-self:flex-start; background:${dark ? 'rgba(255,255,255,.16)' : 'rgba(0,0,0,.05)'};
-      border:1px solid ${dark ? 'rgba(255,255,255,.35)' : 'rgba(0,0,0,.12)'};
-      padding:14px 26px; border-radius:100px; font-size:26px; font-weight:700; color:${ink}; }
-    .poll { background:${dark ? 'rgba(255,255,255,.14)' : 'rgba(0,0,0,.04)'}; border-radius:22px; padding:26px; }
-    .poll-q { font-size:32px; font-weight:800; margin-bottom:18px; color:${ink}; }
-    .poll-opts { display:flex; gap:14px; }
-    .poll-opt { flex:1; text-align:center; background:${accent}; color:#fff; font-weight:800; font-size:28px; padding:18px; border-radius:14px; }
-    .brandline { display:flex; align-items:center; gap:14px; margin-top:6px; padding-top:22px;
-      border-top:1px solid ${dark ? 'rgba(255,255,255,.18)' : 'rgba(0,0,0,.1)'}; }
-    .tick { width:14px; height:14px; background:${accent}; border-radius:3px; flex:none; }
-    .site { font-size:24px; font-weight:700; letter-spacing:3px; color:${sub}; }
+    html,body { width:${w}px; height:${h}px; overflow:hidden; font-family:'Inter','Helvetica Neue',Arial,sans-serif; }
+    .canvas { position:relative; width:${w}px; height:${h}px; background:${hasCover ? '#111' : bgFallback}; color:#fff; }
+    .cover { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:0; }
+    .scrim { position:absolute; inset:0; z-index:1; background:
+      linear-gradient(to bottom, rgba(0,0,0,.5) 0%, rgba(0,0,0,0) 22%, rgba(0,0,0,0) 55%, rgba(0,0,0,.72) 100%); }
+    .layer { position:absolute; inset:0; z-index:2; }
+    .wm { position:absolute; top:${wmTop}px; left:0; right:0; display:flex; justify-content:center; }
+    .wordmark { font-family:'Anton',sans-serif; font-size:${isStory ? 46 : 42}px; letter-spacing:8px;
+      color:#fff; text-shadow:0 2px 14px rgba(0,0,0,.5); }
+    .logo { height:${isStory ? 90 : 76}px; max-width:60%; object-fit:contain; filter:drop-shadow(0 3px 12px rgba(0,0,0,.5)); }
+    .badge { position:absolute; top:${wmTop - 6}px; right:${padX}px; background:${accent}; color:#fff;
+      font-weight:800; font-size:22px; padding:11px 22px; border-radius:100px; text-transform:uppercase; letter-spacing:2px; }
+    .foot { position:absolute; left:${padX}px; right:${padX}px; bottom:${footBottom}px; }
+    .headline { font-family:'Anton',sans-serif; font-size:${isStory ? 78 : 66}px; line-height:.98; letter-spacing:.5px;
+      text-transform:uppercase; color:#fff; max-width:88%; text-shadow:0 2px 16px rgba(0,0,0,.55); }
+    .pblock { display:inline-block; }
+    .lbl { font-size:22px; font-weight:700; letter-spacing:3px; color:rgba(255,255,255,.9); text-transform:uppercase; }
+    .antes { font-family:'Anton',sans-serif; font-size:${isStory ? 54 : 48}px; color:#fff; opacity:.9;
+      text-decoration:line-through; text-decoration-thickness:3px; line-height:1; }
+    .hr { width:170px; height:3px; background:#fff; margin:12px 0; opacity:.85; }
+    .off { display:inline-block; background:${accent}; color:#fff; font-weight:800; font-size:24px;
+      padding:5px 14px; border-radius:6px; letter-spacing:1px; margin-bottom:14px; }
+    .now { font-family:'Anton',sans-serif; font-size:${isStory ? 104 : 92}px; color:#fff; line-height:.9;
+      text-shadow:0 3px 20px rgba(0,0,0,.5); }
+    .transfer { font-size:22px; font-weight:600; letter-spacing:1px; color:rgba(255,255,255,.92); margin-top:12px; max-width:520px; }
+    .interaction { position:absolute; left:50%; bottom:${footBottom + 40}px; transform:translateX(-50%);
+      background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.5); backdrop-filter:blur(4px);
+      padding:14px 28px; border-radius:100px; font-size:26px; font-weight:700; color:#fff; white-space:nowrap; }
+    .domain { position:absolute; left:0; right:0; bottom:${domainBottom}px; display:flex; align-items:center;
+      justify-content:center; gap:12px; }
+    .tick { width:13px; height:13px; background:${accent}; border-radius:3px; }
+    .site { font-size:${isStory ? 24 : 22}px; font-weight:700; letter-spacing:3px; color:#fff; text-shadow:0 1px 6px rgba(0,0,0,.6); }
   </style></head><body>
     <div class="canvas">
-      ${bgLayer}
-      <div class="top">${brandMark}${badgeHtml}</div>
-      ${stage}
-      <div class="foot">
-        ${overlayTitle ? `<div class="title">${esc(overlayTitle)}</div>` : ''}
-        ${pollHtml}
-        ${(priceHtml || ctaHtml) ? `<div class="row">${priceHtml}${ctaHtml}</div>` : ''}
-        ${interactionHtml}
-        <div class="brandline"><span class="tick"></span><span class="site">${esc(site)}</span></div>
-      </div>
+      ${hasCover ? `<img class="cover" src="${esc(cover)}" alt=""/><div class="scrim"></div>` : ''}
+      <div class="layer"></div>
+      <div class="wm">${brandMark}</div>
+      ${badgeHtml}
+      ${interactionHtml}
+      <div class="foot">${priceBlock}</div>
+      <div class="domain"><span class="tick"></span><span class="site">${esc(site)}</span></div>
     </div>
   </body></html>`;
 }

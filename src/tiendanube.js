@@ -30,12 +30,16 @@ function normalizeProduct(product) {
   const name = pickText(product.name);
   const mainImage = product.images && product.images[0] ? product.images[0].src : null;
   const firstVariant = product.variants && product.variants[0] ? product.variants[0] : {};
+  const regular = firstVariant.price ? Number(firstVariant.price) : null;
+  const promo = firstVariant.promotional_price ? Number(firstVariant.promotional_price) : null;
   return {
     id: product.id,
     name,
     brand: product.brand || detectBrand(name),
     category: product.categories && product.categories[0] ? pickText(product.categories[0].name) : null,
-    price: firstVariant.price ? Number(firstVariant.price) : null,
+    price: regular,
+    // promo válido sólo si es menor al precio regular.
+    promo_price: promo && regular && promo < regular ? promo : null,
     stock: typeof firstVariant.stock === 'number' ? firstVariant.stock : null,
     image_url: mainImage,
     permalink: product.permalink || null,

@@ -160,13 +160,15 @@ async function generateForSlot(slot, overrides = {}) {
     interactionHint: slot.interaction_hint,
   });
 
-  const badgeText = slot.pillar === 'promo' ? 'OFERTA' : slot.pillar === 'mayorista' ? 'MAYORISTA' : null;
+  // El bloque de precio ya comunica el % OFF, así que el badge se reserva para mayorista.
+  const badgeText = slot.pillar === 'mayorista' ? 'MAYORISTA' : null;
   const overlayTitle = copy.overlay || (product ? product.name : pillarDetail || slot.theme_title || slot.pillar);
 
   const { url: imagePath } = await renderPostBuffer({
     format,
     overlayTitle,
     price: product ? product.price : null,
+    promoPrice: product ? product.promo_price : null,
     cta: copy.cta,
     badgeText,
     productImageUrl: visualImageUrl,
