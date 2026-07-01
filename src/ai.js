@@ -313,43 +313,69 @@ IMPORTANTE: mantené el producto fiel al de la referencia. SIN texto, SIN logos,
  * Devuelve { style_guide (obj), voice_guide (texto) }.
  * images: [{ data (base64), mimeType }]. captions: [string].
  */
+function chunk(arr, n) {
+  const out = [];
+  for (let i = 0; i < arr.length; i += n) out.push(arr.slice(i, i + n));
+  return out;
+}
+
+// Observa un lote de piezas y devuelve notas en texto (para después sintetizar).
+async function observeBatch(images) {
+  const parts = [{ text: `Sos director de arte. Analizá el ESTILO VISUAL de estas ${images.length} piezas de una marca argentina de ropa de trabajo (BLACKS). Describí concreto: paleta con hex aproximados, tipografías (peso/estilo), composición y jerarquía, tratamiento de fondos y fotos, cómo y dónde aparece el logo, elementos gráficos recurrentes, y diferencias entre feed (4:5) e historia (9:16). Texto plano, sin JSON.` }];
+  for (const img of images) parts.push({ inlineData: { data: img.data, mimeType: img.mimeType } });
+  const data = await geminiGenerateContent(config.gemini.visionModel, {
+    contents: [{ role: 'user', parts }],
+    generationConfig: { temperature: 0.3, maxOutputTokens: 1400, thinkingConfig: { thinkingBudget: 0 } },
+  });
+  return textFromResponse(data);
+}
+
+/**
+ * Análisis multimodal PROFUNDO: procesa las piezas en lotes (se toma su tiempo),
+ * junta observaciones y sintetiza una guía de estilo + voz. images: [{data, mimeType}].
+ */
 async function analyzeStyle({ images = [], captions = [] } = {}) {
   if (!hasGemini()) {
     throw new Error('El análisis de estilo necesita GEMINI_API_KEY (Google AI Studio). Cargala en las variables de entorno.');
   }
 
-  const instruction = `Sos director de arte y copy de una marca argentina de indumentaria de trabajo (BLACKS). Te paso piezas gráficas reales que subió la cuenta y algunos textos (captions) reales que se venían publicando. Analizá el ESTILO para que otra IA pueda imitarlo.
+  // 1) Observación por lotes de hasta 40 imágenes (10 por llamada).
+  const batches = chunk(images.slice(0, 40), 10);
+  const notes = [];
+  for (const batch of batches) {
+    try { notes.push(await observeBatch(batch)); }
+    catch (e) { console.warn(`[ai] lote de estilo falló: ${e.message}`); }
+  }
+
+  // 2) Síntesis final en JSON estructurado (usa las notas + los captions reales).
+  const SYNTH = `Sos director de arte y copy de una marca argentina de indumentaria de trabajo (BLACKS). Con las observaciones de las piezas y los textos reales, armá una guía para que otra IA imite el estilo y la voz.
 
 Devolvé SOLO un JSON válido con esta forma:
 {
   "style_guide": {
     "paleta": ["#hex", "..."],
-    "tipografia": "descripción de la/las tipografías y su peso/estilo",
+    "tipografia": "tipografías y su peso/estilo",
     "composicion": "cómo se ubican producto/texto/logo, márgenes, jerarquía",
     "elementos_recurrentes": ["marcos, badges, franjas, etc."],
-    "tratamiento_foto": "fondo, iluminación, estilo de foto de producto",
-    "formato_notas": "qué se ve distinto en feed (4:5) vs historia (9:16)",
-    "logo_uso": "dónde y cómo aparece el logo (posición, tamaño, color)",
+    "tratamiento_foto": "fondo, iluminación, estilo de foto",
+    "formato_notas": "diferencias feed (4:5) vs historia (9:16)",
+    "logo_uso": "dónde y cómo aparece el logo",
     "hashtags_frecuentes": ["#..."],
-    "cta_frecuentes": ["frases de llamado a la acción que se repiten"],
-    "emojis": "nivel de uso de emojis y cuáles",
-    "longitud_caption": "corto/medio/largo y cuántas líneas aprox.",
+    "cta_frecuentes": ["frases de CTA que se repiten"],
+    "emojis": "nivel de uso y cuáles",
+    "longitud_caption": "corto/medio/largo y líneas aprox.",
     "temas_recurrentes": ["temas/ángulos que más se repiten"],
-    "do": ["cosas que SÍ hacer para que se vea de la marca"],
-    "dont": ["cosas que NO hacer / errores a evitar"]
+    "do": ["qué SÍ hacer para verse de la marca"],
+    "dont": ["qué NO hacer / errores a evitar"]
   },
-  "voice_guide": "Párrafo describiendo el TONO y el VOCABULARIO ARGENTINO real de los captions: muletillas, nivel de formalidad, uso de emojis, largo típico, tipo de CTA, palabras/expresiones que se repiten. Sé específico y accionable para replicar la voz."
+  "voice_guide": "Párrafo accionable sobre TONO y VOCABULARIO ARGENTINO real: muletillas, formalidad, emojis, largo, CTA, expresiones que se repiten."
 }`;
 
-  const parts = [{ text: instruction }];
-  if (captions.length) {
-    parts.push({ text: `\nCAPTIONS REALES DE LA CUENTA:\n- ${captions.slice(0, 25).join('\n- ')}` });
-  }
-  for (const img of images.slice(0, 12)) {
-    if (img && img.data && img.mimeType) parts.push({ inlineData: { data: img.data, mimeType: img.mimeType } });
-  }
+  const parts = [{ text: SYNTH }];
+  if (notes.length) parts.push({ text: `OBSERVACIONES DE ${images.length} PIEZAS:\n${notes.join('\n---\n')}` });
+  if (captions.length) parts.push({ text: `CAPTIONS REALES DE LA CUENTA:\n- ${captions.slice(0, 40).join('\n- ')}` });
 
-  const data = await geminiGenerateContent(config.gemini.visionModel, {
+  const data = await geminiGenerateContent(config.gemini.textModel, {
     contents: [{ role: 'user', parts }],
     generationConfig: { temperature: 0.4, responseMimeType: 'application/json', maxOutputTokens: 2048, thinkingConfig: { thinkingBudget: 0 } },
   });
@@ -358,6 +384,7 @@ Devolvé SOLO un JSON válido con esta forma:
   return {
     style_guide: parsed.style_guide || {},
     voice_guide: parsed.voice_guide || '',
+    batches: batches.length,
   };
 }
 

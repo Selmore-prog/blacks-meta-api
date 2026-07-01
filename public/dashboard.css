@@ -282,3 +282,52 @@ select.filter:focus, .filter-search:focus { outline: none; border-color: var(--o
 .card.regenerating { opacity: .6; pointer-events: none; }
 .spin { animation: spin 1s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+.fmt-label .see { color: var(--orange); }
+
+/* ---------- preview realista (IG) ---------- */
+.preview-overlay { align-items: flex-start; padding: 28px 16px; overflow-y: auto; }
+.preview-box { background: #000; border: 1px solid var(--line); border-radius: 16px; overflow: hidden; box-shadow: var(--shadow); }
+.preview-box.fd { width: 400px; max-width: 94vw; }
+.preview-box.st { width: 336px; max-width: 94vw; }
+.preview-top { display: flex; align-items: center; justify-content: space-between; padding: 9px 8px 9px 14px; background: var(--panel); }
+.preview-top .fmt-label { color: var(--muted); text-transform: none; letter-spacing: 0; }
+.preview-top .btn-close { color: var(--muted); font-size: 16px; }
+
+.ig-post { color: #fff; }
+.ig-head { display: flex; align-items: center; gap: 10px; padding: 12px 14px; }
+.ig-av { width: 32px; height: 32px; border-radius: 50%; background: linear-gradient(45deg, var(--orange), #f5a623);
+  display: flex; align-items: center; justify-content: center; font-weight: 800; font-size: 13px; color: #fff; flex: none; }
+.ig-av.sm { width: 26px; height: 26px; font-size: 11px; border: 2px solid #fff; }
+.ig-user { font-weight: 700; font-size: 14px; flex: 1; }
+.ig-dots { letter-spacing: 1px; }
+.ig-media.feed { width: 100%; aspect-ratio: 4 / 5; background: #111; }
+.ig-media.feed img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.ig-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--muted); font-size: 13px; }
+.ig-actions { display: flex; align-items: center; gap: 16px; padding: 12px 14px 4px; }
+.ig-actions .ic { width: 25px; height: 25px; }
+.ig-actions .grow { flex: 1; }
+.ig-likes { padding: 2px 14px; font-size: 13px; }
+.ig-cap { padding: 6px 14px 2px; font-size: 13px; line-height: 1.5; }
+.ig-tags { padding: 2px 14px 14px; font-size: 13px; color: #7aa7ff; }
+
+.ig-story { position: relative; width: 100%; aspect-ratio: 9 / 16; background: #000; }
+.ig-story > img, .ig-story > video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ig-story .ig-empty { position: absolute; inset: 0; }
+.ig-story-top { position: absolute; top: 0; left: 0; right: 0; padding: 10px 12px; z-index: 3;
+  background: linear-gradient(to bottom, rgba(0,0,0,.45), transparent); }
+.ig-story-top .bars { display: flex; gap: 4px; margin-bottom: 10px; }
+.ig-story-top .bars span { flex: 1; height: 3px; background: #fff; border-radius: 2px; }
+.ig-story-top .who { display: flex; align-items: center; gap: 8px; color: #fff; }
+.ig-story-top .who .n { font-size: 13px; font-weight: 700; text-shadow: 0 1px 2px rgba(0,0,0,.5); }
+.ig-story-top .who .t { font-size: 12px; color: rgba(255,255,255,.8); }
+.ig-story-bottom { position: absolute; bottom: 0; left: 0; right: 0; padding: 14px 14px 18px; z-index: 3;
+  background: linear-gradient(to top, rgba(0,0,0,.5), transparent); }
+.ig-reply { border: 1px solid rgba(255,255,255,.6); border-radius: 100px; padding: 11px 16px; color: #fff; font-size: 13px; }
+.ig-reel-cap { color: #fff; font-size: 13px; line-height: 1.4; max-width: 76%; text-shadow: 0 1px 2px rgba(0,0,0,.6); }
+.ig-rail { position: absolute; right: 8px; bottom: 96px; z-index: 3; display: flex; flex-direction: column; gap: 18px; align-items: center; color: #fff; }
+.ig-rail > span { display: flex; flex-direction: column; align-items: center; gap: 3px; font-size: 11px; }
+.ig-rail .ic { width: 26px; height: 26px; filter: drop-shadow(0 1px 2px rgba(0,0,0,.5)); }
+.ig-rail i { font-style: normal; }
+.ig-sticker { position: absolute; top: 45%; left: 50%; transform: translate(-50%,-50%) rotate(-4deg); z-index: 4;
+  background: #fff; color: #111; font-weight: 800; padding: 9px 18px; border-radius: 10px; font-size: 15px; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
+.preview-note { padding: 11px 14px; font-size: 12px; color: var(--muted); background: var(--panel); border-top: 1px solid var(--line); line-height: 1.5; }

@@ -21,8 +21,9 @@ function esc(s) {
 }
 
 /**
- * Construye el HTML de la pieza. Diseño oscuro, industrial, premium.
- * Respeta zonas seguras en historias (la UI de IG tapa arriba y abajo).
+ * Construye el HTML de la pieza. Estética estudio-minimalista (fondo claro, producto
+ * con sombra suave, tipografía fuerte, footer con dominio). Si hay una escena generada
+ * con IA (bgImageUrl) usa tratamiento oscuro a sangre. Respeta zonas seguras en historias.
  */
 function buildHtml(opts) {
   const {
@@ -35,104 +36,94 @@ function buildHtml(opts) {
     bgImageUrl,
     logoUrl,
     interactionLabel,
-    poll, // { question, options: [a, b] }
+    poll,
   } = opts;
 
   const { w, h } = DIMS[format] || DIMS.feed;
   const isStory = format === 'story';
-  const c = config.brand.colors;
+  const accent = opts.accent || config.brand.colors.darkOrange;
+  const site = String(config.brand.site || '').toUpperCase();
+  const dark = Boolean(bgImageUrl); // escena IA => texto claro sobre foto
 
-  // Zonas seguras: en historias dejamos aire arriba/abajo para no quedar tapados por la UI de IG.
-  const padTop = isStory ? 200 : 64;
-  const padBottom = isStory ? 300 : 64;
+  const padX = isStory ? 96 : 88;
+  const padTop = isStory ? 210 : 88;
+  const padBottom = isStory ? 300 : 88;
 
-  const hasBg = Boolean(bgImageUrl);
-  const bgLayer = hasBg
-    ? `<img class="bg" src="${esc(bgImageUrl)}" alt="" />
-       <div class="scrim"></div>`
-    : '';
+  const ink = dark ? '#ffffff' : '#151517';
+  const sub = dark ? 'rgba(255,255,255,.82)' : '#6c6c72';
+  const pageBg = dark
+    ? '#0a0a0a'
+    : 'radial-gradient(130% 100% at 50% 0%, #ffffff 0%, #f0f0f2 55%, #e3e3e7 100%)';
+  const prodShadow = dark ? 'drop-shadow(0 30px 60px rgba(0,0,0,.55))' : 'drop-shadow(0 44px 55px rgba(20,20,20,.20))';
 
-  // Área de producto: si NO hay fondo con IA y sí hay foto de producto, la mostramos protagonista.
-  const productArea = (!hasBg && productImageUrl)
-    ? `<div class="product-area"><img src="${esc(productImageUrl)}" alt="producto" /></div>`
-    : (!hasBg
-        ? `<div class="product-area"><div class="placeholder">BLACKS</div></div>`
-        : `<div class="product-spacer"></div>`);
+  const bgLayer = dark ? `<img class="bg" src="${esc(bgImageUrl)}" alt=""/><div class="scrim"></div>` : '';
+  const stage = (productImageUrl && !dark)
+    ? `<div class="stage"><img class="prod" src="${esc(productImageUrl)}" alt=""/></div>`
+    : `<div class="stage"></div>`;
 
-  const badgeHtml = badgeText ? `<div class="badge">${esc(badgeText)}</div>` : '<div></div>';
+  const brandMark = logoUrl
+    ? `<img class="logo" src="${esc(logoUrl)}" alt="BLACKS"/>`
+    : `<div class="wordmark">BLACKS</div>`;
+  const badgeHtml = badgeText ? `<div class="badge">${esc(badgeText)}</div>` : '<span></span>';
   const priceHtml = price ? `<div class="price">$${formatPrice(price)}</div>` : '';
   const ctaHtml = cta ? `<div class="cta">${esc(cta)}</div>` : '';
-
+  const interactionHtml = interactionLabel ? `<div class="interaction">${esc(interactionLabel)}</div>` : '';
   const pollHtml = poll && poll.options && poll.options.length === 2
-    ? `<div class="poll">
-         <div class="poll-q">${esc(poll.question || '¿Vos qué elegís?')}</div>
-         <div class="poll-opts">
-           <div class="poll-opt">${esc(poll.options[0])}</div>
-           <div class="poll-opt">${esc(poll.options[1])}</div>
-         </div>
-       </div>`
+    ? `<div class="poll"><div class="poll-q">${esc(poll.question || '¿Vos qué elegís?')}</div>
+        <div class="poll-opts"><div class="poll-opt">${esc(poll.options[0])}</div><div class="poll-opt">${esc(poll.options[1])}</div></div></div>`
     : '';
 
-  const interactionHtml = interactionLabel
-    ? `<div class="interaction">${esc(interactionLabel)}</div>`
-    : '';
-
-  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/><style>
-    :root { --black:${c.black}; --white:${c.white}; --orange:${c.darkOrange}; }
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
     * { margin:0; padding:0; box-sizing:border-box; }
-    html,body { width:${w}px; height:${h}px; overflow:hidden;
-      font-family:'Helvetica Neue',Arial,sans-serif; background:var(--black); color:var(--white); }
+    html,body { width:${w}px; height:${h}px; overflow:hidden; background:${pageBg};
+      font-family:'Inter','Helvetica Neue',Arial,sans-serif; color:${ink}; }
     .canvas { position:relative; width:${w}px; height:${h}px; display:flex; flex-direction:column;
-      padding:${padTop}px 72px ${padBottom}px 72px; }
+      padding:${padTop}px ${padX}px ${padBottom}px ${padX}px; }
     .bg { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:0; }
     .scrim { position:absolute; inset:0; z-index:1;
-      background:linear-gradient(to bottom, rgba(10,10,10,.55) 0%, rgba(10,10,10,.15) 30%, rgba(10,10,10,.35) 60%, rgba(10,10,10,.92) 100%); }
+      background:linear-gradient(to bottom, rgba(10,10,10,.45) 0%, rgba(10,10,10,.05) 32%, rgba(10,10,10,.35) 62%, rgba(10,10,10,.9) 100%); }
     .canvas > * { position:relative; z-index:2; }
-    .header { display:flex; justify-content:space-between; align-items:flex-start; }
-    .brand { display:flex; flex-direction:column; gap:6px; }
-    .wordmark { font-size:${isStory ? 40 : 38}px; font-weight:800; letter-spacing:4px; }
-    .tagline { font-size:16px; letter-spacing:3px; opacity:.7; text-transform:uppercase; }
-    .logo { height:${isStory ? 96 : 84}px; max-width:60%; object-fit:contain; filter:drop-shadow(0 4px 12px rgba(0,0,0,.5)); }
-    .badge { background:var(--orange); color:var(--white); font-weight:800; font-size:22px;
-      padding:12px 24px; border-radius:6px; text-transform:uppercase; letter-spacing:1px; }
-    .product-area { flex:1; display:flex; align-items:center; justify-content:center; padding:36px 0; }
-    .product-area img { max-width:100%; max-height:100%; object-fit:contain;
-      filter:drop-shadow(0 30px 60px rgba(0,0,0,.55)); }
-    .product-spacer { flex:1; }
-    .placeholder { font-size:120px; font-weight:800; letter-spacing:10px; opacity:.08; }
-    .footer { display:flex; flex-direction:column; gap:22px; }
-    .title { font-size:${isStory ? 66 : 60}px; font-weight:800; line-height:1.05; letter-spacing:-1px;
-      text-transform:uppercase; max-width:95%; }
-    .row { display:flex; align-items:center; gap:20px; flex-wrap:wrap; }
-    .price { font-size:${isStory ? 52 : 46}px; font-weight:800; color:var(--white);
-      background:var(--orange); padding:8px 20px; border-radius:8px; }
-    .cta { font-size:24px; font-weight:600; opacity:.9; }
-    .interaction { align-self:flex-start; margin-top:6px; background:rgba(255,255,255,.14);
-      border:1px solid rgba(255,255,255,.35); backdrop-filter:blur(4px);
-      padding:14px 26px; border-radius:100px; font-size:26px; font-weight:700; }
-    .poll { margin-top:8px; background:rgba(255,255,255,.12); border-radius:20px; padding:26px; }
-    .poll-q { font-size:30px; font-weight:700; margin-bottom:18px; }
+    .top { display:flex; justify-content:space-between; align-items:center; }
+    .wordmark { font-family:'Anton',sans-serif; font-size:${isStory ? 44 : 40}px; letter-spacing:6px; color:${ink}; }
+    .logo { height:${isStory ? 92 : 78}px; max-width:55%; object-fit:contain;
+      ${dark ? 'filter:drop-shadow(0 4px 12px rgba(0,0,0,.5));' : ''} }
+    .badge { font-family:'Inter'; background:${accent}; color:#fff; font-weight:800; font-size:22px;
+      padding:11px 22px; border-radius:100px; text-transform:uppercase; letter-spacing:2px; }
+    .stage { flex:1; display:flex; align-items:center; justify-content:center; padding:${isStory ? 40 : 28}px 0; min-height:0; }
+    .prod { max-width:92%; max-height:100%; object-fit:contain; filter:${prodShadow}; }
+    .foot { display:flex; flex-direction:column; gap:${isStory ? 26 : 20}px; }
+    .title { font-family:'Anton',sans-serif; font-weight:400; font-size:${isStory ? 82 : 72}px; line-height:.96;
+      letter-spacing:.5px; text-transform:uppercase; color:${ink}; max-width:96%; }
+    .row { display:flex; align-items:center; gap:22px; flex-wrap:wrap; }
+    .price { font-family:'Anton',sans-serif; font-size:${isStory ? 70 : 62}px; color:${accent}; letter-spacing:1px; }
+    .cta { font-size:26px; font-weight:600; color:${sub}; }
+    .interaction { align-self:flex-start; background:${dark ? 'rgba(255,255,255,.16)' : 'rgba(0,0,0,.05)'};
+      border:1px solid ${dark ? 'rgba(255,255,255,.35)' : 'rgba(0,0,0,.12)'};
+      padding:14px 26px; border-radius:100px; font-size:26px; font-weight:700; color:${ink}; }
+    .poll { background:${dark ? 'rgba(255,255,255,.14)' : 'rgba(0,0,0,.04)'}; border-radius:22px; padding:26px; }
+    .poll-q { font-size:32px; font-weight:800; margin-bottom:18px; color:${ink}; }
     .poll-opts { display:flex; gap:14px; }
-    .poll-opt { flex:1; text-align:center; background:var(--white); color:var(--black);
-      font-size:28px; font-weight:800; padding:18px; border-radius:14px; }
-    .accent { position:absolute; left:0; bottom:0; width:100%; height:14px; background:var(--orange); z-index:3; }
+    .poll-opt { flex:1; text-align:center; background:${accent}; color:#fff; font-weight:800; font-size:28px; padding:18px; border-radius:14px; }
+    .brandline { display:flex; align-items:center; gap:14px; margin-top:6px; padding-top:22px;
+      border-top:1px solid ${dark ? 'rgba(255,255,255,.18)' : 'rgba(0,0,0,.1)'}; }
+    .tick { width:14px; height:14px; background:${accent}; border-radius:3px; flex:none; }
+    .site { font-size:24px; font-weight:700; letter-spacing:3px; color:${sub}; }
   </style></head><body>
     <div class="canvas">
       ${bgLayer}
-      <div class="header">
-        ${logoUrl
-          ? `<img class="logo" src="${esc(logoUrl)}" alt="BLACKS" />`
-          : `<div class="brand"><div class="wordmark">BLACKS</div><div class="tagline">Indumentaria de trabajo</div></div>`}
-        ${badgeHtml}
-      </div>
-      ${productArea}
-      <div class="footer">
+      <div class="top">${brandMark}${badgeHtml}</div>
+      ${stage}
+      <div class="foot">
         ${overlayTitle ? `<div class="title">${esc(overlayTitle)}</div>` : ''}
         ${pollHtml}
-        <div class="row">${priceHtml}${ctaHtml}</div>
+        ${(priceHtml || ctaHtml) ? `<div class="row">${priceHtml}${ctaHtml}</div>` : ''}
         ${interactionHtml}
+        <div class="brandline"><span class="tick"></span><span class="site">${esc(site)}</span></div>
       </div>
-      <div class="accent"></div>
     </div>
   </body></html>`;
 }
@@ -187,6 +178,8 @@ async function renderPostBuffer(options) {
     } catch (_) {
       await page.setContent(html, { waitUntil: 'load' }).catch(() => {});
     }
+    // Esperar a que las tipografías (Anton/Inter) estén listas antes de capturar.
+    try { await page.evaluate(async () => { if (document.fonts && document.fonts.ready) await document.fonts.ready; }); } catch (_) {}
     buffer = await page.screenshot({ type: 'jpeg', quality: 90 });
   } finally {
     await browser.close();

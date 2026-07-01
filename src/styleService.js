@@ -3,6 +3,7 @@ const { uploadAsset } = require('./storage');
 const { analyzeStyle } = require('./ai');
 const { saveBrandProfile } = require('./brandProfile');
 const { fetchRecentCaptions } = require('./accountAnalyzer');
+const { resizeImage } = require('./imageUtils');
 
 /** Convierte un link de Google Drive a una URL de descarga directa del archivo. */
 function normalizeDriveLink(url) {
@@ -71,9 +72,10 @@ async function urlToInlineImage(url) {
     if (!res.ok) return null;
     const ct = res.headers.get('content-type') || '';
     if (!ct.startsWith('image/')) return null;
-    const buf = Buffer.from(await res.arrayBuffer());
-    if (buf.length > 4 * 1024 * 1024) return null; // no mandamos imágenes enormes a Gemini
-    return { data: buf.toString('base64'), mimeType: ct.split(';')[0] };
+    let buf = Buffer.from(await res.arrayBuffer());
+    // Achicamos para no mandar payloads enormes a Gemini (y poder analizar muchas).
+    buf = await resizeImage(buf, 900).catch(() => buf);
+    return { data: buf.toString('base64'), mimeType: 'image/jpeg' };
   } catch (_) {
     return null;
   }
@@ -84,9 +86,12 @@ async function urlToInlineImage(url) {
  * captions reales de la cuenta de IG, se los pasa a Gemini y guarda el brand_profile.
  */
 async function runStyleAnalysis({ includeAccount = true } = {}) {
+  const MAX_IMAGES = 30;
   const refs = await listReferences();
   const images = [];
-  for (const r of refs.slice(0, 10)) {
+  // Se toma su tiempo: procesa hasta 30 piezas de referencia.
+  for (const r of refs) {
+    if (images.length >= MAX_IMAGES) break;
     const img = await urlToInlineImage(r.url);
     if (img) images.push(img);
   }
@@ -94,11 +99,12 @@ async function runStyleAnalysis({ includeAccount = true } = {}) {
   let captions = [];
   if (includeAccount) {
     try {
-      const acc = await fetchRecentCaptions(25);
+      const acc = await fetchRecentCaptions(40);
       captions = acc.captions;
-      // Sumamos algunas fotos reales de la cuenta como referencia visual extra.
-      for (const m of acc.media.slice(0, 6)) {
-        if (m.image_url && images.length < 12) {
+      // Sumamos fotos reales de la cuenta como referencia visual extra.
+      for (const m of acc.media) {
+        if (images.length >= MAX_IMAGES) break;
+        if (m.image_url) {
           const img = await urlToInlineImage(m.image_url);
           if (img) images.push(img);
         }

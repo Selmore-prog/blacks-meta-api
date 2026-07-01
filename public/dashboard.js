@@ -28,6 +28,10 @@ const ICONS = {
   tag: '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>',
   plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
   x: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  eye: '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/>',
+  heart: '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"/>',
+  comment: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z"/>',
+  bookmark: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
 };
 function icon(name, extra = '') {
   const fill = name === 'play' ? 'currentColor' : 'none';
@@ -274,8 +278,60 @@ function renderPreview(item) {
   const label = isStory ? (item.post_type === 'reel' ? 'REEL · 9:16' : 'HISTORIA · 9:16') : 'FEED · 4:5';
   return `<div class="preview-wrap">
     <div class="phone ${isStory ? 'story' : 'feed'}">${media}${chrome}</div>
-    <div class="fmt-label">${icon('pin')} ${label}</div>
+    <div class="fmt-label">${icon('pin')} ${label} · <span class="see">${icon('eye')} ver</span></div>
   </div>`;
+}
+
+function interactionShort(item) {
+  const h = (item.interaction_hint || '').toUpperCase();
+  if (h.includes('ENCUESTA')) return 'Encuesta';
+  if (h.includes('QUIZ')) return 'Quiz';
+  if (h.includes('PREGUNTA')) return 'Preguntas';
+  return 'Interacción';
+}
+
+/* ============ previsualización realista (cómo se publica) ============ */
+function openPreview(item) {
+  const format = item.format || (item.post_type === 'feed' ? 'feed' : 'story');
+  const isStory = format === 'story';
+  const isReel = item.post_type === 'reel';
+  const img = item.image_path, vid = item.video_path;
+
+  let inner;
+  if (!isStory) {
+    inner = `<div class="ig-post">
+      <div class="ig-head"><div class="ig-av">B</div><div class="ig-user">blacks.indumentaria</div><div class="ig-dots">···</div></div>
+      <div class="ig-media feed">${img ? `<img src="${esc(img)}"/>` : '<div class="ig-empty">Sin imagen generada</div>'}</div>
+      <div class="ig-actions"><span>${icon('heart')}</span><span>${icon('comment')}</span><span>${icon('send')}</span><span class="grow"></span><span>${icon('bookmark')}</span></div>
+      <div class="ig-likes">A <b>128 personas</b> les gusta esto</div>
+      <div class="ig-cap"><b>blacks.indumentaria</b> ${esc(item.caption || '')}</div>
+      ${item.hashtags ? `<div class="ig-tags">${esc(item.hashtags)}</div>` : ''}
+    </div>`;
+  } else {
+    const media = vid ? `<video src="${esc(vid)}" controls autoplay loop playsinline></video>`
+      : (img ? `<img src="${esc(img)}"/>` : '<div class="ig-empty">Sin imagen generada</div>');
+    inner = `<div class="ig-story">
+      <div class="ig-story-top"><div class="bars"><span></span></div>
+        <div class="who"><div class="ig-av sm">B</div><span class="n">blacks.indumentaria</span><span class="t">1 h</span></div></div>
+      ${media}
+      ${isReel ? `<div class="ig-rail"><span>${icon('heart')}<i>1.2k</i></span><span>${icon('comment')}<i>44</i></span><span>${icon('send')}</span><span>${icon('bookmark')}</span></div>` : ''}
+      <div class="ig-story-bottom">
+        ${isReel ? `<div class="ig-reel-cap"><b>blacks.indumentaria</b> ${esc((item.caption || '').slice(0, 110))}</div>`
+                 : `<div class="ig-reply">Enviá un mensaje…</div>`}
+      </div>
+      ${(item.automation_level === 'semi' && item.interaction_hint) ? `<div class="ig-sticker">${esc(interactionShort(item))}</div>` : ''}
+    </div>`;
+  }
+
+  const note = (isReel && !vid) ? '<div class="preview-note">El video del Reel se renderiza en el proceso automático (cada 30 min). Por ahora ves la imagen base.</div>' : '';
+  const overlay = document.createElement('div');
+  overlay.className = 'modal-overlay preview-overlay';
+  overlay.innerHTML = `<div class="preview-box ${isStory ? 'st' : 'fd'}">
+    <div class="preview-top"><span class="fmt-label">${icon('pin')} Así se va a ver en Instagram · ${isReel ? 'Reel' : isStory ? 'Historia' : 'Feed'}</span>
+      <button class="btn-close preview-close">${icon('x')}</button></div>
+    ${inner}${note}</div>`;
+  overlay.addEventListener('click', (e) => { if (e.target === overlay || e.target.closest('.preview-close')) overlay.remove(); });
+  document.body.appendChild(overlay);
 }
 
 function renderCard(item) {
@@ -339,6 +395,8 @@ function renderCard(item) {
   card.querySelectorAll('[data-act]').forEach((btn) => {
     btn.addEventListener('click', () => handleAction(btn.dataset.act, btn.dataset.id, btn, card, item));
   });
+  const ph = card.querySelector('.phone');
+  if (ph) { ph.style.cursor = 'zoom-in'; ph.title = 'Ver cómo se publica'; ph.addEventListener('click', () => openPreview(item)); }
   return card;
 }
 
