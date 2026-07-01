@@ -30,14 +30,15 @@
       </div>
       <div style="display:flex; gap:8px; align-items:center;">
         <div class="view-toggle">
-          <button class="vt active" id="vt-list" onclick="setCalView('list')">☰ Lista</button>
-          <button class="vt" id="vt-grid" onclick="setCalView('grid')">▦ Calendario</button>
+          <button class="vt active" id="vt-list" onclick="setCalView('list')"><span data-ic="list"></span> Lista</button>
+          <button class="vt" id="vt-grid" onclick="setCalView('grid')"><span data-ic="grid"></span> Calendario</button>
         </div>
-        <button class="btn-ghost" onclick="generateAllPending()">⚡ Generar hoy</button>
-        <button class="btn-ghost" onclick="loadCalendar()">↻ Refrescar</button>
+        <button class="btn-ghost" onclick="generateAllPending()"><span data-ic="bolt"></span> Generar hoy</button>
+        <button class="btn-ghost" onclick="loadCalendar()"><span data-ic="refresh"></span> Refrescar</button>
       </div>
     </div>
     <div class="next-plan" id="next-plan"></div>
+    <div class="filters" id="filters"></div>
     <div id="calendar-list"><p class="loading">Cargando calendario...</p></div>
     <div id="calendar-grid" class="hidden"></div>
   </section>
@@ -47,24 +48,36 @@
     <div class="toolbar">
       <div>
         <h2>Estilo de marca</h2>
-        <div class="sub">Subí piezas viejas y/o conectá la cuenta para que la IA aprenda tu estética y tu forma de escribir.</div>
+        <div class="sub">Cargá logos y piezas, conectá la cuenta y la IA aprende tu estética y tu forma de escribir.</div>
       </div>
     </div>
+
+    <div class="panel" style="margin-bottom:18px;">
+      <h3>Logos de la marca</h3>
+      <p class="hint">Se usan directamente en las piezas generadas (reemplazan el texto "BLACKS") y suman al análisis de estilo. Subí PNG con fondo transparente si tenés.</p>
+      <div style="display:flex; gap:10px; align-items:center;">
+        <button class="btn-primary btn-sm" id="logo-pick"><span data-ic="upload"></span> Subir logo</button>
+        <input type="file" id="logo-input" accept="image/*" multiple hidden />
+        <span class="hint" style="margin:0;">Se usa el último que subas.</span>
+      </div>
+      <div class="logo-row" id="logo-row"></div>
+    </div>
+
     <div class="grid-2">
       <div class="panel">
         <h3>1 · Cargá material de referencia</h3>
         <p class="hint">Piezas que hicieron tus diseñadores (feed/historias). La IA saca de acá la paleta, el formato y el tono.</p>
         <div class="dropzone" id="dropzone">
-          <div>📎 Arrastrá imágenes acá o <u>elegí archivos</u></div>
+          <div><span data-ic="upload"></span> Arrastrá imágenes acá o <u>elegí archivos</u></div>
           <input type="file" id="file-input" accept="image/*" multiple hidden />
         </div>
         <div style="margin-top:14px; display:flex; gap:8px;">
           <input class="input" id="link-input" placeholder="Pegá una URL de imagen suelta" />
-          <button class="btn-primary btn-sm" onclick="addLink()">Agregar</button>
+          <button class="btn-primary btn-sm" onclick="addLink()"><span data-ic="plus"></span> Agregar</button>
         </div>
         <div style="margin-top:10px; display:flex; gap:8px;">
           <input class="input" id="drive-input" placeholder="Link de carpeta pública de Google Drive" />
-          <button class="btn-ghost btn-sm" id="drive-btn" onclick="importDrive()">📁 Importar Drive</button>
+          <button class="btn-ghost btn-sm" id="drive-btn" onclick="importDrive()"><span data-ic="folder"></span> Importar Drive</button>
         </div>
         <p class="hint" style="margin:8px 0 0;">La carpeta tiene que estar compartida como “Cualquiera con el enlace”. Trae varias imágenes de cada subcarpeta (FEED/HISTORIAS).</p>
         <div id="drive-out"></div>
@@ -73,11 +86,11 @@
 
       <div class="panel">
         <h3>2 · Analizá el estilo</h3>
-        <p class="hint">La IA (Gemini) mira tus piezas y lee los textos reales de tu cuenta de Instagram para armar una guía que después usa al generar. Vocabulario argentino incluido.</p>
+        <p class="hint">La IA (Gemini) mira tus piezas y logos y lee los textos reales de tu cuenta para armar una guía (paleta, tono, hashtags, CTAs, do/don't) que después usa al generar.</p>
         <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); margin-bottom:12px;">
           <input type="checkbox" id="include-account" checked /> Incluir textos reales de mi cuenta de Instagram
         </label>
-        <button class="btn-primary" id="analyze-btn" onclick="analyzeStyle()">🧠 Analizar y aprender estilo</button>
+        <button class="btn-primary" id="analyze-btn" onclick="analyzeStyle()"><span data-ic="sparkles"></span> Analizar y aprender estilo</button>
         <div id="profile-out"></div>
       </div>
     </div>
@@ -87,16 +100,16 @@
   <section id="view-metrics" class="view hidden">
     <div class="toolbar">
       <div>
-        <h2>Rendimiento por pilar</h2>
-        <div class="sub">Qué tipo de contenido funciona mejor, para reforzarlo en la rotación.</div>
+        <h2>Rendimiento</h2>
+        <div class="sub">Qué contenido funciona mejor, para reforzarlo en la rotación.</div>
       </div>
-      <button class="btn-ghost" onclick="loadMetrics()">↻ Refrescar</button>
+      <button class="btn-ghost" onclick="loadMetrics()"><span data-ic="refresh"></span> Refrescar</button>
     </div>
 
     <div class="panel" style="margin-bottom:20px;">
       <h3>Análisis de tu cuenta de Instagram</h3>
       <p class="hint">Mira tus publicaciones reales y detecta qué horario, día, formato y hashtags rindieron mejor (engagement = likes + comentarios).</p>
-      <button class="btn-primary" id="account-btn" onclick="analyzeAccount()">📊 Analizar mi cuenta</button>
+      <button class="btn-primary" id="account-btn" onclick="analyzeAccount()"><span data-ic="chart"></span> Analizar mi cuenta</button>
       <div id="account-out"></div>
     </div>
 
@@ -111,13 +124,10 @@
         <button class="btn-close" onclick="closeEdit()">&times;</button>
       </div>
       <div class="modal-body">
-        <label class="fmt-label">Caption</label>
-        <textarea class="input" id="edit-caption"></textarea>
-        <label class="fmt-label" style="margin-top:12px; display:block;">Hashtags</label>
-        <input class="input" id="edit-hashtags" />
-        <label class="fmt-label" style="margin-top:12px; display:block;">CTA</label>
-        <input class="input" id="edit-cta" />
-        <div style="margin-top:18px; display:flex; gap:8px; justify-content:flex-end;">
+        <div class="field"><label>Caption</label><textarea class="input" id="edit-caption"></textarea></div>
+        <div class="field"><label>Hashtags</label><input class="input" id="edit-hashtags" /></div>
+        <div class="field"><label>CTA</label><input class="input" id="edit-cta" /></div>
+        <div style="display:flex; gap:8px; justify-content:flex-end;">
           <button class="btn-discard" onclick="closeEdit()">Cancelar</button>
           <button class="btn-primary" onclick="saveEdit()">Guardar</button>
         </div>

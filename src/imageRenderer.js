@@ -33,6 +33,7 @@ function buildHtml(opts) {
     badgeText,
     productImageUrl,
     bgImageUrl,
+    logoUrl,
     interactionLabel,
     poll, // { question, options: [a, b] }
   } = opts;
@@ -91,6 +92,7 @@ function buildHtml(opts) {
     .brand { display:flex; flex-direction:column; gap:6px; }
     .wordmark { font-size:${isStory ? 40 : 38}px; font-weight:800; letter-spacing:4px; }
     .tagline { font-size:16px; letter-spacing:3px; opacity:.7; text-transform:uppercase; }
+    .logo { height:${isStory ? 96 : 84}px; max-width:60%; object-fit:contain; filter:drop-shadow(0 4px 12px rgba(0,0,0,.5)); }
     .badge { background:var(--orange); color:var(--white); font-weight:800; font-size:22px;
       padding:12px 24px; border-radius:6px; text-transform:uppercase; letter-spacing:1px; }
     .product-area { flex:1; display:flex; align-items:center; justify-content:center; padding:36px 0; }
@@ -118,7 +120,9 @@ function buildHtml(opts) {
     <div class="canvas">
       ${bgLayer}
       <div class="header">
-        <div class="brand"><div class="wordmark">BLACKS</div><div class="tagline">Indumentaria de trabajo</div></div>
+        ${logoUrl
+          ? `<img class="logo" src="${esc(logoUrl)}" alt="BLACKS" />`
+          : `<div class="brand"><div class="wordmark">BLACKS</div><div class="tagline">Indumentaria de trabajo</div></div>`}
         ${badgeHtml}
       </div>
       ${productArea}

@@ -137,11 +137,24 @@ app.post('/api/generate/:calendarId', wrap(async (req, res) => {
   if (!id) return res.status(400).json({ error: 'calendarId inválido' });
 
   const { rows } = await pool.query('SELECT * FROM content_calendar WHERE id = $1', [id]);
-  const slot = rows[0];
+  let slot = rows[0];
   if (!slot) return res.status(404).json({ error: 'No existe ese slot de calendario' });
   if (slot.pillar === 'repost') return res.status(400).json({ error: 'Los slots de repost/descanso no se generan.' });
 
-  await generateForSlot(slot);
+  // Regenerar cambiando el tema/ángulo: se persiste en el slot y se usa al generar.
+  const body = req.body || {};
+  const newDetail = typeof body.pillarDetail === 'string' ? body.pillarDetail.trim() : null;
+  const newTheme = typeof body.theme === 'string' ? body.theme.trim() : null;
+  if (newDetail || newTheme) {
+    await pool.query(
+      `UPDATE content_calendar SET pillar_detail = COALESCE($2, pillar_detail), theme_title = COALESCE($3, theme_title) WHERE id = $1`,
+      [id, newDetail, newTheme]
+    );
+    const { rows: r2 } = await pool.query('SELECT * FROM content_calendar WHERE id = $1', [id]);
+    slot = r2[0];
+  }
+
+  await generateForSlot(slot, { pillarDetail: newDetail || slot.pillar_detail });
   const { rows: assetRows } = await pool.query(
     `SELECT * FROM generated_assets WHERE calendar_id = $1 ORDER BY id DESC LIMIT 1`, [id]
   );
@@ -193,6 +206,16 @@ app.post('/api/style/upload', upload.array('files', 20), wrap(async (req, res) =
   const added = [];
   for (const f of files) {
     added.push(await styleService.addUpload({ buffer: f.buffer, mimetype: f.mimetype, originalname: f.originalname }));
+  }
+  res.json({ ok: true, added });
+}));
+
+app.post('/api/style/logo', upload.array('files', 5), wrap(async (req, res) => {
+  const files = req.files || [];
+  if (!files.length) return res.status(400).json({ error: 'No se subió ningún logo.' });
+  const added = [];
+  for (const f of files) {
+    added.push(await styleService.addLogo({ buffer: f.buffer, mimetype: f.mimetype, originalname: f.originalname }));
   }
   res.json({ ok: true, added });
 }));

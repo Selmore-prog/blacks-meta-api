@@ -4,6 +4,7 @@ const { generateCopy } = require('../src/ai');
 const { renderPostBuffer } = require('../src/imageRenderer');
 const { fetchProduct } = require('../src/tiendanube');
 const { getBrandProfile } = require('../src/brandProfile');
+const { getActiveLogo } = require('../src/styleService');
 const config = require('../src/config');
 
 const PRODUCT_PILLARS = ['producto', 'promo', 'mayorista'];
@@ -77,6 +78,50 @@ async function pickProductForSlot(slot) {
   return candidate;
 }
 
+const STOPWORDS = new Set(['para', 'con', 'sin', 'los', 'las', 'del', 'una', 'uno', 'que', 'por', 'cuando',
+  'como', 'este', 'esta', 'mas', 'más', 'cada', 'entre', 'elegi', 'elegí', 'vos', 'the', 'and']);
+
+function keywordsFromText(text) {
+  return String(text || '').toLowerCase()
+    .replace(/[^a-záéíóúñ0-9 ]/gi, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 4 && !STOPWORDS.has(w))
+    .slice(0, 6)
+    .map((w) => `%${w}%`);
+}
+
+/**
+ * Para pilares SIN producto (educativo/marca/ugc/engagement), busca en el catálogo
+ * una FOTO real relacionada al tema para que la pieza nunca quede vacía.
+ * Ej: "puntera de acero" -> un botín de seguridad. Siempre devuelve algo con imagen.
+ */
+async function pickRelevantProductImage(slot) {
+  const words = [...keywordsFromText(slot.pillar_detail), ...keywordsFromText(slot.theme_title)];
+  const patterns = words.length ? words : seasonKeywords();
+
+  let { rows } = await pool.query(
+    `SELECT * FROM (
+       SELECT * FROM products_cache
+       WHERE image_url IS NOT NULL AND (name ILIKE ANY($1) OR category ILIKE ANY($1))
+       ORDER BY (stock > 0) DESC, sales_30d DESC NULLS LAST LIMIT 12
+     ) t ORDER BY random() LIMIT 1`,
+    [patterns]
+  );
+  if (rows[0]) return rows[0];
+
+  ({ rows } = await pool.query(
+    `SELECT * FROM (
+       SELECT * FROM products_cache WHERE image_url IS NOT NULL AND (name ILIKE ANY($1) OR category ILIKE ANY($1))
+       ORDER BY (stock > 0) DESC LIMIT 12
+     ) t ORDER BY random() LIMIT 1`,
+    [seasonKeywords()]
+  ));
+  if (rows[0]) return rows[0];
+
+  ({ rows } = await pool.query(`SELECT * FROM products_cache WHERE image_url IS NOT NULL AND stock > 0 ORDER BY random() LIMIT 1`));
+  return rows[0] || null;
+}
+
 function interactionChip(slot) {
   if (slot.automation_level !== 'semi') return null;
   const hint = (slot.interaction_hint || '').toUpperCase();
@@ -86,14 +131,28 @@ function interactionChip(slot) {
   return '👆 Respondé la historia';
 }
 
-async function generateForSlot(slot) {
+async function generateForSlot(slot, overrides = {}) {
   const brandProfile = await getBrandProfile();
-  const product = PRODUCT_PILLARS.includes(slot.pillar) ? await pickProductForSlot(slot) : null;
+  // Permite regenerar cambiando el tema/ángulo del contenido sin cambiar el pilar.
+  const pillarDetail = overrides.pillarDetail || slot.pillar_detail;
+  const effectiveSlot = { ...slot, pillar_detail: pillarDetail };
+
+  const product = PRODUCT_PILLARS.includes(slot.pillar) ? await pickProductForSlot(effectiveSlot) : null;
   const format = slot.format === 'story' ? 'story' : 'feed';
+
+  // Foto REAL siempre: la del producto o, si el pilar no es de producto, una foto del
+  // catálogo relacionada al tema (así la pieza nunca queda vacía).
+  let visualImageUrl = product ? product.image_url : null;
+  if (!visualImageUrl) {
+    const rel = await pickRelevantProductImage(effectiveSlot);
+    if (rel) visualImageUrl = rel.image_url;
+  }
+
+  const logoUrl = await getActiveLogo().catch(() => null);
 
   const copy = await generateCopy({
     pillar: slot.pillar,
-    pillarDetail: slot.pillar_detail,
+    pillarDetail,
     postType: slot.post_type,
     format,
     product,
@@ -102,7 +161,7 @@ async function generateForSlot(slot) {
   });
 
   const badgeText = slot.pillar === 'promo' ? 'OFERTA' : slot.pillar === 'mayorista' ? 'MAYORISTA' : null;
-  const overlayTitle = copy.overlay || (product ? product.name : slot.pillar_detail || slot.theme_title || slot.pillar);
+  const overlayTitle = copy.overlay || (product ? product.name : pillarDetail || slot.theme_title || slot.pillar);
 
   const { url: imagePath } = await renderPostBuffer({
     format,
@@ -110,11 +169,12 @@ async function generateForSlot(slot) {
     price: product ? product.price : null,
     cta: copy.cta,
     badgeText,
-    productImageUrl: product ? product.image_url : null,
-    // Con producto: escena profesional con IA (foto real adentro). Sin producto: fondo temático.
+    productImageUrl: visualImageUrl,
+    logoUrl,
+    // Con producto: escena profesional con IA (si está habilitado/pago). Si no, plantilla con la foto real.
     useAiProductScene: Boolean(product),
-    useAiBackground: !product,
-    bgTheme: slot.pillar_detail || slot.theme_title,
+    useAiBackground: !visualImageUrl,
+    bgTheme: pillarDetail || slot.theme_title,
     interactionLabel: interactionChip(slot),
   });
 

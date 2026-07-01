@@ -85,9 +85,23 @@ function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, bran
     ? `Producto a destacar: ${product.name}${product.brand ? ` (marca ${product.brand})` : ''}${product.price ? `, precio $${Number(product.price).toLocaleString('es-AR')}` : ''}${typeof product.stock === 'number' ? `, stock ${product.stock}` : ''}.`
     : 'No hay un producto puntual; el foco es la marca/línea en general.';
 
-  const voice = brandProfile && brandProfile.voice_guide
-    ? `\n\nVOZ APRENDIDA DE LA CUENTA REAL (respetá este estilo y vocabulario):\n${brandProfile.voice_guide}`
-    : '';
+  let voice = '';
+  if (brandProfile && brandProfile.voice_guide) {
+    voice += `\n\nVOZ APRENDIDA DE LA CUENTA REAL (respetá este estilo y vocabulario):\n${brandProfile.voice_guide}`;
+  }
+  let sg = brandProfile && brandProfile.style_guide;
+  if (sg && typeof sg === 'string') { try { sg = JSON.parse(sg); } catch (_) { sg = null; } }
+  if (sg) {
+    if (Array.isArray(sg.hashtags_frecuentes) && sg.hashtags_frecuentes.length) {
+      voice += `\nHashtags que usa/rinden en esta cuenta (priorizá estos): ${sg.hashtags_frecuentes.slice(0, 10).join(' ')}`;
+    }
+    if (Array.isArray(sg.cta_frecuentes) && sg.cta_frecuentes.length) {
+      voice += `\nCTAs típicos de la cuenta: ${sg.cta_frecuentes.slice(0, 5).join(' / ')}`;
+    }
+    if (Array.isArray(sg.dont) && sg.dont.length) {
+      voice += `\nEvitá (según la guía de marca): ${sg.dont.slice(0, 5).join('; ')}`;
+    }
+  }
 
   const interaction = interactionHint
     ? `\n\nEsta pieza busca interacción: ${interactionHint}. Redactá el copy/overlay para provocar esa interacción.`
@@ -310,11 +324,19 @@ Devolvé SOLO un JSON válido con esta forma:
 {
   "style_guide": {
     "paleta": ["#hex", "..."],
-    "tipografia": "descripción",
-    "composicion": "cómo se ubican producto/texto/logo",
-    "elementos_recurrentes": ["..."],
+    "tipografia": "descripción de la/las tipografías y su peso/estilo",
+    "composicion": "cómo se ubican producto/texto/logo, márgenes, jerarquía",
+    "elementos_recurrentes": ["marcos, badges, franjas, etc."],
     "tratamiento_foto": "fondo, iluminación, estilo de foto de producto",
-    "formato_notas": "qué se ve distinto en feed vs historia"
+    "formato_notas": "qué se ve distinto en feed (4:5) vs historia (9:16)",
+    "logo_uso": "dónde y cómo aparece el logo (posición, tamaño, color)",
+    "hashtags_frecuentes": ["#..."],
+    "cta_frecuentes": ["frases de llamado a la acción que se repiten"],
+    "emojis": "nivel de uso de emojis y cuáles",
+    "longitud_caption": "corto/medio/largo y cuántas líneas aprox.",
+    "temas_recurrentes": ["temas/ángulos que más se repiten"],
+    "do": ["cosas que SÍ hacer para que se vea de la marca"],
+    "dont": ["cosas que NO hacer / errores a evitar"]
   },
   "voice_guide": "Párrafo describiendo el TONO y el VOCABULARIO ARGENTINO real de los captions: muletillas, nivel de formalidad, uso de emojis, largo típico, tipo de CTA, palabras/expresiones que se repiten. Sé específico y accionable para replicar la voz."
 }`;

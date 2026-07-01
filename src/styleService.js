@@ -36,8 +36,27 @@ async function addLink({ url, caption }) {
   return rows[0];
 }
 
+async function addLogo({ buffer, mimetype, originalname }) {
+  const ext = (mimetype && mimetype.split('/')[1]) || 'png';
+  const safe = String(originalname || 'logo').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 40);
+  const filename = `logos/${Date.now()}-${safe}.${ext.replace(/[^a-z0-9]/gi, '')}`;
+  const url = await uploadAsset({ buffer, filename, contentType: mimetype || 'image/png' });
+  const { rows } = await pool.query(
+    `INSERT INTO style_references (kind, source, url, storage_path) VALUES ('logo', 'upload', $1, $2) RETURNING *`,
+    [url, filename]
+  );
+  return rows[0];
+}
+
+/** Devuelve la URL del logo activo (el último subido) o null. */
+async function getActiveLogo() {
+  const { rows } = await pool.query(`SELECT url FROM style_references WHERE kind = 'logo' ORDER BY id DESC LIMIT 1`);
+  return rows[0] ? rows[0].url : null;
+}
+
 async function listReferences() {
-  const { rows } = await pool.query(`SELECT * FROM style_references ORDER BY id DESC LIMIT 100`);
+  // kind 'image' | 'logo'. Devolvemos ambas para el panel.
+  const { rows } = await pool.query(`SELECT * FROM style_references ORDER BY id DESC LIMIT 120`);
   return rows;
 }
 
@@ -105,6 +124,8 @@ async function runStyleAnalysis({ includeAccount = true } = {}) {
 
 module.exports = {
   addUpload,
+  addLogo,
+  getActiveLogo,
   addLink,
   listReferences,
   deleteReference,

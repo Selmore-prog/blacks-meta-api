@@ -237,7 +237,48 @@ table.insights th { color: var(--muted); font-weight: 700; text-transform: upper
 /* ---------- account analysis ---------- */
 .analysis { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
 .an-block { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: 13px; }
-.an-block .fmt-label { display: block; margin-bottom: 8px; }
+.an-block .fmt-label { display: flex; align-items: center; gap: 6px; margin-bottom: 8px; }
 .rank { display: flex; flex-wrap: wrap; gap: 8px; }
 .rank-item { background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 6px 10px; font-size: 12px; }
 .rank-item b { color: var(--orange); }
+
+/* ---------- icons ---------- */
+.ic { width: 1.05em; height: 1.05em; vertical-align: -.16em; flex: none; }
+.fmt-label .ic { width: 1em; height: 1em; vertical-align: -.15em; }
+.idot { width: 8px; height: 8px; border-radius: 50%; display: inline-block; margin-right: 5px; vertical-align: 1px; }
+.idot.green { background: var(--green); }
+.idot.amber { background: var(--amber); }
+.badge .idot { margin-right: 4px; }
+
+/* ---------- filters ---------- */
+.filters { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin-bottom: 18px; }
+select.filter, .filter-search {
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--text);
+  border-radius: 10px; padding: 9px 12px; font-size: 12px; font-weight: 700; font-family: inherit; cursor: pointer;
+}
+.filter-search { font-weight: 500; min-width: 200px; cursor: text; }
+select.filter:focus, .filter-search:focus { outline: none; border-color: var(--orange); }
+.filter-count { font-size: 12px; color: var(--muted); margin-left: auto; }
+
+/* ---------- logos ---------- */
+.logo-row { display: flex; gap: 10px; flex-wrap: wrap; margin-top: 12px; }
+.logo-thumb { position: relative; height: 58px; background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 10px; padding: 8px 12px; display: flex; align-items: center; }
+.logo-thumb img { height: 100%; max-width: 130px; object-fit: contain; }
+.logo-thumb .del { position: absolute; top: -6px; right: -6px; width: 20px; height: 20px; padding: 0; border-radius: 50%;
+  background: var(--panel); border: 1px solid var(--line); color: var(--muted); font-size: 12px; line-height: 1; justify-content: center; }
+
+/* ---------- form fields (regen modal) ---------- */
+.field { margin-bottom: 14px; }
+.field label { display: block; font-size: 12px; font-weight: 700; color: var(--muted); text-transform: uppercase;
+  letter-spacing: .5px; margin-bottom: 7px; }
+.field textarea.input { min-height: 80px; resize: vertical; }
+.chips-suggest { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 8px; }
+.chip-suggest { background: var(--panel-2); border: 1px solid var(--line); color: var(--text); font-size: 12px;
+  padding: 6px 11px; border-radius: 100px; cursor: pointer; }
+.chip-suggest:hover { border-color: var(--orange); color: var(--orange); }
+
+/* ---------- misc polish ---------- */
+.card.regenerating { opacity: .6; pointer-events: none; }
+.spin { animation: spin 1s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
