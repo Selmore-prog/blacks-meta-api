@@ -8,29 +8,104 @@
 </head>
 <body>
   <header class="topbar">
-    <div class="wordmark">BLACKS <span>· panel de contenido</span></div>
-    <div class="topbar-actions">
-      <button class="btn-insights" onclick="showInsightsModal()">Ver Métricas e Insights</button>
+    <div class="brand-lockup">
+      <div class="wordmark">BLA<b>C</b>KS</div>
+      <div class="tagline">Content Engine</div>
     </div>
+    <div class="status-chips" id="status-chips"></div>
   </header>
 
-  <main id="calendar-list" class="calendar-list">
-    <p class="loading">Cargando calendario...</p>
-  </main>
+  <nav class="tabs">
+    <button class="tab active" data-view="calendar" onclick="switchTab('calendar')">Calendario</button>
+    <button class="tab" data-view="style" onclick="switchTab('style')">Estilo de marca</button>
+    <button class="tab" data-view="metrics" onclick="switchTab('metrics')">Métricas</button>
+  </nav>
 
-  <!-- Modal de Insights -->
-  <div id="insights-modal" class="modal-overlay" style="display: none;">
-    <div class="modal-content">
-      <div class="modal-header">
-        <h2>Rendimiento e Insights por Pilar</h2>
-        <button class="btn-close" onclick="closeInsightsModal()">&times;</button>
+  <!-- ===== Calendario ===== -->
+  <section id="view-calendar" class="view">
+    <div class="toolbar">
+      <div>
+        <h2>Calendario de contenido</h2>
+        <div class="sub">Próximas piezas · horarios de Argentina (GMT-3)</div>
       </div>
-      <div id="insights-body" class="modal-body">
-        <p class="loading">Cargando reporte...</p>
+      <div style="display:flex; gap:8px;">
+        <button class="btn-ghost" onclick="generateAllPending()">⚡ Generar pendientes de hoy</button>
+        <button class="btn-ghost" onclick="loadCalendar()">↻ Refrescar</button>
+      </div>
+    </div>
+    <div id="calendar-list"><p class="loading">Cargando calendario...</p></div>
+  </section>
+
+  <!-- ===== Estilo de marca ===== -->
+  <section id="view-style" class="view hidden">
+    <div class="toolbar">
+      <div>
+        <h2>Estilo de marca</h2>
+        <div class="sub">Subí piezas viejas y/o conectá la cuenta para que la IA aprenda tu estética y tu forma de escribir.</div>
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="panel">
+        <h3>1 · Cargá material de referencia</h3>
+        <p class="hint">Piezas que hicieron tus diseñadores (feed/historias). La IA saca de acá la paleta, el formato y el tono.</p>
+        <div class="dropzone" id="dropzone">
+          <div>📎 Arrastrá imágenes acá o <u>elegí archivos</u></div>
+          <input type="file" id="file-input" accept="image/*" multiple hidden />
+        </div>
+        <div style="margin-top:14px; display:flex; gap:8px;">
+          <input class="input" id="link-input" placeholder="Pegá un link de Google Drive o una URL de imagen" />
+          <button class="btn-primary btn-sm" onclick="addLink()">Agregar</button>
+        </div>
+        <div class="ref-grid" id="ref-grid"></div>
+      </div>
+
+      <div class="panel">
+        <h3>2 · Analizá el estilo</h3>
+        <p class="hint">La IA (Gemini) mira tus piezas y lee los textos reales de tu cuenta de Instagram para armar una guía que después usa al generar. Vocabulario argentino incluido.</p>
+        <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); margin-bottom:12px;">
+          <input type="checkbox" id="include-account" checked /> Incluir textos reales de mi cuenta de Instagram
+        </label>
+        <button class="btn-primary" id="analyze-btn" onclick="analyzeStyle()">🧠 Analizar y aprender estilo</button>
+        <div id="profile-out"></div>
+      </div>
+    </div>
+  </section>
+
+  <!-- ===== Métricas ===== -->
+  <section id="view-metrics" class="view hidden">
+    <div class="toolbar">
+      <div>
+        <h2>Rendimiento por pilar</h2>
+        <div class="sub">Qué tipo de contenido funciona mejor, para reforzarlo en la rotación.</div>
+      </div>
+      <button class="btn-ghost" onclick="loadMetrics()">↻ Refrescar</button>
+    </div>
+    <div id="metrics-body"><p class="loading">Cargando métricas...</p></div>
+  </section>
+
+  <!-- Modal edición -->
+  <div id="edit-modal" class="modal-overlay hidden">
+    <div class="modal">
+      <div class="modal-header">
+        <h2>Editar copy</h2>
+        <button class="btn-close" onclick="closeEdit()">&times;</button>
+      </div>
+      <div class="modal-body">
+        <label class="fmt-label">Caption</label>
+        <textarea class="input" id="edit-caption"></textarea>
+        <label class="fmt-label" style="margin-top:12px; display:block;">Hashtags</label>
+        <input class="input" id="edit-hashtags" />
+        <label class="fmt-label" style="margin-top:12px; display:block;">CTA</label>
+        <input class="input" id="edit-cta" />
+        <div style="margin-top:18px; display:flex; gap:8px; justify-content:flex-end;">
+          <button class="btn-discard" onclick="closeEdit()">Cancelar</button>
+          <button class="btn-primary" onclick="saveEdit()">Guardar</button>
+        </div>
       </div>
     </div>
   </div>
 
+  <div id="toast" class="toast"></div>
   <script src="/dashboard.js"></script>
 </body>
 </html>

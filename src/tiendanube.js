@@ -26,6 +26,41 @@ function detectBrand(name) {
   return null;
 }
 
+function normalizeProduct(product) {
+  const name = pickText(product.name);
+  const mainImage = product.images && product.images[0] ? product.images[0].src : null;
+  const firstVariant = product.variants && product.variants[0] ? product.variants[0] : {};
+  return {
+    id: product.id,
+    name,
+    brand: product.brand || detectBrand(name),
+    category: product.categories && product.categories[0] ? pickText(product.categories[0].name) : null,
+    price: firstVariant.price ? Number(firstVariant.price) : null,
+    stock: typeof firstVariant.stock === 'number' ? firstVariant.stock : null,
+    image_url: mainImage,
+    permalink: product.permalink || null,
+    raw: product,
+  };
+}
+
+/**
+ * Trae UN producto puntual con su precio/stock actual (para refrescar justo antes de generar/publicar).
+ * Devuelve el producto normalizado o null si no existe / falla.
+ */
+async function fetchProduct(id) {
+  try {
+    const url = `${config.tiendanube.apiBase}/${config.tiendanube.storeId}/products/${id}`;
+    const res = await fetch(url, {
+      headers: { ...buildAuthHeader(), 'User-Agent': config.tiendanube.userAgent, 'Content-Type': 'application/json' },
+    });
+    if (!res.ok) return null;
+    return normalizeProduct(await res.json());
+  } catch (err) {
+    console.warn(`[tiendanube] No pude refrescar el producto ${id}: ${err.message}`);
+    return null;
+  }
+}
+
 async function fetchProductsPage(page, perPage = 200) {
   const url = `${config.tiendanube.apiBase}/${config.tiendanube.storeId}/products?page=${page}&per_page=${perPage}&published=true`;
   const res = await fetch(url, {
@@ -57,21 +92,7 @@ async function fetchAllProducts() {
     if (!Array.isArray(batch) || batch.length === 0) break;
 
     for (const product of batch) {
-      const name = pickText(product.name);
-      const mainImage = product.images && product.images[0] ? product.images[0].src : null;
-      const firstVariant = product.variants && product.variants[0] ? product.variants[0] : {};
-
-      all.push({
-        id: product.id,
-        name,
-        brand: product.brand || detectBrand(name),
-        category: product.categories && product.categories[0] ? pickText(product.categories[0].name) : null,
-        price: firstVariant.price ? Number(firstVariant.price) : null,
-        stock: typeof firstVariant.stock === 'number' ? firstVariant.stock : null,
-        image_url: mainImage,
-        permalink: product.permalink || null,
-        raw: product,
-      });
+      all.push(normalizeProduct(product));
     }
 
     if (batch.length < 200) break; // ultima pagina
@@ -81,4 +102,4 @@ async function fetchAllProducts() {
   return all;
 }
 
-module.exports = { fetchAllProducts, detectBrand, pickText };
+module.exports = { fetchAllProducts, fetchProduct, normalizeProduct, detectBrand, pickText };

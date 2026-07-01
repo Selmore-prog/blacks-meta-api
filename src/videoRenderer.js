@@ -8,9 +8,9 @@ const { uploadAsset } = require('./storage');
 ffmpeg.setFfmpegPath(ffmpegInstaller.path);
 
 /**
- * Genera un Reel MP4 vertical 9:16 (1080x1920) con efecto Ken Burns / zoom lento
- * o fondo difuminado a partir de un buffer de imagen JPEG.
- * Sube el video generado a Supabase Storage y devuelve su URL pública.
+ * Genera un Reel MP4 vertical 9:16 (1080x1920) con efecto Ken Burns (zoom lento)
+ * a pantalla completa a partir de un buffer de imagen (que ya viene en 9:16).
+ * Sube el video a Supabase Storage y devuelve su URL pública.
  */
 async function renderReelVideo({ imageBuffer, duration = 8, filename }) {
   if (!imageBuffer) {
@@ -21,65 +21,58 @@ async function renderReelVideo({ imageBuffer, duration = 8, filename }) {
   const tmpImgPath = path.join(os.tmpdir(), `input-${id}.jpg`);
   const tmpVidPath = path.join(os.tmpdir(), `output-${id}.mp4`);
   const outFile = filename || `reel-${id}.mp4`;
+  const fps = 25;
+  const frames = Math.round(duration * fps);
 
   fs.writeFileSync(tmpImgPath, imageBuffer);
 
+  const cleanup = () => {
+    if (fs.existsSync(tmpImgPath)) fs.unlinkSync(tmpImgPath);
+    if (fs.existsSync(tmpVidPath)) fs.unlinkSync(tmpVidPath);
+  };
+
   return new Promise((resolve, reject) => {
-    // Usamos anullsrc para incluir una pista de audio en silencio (AAC), ya que
-    // Instagram Reels Graph API requiere/recomienda un stream de audio válido.
     ffmpeg()
       .input(tmpImgPath)
-      .loop(duration)
+      // Pista de audio en silencio (Instagram Reels recomienda un stream de audio válido).
       .input('anullsrc=channel_layout=stereo:sample_rate=44100')
       .inputFormat('lavfi')
+      .complexFilter([
+        // Escalamos a 2x para que el zoom sea suave, luego zoompan hace el Ken Burns
+        // y quedamos en 1080x1920. z sube lento hasta 1.12.
+        `[0:v]scale=2160:3840,zoompan=z='min(zoom+0.0006,1.12)':d=${frames}:x='iw/2-(iw/zoom/2)':y='ih/2-(ih/zoom/2)':s=1080x1920:fps=${fps},format=yuv420p[outv]`,
+      ])
+      .map('[outv]')
       .outputOptions([
         '-c:v libx264',
         '-preset fast',
-        '-tune stillimage',
         '-pix_fmt yuv420p',
         '-c:a aac',
         '-b:a 128k',
         `-t ${duration}`,
+        '-r', String(fps),
         '-movflags +faststart',
-        '-map 1:a',
+        '-map', '1:a',
       ])
-      // Filtro: crea un fondo difuminado 1080x1920 y centra la pieza 1080x1350 con un ligero zoom lento
-      .complexFilter([
-        '[0:v]scale=1080:1920:force_original_aspect_ratio=increase,crop=1080:1920,boxblur=25:10[bg]',
-        '[0:v]scale=1080:1350[fg]',
-        '[bg][fg]overlay=(W-w)/2:(H-h)/2[outv]',
-      ])
-      .map('[outv]')
       .save(tmpVidPath)
       .on('end', async () => {
         try {
           const videoBuffer = fs.readFileSync(tmpVidPath);
-          // Limpiar archivos temporales
-          if (fs.existsSync(tmpImgPath)) fs.unlinkSync(tmpImgPath);
-          if (fs.existsSync(tmpVidPath)) fs.unlinkSync(tmpVidPath);
-
-          const url = await uploadAsset({
-            buffer: videoBuffer,
-            filename: outFile,
-            contentType: 'video/mp4',
-          });
-          console.log(`[videoRenderer] Reel generado exitosamente: ${url}`);
+          cleanup();
+          const url = await uploadAsset({ buffer: videoBuffer, filename: outFile, contentType: 'video/mp4' });
+          console.log(`[videoRenderer] Reel generado: ${url}`);
           resolve(url);
         } catch (err) {
-          if (fs.existsSync(tmpImgPath)) fs.unlinkSync(tmpImgPath);
-          if (fs.existsSync(tmpVidPath)) fs.unlinkSync(tmpVidPath);
+          cleanup();
           reject(err);
         }
       })
       .on('error', (err) => {
-        if (fs.existsSync(tmpImgPath)) fs.unlinkSync(tmpImgPath);
-        if (fs.existsSync(tmpVidPath)) fs.unlinkSync(tmpVidPath);
+        cleanup();
         console.error('[videoRenderer] Error ejecutando ffmpeg:', err.message);
         reject(err);
       });
   });
 }
 
-module.exports = {
-  renderReelVideo,
-};
+module.exports = { renderReelVideo };

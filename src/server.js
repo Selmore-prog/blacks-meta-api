@@ -1,184 +1,230 @@
 const path = require('path');
 const express = require('express');
+const multer = require('multer');
 const config = require('./config');
 const pool = require('./db');
-const { generateCopy } = require('./copywriter');
-const { renderPostBuffer } = require('./imageRenderer');
-const { renderReelVideo } = require('./videoRenderer');
-const { seedCalendar } = require('./calendar');
-const { generateDaily, generateForSlot } = require('../scripts/generate-daily');
+const { seedCalendar, calendarIsEmpty } = require('./calendar');
+const { generateForSlot } = require('../scripts/generate-daily');
+const { generateDaily } = require('../scripts/generate-daily');
 const { publishAssetById, publishDailyAuto } = require('./publishService');
 const { syncPostInsights, analyzePerformance } = require('./insights');
+const { getBrandProfile } = require('./brandProfile');
+const styleService = require('./styleService');
+const { hasGemini } = require('./ai');
 
 const app = express();
-app.use(express.json());
+app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
+
+const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+
+// Envuelve handlers async para que cualquier rechazo caiga en el middleware de errores
+// (evita 500s "colgados" y promesas sin manejar).
+const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
+
+function intParam(value) {
+  const n = Number(value);
+  return Number.isInteger(n) && n > 0 ? n : null;
+}
 
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'dashboard.html'));
 });
 
-// Middleware para validar secreto de Cron en endpoints automatizados
+// --- Health check (Render y monitoreo) ---
+app.get(['/health', '/api/health'], wrap(async (req, res) => {
+  let db = 'ok';
+  try { await pool.query('SELECT 1'); } catch (e) { db = 'error: ' + e.message; }
+  res.json({
+    ok: db === 'ok',
+    db,
+    ai: hasGemini() ? 'gemini' : (config.groq.apiKey ? 'groq' : 'none'),
+    aiImages: config.ai.useAiImages,
+    timezone: config.timezone,
+    time: new Date().toISOString(),
+  });
+}));
+
+// --- Config para el panel (qué está activo) ---
+app.get('/api/config', (req, res) => {
+  res.json({
+    ai: hasGemini() ? 'gemini' : (config.groq.apiKey ? 'groq' : 'none'),
+    aiImages: config.ai.useAiImages,
+    geminiReady: hasGemini(),
+    autoPublishPillars: config.meta.autoPublishPillars,
+    metaReady: Boolean(config.meta.igUserId && config.meta.pageAccessToken),
+    timezone: config.timezone,
+    brand: config.brand.name,
+  });
+});
+
+/* ----------------------- Cron (GitHub Actions) ----------------------- */
 function authCron(req, res, next) {
   const authHeader = req.headers['authorization'];
   const cronHeader = req.headers['x-cron-secret'];
   const token = authHeader && authHeader.startsWith('Bearer ') ? authHeader.slice(7) : cronHeader;
-
   if (!token || token !== config.cronSecret) {
     return res.status(401).json({ error: 'Acceso no autorizado. CRON_SECRET inválido.' });
   }
   next();
 }
 
-// --- Endpoints para GitHub Actions Cron Jobs ---
-app.post('/api/cron/generate-daily', authCron, async (req, res) => {
-  try {
-    const result = await generateDaily();
-    res.json({ ok: true, ...result });
-  } catch (err) {
-    console.error('[cron/generate-daily] Error:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
+app.post('/api/cron/generate-daily', authCron, wrap(async (req, res) => {
+  res.json({ ok: true, ...(await generateDaily()) });
+}));
 
-app.post('/api/cron/publish-daily', authCron, async (req, res) => {
-  try {
-    const result = await publishDailyAuto();
-    res.json({ ok: true, ...result });
-  } catch (err) {
-    console.error('[cron/publish-daily] Error:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
+app.post('/api/cron/publish-daily', authCron, wrap(async (req, res) => {
+  res.json({ ok: true, ...(await publishDailyAuto()) });
+}));
 
-app.post('/api/cron/sync-insights', authCron, async (req, res) => {
-  try {
-    await syncPostInsights();
-    res.json({ ok: true });
-  } catch (err) {
-    console.error('[cron/sync-insights] Error:', err);
-    res.status(500).json({ error: err.message });
-  }
-});
+app.post('/api/cron/sync-insights', authCron, wrap(async (req, res) => {
+  await syncPostInsights();
+  res.json({ ok: true });
+}));
 
-// --- Calendario: trae los próximos N días con su asset generado ---
-app.get('/api/calendar', async (req, res) => {
-  try {
-    const days = Number(req.query.days || 14);
-    await seedCalendar(days);
+/* ----------------------- Calendario ----------------------- */
+app.get('/api/calendar', wrap(async (req, res) => {
+  const days = Math.min(Number(req.query.days || 14), 60);
 
-    const { rows } = await pool.query(
-      `SELECT c.*,
-              a.id as asset_id, a.caption, a.hashtags, a.cta, a.image_path, a.video_path, a.meta_post_id, a.status as asset_status,
-              p.name as product_name, p.image_url as product_image_url, p.price as product_price
-       FROM content_calendar c
-       LEFT JOIN LATERAL (
-         SELECT * FROM generated_assets WHERE calendar_id = c.id ORDER BY id DESC LIMIT 1
-       ) a ON true
-       LEFT JOIN products_cache p ON p.id = a.product_id
-       WHERE c.scheduled_date >= CURRENT_DATE
-       ORDER BY c.scheduled_date ASC, c.id ASC
-       LIMIT $1`,
-      [days]
-    );
+  // Sólo sembramos si el calendario está vacío (no en cada carga: eso era lento).
+  if (await calendarIsEmpty()) await seedCalendar(days);
 
-    res.json(rows);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
+  const { rows } = await pool.query(
+    `SELECT c.*,
+            a.id as asset_id, a.caption, a.hashtags, a.cta, a.image_path, a.video_path,
+            a.meta_post_id, a.status as asset_status, a.format as asset_format,
+            p.name as product_name, p.image_url as product_image_url, p.price as product_price, p.stock as product_stock
+     FROM content_calendar c
+     LEFT JOIN LATERAL (
+       SELECT * FROM generated_assets WHERE calendar_id = c.id ORDER BY id DESC LIMIT 1
+     ) a ON true
+     LEFT JOIN products_cache p ON p.id = a.product_id
+     WHERE c.scheduled_date >= CURRENT_DATE
+     ORDER BY c.scheduled_date ASC, c.id ASC
+     LIMIT $1`,
+    [days]
+  );
+  res.json(rows);
+}));
 
-// --- Reporte de Métricas e Insights ---
-app.get('/api/insights/report', async (req, res) => {
-  try {
-    const report = await analyzePerformance();
-    res.json(report);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+// Re-siembra manual del calendario.
+app.post('/api/calendar/seed', wrap(async (req, res) => {
+  const days = Math.min(Number(req.body && req.body.days) || 14, 60);
+  const inserted = await seedCalendar(days);
+  res.json({ ok: true, inserted: inserted.length });
+}));
 
-// --- Lista de productos sincronizados ---
-app.get('/api/products', async (req, res) => {
-  try {
-    const search = req.query.q ? `%${req.query.q}%` : '%';
-    const { rows } = await pool.query(
-      `SELECT id, name, brand, category, price, stock, image_url
-       FROM products_cache WHERE name ILIKE $1 ORDER BY synced_at DESC LIMIT 50`,
-      [search]
-    );
-    res.json(rows);
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+/* ----------------------- Insights / Productos ----------------------- */
+app.get('/api/insights/report', wrap(async (req, res) => {
+  res.json(await analyzePerformance());
+}));
 
-// --- Genera copy + imagen/video para un slot puntual del calendario ---
-app.post('/api/generate/:calendarId', async (req, res) => {
-  const { calendarId } = req.params;
-  try {
-    const { rows: calendarRows } = await pool.query('SELECT * FROM content_calendar WHERE id = $1', [calendarId]);
-    const slot = calendarRows[0];
-    if (!slot) return res.status(404).json({ error: 'No existe ese slot de calendario' });
+app.get('/api/products', wrap(async (req, res) => {
+  const search = req.query.q ? `%${req.query.q}%` : '%';
+  const { rows } = await pool.query(
+    `SELECT id, name, brand, category, price, stock, image_url
+     FROM products_cache WHERE name ILIKE $1 ORDER BY synced_at DESC LIMIT 50`,
+    [search]
+  );
+  res.json(rows);
+}));
 
-    await generateForSlot(slot);
+/* ----------------------- Generación / Assets ----------------------- */
+app.post('/api/generate/:calendarId', wrap(async (req, res) => {
+  const id = intParam(req.params.calendarId);
+  if (!id) return res.status(400).json({ error: 'calendarId inválido' });
 
-    const { rows: assetRows } = await pool.query(
-      `SELECT * FROM generated_assets WHERE calendar_id = $1 ORDER BY id DESC LIMIT 1`,
-      [calendarId]
-    );
+  const { rows } = await pool.query('SELECT * FROM content_calendar WHERE id = $1', [id]);
+  const slot = rows[0];
+  if (!slot) return res.status(404).json({ error: 'No existe ese slot de calendario' });
+  if (slot.pillar === 'repost') return res.status(400).json({ error: 'Los slots de repost/descanso no se generan.' });
 
-    res.json(assetRows[0]);
-  } catch (err) {
-    console.error(err);
-    res.status(500).json({ error: err.message });
-  }
-});
+  await generateForSlot(slot);
+  const { rows: assetRows } = await pool.query(
+    `SELECT * FROM generated_assets WHERE calendar_id = $1 ORDER BY id DESC LIMIT 1`, [id]
+  );
+  res.json(assetRows[0]);
+}));
 
-// --- Aprobar / Editar / Descartar / Publicar un asset generado ---
-app.post('/api/assets/:assetId/approve', async (req, res) => {
-  try {
-    await pool.query(`UPDATE generated_assets SET status = 'approved', updated_at = now() WHERE id = $1`, [req.params.assetId]);
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
+app.post('/api/assets/:assetId/approve', wrap(async (req, res) => {
+  const id = intParam(req.params.assetId);
+  if (!id) return res.status(400).json({ error: 'assetId inválido' });
+  await pool.query(`UPDATE generated_assets SET status = 'approved', updated_at = now() WHERE id = $1`, [id]);
+  res.json({ ok: true });
+}));
 
-app.post('/api/assets/:assetId/edit', async (req, res) => {
+app.post('/api/assets/:assetId/edit', wrap(async (req, res) => {
+  const id = intParam(req.params.assetId);
+  if (!id) return res.status(400).json({ error: 'assetId inválido' });
   const { caption, hashtags, cta } = req.body || {};
-  try {
-    await pool.query(
-      `UPDATE generated_assets SET caption = COALESCE($2, caption), hashtags = COALESCE($3, hashtags),
+  await pool.query(
+    `UPDATE generated_assets SET caption = COALESCE($2, caption), hashtags = COALESCE($3, hashtags),
        cta = COALESCE($4, cta), updated_at = now() WHERE id = $1`,
-      [req.params.assetId, caption, hashtags, cta]
-    );
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
+    [id, caption, hashtags, cta]
+  );
+  res.json({ ok: true });
+}));
+
+app.post('/api/assets/:assetId/discard', wrap(async (req, res) => {
+  const id = intParam(req.params.assetId);
+  if (!id) return res.status(400).json({ error: 'assetId inválido' });
+  await pool.query(`UPDATE generated_assets SET status = 'discarded', updated_at = now() WHERE id = $1`, [id]);
+  res.json({ ok: true });
+}));
+
+app.post('/api/assets/:assetId/publish', wrap(async (req, res) => {
+  const id = intParam(req.params.assetId);
+  if (!id) return res.status(400).json({ error: 'assetId inválido' });
+  const force = Boolean(req.body && req.body.force);
+  res.json(await publishAssetById(id, { force }));
+}));
+
+/* ----------------------- Estilo de marca ----------------------- */
+app.get('/api/style', wrap(async (req, res) => {
+  const [references, profile] = await Promise.all([styleService.listReferences(), getBrandProfile()]);
+  res.json({ references, profile, geminiReady: hasGemini() });
+}));
+
+app.post('/api/style/upload', upload.array('files', 20), wrap(async (req, res) => {
+  const files = req.files || [];
+  if (!files.length) return res.status(400).json({ error: 'No se subió ningún archivo.' });
+  const added = [];
+  for (const f of files) {
+    added.push(await styleService.addUpload({ buffer: f.buffer, mimetype: f.mimetype, originalname: f.originalname }));
   }
+  res.json({ ok: true, added });
+}));
+
+app.post('/api/style/link', wrap(async (req, res) => {
+  const { url, caption } = req.body || {};
+  if (!url) return res.status(400).json({ error: 'Falta la URL.' });
+  res.json({ ok: true, reference: await styleService.addLink({ url, caption }) });
+}));
+
+app.delete('/api/style/:id', wrap(async (req, res) => {
+  const id = intParam(req.params.id);
+  if (!id) return res.status(400).json({ error: 'id inválido' });
+  await styleService.deleteReference(id);
+  res.json({ ok: true });
+}));
+
+app.post('/api/style/analyze', wrap(async (req, res) => {
+  const includeAccount = req.body ? req.body.includeAccount !== false : true;
+  res.json(await styleService.runStyleAnalysis({ includeAccount }));
+}));
+
+/* ----------------------- Manejo de errores ----------------------- */
+app.use((req, res) => res.status(404).json({ error: 'No encontrado' }));
+
+app.use((err, req, res, next) => {
+  console.error('[server] Error:', err && err.stack ? err.stack : err);
+  if (res.headersSent) return next(err);
+  res.status(err.status || 500).json({ error: err.message || 'Error interno del servidor' });
 });
 
-app.post('/api/assets/:assetId/discard', async (req, res) => {
-  try {
-    await pool.query(`UPDATE generated_assets SET status = 'discarded', updated_at = now() WHERE id = $1`, [req.params.assetId]);
-    res.json({ ok: true });
-  } catch (err) {
-    res.status(500).json({ error: err.message });
-  }
-});
-
-app.post('/api/assets/:assetId/publish', async (req, res) => {
-  try {
-    const result = await publishAssetById(req.params.assetId);
-    res.json(result);
-  } catch (err) {
-    console.error('[server/publish]', err);
-    res.status(500).json({ error: err.message });
-  }
-});
+process.on('unhandledRejection', (reason) => console.error('[server] unhandledRejection:', reason));
+process.on('uncaughtException', (err) => console.error('[server] uncaughtException:', err));
 
 app.listen(config.port, () => {
-  console.log(`[server] BLACKS content engine corriendo en puerto ${config.port}`);
+  console.log(`[server] BLACKS content engine en puerto ${config.port} · IA: ${hasGemini() ? 'Gemini' : 'Groq'} · imágenes IA: ${config.ai.useAiImages}`);
 });

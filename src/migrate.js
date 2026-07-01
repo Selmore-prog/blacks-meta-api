@@ -54,24 +54,64 @@ CREATE TABLE IF NOT EXISTS post_insights (
   fetched_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Perfil de marca aprendido (guia de estilo + voz). Fila unica id = 1.
+CREATE TABLE IF NOT EXISTS brand_profile (
+  id              INTEGER PRIMARY KEY DEFAULT 1,
+  style_guide     JSONB,                          -- {paleta, composicion, formato, elementos...}
+  voice_guide     TEXT,                           -- resumen de tono/vocabulario argentino de la cuenta
+  sample_captions JSONB,                          -- captions reales de la cuenta usados de referencia
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT brand_profile_singleton CHECK (id = 1)
+);
+
+-- Piezas de referencia (subidas al panel o linkeadas) para que la IA aprenda el estilo.
+CREATE TABLE IF NOT EXISTS style_references (
+  id              SERIAL PRIMARY KEY,
+  kind            TEXT NOT NULL DEFAULT 'image',  -- 'image' | 'link'
+  source          TEXT,                           -- 'upload' | 'drive' | 'url' | 'instagram'
+  url             TEXT,                           -- URL publica (Supabase / Drive directo / IG)
+  storage_path    TEXT,                           -- path dentro del bucket si fue subida
+  caption         TEXT,                           -- texto que acompanaba la pieza (si se conoce)
+  analysis        JSONB,                          -- lo que Gemini extrajo de esta pieza puntual
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_calendar_date ON content_calendar (scheduled_date);
 CREATE INDEX IF NOT EXISTS idx_assets_calendar ON generated_assets (calendar_id);
 CREATE INDEX IF NOT EXISTS idx_insights_meta_post_id ON post_insights (meta_post_id);
+CREATE INDEX IF NOT EXISTS idx_products_stock ON products_cache (stock);
 `;
 
+// Columnas nuevas agregadas de forma incremental (no rompen datos existentes).
 const ALTER_SQL = `
 ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS video_path TEXT;
+ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS format TEXT;             -- 'feed' | 'story'
+ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS format TEXT;             -- 'feed' (4:5) | 'story' (9:16)
+ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS automation_level TEXT DEFAULT 'auto'; -- 'auto' | 'semi'
+ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS interaction_hint TEXT;   -- sticker/interaccion a agregar a mano
+ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS scheduled_time TEXT;     -- 'HH:MM' hora ARG sugerida
+ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS theme_title TEXT;        -- tematica/titulo del dia
+
+-- Rellenar 'format' en filas viejas segun post_type (feed=4:5, reel/story=9:16).
+UPDATE content_calendar SET format = CASE WHEN post_type = 'feed' THEN 'feed' ELSE 'story' END WHERE format IS NULL;
+UPDATE content_calendar SET automation_level = 'auto' WHERE automation_level IS NULL;
 `;
 
 async function migrate() {
   console.log('[migrate] Creando y actualizando tablas si no existen...');
   await pool.query(SQL);
   await pool.query(ALTER_SQL);
+  // Asegurar la fila unica del perfil de marca.
+  await pool.query(`INSERT INTO brand_profile (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
   console.log('[migrate] Listo.');
   await pool.end();
 }
 
-migrate().catch((err) => {
-  console.error('[migrate] Error:', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  migrate().catch((err) => {
+    console.error('[migrate] Error:', err);
+    process.exit(1);
+  });
+}
+
+module.exports = { migrate };
