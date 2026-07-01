@@ -9,6 +9,7 @@ const { generateDaily } = require('../scripts/generate-daily');
 const { publishAssetById, publishDailyAuto } = require('./publishService');
 const { syncPostInsights, analyzePerformance } = require('./insights');
 const { getBrandProfile } = require('./brandProfile');
+const { uploadAsset } = require('./storage');
 const styleService = require('./styleService');
 const { importDriveFolder } = require('./driveService');
 const { analyzeAccountPerformance } = require('./accountAnalyzer');
@@ -19,6 +20,7 @@ app.use(express.json({ limit: '2mb' }));
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
+const uploadVideo = multer({ storage: multer.memoryStorage(), limits: { fileSize: 120 * 1024 * 1024 } });
 
 // Envuelve handlers async para que cualquier rechazo caiga en el middleware de errores
 // (evita 500s "colgados" y promesas sin manejar).
@@ -94,7 +96,7 @@ app.get('/api/calendar', wrap(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT c.*,
             a.id as asset_id, a.caption, a.hashtags, a.cta, a.image_path, a.video_path,
-            a.meta_post_id, a.status as asset_status, a.format as asset_format,
+            a.meta_post_id, a.status as asset_status, a.format as asset_format, a.slides,
             p.name as product_name, p.image_url as product_image_url, p.price as product_price, p.stock as product_stock
      FROM content_calendar c
      LEFT JOIN LATERAL (
@@ -129,6 +131,23 @@ app.get('/api/products', wrap(async (req, res) => {
     [search]
   );
   res.json(rows);
+}));
+
+// Análisis de productos: ventas (30d) + stock. Ganadores y "a dar visibilidad".
+app.get('/api/products/analytics', wrap(async (req, res) => {
+  const [winners, needVisibility, totals] = await Promise.all([
+    pool.query(`SELECT id, name, brand, price, promo_price, stock, sales_30d, image_url
+                FROM products_cache WHERE sales_30d > 0 ORDER BY sales_30d DESC LIMIT 15`),
+    pool.query(`SELECT id, name, brand, price, stock, sales_30d, image_url
+                FROM products_cache WHERE stock >= 10 AND COALESCE(sales_30d,0) = 0 AND price > 0
+                ORDER BY stock DESC LIMIT 15`),
+    pool.query(`SELECT count(*)::int total,
+                       count(*) FILTER (WHERE stock > 0)::int con_stock,
+                       count(*) FILTER (WHERE sales_30d > 0)::int con_ventas,
+                       COALESCE(sum(sales_30d),0)::int unidades
+                FROM products_cache`),
+  ]);
+  res.json({ winners: winners.rows, needVisibility: needVisibility.rows, totals: totals.rows[0] });
 }));
 
 /* ----------------------- Generación / Assets ----------------------- */
@@ -193,20 +212,37 @@ app.get('/api/assets/:assetId/video-prompt', wrap(async (req, res) => {
   if (!id) return res.status(400).json({ error: 'assetId inválido' });
   const { rows } = await pool.query(
     `SELECT a.caption, a.image_path, c.pillar_detail, c.theme_title, c.format,
-            p.name as product_name, p.image_url as product_image_url
+            p.name as product_name, p.image_url as product_image_url, p.images as product_images
      FROM generated_assets a JOIN content_calendar c ON c.id = a.calendar_id
      LEFT JOIN products_cache p ON p.id = a.product_id WHERE a.id = $1`,
     [id]
   );
   const r = rows[0];
   if (!r) return res.status(404).json({ error: 'No existe el asset' });
+  const productImages = Array.isArray(r.product_images) && r.product_images.length
+    ? r.product_images : [r.product_image_url || r.image_path].filter(Boolean);
   res.json(buildVideoPrompt({
     productName: r.product_name,
-    productImageUrl: r.product_image_url || r.image_path,
+    productImages,
     theme: r.pillar_detail || r.theme_title,
     format: r.format,
     caption: r.caption,
   }));
+}));
+
+// Subir un video propio (ej: generado en Gemini/Veo) y dejarlo listo para publicar como Reel.
+app.post('/api/assets/:assetId/upload-video', uploadVideo.single('file'), wrap(async (req, res) => {
+  const id = intParam(req.params.assetId);
+  if (!id) return res.status(400).json({ error: 'assetId inválido' });
+  if (!req.file) return res.status(400).json({ error: 'No se subió ningún video.' });
+  const ext = ((req.file.mimetype || 'video/mp4').split('/')[1] || 'mp4').replace(/[^a-z0-9]/gi, '');
+  const url = await uploadAsset({
+    buffer: req.file.buffer,
+    filename: `reels/uploaded-${id}-${Date.now()}.${ext}`,
+    contentType: req.file.mimetype || 'video/mp4',
+  });
+  await pool.query(`UPDATE generated_assets SET video_path = $2, updated_at = now() WHERE id = $1`, [id, url]);
+  res.json({ ok: true, video_path: url });
 }));
 
 app.post('/api/assets/:assetId/publish', wrap(async (req, res) => {

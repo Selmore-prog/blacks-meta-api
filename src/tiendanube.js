@@ -32,6 +32,7 @@ function normalizeProduct(product) {
   const firstVariant = product.variants && product.variants[0] ? product.variants[0] : {};
   const regular = firstVariant.price ? Number(firstVariant.price) : null;
   const promo = firstVariant.promotional_price ? Number(firstVariant.promotional_price) : null;
+  const images = (product.images || []).map((i) => i.src).filter(Boolean);
   return {
     id: product.id,
     name,
@@ -42,6 +43,7 @@ function normalizeProduct(product) {
     promo_price: promo && regular && promo < regular ? promo : null,
     stock: typeof firstVariant.stock === 'number' ? firstVariant.stock : null,
     image_url: mainImage,
+    images: images.length ? images : (mainImage ? [mainImage] : []),
     permalink: product.permalink || null,
     raw: product,
   };

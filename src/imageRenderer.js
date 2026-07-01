@@ -46,6 +46,8 @@ function buildHtml(opts) {
 
   const cover = bgImageUrl || productImageUrl || null;
   const hasCover = Boolean(cover);
+  // El logo/marca se muestra sólo cuando conviene (ej: no en slides internas del carrusel).
+  const showBrand = opts.showBrand !== false;
 
   // Zonas seguras (la UI de IG tapa arriba/abajo en historias).
   const padX = isStory ? 72 : 60;
@@ -72,7 +74,7 @@ function buildHtml(opts) {
   }
 
   const brandMark = logoUrl
-    ? `<img class="logo" src="${esc(logoUrl)}" alt="BLACKS"/>`
+    ? `<div class="logopill"><img class="logo" src="${esc(logoUrl)}" alt="BLACKS"/></div>`
     : `<div class="wordmark">BLACKS</div>`;
   const badgeHtml = badgeText ? `<div class="badge">${esc(badgeText)}</div>` : '';
   const interactionHtml = interactionLabel ? `<div class="interaction">${esc(interactionLabel)}</div>` : '';
@@ -89,12 +91,14 @@ function buildHtml(opts) {
     .canvas { position:relative; width:${w}px; height:${h}px; background:${hasCover ? '#111' : bgFallback}; color:#fff; }
     .cover { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:0; }
     .scrim { position:absolute; inset:0; z-index:1; background:
-      linear-gradient(to bottom, rgba(0,0,0,.5) 0%, rgba(0,0,0,0) 22%, rgba(0,0,0,0) 55%, rgba(0,0,0,.72) 100%); }
+      linear-gradient(to bottom, rgba(0,0,0,.6) 0%, rgba(0,0,0,.05) 26%, rgba(0,0,0,0) 52%, rgba(0,0,0,.78) 100%); }
     .layer { position:absolute; inset:0; z-index:2; }
     .wm { position:absolute; top:${wmTop}px; left:0; right:0; display:flex; justify-content:center; }
     .wordmark { font-family:'Anton',sans-serif; font-size:${isStory ? 46 : 42}px; letter-spacing:8px;
-      color:#fff; text-shadow:0 2px 14px rgba(0,0,0,.5); }
-    .logo { height:${isStory ? 90 : 76}px; max-width:60%; object-fit:contain; filter:drop-shadow(0 3px 12px rgba(0,0,0,.5)); }
+      color:#fff; text-shadow:0 2px 18px rgba(0,0,0,.7); }
+    .logopill { display:inline-flex; align-items:center; padding:12px 22px; border-radius:16px;
+      background:rgba(0,0,0,.32); backdrop-filter:blur(4px); }
+    .logo { height:${isStory ? 84 : 70}px; max-width:56%; object-fit:contain; }
     .badge { position:absolute; top:${wmTop - 6}px; right:${padX}px; background:${accent}; color:#fff;
       font-weight:800; font-size:22px; padding:11px 22px; border-radius:100px; text-transform:uppercase; letter-spacing:2px; }
     .foot { position:absolute; left:${padX}px; right:${padX}px; bottom:${footBottom}px; }
@@ -121,7 +125,7 @@ function buildHtml(opts) {
     <div class="canvas">
       ${hasCover ? `<img class="cover" src="${esc(cover)}" alt=""/><div class="scrim"></div>` : ''}
       <div class="layer"></div>
-      <div class="wm">${brandMark}</div>
+      ${showBrand ? `<div class="wm">${brandMark}</div>` : ''}
       ${badgeHtml}
       ${interactionHtml}
       <div class="foot">${priceBlock}</div>

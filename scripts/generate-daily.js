@@ -150,6 +150,7 @@ async function generateForSlot(slot, overrides = {}) {
 
   const logoUrl = await getActiveLogo().catch(() => null);
 
+  const isCarousel = Boolean(slot.carousel) && format === 'feed'; // los carruseles de la API de Meta son de feed
   const copy = await generateCopy({
     pillar: slot.pillar,
     pillarDetail,
@@ -158,39 +159,68 @@ async function generateForSlot(slot, overrides = {}) {
     product,
     brandProfile,
     interactionHint: slot.interaction_hint,
+    carousel: isCarousel,
   });
 
-  // El bloque de precio ya comunica el % OFF, así que el badge se reserva para mayorista.
   const badgeText = slot.pillar === 'mayorista' ? 'MAYORISTA' : null;
   const overlayTitle = copy.overlay || (product ? product.name : pillarDetail || slot.theme_title || slot.pillar);
+  // REGLA: el precio va sólo en HISTORIAS (efímeras). El feed queda evergreen (sin precio
+  // que envejezca). Reels tampoco llevan precio en el copy visual.
+  const showPrice = format === 'story' && slot.post_type !== 'reel';
 
-  const { url: imagePath } = await renderPostBuffer({
-    format,
-    overlayTitle,
-    price: product ? product.price : null,
-    promoPrice: product ? product.promo_price : null,
-    cta: copy.cta,
-    badgeText,
-    productImageUrl: visualImageUrl,
-    logoUrl,
-    // Con producto: escena profesional con IA (si está habilitado/pago). Si no, plantilla con la foto real.
-    useAiProductScene: Boolean(product),
-    useAiBackground: !visualImageUrl,
-    bgTheme: pillarDetail || slot.theme_title,
-    interactionLabel: interactionChip(slot),
-  });
+  let imagePath;
+  let slidesJson = null;
+
+  const slides = isCarousel && Array.isArray(copy.slides) && copy.slides.length >= 2 ? copy.slides.slice(0, 4) : null;
+  if (slides) {
+    // Carrusel: una slide por punto, usando distintas fotos del producto si hay.
+    const imgs = (product && Array.isArray(product.images) && product.images.length)
+      ? product.images : (visualImageUrl ? [visualImageUrl] : []);
+    const urls = [];
+    for (let i = 0; i < slides.length; i += 1) {
+      const img = imgs.length ? imgs[i % imgs.length] : visualImageUrl;
+      const { url } = await renderPostBuffer({
+        format,
+        overlayTitle: slides[i].title || overlayTitle,
+        badgeText: i === 0 ? badgeText : null,
+        productImageUrl: img,
+        logoUrl,
+        showBrand: i === 0, // el logo sólo en la portada
+        bgTheme: pillarDetail || slot.theme_title,
+      });
+      urls.push(url);
+    }
+    imagePath = urls[0];
+    slidesJson = JSON.stringify(urls);
+  } else {
+    const { url } = await renderPostBuffer({
+      format,
+      overlayTitle,
+      price: showPrice && product ? product.price : null,
+      promoPrice: showPrice && product ? product.promo_price : null,
+      cta: copy.cta,
+      badgeText,
+      productImageUrl: visualImageUrl,
+      logoUrl,
+      useAiProductScene: Boolean(product),
+      useAiBackground: !visualImageUrl,
+      bgTheme: pillarDetail || slot.theme_title,
+      interactionLabel: interactionChip(slot),
+    });
+    imagePath = url;
+  }
 
   // El video del Reel NO se renderiza acá (ffmpeg es pesado). Lo completa
   // scripts/render-pending-reels.js corriendo en GitHub Actions.
   await pool.query(
-    `INSERT INTO generated_assets (calendar_id, product_id, caption, hashtags, cta, image_path, video_path, format, status)
-     VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, 'draft')`,
-    [slot.id, product ? product.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format]
+    `INSERT INTO generated_assets (calendar_id, product_id, caption, hashtags, cta, image_path, video_path, format, slides, status)
+     VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, 'draft')`,
+    [slot.id, product ? product.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson]
   );
 
   await pool.query(`UPDATE content_calendar SET status = 'draft' WHERE id = $1`, [slot.id]);
 
-  console.log(`[generate-daily] Slot #${slot.id} (${slot.pillar}/${slot.post_type}/${format}) -> ${imagePath}`);
+  console.log(`[generate-daily] Slot #${slot.id} (${slot.pillar}/${slot.post_type}/${format}${slides ? '/carrusel' : ''}) -> ${imagePath}`);
 }
 
 async function generateDaily() {

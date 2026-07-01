@@ -49,6 +49,7 @@ function sanitizeCopy(copy) {
     caption: sanitizeText(copy.caption),
     hashtags: sanitizeText(copy.hashtags),
     cta: sanitizeText(copy.cta),
+    slides: (copy.slides || []).map((s) => ({ title: sanitizeText(s.title), text: sanitizeText(s.text) })),
   };
 }
 
@@ -56,17 +57,16 @@ function formatGuidance(postType, format) {
   if (format === 'story' && postType !== 'reel') {
     return `FORMATO: Historia de Instagram (vertical 9:16, se ve pocos segundos).
 - "overlay" = texto MUY corto y con gancho para poner ARRIBA de la imagen (máx ~6 palabras).
-- "caption" = 1 línea corta de apoyo (la historia casi no se lee, va al grano).
-- Pensá algo que invite a tocar/deslizar/responder.`;
+- "caption" = 1 línea corta y al grano. Nada largo.`;
   }
   if (postType === 'reel') {
     return `FORMATO: Reel (video vertical 9:16).
-- "overlay" = el gancho del primer segundo (texto corto que aparece en pantalla).
-- "caption" = 2 a 4 líneas para el pie del Reel, con ritmo, que dé ganas de ver el video.`;
+- "overlay" = el gancho del primer segundo (texto corto en pantalla).
+- "caption" = 2 líneas cortas con ritmo. Concisa.`;
   }
   return `FORMATO: Post de feed (imagen 4:5).
-- "overlay" = título corto y potente para poner sobre la imagen (máx ~7 palabras).
-- "caption" = 2 a 5 líneas para el pie del posteo. Primera línea = gancho fuerte (se ve antes del "ver más").`;
+- "overlay" = título corto y potente (máx ~7 palabras).
+- "caption" = MÁXIMO 2-3 líneas cortas. Primera línea = gancho. Cortito y al hueso (los captions largos rinden peor).`;
 }
 
 // Temporada del hemisferio SUR (Argentina) según el mes actual.
@@ -80,7 +80,7 @@ function seasonContext(date = new Date()) {
   return `Estamos en ${estacion} en Argentina — ${nota} Si encaja, mencioná el clima/temporada de forma natural (sin forzar).`;
 }
 
-function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, brandProfile, interactionHint }) {
+function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, brandProfile, interactionHint, carousel, slideCount = 3 }) {
   const productInfo = product
     ? `Producto a destacar: ${product.name}${product.brand ? ` (marca ${product.brand})` : ''}${product.price ? `, precio $${Number(product.price).toLocaleString('es-AR')}` : ''}${typeof product.stock === 'number' ? `, stock ${product.stock}` : ''}.`
     : 'No hay un producto puntual; el foco es la marca/línea en general.';
@@ -114,8 +114,9 @@ Pilar de contenido: ${pillar}
 ${productInfo}
 Temporada: ${seasonContext()}${interaction}${voice}
 
+${carousel ? `\nCARRUSEL: además, devolvé "slides": un array de ${slideCount} objetos {"title","text"} para un carrusel deslizable. Cada slide UN punto distinto, con progresión: (1) gancho, (2-${slideCount - 1}) beneficios/datos concretos, (${slideCount}) cierre + CTA. "title" cortísimo (2-4 palabras, va grande en pantalla), "text" 1 línea corta. Nada repetido entre slides.\n` : ''}
 Escribí el copy siguiendo la voz de marca y las reglas. Devolvé SOLO un JSON válido con esta forma exacta:
-{"overlay": "...", "caption": "...", "hashtags": "...", "cta": "..."}`;
+{"overlay": "...", "caption": "...", "hashtags": "...", "cta": "..."${carousel ? ', "slides": [{"title":"...","text":"..."}]' : ''}}`;
 }
 
 function parseCopyJson(text) {
@@ -128,6 +129,7 @@ function parseCopyJson(text) {
     caption: obj.caption || '',
     hashtags: obj.hashtags || '',
     cta: obj.cta || '',
+    slides: Array.isArray(obj.slides) ? obj.slides.map((s) => ({ title: s.title || '', text: s.text || '' })) : [],
   };
 }
 
@@ -231,6 +233,7 @@ async function generateCopy(opts) {
               caption: { type: 'string' },
               hashtags: { type: 'string' },
               cta: { type: 'string' },
+              ...(opts.carousel ? { slides: { type: 'array', items: { type: 'object', properties: { title: { type: 'string' }, text: { type: 'string' } }, required: ['title', 'text'] } } } : {}),
             },
             required: ['overlay', 'caption', 'hashtags', 'cta'],
           },
@@ -392,20 +395,33 @@ Devolvé SOLO un JSON válido con esta forma:
  * Arma un súper-prompt listo para pegar en Gemini/Veo (Omni) y generar una escena
  * de video a medida. No llama a la API (es texto): la generación la hace el usuario a mano.
  */
-function buildVideoPrompt({ productName, productImageUrl, theme, format = 'story', caption } = {}) {
+function buildVideoPrompt({ productName, productImages = [], productImageUrl, theme, format = 'story', caption } = {}) {
+  const imgs = (productImages && productImages.length ? productImages : [productImageUrl]).filter(Boolean);
   const ratio = format === 'feed' ? '4:5' : '9:16 vertical';
   const prompt = `Creá un video comercial ${ratio} de ~8 segundos para BLACKS, una marca argentina de ropa de trabajo y calzado de seguridad.
-PRODUCTO: usá EXACTAMENTE el producto de la imagen de referencia adjunta (${productName || 'producto de trabajo'}). No lo cambies ni le alteres colores/logos.
-ESCENA: mostralo en un entorno real y con contexto (${theme || 'obra / taller / depósito / fábrica'}), usado por un trabajador argentino real. Ambiente creíble, no de estudio.
+
+PRODUCTO (REGLA ESTRICTA): usá EXACTAMENTE el producto de las imágenes de referencia adjuntas (${productName || 'producto de trabajo'}). Es imprescindible que sea IDÉNTICO:
+- NO agregues ni inventes marcas, logos, etiquetas, parches, cierres, costuras, texturas, estampados, colores ni detalles que NO estén en las fotos.
+- NO cambies el color, el corte ni los materiales.
+- Si dudás de un detalle, no lo agregues. El producto del video tiene que ser el mismo que se vende.
+
+ESCENA: mostralo en un entorno real con contexto (${theme || 'obra / taller / depósito / fábrica / calle'}), usado o exhibido de forma creíble. Ambiente real argentino, no set de estudio artificial.
 CÁMARA: movimiento lento y cinematográfico (dolly-in suave u órbita corta), profundidad de campo, partículas de polvo, luz de golden hour o luz industrial cálida.
-ESTÉTICA: robusta, premium, alto contraste, look de aviso publicitario moderno. Sin texto en pantalla (el texto lo agrego después). Terminá en un plano hero limpio del producto.`;
+ESTÉTICA: robusta, premium, alto contraste, look de aviso moderno. SIN texto en pantalla (el texto/subtítulos los agrego después). Terminá en un plano hero limpio del producto.`;
   const instructions = [
-    'Abrí Gemini (Veo) o la herramienta de video.',
-    'Subí la foto del producto (link abajo) como referencia.',
+    'Abrí Gemini (Veo/Omni) o tu herramienta de video.',
+    'Subí VARIAS fotos del producto desde distintos ángulos (frente, espalda, detalle) — mientras más perspectivas, más fiel queda.',
     `Pegá el prompt. Elegí formato ${ratio} y ~8s.`,
-    'Descargá el .mp4 y subilo como Reel desde el panel o desde Instagram.',
+    'Descargá el .mp4 y subilo al panel (botón "Subir video") para publicarlo como Reel.',
   ];
-  return { prompt: caption ? `${prompt}\n\nCONTEXTO DEL POSTEO (para el tono): ${caption}` : prompt, instructions, productImageUrl: productImageUrl || null };
+  const platformNote = 'Gemini Veo/Omni (lo tuyo) es muy bueno. Para máxima fidelidad, mandá varias fotos del producto. Alternativas con tier gratuito (más limitadas/con marca de agua): Kling, Runway, Pika. Lo más fiel siempre es tu propia filmación + edición.';
+  return {
+    prompt: caption ? `${prompt}\n\nCONTEXTO DEL POSTEO (para el tono, NO para poner texto): ${caption}` : prompt,
+    instructions,
+    productImages: imgs,
+    productImageUrl: imgs[0] || null,
+    platformNote,
+  };
 }
 
 module.exports = {

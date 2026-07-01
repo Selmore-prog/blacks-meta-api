@@ -163,7 +163,45 @@ async function publishToFacebook({ imageUrl, videoUrl, caption }) {
   return data.id || data.post_id;
 }
 
+/**
+ * Publica un CARRUSEL de imágenes en Instagram (feed). Crea un contenedor por imagen
+ * (is_carousel_item), luego el contenedor CAROUSEL con los children y publica.
+ */
+async function publishCarouselToInstagram({ imageUrls, caption }) {
+  checkRateLimit();
+  const { igUserId, pageAccessToken, apiVersion } = config.meta;
+  if (!igUserId || !pageAccessToken) {
+    throw new Error('[metaPublisher] Faltan IG_USER_ID o META_PAGE_ACCESS_TOKEN.');
+  }
+  const base = `https://graph.facebook.com/${apiVersion}/${igUserId}`;
+
+  const childIds = [];
+  for (const url of imageUrls) {
+    const p = new URLSearchParams({ image_url: url, is_carousel_item: 'true', access_token: pageAccessToken });
+    const r = await fetch(`${base}/media`, { method: 'POST', body: p });
+    const d = await r.json();
+    if (!r.ok || d.error) throw new Error(`Error creando item de carrusel: ${JSON.stringify(d.error || d)}`);
+    childIds.push(d.id);
+  }
+
+  const cp = new URLSearchParams({ media_type: 'CAROUSEL', children: childIds.join(','), access_token: pageAccessToken });
+  if (caption) cp.append('caption', caption);
+  const cr = await fetch(`${base}/media`, { method: 'POST', body: cp });
+  const cd = await cr.json();
+  if (!cr.ok || cd.error) throw new Error(`Error creando contenedor de carrusel: ${JSON.stringify(cd.error || cd)}`);
+
+  const pubp = new URLSearchParams({ creation_id: cd.id, access_token: pageAccessToken });
+  const pr = await fetch(`${base}/media_publish`, { method: 'POST', body: pubp });
+  const pd = await pr.json();
+  if (!pr.ok || pd.error) throw new Error(`Error publicando carrusel: ${JSON.stringify(pd.error || pd)}`);
+
+  dailyPublishCount += 1;
+  console.log(`[metaPublisher] Carrusel publicado (${imageUrls.length} slides). ID: ${pd.id}`);
+  return pd.id;
+}
+
 module.exports = {
   publishToInstagram,
   publishToFacebook,
+  publishCarouselToInstagram,
 };

@@ -88,6 +88,9 @@ ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS video_path TEXT;
 ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS format TEXT;             -- 'feed' | 'story'
 ALTER TABLE products_cache ADD COLUMN IF NOT EXISTS sales_30d INTEGER DEFAULT 0; -- unidades vendidas ult. 30 días
 ALTER TABLE products_cache ADD COLUMN IF NOT EXISTS promo_price NUMERIC; -- precio promocional (si está en oferta)
+ALTER TABLE products_cache ADD COLUMN IF NOT EXISTS images JSONB;         -- todas las fotos del producto (distintas perspectivas)
+ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS slides JSONB;       -- URLs de las slides del carrusel (la 1a = image_path)
+ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS carousel BOOLEAN DEFAULT false;
 ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS format TEXT;             -- 'feed' (4:5) | 'story' (9:16)
 ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS automation_level TEXT DEFAULT 'auto'; -- 'auto' | 'semi'
 ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS interaction_hint TEXT;   -- sticker/interaccion a agregar a mano

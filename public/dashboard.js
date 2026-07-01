@@ -93,6 +93,13 @@ function switchTab(view) {
   document.getElementById(`view-${view}`).classList.remove('hidden');
   if (view === 'style') loadStyle();
   if (view === 'metrics') loadMetrics();
+  if (view === 'products') loadProducts();
+}
+
+function parseSlides(s) {
+  if (!s) return null;
+  if (Array.isArray(s)) return s;
+  try { const a = JSON.parse(s); return Array.isArray(a) ? a : null; } catch (_) { return null; }
 }
 
 /* ============ status chips ============ */
@@ -263,11 +270,13 @@ function openDayDetail(key) {
 function renderPreview(item) {
   const format = item.format || (item.post_type === 'feed' ? 'feed' : 'story');
   const isStory = format === 'story';
-  const media = item.video_path
-    ? `<video class="media" src="${esc(item.video_path)}" muted loop playsinline autoplay poster="${esc(item.image_path || '')}"></video>`
-    : item.image_path
-      ? `<img class="media" src="${esc(item.image_path)}" alt="" />`
-      : `<div class="empty-media">${esc(item.pillar_detail || item.theme_title || 'Sin generar')}</div>`;
+  const slides = parseSlides(item.slides);
+  const isCarousel = slides && slides.length > 1;
+  let media;
+  if (item.video_path) media = `<video class="media" src="${esc(item.video_path)}" muted loop playsinline autoplay poster="${esc(item.image_path || '')}"></video>`;
+  else if (isCarousel) media = `<div class="carousel">${slides.map((u) => `<img src="${esc(u)}" alt=""/>`).join('')}</div><div class="c-count">${icon('grid')} ${slides.length}</div>`;
+  else if (item.image_path) media = `<img class="media" src="${esc(item.image_path)}" alt="" />`;
+  else media = `<div class="empty-media">${esc(item.pillar_detail || item.theme_title || 'Sin generar')}</div>`;
 
   const chrome = isStory ? `<div class="story-chrome">
       <div class="story-bars"><span></span><span></span><span></span></div>
@@ -275,7 +284,8 @@ function renderPreview(item) {
       ${item.post_type === 'reel' ? `<div class="reel-play">${icon('play')}</div>` : ''}
     </div>` : '';
 
-  const label = isStory ? (item.post_type === 'reel' ? 'REEL · 9:16' : 'HISTORIA · 9:16') : 'FEED · 4:5';
+  const label = isCarousel ? `CARRUSEL · ${slides.length} · 4:5`
+    : isStory ? (item.post_type === 'reel' ? 'REEL · 9:16' : 'HISTORIA · 9:16') : 'FEED · 4:5';
   return `<div class="preview-wrap">
     <div class="phone ${isStory ? 'story' : 'feed'}">${media}${chrome}</div>
     <div class="fmt-label">${icon('pin')} ${label} · <span class="see">${icon('eye')} ver</span></div>
@@ -296,12 +306,16 @@ function openPreview(item) {
   const isStory = format === 'story';
   const isReel = item.post_type === 'reel';
   const img = item.image_path, vid = item.video_path;
+  const slides = parseSlides(item.slides);
+  const feedMedia = (slides && slides.length > 1)
+    ? `<div class="carousel">${slides.map((u) => `<img src="${esc(u)}"/>`).join('')}</div><div class="c-count">${icon('grid')} 1/${slides.length}</div>`
+    : (img ? `<img src="${esc(img)}"/>` : '<div class="ig-empty">Sin imagen generada</div>');
 
   let inner;
   if (!isStory) {
     inner = `<div class="ig-post">
       <div class="ig-head"><div class="ig-av">B</div><div class="ig-user">blacks.indumentaria</div><div class="ig-dots">···</div></div>
-      <div class="ig-media feed">${img ? `<img src="${esc(img)}"/>` : '<div class="ig-empty">Sin imagen generada</div>'}</div>
+      <div class="ig-media feed">${feedMedia}</div>
       <div class="ig-actions"><span>${icon('heart')}</span><span>${icon('comment')}</span><span>${icon('send')}</span><span class="grow"></span><span>${icon('bookmark')}</span></div>
       <div class="ig-likes">A <b>128 personas</b> les gusta esto</div>
       <div class="ig-cap"><b>blacks.indumentaria</b> ${esc(item.caption || '')}</div>
@@ -350,6 +364,8 @@ function renderCard(item) {
   const regenBtn = `<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Regenerar</button>`;
   const videoBtn = (item.post_type === 'reel' && aid)
     ? `<button class="btn-ghost btn-sm" data-act="videoprompt" data-id="${aid}">${icon('film')} Prompt video IA</button>` : '';
+  const uploadVideoBtn = (item.post_type === 'reel' && aid)
+    ? `<button class="btn-ghost btn-sm" data-act="uploadvideo" data-id="${aid}">${icon('upload')} Subir video</button>` : '';
 
   let actions = '';
   if (isRepost) {
@@ -360,13 +376,13 @@ function renderCard(item) {
   } else if (status === 'draft') {
     actions = `<button class="btn-approve" data-act="approve" data-id="${aid}">${icon('check')} Aprobar</button>
       <button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Editar</button>
-      ${regenBtn}${videoBtn}
+      ${regenBtn}${videoBtn}${uploadVideoBtn}
       <button class="btn-discard btn-sm" data-act="discard" data-id="${aid}">${icon('trash')} Descartar</button>`;
   } else if (status === 'approved') {
     actions = (isSemi
       ? `<button class="btn-manual" data-act="publish" data-id="${aid}">${icon('info')} Cómo publicarla</button>`
       : `<button class="btn-publish" data-act="publish" data-id="${aid}">${icon('send')} Publicar ahora</button>`) +
-      `<button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Editar</button>${regenBtn}${videoBtn}`;
+      `<button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Editar</button>${regenBtn}${videoBtn}${uploadVideoBtn}`;
   } else if (status === 'published') {
     actions = `<span class="badge status-published">${icon('check')} Publicado ${item.meta_post_id ? `· ${esc(item.meta_post_id)}` : ''}</span>`;
   } else if (status === 'discarded') {
@@ -418,6 +434,8 @@ async function handleAction(act, id, btn, card, item) {
       openRegen(item || calItems.find((x) => String(x.id) === String(id)));
     } else if (act === 'videoprompt') {
       openVideoPrompt(id);
+    } else if (act === 'uploadvideo') {
+      openVideoUpload(id);
     } else if (act === 'publish') {
       await doPublish(id, btn);
     }
@@ -476,16 +494,65 @@ async function openVideoPrompt(assetId) {
       <p class="hint" style="margin-top:0;">Para una escena de video a medida (fábrica, calle, obra…) generala a mano en Gemini/Veo con esto:</p>
       <div class="field"><label>Pasos</label>
         <ol style="line-height:1.8; padding-left:20px; font-size:14px; margin:0;">${d.instructions.map((i) => `<li>${esc(i)}</li>`).join('')}</ol></div>
-      ${d.productImageUrl ? `<div class="field"><label>Foto del producto a mandar</label>
-        <a href="${esc(d.productImageUrl)}" target="_blank">${esc(d.productImageUrl)}</a></div>` : ''}
+      ${(d.productImages && d.productImages.length) ? `<div class="field"><label>Fotos del producto a mandar (${d.productImages.length}) — subí varias perspectivas</label>
+        <div class="vp-imgs">${d.productImages.map((u, i) => `<a href="${esc(u)}" target="_blank" title="foto ${i + 1}"><img src="${esc(u)}"/></a>`).join('')}</div></div>` : ''}
       <div class="field"><label>Prompt (copialo y pegalo)</label>
-        <textarea class="input" id="vp-text" readonly style="min-height:190px">${esc(d.prompt)}</textarea></div>
+        <textarea class="input" id="vp-text" readonly style="min-height:200px">${esc(d.prompt)}</textarea></div>
+      ${d.platformNote ? `<p class="hint" style="margin:0 0 12px;">${icon('info')} ${esc(d.platformNote)}</p>` : ''}
       <div style="display:flex; gap:8px; justify-content:flex-end;">
         <button class="btn-primary" id="vp-copy">${icon('copy')} Copiar prompt</button></div>`;
     const ov = showInfoModal('Prompt para video con IA', body);
     ov.querySelector('#vp-copy').addEventListener('click', () =>
       navigator.clipboard.writeText(d.prompt).then(() => toast('Prompt copiado', 'ok')));
   } catch (e) { toast(e.message, 'err'); }
+}
+
+function openVideoUpload(assetId) {
+  const input = document.createElement('input');
+  input.type = 'file'; input.accept = 'video/*';
+  input.addEventListener('change', async () => {
+    if (!input.files || !input.files.length) return;
+    const fd = new FormData();
+    fd.append('file', input.files[0]);
+    toast('Subiendo video… (puede tardar)');
+    try {
+      await api(`/api/assets/${assetId}/upload-video`, { method: 'POST', body: fd });
+      toast('Video cargado. Aprobá y publicá el Reel.', 'ok');
+      loadCalendar();
+    } catch (e) { toast(e.message, 'err'); }
+  });
+  input.click();
+}
+
+/* ============ productos ============ */
+async function loadProducts() {
+  const body = document.getElementById('products-body');
+  body.innerHTML = '<p class="loading">Cargando productos...</p>';
+  try {
+    const d = await api('/api/products/analytics');
+    const t = d.totals || {};
+    const money = (n) => n ? `$${Number(n).toLocaleString('es-AR')}` : '—';
+    const rowsHtml = (arr, right) => (arr && arr.length)
+      ? arr.map((p) => `<div class="prod-row">
+          <img src="${esc(p.image_url || '')}" onerror="this.style.visibility='hidden'"/>
+          <div class="prod-info"><div class="prod-name">${esc(p.name)}</div>
+            <div class="prod-sub">${esc(p.brand || '')} · stock ${p.stock ?? '—'} · ${money(p.promo_price || p.price)}</div></div>
+          <div class="prod-metric">${right(p)}</div></div>`).join('')
+      : '<p class="hint">Sin datos.</p>';
+    body.innerHTML = `
+      <div class="prod-totals">
+        <div class="stat"><b>${t.total ?? 0}</b><span>productos</span></div>
+        <div class="stat"><b>${t.con_stock ?? 0}</b><span>con stock</span></div>
+        <div class="stat"><b>${t.con_ventas ?? 0}</b><span>se vendieron (30d)</span></div>
+        <div class="stat"><b>${t.unidades ?? 0}</b><span>unidades vendidas</span></div>
+      </div>
+      <div class="grid-2" style="margin-top:18px;">
+        <div class="panel"><h3>${icon('chart')} Se venden bien (últimos 30 días)</h3>
+          <p class="hint">Dales continuidad: destacalos en historias y feed.</p>${rowsHtml(d.winners, (p) => `<b>${p.sales_30d}</b><span>vendidos</span>`)}</div>
+        <div class="panel"><h3>${icon('alert')} A darles visibilidad</h3>
+          <p class="hint">Mucho stock y pocas/ninguna venta: conviene mostrarlos más.</p>${rowsHtml(d.needVisibility, (p) => `<b>${p.stock}</b><span>en stock</span>`)}</div>
+      </div>`;
+  } catch (e) { body.innerHTML = `<p class="empty">Error: ${esc(e.message)}</p>`; }
 }
 
 async function doPublish(id, btn) {

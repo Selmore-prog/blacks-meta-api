@@ -1,7 +1,7 @@
 const pool = require('./db');
 const config = require('./config');
 const { getPublicUrl } = require('./storage');
-const { publishToInstagram, publishToFacebook } = require('./metaPublisher');
+const { publishToInstagram, publishToFacebook, publishCarouselToInstagram } = require('./metaPublisher');
 
 async function loadAsset(assetId) {
   const { rows } = await pool.query(
@@ -53,10 +53,18 @@ async function publishAssetById(assetId, { force = false } = {}) {
   }
 
   const fullCaption = [asset.caption, asset.hashtags].filter(Boolean).join('\n\n');
-  console.log(`[publishService] Publicando asset #${assetId} (${mediaType})...`);
+
+  // Carrusel: varias slides (sólo feed).
+  const slides = Array.isArray(asset.slides) ? asset.slides
+    : (asset.slides ? (() => { try { return JSON.parse(asset.slides); } catch (_) { return null; } })() : null);
+  const isCarousel = slides && slides.length >= 2 && asset.post_type === 'feed' && asset.platform !== 'facebook';
+
+  console.log(`[publishService] Publicando asset #${assetId} (${isCarousel ? 'CARRUSEL' : mediaType})...`);
 
   let metaPostId = null;
-  if (asset.platform === 'facebook') {
+  if (isCarousel) {
+    metaPostId = await publishCarouselToInstagram({ imageUrls: slides.map(getPublicUrl), caption: fullCaption });
+  } else if (asset.platform === 'facebook') {
     metaPostId = await publishToFacebook({ imageUrl, videoUrl, caption: fullCaption });
   } else {
     metaPostId = await publishToInstagram({ imageUrl, videoUrl, caption: fullCaption, mediaType });
