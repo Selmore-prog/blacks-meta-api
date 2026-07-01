@@ -186,6 +186,7 @@ async function generateForSlot(slot, overrides = {}) {
         productImageUrl: img,
         logoUrl,
         showBrand: i === 0, // el logo sólo en la portada
+        layoutSeed: Number(slot.id) + i,
         bgTheme: pillarDetail || slot.theme_title,
       });
       urls.push(url);

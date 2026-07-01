@@ -46,23 +46,30 @@ function buildHtml(opts) {
 
   const cover = bgImageUrl || productImageUrl || null;
   const hasCover = Boolean(cover);
-  // El logo/marca se muestra sólo cuando conviene (ej: no en slides internas del carrusel).
   const showBrand = opts.showBrand !== false;
 
-  // Zonas seguras (la UI de IG tapa arriba/abajo en historias).
-  const padX = isStory ? 72 : 60;
-  const wmTop = isStory ? 150 : 56;
-  const footBottom = isStory ? 250 : 150;
-  const domainBottom = isStory ? 118 : 52;
+  // Zonas seguras GENEROSAS: en historias IG tapa arriba (usuario/hora) y abajo
+  // (barra "Enviá un mensaje" + reacciones). Dejamos todo el texto adentro del área visible.
+  const padX = isStory ? 84 : 60;
+  const wmTop = isStory ? 170 : 54;
+  const footBottom = isStory ? 360 : 140; // el texto abajo queda por ENCIMA de la barra de mensaje
+  const footTop = isStory ? 330 : 175;    // para el layout con texto arriba
+  const domainBottom = isStory ? 250 : 54;
+  const heroTop = isStory ? 250 : 150;
+  const heroBottom = isStory ? 480 : 300;
 
-  // Lógica de precio: ANTES / % OFF / AHORA.
+  // Posiciones dinámicas del texto (varía entre piezas). Con precio: siempre abajo-izquierda.
+  const LAYOUTS = [{ a: 'left', v: 'bottom' }, { a: 'center', v: 'bottom' }, { a: 'left', v: 'top' }];
+  const L = price ? { a: 'left', v: 'bottom' } : LAYOUTS[(Number(opts.layoutSeed) || 0) % LAYOUTS.length];
+  const footPos = L.v === 'top' ? `top:${footTop}px` : `bottom:${footBottom}px`;
+
   const hasPromo = price && promoPrice && Number(promoPrice) < Number(price);
   const off = hasPromo ? Math.round((1 - Number(promoPrice) / Number(price)) * 100) : 0;
   const now = hasPromo ? promoPrice : price;
 
-  let priceBlock = '';
+  let content = '';
   if (price) {
-    priceBlock = `<div class="pblock">
+    content = `<div class="pblock">
       ${hasPromo ? `<div class="lbl">ANTES</div><div class="antes">$${formatPrice(price)}</div>
         <div class="hr"></div><div class="off">-${off}% OFF</div>` : ''}
       <div class="lbl">${hasPromo ? 'AHORA' : 'PRECIO'}</div>
@@ -70,11 +77,12 @@ function buildHtml(opts) {
       ${transfer ? `<div class="transfer">${esc(transfer)}</div>` : ''}
     </div>`;
   } else if (overlayTitle) {
-    priceBlock = `<div class="headline">${esc(overlayTitle)}</div>`;
+    content = `<div class="headline">${esc(overlayTitle)}</div>`;
   }
 
+  // El logo va SIN fondo (PNG transparente), sólo con una sombra sutil para legibilidad.
   const brandMark = logoUrl
-    ? `<div class="logopill"><img class="logo" src="${esc(logoUrl)}" alt="BLACKS"/></div>`
+    ? `<img class="logo" src="${esc(logoUrl)}" alt="BLACKS"/>`
     : `<div class="wordmark">BLACKS</div>`;
   const badgeHtml = badgeText ? `<div class="badge">${esc(badgeText)}</div>` : '';
   const interactionHtml = interactionLabel ? `<div class="interaction">${esc(interactionLabel)}</div>` : '';
@@ -88,47 +96,50 @@ function buildHtml(opts) {
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
     html,body { width:${w}px; height:${h}px; overflow:hidden; font-family:'Inter','Helvetica Neue',Arial,sans-serif; }
-    .canvas { position:relative; width:${w}px; height:${h}px; background:${hasCover ? '#111' : bgFallback}; color:#fff; }
-    .cover { position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:0; }
-    .scrim { position:absolute; inset:0; z-index:1; background:
-      linear-gradient(to bottom, rgba(0,0,0,.6) 0%, rgba(0,0,0,.05) 26%, rgba(0,0,0,0) 52%, rgba(0,0,0,.78) 100%); }
-    .layer { position:absolute; inset:0; z-index:2; }
-    .wm { position:absolute; top:${wmTop}px; left:0; right:0; display:flex; justify-content:center; }
+    .canvas { position:relative; width:${w}px; height:${h}px; background:${hasCover ? '#0e0e10' : bgFallback}; color:#fff; }
+    /* Fondo: la misma foto difuminada para rellenar sin recortar el producto. */
+    .bg { position:absolute; inset:-60px; width:calc(100% + 120px); height:calc(100% + 120px);
+      object-fit:cover; filter:blur(34px) brightness(.66); z-index:0; }
+    /* Producto: CONTAIN (se ve entero, sin zoom excesivo). */
+    .hero { position:absolute; top:${heroTop}px; bottom:${heroBottom}px; left:${padX}px; right:${padX}px;
+      display:flex; align-items:center; justify-content:center; z-index:1; }
+    .hero img { max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 26px 44px rgba(0,0,0,.45)); }
+    .scrim { position:absolute; inset:0; z-index:2; background:
+      linear-gradient(to bottom, rgba(0,0,0,.5) 0%, rgba(0,0,0,0) 22%, rgba(0,0,0,0) 60%, rgba(0,0,0,.72) 100%); }
+    .wm { position:absolute; top:${wmTop}px; left:0; right:0; display:flex; justify-content:center; z-index:4; }
     .wordmark { font-family:'Anton',sans-serif; font-size:${isStory ? 46 : 42}px; letter-spacing:8px;
       color:#fff; text-shadow:0 2px 18px rgba(0,0,0,.7); }
-    .logopill { display:inline-flex; align-items:center; padding:12px 22px; border-radius:16px;
-      background:rgba(0,0,0,.32); backdrop-filter:blur(4px); }
-    .logo { height:${isStory ? 84 : 70}px; max-width:56%; object-fit:contain; }
+    .logo { height:${isStory ? 78 : 64}px; max-width:52%; object-fit:contain;
+      filter:drop-shadow(0 1px 2px rgba(255,255,255,.35)) drop-shadow(0 4px 12px rgba(0,0,0,.55)); }
     .badge { position:absolute; top:${wmTop - 6}px; right:${padX}px; background:${accent}; color:#fff;
-      font-weight:800; font-size:22px; padding:11px 22px; border-radius:100px; text-transform:uppercase; letter-spacing:2px; }
-    .foot { position:absolute; left:${padX}px; right:${padX}px; bottom:${footBottom}px; }
-    .headline { font-family:'Anton',sans-serif; font-size:${isStory ? 78 : 66}px; line-height:.98; letter-spacing:.5px;
-      text-transform:uppercase; color:#fff; max-width:88%; text-shadow:0 2px 16px rgba(0,0,0,.55); }
-    .pblock { display:inline-block; }
+      font-weight:800; font-size:22px; padding:11px 22px; border-radius:100px; text-transform:uppercase; letter-spacing:2px; z-index:4; }
+    .foot { position:absolute; left:${padX}px; right:${padX}px; ${footPos}; text-align:${L.a}; z-index:4; }
+    .headline { display:inline-block; font-family:'Anton',sans-serif; font-size:${isStory ? 76 : 64}px; line-height:.98;
+      letter-spacing:.5px; text-transform:uppercase; color:#fff; max-width:92%; text-shadow:0 2px 16px rgba(0,0,0,.6); }
+    .pblock { display:inline-block; text-align:left; }
     .lbl { font-size:22px; font-weight:700; letter-spacing:3px; color:rgba(255,255,255,.9); text-transform:uppercase; }
     .antes { font-family:'Anton',sans-serif; font-size:${isStory ? 54 : 48}px; color:#fff; opacity:.9;
       text-decoration:line-through; text-decoration-thickness:3px; line-height:1; }
     .hr { width:170px; height:3px; background:#fff; margin:12px 0; opacity:.85; }
     .off { display:inline-block; background:${accent}; color:#fff; font-weight:800; font-size:24px;
       padding:5px 14px; border-radius:6px; letter-spacing:1px; margin-bottom:14px; }
-    .now { font-family:'Anton',sans-serif; font-size:${isStory ? 104 : 92}px; color:#fff; line-height:.9;
+    .now { font-family:'Anton',sans-serif; font-size:${isStory ? 100 : 92}px; color:#fff; line-height:.9;
       text-shadow:0 3px 20px rgba(0,0,0,.5); }
     .transfer { font-size:22px; font-weight:600; letter-spacing:1px; color:rgba(255,255,255,.92); margin-top:12px; max-width:520px; }
-    .interaction { position:absolute; left:50%; bottom:${footBottom + 40}px; transform:translateX(-50%);
+    .interaction { position:absolute; left:50%; bottom:${(isStory ? 360 : 140) + 30}px; transform:translateX(-50%);
       background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.5); backdrop-filter:blur(4px);
-      padding:14px 28px; border-radius:100px; font-size:26px; font-weight:700; color:#fff; white-space:nowrap; }
+      padding:14px 28px; border-radius:100px; font-size:26px; font-weight:700; color:#fff; white-space:nowrap; z-index:4; }
     .domain { position:absolute; left:0; right:0; bottom:${domainBottom}px; display:flex; align-items:center;
-      justify-content:center; gap:12px; }
+      justify-content:center; gap:12px; z-index:4; }
     .tick { width:13px; height:13px; background:${accent}; border-radius:3px; }
     .site { font-size:${isStory ? 24 : 22}px; font-weight:700; letter-spacing:3px; color:#fff; text-shadow:0 1px 6px rgba(0,0,0,.6); }
   </style></head><body>
     <div class="canvas">
-      ${hasCover ? `<img class="cover" src="${esc(cover)}" alt=""/><div class="scrim"></div>` : ''}
-      <div class="layer"></div>
+      ${hasCover ? `<img class="bg" src="${esc(cover)}" alt=""/><div class="hero"><img src="${esc(cover)}" alt=""/></div><div class="scrim"></div>` : ''}
       ${showBrand ? `<div class="wm">${brandMark}</div>` : ''}
       ${badgeHtml}
       ${interactionHtml}
-      <div class="foot">${priceBlock}</div>
+      <div class="foot">${content}</div>
       <div class="domain"><span class="tick"></span><span class="site">${esc(site)}</span></div>
     </div>
   </body></html>`;
