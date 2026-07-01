@@ -14,6 +14,7 @@ const styleService = require('./styleService');
 const { importDriveFolder } = require('./driveService');
 const { analyzeAccountPerformance } = require('./accountAnalyzer');
 const { hasGemini, buildVideoPrompt } = require('./ai');
+const { transcribeVideo } = require('./transcribe');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -97,6 +98,7 @@ app.get('/api/calendar', wrap(async (req, res) => {
     `SELECT c.*,
             a.id as asset_id, a.caption, a.hashtags, a.cta, a.image_path, a.video_path,
             a.meta_post_id, a.status as asset_status, a.format as asset_format, a.slides,
+            a.edited_video_path, a.edit_status, a.voiceover_path,
             p.name as product_name, p.image_url as product_image_url, p.price as product_price, p.stock as product_stock
      FROM content_calendar c
      LEFT JOIN LATERAL (
@@ -243,6 +245,69 @@ app.post('/api/assets/:assetId/upload-video', uploadVideo.single('file'), wrap(a
   });
   await pool.query(`UPDATE generated_assets SET video_path = $2, updated_at = now() WHERE id = $1`, [id, url]);
   res.json({ ok: true, video_path: url });
+}));
+
+/* ----------------------- Editor de video ----------------------- */
+function assetVideoUrl(row) {
+  const { getPublicUrl } = require('./storage');
+  return getPublicUrl(row.video_path);
+}
+
+// Transcribe el audio del video (Groq Whisper) y guarda las palabras con tiempos.
+app.post('/api/assets/:assetId/transcribe', wrap(async (req, res) => {
+  const id = intParam(req.params.assetId);
+  if (!id) return res.status(400).json({ error: 'assetId inválido' });
+  const { rows } = await pool.query('SELECT video_path FROM generated_assets WHERE id = $1', [id]);
+  if (!rows[0]) return res.status(404).json({ error: 'No existe el asset' });
+  if (!rows[0].video_path) return res.status(400).json({ error: 'Este asset no tiene video. Subí un video primero.' });
+  const result = await transcribeVideo(assetVideoUrl(rows[0]));
+  await pool.query(`UPDATE generated_assets SET subtitles = $2, updated_at = now() WHERE id = $1`, [id, JSON.stringify(result.words)]);
+  res.json({ ok: true, text: result.text, words: result.words });
+}));
+
+// Guarda los subtítulos editados + overlays + estilo.
+app.post('/api/assets/:assetId/subtitles', wrap(async (req, res) => {
+  const id = intParam(req.params.assetId);
+  if (!id) return res.status(400).json({ error: 'assetId inválido' });
+  const { words, overlays, style } = req.body || {};
+  await pool.query(
+    `UPDATE generated_assets SET subtitles = COALESCE($2, subtitles), overlays = COALESCE($3, overlays),
+       edit_style = COALESCE($4, edit_style), updated_at = now() WHERE id = $1`,
+    [id, words ? JSON.stringify(words) : null, overlays ? JSON.stringify(overlays) : null, style ? JSON.stringify(style) : null]
+  );
+  res.json({ ok: true });
+}));
+
+// Sube una pista de voz en off (audio) para el video.
+app.post('/api/assets/:assetId/upload-voiceover', uploadVideo.single('file'), wrap(async (req, res) => {
+  const id = intParam(req.params.assetId);
+  if (!id) return res.status(400).json({ error: 'assetId inválido' });
+  if (!req.file) return res.status(400).json({ error: 'No se subió audio.' });
+  const ext = ((req.file.mimetype || 'audio/mpeg').split('/')[1] || 'mp3').replace(/[^a-z0-9]/gi, '');
+  const url = await uploadAsset({ buffer: req.file.buffer, filename: `voiceover/${id}-${Date.now()}.${ext}`, contentType: req.file.mimetype || 'audio/mpeg' });
+  await pool.query(`UPDATE generated_assets SET voiceover_path = $2, updated_at = now() WHERE id = $1`, [id, url]);
+  res.json({ ok: true, voiceover_path: url });
+}));
+
+// Encola el renderizado del video editado (subtítulos + voz). Lo procesa GitHub Actions.
+app.post('/api/assets/:assetId/render-edit', wrap(async (req, res) => {
+  const id = intParam(req.params.assetId);
+  if (!id) return res.status(400).json({ error: 'assetId inválido' });
+  const { words, overlays, style } = req.body || {};
+  await pool.query(
+    `UPDATE generated_assets SET subtitles = COALESCE($2, subtitles), overlays = COALESCE($3, overlays),
+       edit_style = COALESCE($4, edit_style), edit_status = 'queued', updated_at = now() WHERE id = $1`,
+    [id, words ? JSON.stringify(words) : null, overlays ? JSON.stringify(overlays) : null, style ? JSON.stringify(style) : null]
+  );
+  res.json({ ok: true, edit_status: 'queued' });
+}));
+
+app.get('/api/assets/:assetId/edit-status', wrap(async (req, res) => {
+  const id = intParam(req.params.assetId);
+  if (!id) return res.status(400).json({ error: 'assetId inválido' });
+  const { rows } = await pool.query('SELECT edit_status, edited_video_path FROM generated_assets WHERE id = $1', [id]);
+  if (!rows[0]) return res.status(404).json({ error: 'No existe el asset' });
+  res.json(rows[0]);
 }));
 
 app.post('/api/assets/:assetId/publish', wrap(async (req, res) => {

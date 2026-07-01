@@ -96,6 +96,13 @@ function switchTab(view) {
   if (view === 'products') loadProducts();
 }
 
+// Recarga el calendario SIN saltar al tope (mantiene el scroll donde estabas).
+async function reloadKeepScroll() {
+  const y = window.scrollY;
+  await loadCalendar();
+  window.scrollTo(0, y);
+}
+
 function parseSlides(s) {
   if (!s) return null;
   if (Array.isArray(s)) return s;
@@ -366,6 +373,8 @@ function renderCard(item) {
     ? `<button class="btn-ghost btn-sm" data-act="videoprompt" data-id="${aid}">${icon('film')} Prompt video IA</button>` : '';
   const uploadVideoBtn = (item.post_type === 'reel' && aid)
     ? `<button class="btn-ghost btn-sm" data-act="uploadvideo" data-id="${aid}">${icon('upload')} Subir video</button>` : '';
+  const editVideoBtn = (item.post_type === 'reel' && aid && item.video_path)
+    ? `<button class="btn-ghost btn-sm" data-act="editvideo" data-id="${aid}">${icon('film')} Subtítulos${item.edit_status === 'done' ? ' ✓' : ''}</button>` : '';
 
   let actions = '';
   if (isRepost) {
@@ -376,13 +385,13 @@ function renderCard(item) {
   } else if (status === 'draft') {
     actions = `<button class="btn-approve" data-act="approve" data-id="${aid}">${icon('check')} Aprobar</button>
       <button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Editar</button>
-      ${regenBtn}${videoBtn}${uploadVideoBtn}
+      ${regenBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}
       <button class="btn-discard btn-sm" data-act="discard" data-id="${aid}">${icon('trash')} Descartar</button>`;
   } else if (status === 'approved') {
     actions = (isSemi
       ? `<button class="btn-manual" data-act="publish" data-id="${aid}">${icon('info')} Cómo publicarla</button>`
       : `<button class="btn-publish" data-act="publish" data-id="${aid}">${icon('send')} Publicar ahora</button>`) +
-      `<button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Editar</button>${regenBtn}${videoBtn}${uploadVideoBtn}`;
+      `<button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Editar</button>${regenBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}`;
   } else if (status === 'published') {
     actions = `<span class="badge status-published">${icon('check')} Publicado ${item.meta_post_id ? `· ${esc(item.meta_post_id)}` : ''}</span>`;
   } else if (status === 'discarded') {
@@ -423,11 +432,11 @@ async function handleAction(act, id, btn, card, item) {
     if (act === 'generate') {
       btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Generando…`;
       await api(`/api/generate/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-      toast('Pieza generada', 'ok'); loadCalendar();
+      toast('Pieza generada', 'ok'); reloadKeepScroll();
     } else if (act === 'approve') {
-      await api(`/api/assets/${id}/approve`, { method: 'POST' }); toast('Aprobada', 'ok'); loadCalendar();
+      await api(`/api/assets/${id}/approve`, { method: 'POST' }); toast('Aprobada', 'ok'); reloadKeepScroll();
     } else if (act === 'discard') {
-      await api(`/api/assets/${id}/discard`, { method: 'POST' }); toast('Descartada'); loadCalendar();
+      await api(`/api/assets/${id}/discard`, { method: 'POST' }); toast('Descartada'); reloadKeepScroll();
     } else if (act === 'edit') {
       openEdit(id);
     } else if (act === 'regen') {
@@ -436,13 +445,15 @@ async function handleAction(act, id, btn, card, item) {
       openVideoPrompt(id);
     } else if (act === 'uploadvideo') {
       openVideoUpload(id);
+    } else if (act === 'editvideo') {
+      openVideoEditor(id);
     } else if (act === 'publish') {
       await doPublish(id, btn);
     }
   } catch (e) {
     toast(e.message, 'err');
     if (btn) btn.disabled = false;
-    loadCalendar();
+    reloadKeepScroll();
   }
 }
 
@@ -482,7 +493,7 @@ function openRegen(item) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pillarDetail: detail, theme: detail }),
       });
-      overlay.remove(); toast('Pieza regenerada', 'ok'); loadCalendar();
+      overlay.remove(); toast('Pieza regenerada', 'ok'); reloadKeepScroll();
     } catch (e) { toast(e.message, 'err'); go.disabled = false; go.innerHTML = `${icon('wand')} Regenerar con IA`; }
   });
 }
@@ -517,11 +528,101 @@ function openVideoUpload(assetId) {
     toast('Subiendo video… (puede tardar)');
     try {
       await api(`/api/assets/${assetId}/upload-video`, { method: 'POST', body: fd });
-      toast('Video cargado. Aprobá y publicá el Reel.', 'ok');
-      loadCalendar();
+      toast('Video cargado. Ahora podés ponerle subtítulos o publicarlo.', 'ok');
+      reloadKeepScroll();
     } catch (e) { toast(e.message, 'err'); }
   });
   input.click();
+}
+
+/* ============ editor de video (subtítulos) ============ */
+function openVideoEditor(assetId) {
+  const it = calItems.find((x) => String(x.asset_id) === String(assetId));
+  const body = `
+    <p class="hint" style="margin-top:0;">Transcribí el audio (Groq Whisper), corregí palabras si hace falta, elegí el estilo y generá el Reel con subtítulos quemados. Podés sumar una voz en off.</p>
+    ${it && it.video_path ? `<video src="${esc(it.video_path)}" controls playsinline style="width:160px;border-radius:10px;display:block;margin-bottom:12px;"></video>` : ''}
+    <button class="btn-primary btn-sm" id="ve-transcribe">${icon('sparkles')} Transcribir con IA</button>
+    <div id="ve-words" style="margin-top:14px;"></div>
+    <div id="ve-opts" class="hidden">
+      <div class="field" style="margin-top:14px;">
+        <label>Estilo de subtítulos</label>
+        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+          <select class="filter" id="ve-pos"><option value="bottom">Abajo</option><option value="top">Arriba</option></select>
+          <select class="filter" id="ve-n"><option value="2">2 palabras</option><option value="3" selected>3 palabras</option><option value="4">4 palabras</option></select>
+          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);"><input type="checkbox" id="ve-upper" checked/> MAYÚSCULAS</label>
+        </div>
+      </div>
+      <div class="field">
+        <label>Voz en off (opcional)</label>
+        <button class="btn-ghost btn-sm" id="ve-vo">${icon('upload')} Subir audio</button>
+        <span class="hint" id="ve-vo-st" style="margin-left:8px;"></span>
+      </div>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button class="btn-primary" id="ve-go">${icon('film')} Generar con subtítulos</button>
+      </div>
+      <div id="ve-st" class="hint" style="margin-top:10px;"></div>
+    </div>`;
+  const ov = showInfoModal('Editor de video · subtítulos', body);
+  let words = [];
+
+  ov.querySelector('#ve-transcribe').addEventListener('click', async (e) => {
+    const b = e.currentTarget; b.disabled = true; b.innerHTML = `${icon('refresh', 'spin')} Transcribiendo…`;
+    try {
+      const d = await api(`/api/assets/${assetId}/transcribe`, { method: 'POST' });
+      words = d.words || [];
+      const wEl = ov.querySelector('#ve-words');
+      wEl.innerHTML = words.length
+        ? `<label class="fmt-label">Palabras (tocá para corregir):</label><div class="ve-grid">${words.map((w, i) => `<input class="ve-w" data-i="${i}" value="${esc(w.word)}"/>`).join('')}</div>`
+        : '<p class="hint">No detecté voz en el video. Podés subir una voz en off y generar igual.</p>';
+      ov.querySelector('#ve-opts').classList.remove('hidden');
+    } catch (err) { toast(err.message, 'err'); }
+    finally { b.disabled = false; b.innerHTML = `${icon('sparkles')} Transcribir de nuevo`; }
+  });
+
+  ov.querySelector('#ve-vo').addEventListener('click', () => {
+    const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'audio/*';
+    inp.addEventListener('change', async () => {
+      if (!inp.files || !inp.files.length) return;
+      const fd = new FormData(); fd.append('file', inp.files[0]);
+      ov.querySelector('#ve-vo-st').textContent = 'Subiendo…';
+      try { await api(`/api/assets/${assetId}/upload-voiceover`, { method: 'POST', body: fd }); ov.querySelector('#ve-vo-st').textContent = 'Voz cargada ✓'; }
+      catch (e) { toast(e.message, 'err'); ov.querySelector('#ve-vo-st').textContent = ''; }
+    });
+    inp.click();
+  });
+
+  ov.querySelector('#ve-go').addEventListener('click', async (e) => {
+    const edited = [...ov.querySelectorAll('.ve-w')].map((el) => ({ ...words[Number(el.dataset.i)], word: el.value }));
+    const style = { position: ov.querySelector('#ve-pos').value, uppercase: ov.querySelector('#ve-upper').checked, maxWords: Number(ov.querySelector('#ve-n').value) };
+    const b = e.currentTarget; b.disabled = true; b.innerHTML = `${icon('refresh', 'spin')} Encolando…`;
+    const st = ov.querySelector('#ve-st');
+    try {
+      await api(`/api/assets/${assetId}/render-edit`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ words: edited, style }) });
+      st.textContent = 'En cola. Se procesa en la próxima corrida (hasta ~30 min). Cuando esté, el botón "Subtítulos" muestra ✓.';
+      b.innerHTML = `${icon('film')} En cola…`;
+      pollEdit(assetId, st, b);
+    } catch (err) { toast(err.message, 'err'); b.disabled = false; b.innerHTML = `${icon('film')} Generar con subtítulos`; }
+  });
+}
+
+function pollEdit(assetId, statusEl, btn) {
+  let tries = 0;
+  const timer = setInterval(async () => {
+    tries += 1;
+    try {
+      const d = await api(`/api/assets/${assetId}/edit-status`);
+      if (d.edit_status === 'done') {
+        clearInterval(timer);
+        statusEl.innerHTML = `Listo ✓ · <a href="${esc(d.edited_video_path)}" target="_blank">ver video</a>`;
+        toast('Video con subtítulos listo', 'ok'); reloadKeepScroll();
+        if (btn) { btn.disabled = false; btn.innerHTML = `${icon('film')} Regenerar`; }
+      } else if (d.edit_status === 'error') {
+        clearInterval(timer); statusEl.textContent = 'Hubo un error procesando el video. Reintentá.';
+        if (btn) { btn.disabled = false; btn.innerHTML = `${icon('film')} Reintentar`; }
+      }
+    } catch (_) {}
+    if (tries > 30) clearInterval(timer); // dejamos de pollear a los ~7 min; igual queda el ✓ al recargar
+  }, 15000);
 }
 
 /* ============ productos ============ */
@@ -563,7 +664,7 @@ async function doPublish(id, btn) {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
   });
   if (data && data.manual) { btn.disabled = false; btn.innerHTML = original; openManualPublish(data); return; }
-  toast('¡Publicado en redes!', 'ok'); loadCalendar();
+  toast('¡Publicado en redes!', 'ok'); reloadKeepScroll();
 }
 
 function openManualPublish(data) {
@@ -595,7 +696,7 @@ async function generateAllPending() {
     try { await api(`/api/generate/${it.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }); }
     catch (e) { toast(`Error en un slot: ${e.message}`, 'err'); }
   }
-  toast('Listo', 'ok'); loadCalendar();
+  toast('Listo', 'ok'); reloadKeepScroll();
 }
 
 /* ============ edición ============ */
@@ -619,7 +720,7 @@ async function saveEdit() {
         cta: document.getElementById('edit-cta').value,
       }),
     });
-    toast('Guardado', 'ok'); closeEdit(); loadCalendar();
+    toast('Guardado', 'ok'); closeEdit(); reloadKeepScroll();
   } catch (e) { toast(e.message, 'err'); }
 }
 

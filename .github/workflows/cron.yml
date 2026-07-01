@@ -88,6 +88,7 @@ jobs:
           node-version: 22
       - run: npm ci
       - run: npm run render:reels
+      - run: npm run render:edits
 
   # Publicación y sync de insights son llamadas livianas a Meta: se quedan en Render.
   publish-daily:

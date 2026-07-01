@@ -42,7 +42,8 @@ async function publishAssetById(assetId, { force = false } = {}) {
   }
 
   const imageUrl = getPublicUrl(asset.image_path);
-  const videoUrl = getPublicUrl(asset.video_path);
+  // Si hay una versión editada (subtítulos/voz), se publica esa.
+  const videoUrl = getPublicUrl(asset.edited_video_path || asset.video_path);
 
   let mediaType = 'FEED';
   if (asset.post_type === 'story') mediaType = 'STORIES';

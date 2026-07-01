@@ -91,6 +91,13 @@ ALTER TABLE products_cache ADD COLUMN IF NOT EXISTS promo_price NUMERIC; -- prec
 ALTER TABLE products_cache ADD COLUMN IF NOT EXISTS images JSONB;         -- todas las fotos del producto (distintas perspectivas)
 ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS slides JSONB;       -- URLs de las slides del carrusel (la 1a = image_path)
 ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS carousel BOOLEAN DEFAULT false;
+-- Editor de video:
+ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS subtitles JSONB;        -- palabras con tiempos (editables)
+ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS overlays JSONB;         -- textos sobre el video [{text,start,end}]
+ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS voiceover_path TEXT;    -- pista de voz en off subida
+ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS edited_video_path TEXT; -- video final con subtítulos quemados
+ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS edit_status TEXT DEFAULT 'none'; -- none|queued|processing|done|error
+ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS edit_style JSONB;       -- estilo de subtítulos elegido
 ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS format TEXT;             -- 'feed' (4:5) | 'story' (9:16)
 ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS automation_level TEXT DEFAULT 'auto'; -- 'auto' | 'semi'
 ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS interaction_hint TEXT;   -- sticker/interaccion a agregar a mano
