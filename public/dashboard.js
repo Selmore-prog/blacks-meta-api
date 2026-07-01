@@ -626,12 +626,40 @@ function pollEdit(assetId, statusEl, btn) {
 }
 
 /* ============ productos ============ */
+async function saveWholesale(e) {
+  const b = e.currentTarget; b.disabled = true;
+  try {
+    await api('/api/wholesale', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        min_qty: document.getElementById('w-min').value,
+        discount_note: document.getElementById('w-disc').value,
+        conditions: document.getElementById('w-cond').value,
+        contact: document.getElementById('w-contact').value,
+      }),
+    });
+    toast('Condiciones mayoristas guardadas', 'ok');
+  } catch (err) { toast(err.message, 'err'); } finally { b.disabled = false; }
+}
+
 async function loadProducts() {
   const body = document.getElementById('products-body');
   body.innerHTML = '<p class="loading">Cargando productos...</p>';
   try {
-    const d = await api('/api/products/analytics');
+    const [d, w] = await Promise.all([api('/api/products/analytics'), api('/api/wholesale')]);
     const t = d.totals || {};
+    const wholesalePanel = `
+      <div class="panel" style="margin-bottom:18px;">
+        <h3>${icon('tag')} Condiciones mayoristas</h3>
+        <p class="hint">Entran al copy de las piezas mayoristas. Los productos "Consultar precio" o de stock infinito aparecen SOLO en piezas mayoristas; el resto es retail.</p>
+        <div class="grid-2">
+          <div class="field"><label>Cantidad mínima</label><input class="input" id="w-min" type="number" value="${w.min_qty || ''}" placeholder="ej: 10" /></div>
+          <div class="field"><label>Descuentos por volumen</label><input class="input" id="w-disc" value="${esc(w.discount_note || '')}" placeholder="ej: 10% desde 20 u., 15% desde 50 u." /></div>
+        </div>
+        <div class="field"><label>Condiciones / beneficios</label><textarea class="input" id="w-cond" placeholder="ej: personalización con logo, factura A, envío a todo el país">${esc(w.conditions || '')}</textarea></div>
+        <div class="field"><label>Cómo pedir presupuesto</label><input class="input" id="w-contact" value="${esc(w.contact || '')}" placeholder="ej: escribinos por WhatsApp" /></div>
+        <button class="btn-primary btn-sm" id="w-save">${icon('check')} Guardar condiciones</button>
+      </div>`;
     const money = (n) => n ? `$${Number(n).toLocaleString('es-AR')}` : '—';
     const rowsHtml = (arr, right) => (arr && arr.length)
       ? arr.map((p) => `<div class="prod-row">
@@ -640,7 +668,7 @@ async function loadProducts() {
             <div class="prod-sub">${esc(p.brand || '')} · stock ${p.stock ?? '—'} · ${money(p.promo_price || p.price)}</div></div>
           <div class="prod-metric">${right(p)}</div></div>`).join('')
       : '<p class="hint">Sin datos.</p>';
-    body.innerHTML = `
+    body.innerHTML = wholesalePanel + `
       <div class="prod-totals">
         <div class="stat"><b>${t.total ?? 0}</b><span>productos</span></div>
         <div class="stat"><b>${t.con_stock ?? 0}</b><span>con stock</span></div>
@@ -653,6 +681,8 @@ async function loadProducts() {
         <div class="panel"><h3>${icon('alert')} A darles visibilidad</h3>
           <p class="hint">Mucho stock y pocas/ninguna venta: conviene mostrarlos más.</p>${rowsHtml(d.needVisibility, (p) => `<b>${p.stock}</b><span>en stock</span>`)}</div>
       </div>`;
+    const ws = document.getElementById('w-save');
+    if (ws) ws.addEventListener('click', saveWholesale);
   } catch (e) { body.innerHTML = `<p class="empty">Error: ${esc(e.message)}</p>`; }
 }
 

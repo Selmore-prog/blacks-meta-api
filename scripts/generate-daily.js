@@ -5,9 +5,24 @@ const { renderPostBuffer } = require('../src/imageRenderer');
 const { fetchProduct } = require('../src/tiendanube');
 const { getBrandProfile } = require('../src/brandProfile');
 const { getActiveLogo } = require('../src/styleService');
+const { getWholesaleSettings, wholesaleContext } = require('../src/wholesale');
 const config = require('../src/config');
 
-const PRODUCT_PILLARS = ['producto', 'promo', 'mayorista'];
+// Retail (con precio y stock finito). 'mayorista' se maneja aparte con pickMayoristaProduct.
+const PRODUCT_PILLARS = ['producto', 'promo'];
+
+/** Producto mayorista: stock infinito (null) o sin precio ("Consultar precio"). */
+async function pickMayoristaProduct(slot) {
+  const brand = config.brand.knownBrands.find((b) => (slot.pillar_detail || '').toLowerCase().includes(b.toLowerCase()));
+  const cond = `image_url IS NOT NULL AND (stock IS NULL OR price IS NULL OR price <= 0)`;
+  if (brand) {
+    const { rows } = await pool.query(
+      `SELECT * FROM products_cache WHERE ${cond} AND brand ILIKE $1 ORDER BY random() LIMIT 1`, [`%${brand}%`]);
+    if (rows[0]) return rows[0];
+  }
+  const { rows } = await pool.query(`SELECT * FROM products_cache WHERE ${cond} ORDER BY random() LIMIT 1`);
+  return rows[0] || null;
+}
 
 async function updateCacheFromLive(live) {
   await pool.query(
@@ -137,7 +152,11 @@ async function generateForSlot(slot, overrides = {}) {
   const pillarDetail = overrides.pillarDetail || slot.pillar_detail;
   const effectiveSlot = { ...slot, pillar_detail: pillarDetail };
 
-  const product = PRODUCT_PILLARS.includes(slot.pillar) ? await pickProductForSlot(effectiveSlot) : null;
+  const isMayorista = slot.pillar === 'mayorista';
+  const product = isMayorista
+    ? await pickMayoristaProduct(effectiveSlot)
+    : (PRODUCT_PILLARS.includes(slot.pillar) ? await pickProductForSlot(effectiveSlot) : null);
+  const wholesale = isMayorista ? wholesaleContext(await getWholesaleSettings()) : null;
   const format = slot.format === 'story' ? 'story' : 'feed';
 
   // Foto REAL siempre: la del producto o, si el pilar no es de producto, una foto del
@@ -159,6 +178,7 @@ async function generateForSlot(slot, overrides = {}) {
     product,
     brandProfile,
     interactionHint: slot.interaction_hint,
+    wholesale,
     carousel: isCarousel,
   });
 

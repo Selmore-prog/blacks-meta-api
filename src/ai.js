@@ -80,10 +80,17 @@ function seasonContext(date = new Date()) {
   return `Estamos en ${estacion} en Argentina — ${nota} Si encaja, mencioná el clima/temporada de forma natural (sin forzar).`;
 }
 
-function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, brandProfile, interactionHint, carousel, slideCount = 3 }) {
-  const productInfo = product
+function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, brandProfile, interactionHint, carousel, slideCount = 3, wholesale }) {
+  let productInfo = product
     ? `Producto a destacar: ${product.name}${product.brand ? ` (marca ${product.brand})` : ''}${product.price ? `, precio $${Number(product.price).toLocaleString('es-AR')}` : ''}${typeof product.stock === 'number' ? `, stock ${product.stock}` : ''}.`
     : 'No hay un producto puntual; el foco es la marca/línea en general.';
+  // Descripción real de Tiendanube: características para que el copy sea concreto y fiel.
+  if (product && product.description) {
+    productInfo += `\nCaracterísticas reales (usá SOLO datos de acá, no inventes): "${product.description}"`;
+  }
+  const wholesaleInfo = (pillar === 'mayorista' && wholesale)
+    ? `\nCONDICIONES MAYORISTAS (metelas en el copy, tono B2B, sin precio unitario, cerrá con "pedí tu presupuesto"): ${wholesale}`
+    : '';
 
   let voice = '';
   if (brandProfile && brandProfile.voice_guide) {
@@ -111,7 +118,7 @@ function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, bran
 
 Pilar de contenido: ${pillar}
 Ángulo/detalle: ${pillarDetail || 'sin detalle adicional'}
-${productInfo}
+${productInfo}${wholesaleInfo}
 Temporada: ${seasonContext()}${interaction}${voice}
 
 ${carousel ? `\nCARRUSEL: además, devolvé "slides": un array de ${slideCount} objetos {"title","text"} para un carrusel deslizable. Cada slide UN punto distinto, con progresión: (1) gancho, (2-${slideCount - 1}) beneficios/datos concretos, (${slideCount}) cierre + CTA. "title" cortísimo (2-4 palabras, va grande en pantalla), "text" 1 línea corta. Nada repetido entre slides.\n` : ''}

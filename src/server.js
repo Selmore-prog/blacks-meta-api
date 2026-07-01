@@ -15,6 +15,7 @@ const { importDriveFolder } = require('./driveService');
 const { analyzeAccountPerformance } = require('./accountAnalyzer');
 const { hasGemini, buildVideoPrompt } = require('./ai');
 const { transcribeVideo } = require('./transcribe');
+const { getWholesaleSettings, saveWholesaleSettings } = require('./wholesale');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -150,6 +151,15 @@ app.get('/api/products/analytics', wrap(async (req, res) => {
                 FROM products_cache`),
   ]);
   res.json({ winners: winners.rows, needVisibility: needVisibility.rows, totals: totals.rows[0] });
+}));
+
+// Condiciones mayoristas (editables) que entran al copy de las piezas mayoristas.
+app.get('/api/wholesale', wrap(async (req, res) => {
+  res.json(await getWholesaleSettings());
+}));
+app.post('/api/wholesale', wrap(async (req, res) => {
+  const { min_qty, conditions, discount_note, contact } = req.body || {};
+  res.json(await saveWholesaleSettings({ min_qty: min_qty ? Number(min_qty) : null, conditions, discount_note, contact }));
 }));
 
 /* ----------------------- Generación / Assets ----------------------- */

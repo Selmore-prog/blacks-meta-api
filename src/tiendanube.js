@@ -18,6 +18,16 @@ function pickText(field) {
   return field.es || field.pt || Object.values(field)[0] || '';
 }
 
+function decodeEntities(s) {
+  return String(s || '')
+    .replace(/&nbsp;/g, ' ').replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/&aacute;/g, 'á').replace(/&eacute;/g, 'é').replace(/&iacute;/g, 'í')
+    .replace(/&oacute;/g, 'ó').replace(/&uacute;/g, 'ú').replace(/&ntilde;/g, 'ñ').replace(/&uuml;/g, 'ü')
+    .replace(/&Aacute;/g, 'Á').replace(/&Eacute;/g, 'É').replace(/&Iacute;/g, 'Í')
+    .replace(/&Oacute;/g, 'Ó').replace(/&Uacute;/g, 'Ú').replace(/&Ntilde;/g, 'Ñ')
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)));
+}
+
 function detectBrand(name) {
   const lower = name.toLowerCase();
   for (const brand of config.brand.knownBrands) {
@@ -33,6 +43,9 @@ function normalizeProduct(product) {
   const regular = firstVariant.price ? Number(firstVariant.price) : null;
   const promo = firstVariant.promotional_price ? Number(firstVariant.promotional_price) : null;
   const images = (product.images || []).map((i) => i.src).filter(Boolean);
+  // Descripción: viene como HTML multi-idioma. Sacamos tags, decodificamos entidades y acotamos.
+  const description = decodeEntities(pickText(product.description).replace(/<[^>]+>/g, ' '))
+    .replace(/\s+/g, ' ').trim().slice(0, 600);
   return {
     id: product.id,
     name,
@@ -41,9 +54,11 @@ function normalizeProduct(product) {
     price: regular,
     // promo válido sólo si es menor al precio regular.
     promo_price: promo && regular && promo < regular ? promo : null,
+    // stock null = infinito (producto mayorista / a pedido).
     stock: typeof firstVariant.stock === 'number' ? firstVariant.stock : null,
     image_url: mainImage,
     images: images.length ? images : (mainImage ? [mainImage] : []),
+    description,
     permalink: product.permalink || null,
     raw: product,
   };

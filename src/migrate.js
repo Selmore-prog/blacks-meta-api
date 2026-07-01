@@ -76,6 +76,17 @@ CREATE TABLE IF NOT EXISTS style_references (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Condiciones mayoristas editables (fila única id = 1).
+CREATE TABLE IF NOT EXISTS wholesale_settings (
+  id              INTEGER PRIMARY KEY DEFAULT 1,
+  min_qty         INTEGER,                        -- cantidad mínima de compra
+  conditions      TEXT,                           -- condiciones/beneficios (texto libre)
+  discount_note   TEXT,                           -- ej: "descuentos por volumen"
+  contact         TEXT,                           -- cómo pedir presupuesto
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT wholesale_singleton CHECK (id = 1)
+);
+
 CREATE INDEX IF NOT EXISTS idx_calendar_date ON content_calendar (scheduled_date);
 CREATE INDEX IF NOT EXISTS idx_assets_calendar ON generated_assets (calendar_id);
 CREATE INDEX IF NOT EXISTS idx_insights_meta_post_id ON post_insights (meta_post_id);
@@ -89,6 +100,7 @@ ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS format TEXT;             -
 ALTER TABLE products_cache ADD COLUMN IF NOT EXISTS sales_30d INTEGER DEFAULT 0; -- unidades vendidas ult. 30 días
 ALTER TABLE products_cache ADD COLUMN IF NOT EXISTS promo_price NUMERIC; -- precio promocional (si está en oferta)
 ALTER TABLE products_cache ADD COLUMN IF NOT EXISTS images JSONB;         -- todas las fotos del producto (distintas perspectivas)
+ALTER TABLE products_cache ADD COLUMN IF NOT EXISTS description TEXT;     -- descripción de Tiendanube (características)
 ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS slides JSONB;       -- URLs de las slides del carrusel (la 1a = image_path)
 ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS carousel BOOLEAN DEFAULT false;
 -- Editor de video:
