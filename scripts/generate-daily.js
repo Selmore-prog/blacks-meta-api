@@ -6,6 +6,7 @@ const { fetchProduct } = require('../src/tiendanube');
 const { getBrandProfile } = require('../src/brandProfile');
 const { getActiveLogo } = require('../src/styleService');
 const { getWholesaleSettings, wholesaleContext } = require('../src/wholesale');
+const { getCommercialContextForDate } = require('../src/commercialDates');
 const config = require('../src/config');
 
 // Retail (con precio y stock finito). 'mayorista' se maneja aparte con pickMayoristaProduct.
@@ -158,6 +159,7 @@ async function generateForSlot(slot, overrides = {}) {
     : (PRODUCT_PILLARS.includes(slot.pillar) ? await pickProductForSlot(effectiveSlot) : null);
   const wholesale = isMayorista ? wholesaleContext(await getWholesaleSettings()) : null;
   const format = slot.format === 'story' ? 'story' : 'feed';
+  const commercialContext = await getCommercialContextForDate(slot.scheduled_date).catch(() => null);
 
   // Foto REAL siempre: la del producto o, si el pilar no es de producto, una foto del
   // catálogo relacionada al tema (así la pieza nunca queda vacía).
@@ -180,6 +182,7 @@ async function generateForSlot(slot, overrides = {}) {
     interactionHint: slot.interaction_hint,
     wholesale,
     carousel: isCarousel,
+    commercialContext,
   });
 
   const badgeText = slot.pillar === 'mayorista' ? 'MAYORISTA' : null;

@@ -1,4 +1,5 @@
 const pool = require('./db');
+const { seedCommercialDates } = require('./commercialDates');
 
 const SQL = `
 CREATE TABLE IF NOT EXISTS products_cache (
@@ -87,7 +88,35 @@ CREATE TABLE IF NOT EXISTS wholesale_settings (
   CONSTRAINT wholesale_singleton CHECK (id = 1)
 );
 
+-- Cola de publicación con reintentos: si Meta falla en el horario de publicación,
+-- el post queda encolado y se reintenta en la próxima pasada del cron.
+CREATE TABLE IF NOT EXISTS publish_queue (
+  id              SERIAL PRIMARY KEY,
+  asset_id        INTEGER NOT NULL UNIQUE REFERENCES generated_assets(id) ON DELETE CASCADE,
+  status          TEXT NOT NULL DEFAULT 'queued',   -- 'queued' | 'processing' | 'done' | 'failed'
+  attempts        INTEGER NOT NULL DEFAULT 0,
+  max_attempts    INTEGER NOT NULL DEFAULT 5,
+  next_attempt_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_error      TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS commercial_dates (
+  id              SERIAL PRIMARY KEY,
+  event_date      DATE NOT NULL,
+  title           TEXT NOT NULL,
+  category        TEXT NOT NULL DEFAULT 'promo', -- promo|temporada|marca|engagement
+  angle           TEXT,
+  priority        INTEGER NOT NULL DEFAULT 5,
+  source          TEXT NOT NULL DEFAULT 'manual',
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (event_date, title)
+);
+
 CREATE INDEX IF NOT EXISTS idx_calendar_date ON content_calendar (scheduled_date);
+CREATE INDEX IF NOT EXISTS idx_publish_queue_status ON publish_queue (status, next_attempt_at);
+CREATE INDEX IF NOT EXISTS idx_commercial_dates_date ON commercial_dates (event_date);
 CREATE INDEX IF NOT EXISTS idx_assets_calendar ON generated_assets (calendar_id);
 CREATE INDEX IF NOT EXISTS idx_insights_meta_post_id ON post_insights (meta_post_id);
 CREATE INDEX IF NOT EXISTS idx_products_stock ON products_cache (stock);
@@ -127,6 +156,7 @@ async function migrate() {
   await pool.query(ALTER_SQL);
   // Asegurar la fila unica del perfil de marca.
   await pool.query(`INSERT INTO brand_profile (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+  await seedCommercialDates({ fromYear: new Date().getFullYear(), years: 2 });
   console.log('[migrate] Listo.');
   await pool.end();
 }

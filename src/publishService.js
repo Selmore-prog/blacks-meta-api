@@ -83,43 +83,130 @@ async function publishAssetById(assetId, { force = false } = {}) {
     [assetId, String(metaPostId || 'pub_' + Date.now())]
   );
   await pool.query(`UPDATE content_calendar SET status = 'published' WHERE id = $1`, [asset.calendar_id]);
+  // Si estaba encolado (p. ej. lo publicaste a mano desde el panel antes del cron), cerrarlo.
+  await pool.query(`UPDATE publish_queue SET status = 'done', updated_at = now() WHERE asset_id = $1 AND status IN ('queued', 'processing')`, [assetId]);
 
   console.log(`[publishService] Asset #${assetId} publicado.`);
   return { ok: true, meta_post_id: metaPostId };
 }
 
 /**
- * Auto-publica los assets aprobados de hoy que sean AUTOMÁTICOS y de pilares habilitados.
- * Nunca toca semiautomatizados.
+ * Encola los assets aprobados de hoy que sean AUTOMÁTICOS y de pilares habilitados.
+ * Idempotente: si ya están en la cola no los duplica. Nunca toca semiautomatizados.
  */
-async function publishDailyAuto() {
+async function enqueueDailyAuto() {
   const pillars = config.meta.autoPublishPillars;
-  console.log(`[publishService] Auto-publish para pilares: ${pillars.join(', ')}`);
-
   const { rows } = await pool.query(
-    `SELECT a.id, c.pillar
+    `INSERT INTO publish_queue (asset_id)
+     SELECT a.id
      FROM generated_assets a
      JOIN content_calendar c ON c.id = a.calendar_id
      WHERE c.scheduled_date = CURRENT_DATE
        AND a.status = 'approved'
        AND c.automation_level = 'auto'
-       AND c.pillar = ANY($1)`,
+       AND c.pillar = ANY($1)
+     ON CONFLICT (asset_id) DO NOTHING
+     RETURNING asset_id`,
     [pillars]
   );
+  console.log(`[publishService] ${rows.length} asset(s) nuevos encolados para publicar.`);
+  return rows.map((r) => r.asset_id);
+}
 
-  console.log(`[publishService] ${rows.length} asset(s) para auto-publicar.`);
+/**
+ * Procesa la cola: publica lo que esté 'queued' y vencido (next_attempt_at <= now).
+ * Si Meta falla, agenda un reintento con backoff (30 min * 2^intentos) hasta max_attempts;
+ * después queda 'failed' con el último error a la vista.
+ */
+async function processPublishQueue() {
+  const { rows } = await pool.query(
+    `SELECT q.id AS queue_id, q.asset_id, q.attempts, q.max_attempts
+     FROM publish_queue q
+     JOIN generated_assets a ON a.id = q.asset_id
+     WHERE q.status = 'queued' AND q.next_attempt_at <= now()
+     ORDER BY q.id`
+  );
+
+  console.log(`[publishService] ${rows.length} item(s) en cola listos para publicar.`);
   let publishedCount = 0;
   const errors = [];
-  for (const row of rows) {
+
+  for (const item of rows) {
+    await pool.query(`UPDATE publish_queue SET status = 'processing', updated_at = now() WHERE id = $1`, [item.queue_id]);
     try {
-      await publishAssetById(row.id);
-      publishedCount += 1;
+      const result = await publishAssetById(item.asset_id);
+      // Piezas que quedaron 'semi' después de encolarse: se sacan de la cola sin error.
+      const finalStatus = result.ok ? 'done' : 'failed';
+      await pool.query(
+        `UPDATE publish_queue SET status = $2, attempts = attempts + 1, last_error = $3, updated_at = now() WHERE id = $1`,
+        [item.queue_id, finalStatus, result.ok ? null : (result.message || 'Publicación manual requerida.')]
+      );
+      if (result.ok) publishedCount += 1;
     } catch (err) {
-      console.error(`[publishService] Error publicando #${row.id}: ${err.message}`);
-      errors.push({ assetId: row.id, error: err.message });
+      const attempts = item.attempts + 1;
+      const exhausted = attempts >= item.max_attempts;
+      // Si el asset ya no está aprobado (lo descartaron/editaron), no reintentar.
+      const { rows: assetRows } = await pool.query(`SELECT status FROM generated_assets WHERE id = $1`, [item.asset_id]);
+      const stillApproved = assetRows[0] && assetRows[0].status === 'approved';
+      const backoffMinutes = 30 * Math.pow(2, item.attempts); // 30m, 1h, 2h, 4h...
+      await pool.query(
+        `UPDATE publish_queue
+         SET status = $2, attempts = $3, last_error = $4,
+             next_attempt_at = now() + ($5 || ' minutes')::interval, updated_at = now()
+         WHERE id = $1`,
+        [item.queue_id, exhausted || !stillApproved ? 'failed' : 'queued', attempts, err.message, String(backoffMinutes)]
+      );
+      console.error(`[publishService] Error publicando #${item.asset_id} (intento ${attempts}/${item.max_attempts}): ${err.message}`);
+      errors.push({ assetId: item.asset_id, error: err.message, willRetry: !exhausted && stillApproved });
     }
   }
+
   return { publishedCount, errors };
 }
 
-module.exports = { publishAssetById, publishDailyAuto };
+async function getPublishQueueStatus({ limit = 25 } = {}) {
+  const safeLimit = Math.max(1, Math.min(Number(limit) || 25, 100));
+  const { rows } = await pool.query(
+    `SELECT q.id, q.asset_id, q.status, q.attempts, q.max_attempts,
+            q.next_attempt_at, q.last_error, q.created_at, q.updated_at,
+            c.scheduled_date, c.scheduled_time, c.post_type, c.pillar, c.theme_title,
+            a.status AS asset_status
+     FROM publish_queue q
+     JOIN generated_assets a ON a.id = q.asset_id
+     JOIN content_calendar c ON c.id = a.calendar_id
+     ORDER BY
+       CASE q.status WHEN 'failed' THEN 0 WHEN 'processing' THEN 1 WHEN 'queued' THEN 2 ELSE 3 END,
+       q.next_attempt_at ASC,
+       q.id DESC
+     LIMIT $1`,
+    [safeLimit]
+  );
+  const { rows: summaryRows } = await pool.query(
+    `SELECT status, COUNT(*)::int AS count
+     FROM publish_queue
+     GROUP BY status
+     ORDER BY status`
+  );
+  return {
+    summary: Object.fromEntries(summaryRows.map((r) => [r.status, r.count])),
+    items: rows,
+  };
+}
+
+/**
+ * Pasada diaria completa: encola lo de hoy y procesa toda la cola
+ * (incluye reintentos pendientes de pasadas anteriores).
+ */
+async function publishDailyAuto() {
+  console.log(`[publishService] Auto-publish para pilares: ${config.meta.autoPublishPillars.join(', ')}`);
+  await enqueueDailyAuto();
+  return processPublishQueue();
+}
+
+module.exports = {
+  publishAssetById,
+  publishDailyAuto,
+  enqueueDailyAuto,
+  processPublishQueue,
+  getPublishQueueStatus,
+};

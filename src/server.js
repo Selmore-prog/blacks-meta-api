@@ -7,7 +7,7 @@ const pool = require('./db');
 const { seedCalendar, calendarIsEmpty } = require('./calendar');
 const { generateForSlot } = require('../scripts/generate-daily');
 const { generateDaily } = require('../scripts/generate-daily');
-const { publishAssetById, publishDailyAuto } = require('./publishService');
+const { publishAssetById, publishDailyAuto, getPublishQueueStatus } = require('./publishService');
 const { syncPostInsights, analyzePerformance } = require('./insights');
 const { getBrandProfile } = require('./brandProfile');
 const { uploadAsset } = require('./storage');
@@ -17,6 +17,7 @@ const { analyzeAccountPerformance } = require('./accountAnalyzer');
 const { hasGemini, buildVideoPrompt } = require('./ai');
 const { transcribeVideo } = require('./transcribe');
 const { getWholesaleSettings, saveWholesaleSettings } = require('./wholesale');
+const { listCommercialDates } = require('./commercialDates');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -77,6 +78,47 @@ function intParam(value) {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
+function textOrNull(value) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  const s = String(value).trim();
+  return s || null;
+}
+
+function boolOrNull(value) {
+  if (value === undefined) return undefined;
+  if (value === null) return null;
+  if (typeof value === 'boolean') return value;
+  return ['1', 'true', 'yes', 'si', 'sí', 'on'].includes(String(value).toLowerCase());
+}
+
+function assertOneOf(name, value, allowed) {
+  if (value === undefined || value === null) return;
+  if (!allowed.includes(value)) {
+    const err = new Error(`${name} inválido. Valores permitidos: ${allowed.join(', ')}`);
+    err.status = 400;
+    throw err;
+  }
+}
+
+function assertDate(value) {
+  if (value === undefined || value === null) return;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+    const err = new Error('scheduled_date inválida. Usá formato YYYY-MM-DD.');
+    err.status = 400;
+    throw err;
+  }
+}
+
+function assertTime(value) {
+  if (value === undefined || value === null) return;
+  if (!/^\d{2}:\d{2}$/.test(value)) {
+    const err = new Error('scheduled_time inválida. Usá formato HH:MM.');
+    err.status = 400;
+    throw err;
+  }
+}
+
 app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'dashboard.html'));
 });
@@ -132,6 +174,10 @@ app.post('/api/cron/sync-insights', authCron, wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
+app.get('/api/publish-queue', wrap(async (req, res) => {
+  res.json(await getPublishQueueStatus({ limit: req.query.limit }));
+}));
+
 // Check liviano para que el cron de GitHub Actions (cada 30 min) no gaste minutos
 // instalando dependencias cuando no hay nada que renderizar.
 app.get('/api/cron/has-pending-renders', authCron, wrap(async (req, res) => {
@@ -159,12 +205,26 @@ app.get('/api/calendar', wrap(async (req, res) => {
             a.id as asset_id, a.caption, a.hashtags, a.cta, a.image_path, a.video_path,
             a.meta_post_id, a.status as asset_status, a.format as asset_format, a.slides,
             a.edited_video_path, a.edit_status, a.voiceover_path,
-            p.name as product_name, p.image_url as product_image_url, p.price as product_price, p.stock as product_stock
+            p.name as product_name, p.image_url as product_image_url, p.price as product_price, p.stock as product_stock,
+            COALESCE(cd.events, '[]'::json) AS commercial_dates
      FROM content_calendar c
      LEFT JOIN LATERAL (
        SELECT * FROM generated_assets WHERE calendar_id = c.id ORDER BY id DESC LIMIT 1
      ) a ON true
      LEFT JOIN products_cache p ON p.id = a.product_id
+     LEFT JOIN LATERAL (
+       SELECT json_agg(json_build_object(
+         'id', d.id,
+         'event_date', d.event_date,
+         'title', d.title,
+         'category', d.category,
+         'angle', d.angle,
+         'priority', d.priority,
+         'source', d.source
+       ) ORDER BY d.priority DESC, d.id) AS events
+       FROM commercial_dates d
+       WHERE d.event_date = c.scheduled_date
+     ) cd ON true
      WHERE c.scheduled_date >= CURRENT_DATE
      ORDER BY c.scheduled_date ASC, c.id ASC
      LIMIT $1`,
@@ -178,6 +238,89 @@ app.post('/api/calendar/seed', wrap(async (req, res) => {
   const days = Math.min(Number(req.body && req.body.days) || 14, 60);
   const inserted = await seedCalendar(days);
   res.json({ ok: true, inserted: inserted.length });
+}));
+
+app.post('/api/calendar', wrap(async (req, res) => {
+  const body = req.body || {};
+  const scheduledDate = textOrNull(body.scheduled_date);
+  const postType = textOrNull(body.post_type) || 'feed';
+  const format = textOrNull(body.format) || (postType === 'feed' ? 'feed' : 'story');
+  const pillar = textOrNull(body.pillar) || 'producto';
+  const automationLevel = textOrNull(body.automation_level) || 'auto';
+  const status = textOrNull(body.status) || (pillar === 'repost' ? 'skipped' : 'pending');
+  const scheduledTime = textOrNull(body.scheduled_time);
+
+  assertDate(scheduledDate);
+  assertTime(scheduledTime);
+  assertOneOf('post_type', postType, ['feed', 'story', 'reel']);
+  assertOneOf('format', format, ['feed', 'story']);
+  assertOneOf('automation_level', automationLevel, ['auto', 'semi']);
+  assertOneOf('status', status, ['pending', 'draft', 'approved', 'published', 'skipped']);
+
+  if (!scheduledDate) return res.status(400).json({ error: 'Falta scheduled_date.' });
+  const { rows } = await pool.query(
+    `INSERT INTO content_calendar
+       (scheduled_date, platform, post_type, format, pillar, pillar_detail, automation_level,
+        interaction_hint, scheduled_time, theme_title, carousel, status)
+     VALUES ($1, 'instagram', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+     RETURNING *`,
+    [
+      scheduledDate,
+      postType,
+      format,
+      pillar,
+      textOrNull(body.pillar_detail),
+      automationLevel,
+      textOrNull(body.interaction_hint),
+      scheduledTime,
+      textOrNull(body.theme_title),
+      Boolean(boolOrNull(body.carousel)),
+      status,
+    ]
+  );
+  res.json({ ok: true, slot: rows[0] });
+}));
+
+app.patch('/api/calendar/:calendarId', wrap(async (req, res) => {
+  const id = intParam(req.params.calendarId);
+  if (!id) return res.status(400).json({ error: 'calendarId inválido' });
+  const body = req.body || {};
+
+  const values = {
+    scheduled_date: textOrNull(body.scheduled_date),
+    post_type: textOrNull(body.post_type),
+    format: textOrNull(body.format),
+    pillar: textOrNull(body.pillar),
+    pillar_detail: textOrNull(body.pillar_detail),
+    automation_level: textOrNull(body.automation_level),
+    interaction_hint: textOrNull(body.interaction_hint),
+    scheduled_time: textOrNull(body.scheduled_time),
+    theme_title: textOrNull(body.theme_title),
+    status: textOrNull(body.status),
+    carousel: boolOrNull(body.carousel),
+  };
+
+  assertDate(values.scheduled_date);
+  assertTime(values.scheduled_time);
+  assertOneOf('post_type', values.post_type, ['feed', 'story', 'reel']);
+  assertOneOf('format', values.format, ['feed', 'story']);
+  assertOneOf('automation_level', values.automation_level, ['auto', 'semi']);
+  assertOneOf('status', values.status, ['pending', 'draft', 'approved', 'published', 'skipped']);
+
+  const allowed = Object.keys(values).filter((key) => values[key] !== undefined);
+  if (!allowed.length) return res.status(400).json({ error: 'No hay campos para actualizar.' });
+  const sets = allowed.map((key, i) => `${key} = $${i + 2}`);
+  const params = [id, ...allowed.map((key) => values[key])];
+  const { rows } = await pool.query(
+    `UPDATE content_calendar SET ${sets.join(', ')} WHERE id = $1 RETURNING *`,
+    params
+  );
+  if (!rows[0]) return res.status(404).json({ error: 'No existe ese slot de calendario.' });
+  res.json({ ok: true, slot: rows[0] });
+}));
+
+app.get('/api/commercial-dates', wrap(async (req, res) => {
+  res.json(await listCommercialDates({ from: req.query.from, to: req.query.to }));
 }));
 
 /* ----------------------- Insights / Productos ----------------------- */
@@ -458,6 +601,9 @@ app.use((req, res) => res.status(404).json({ error: 'No encontrado' }));
 app.use((err, req, res, next) => {
   console.error('[server] Error:', err && err.stack ? err.stack : err);
   if (res.headersSent) return next(err);
+  if (err && err.code === '23505') {
+    return res.status(409).json({ error: 'Ya existe un slot con esa fecha, plataforma y formato de publicación. Probá otro día o tipo (feed/reel/story).' });
+  }
   res.status(err.status || 500).json({ error: err.message || 'Error interno del servidor' });
 });
 

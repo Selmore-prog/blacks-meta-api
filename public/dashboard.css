@@ -105,6 +105,7 @@ button:disabled { opacity: .55; cursor: default; }
 .badge.semi { background: rgba(245,166,35,.14); color: var(--amber); }
 .badge.whole { background: rgba(59,130,246,.16); color: var(--blue); }
 .badge.retail { background: rgba(34,197,94,.16); color: var(--green); }
+.badge.commercial { background: rgba(232,93,27,.16); color: #ffb08a; border: 1px solid rgba(232,93,27,.26); }
 .badge.status-draft { background: rgba(245,166,35,.14); color: var(--amber); }
 .badge.status-approved { background: rgba(34,197,94,.14); color: var(--green); }
 .badge.status-published { background: rgba(59,130,246,.16); color: var(--blue); }
@@ -121,6 +122,14 @@ button:disabled { opacity: .55; cursor: default; }
 .interaction-box b { color: var(--amber); }
 
 .actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: auto; padding-top: 6px; }
+
+.plan-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 12px; margin-bottom: 12px; }
+.check-row {
+  display: flex; align-items: center; gap: 8px; min-height: 42px; padding: 10px 12px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px;
+  color: var(--text); font-size: 13px; font-weight: 700;
+}
+@media (max-width: 640px) { .plan-grid { grid-template-columns: 1fr; } }
 
 /* ---------- Phone mockups ---------- */
 .preview-wrap { display: flex; flex-direction: column; align-items: center; gap: 8px; }

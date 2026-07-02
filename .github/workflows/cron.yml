@@ -10,6 +10,8 @@ on:
     - cron: '*/30 * * * *'
     # Publicación automática diaria a las 11:00 UTC (08:00 ARG)
     - cron: '0 11 * * *'
+    # Segunda pasada de publicación (reintentos de la cola) a las 15:00 UTC (12:00 ARG)
+    - cron: '0 15 * * *'
     # Sincronización semanal de métricas e insights los lunes a las 12:00 UTC
     - cron: '0 12 * * 1'
     # Análisis de estilo automático cada 48 h (06:00 UTC / 03:00 ARG)
@@ -115,7 +117,7 @@ jobs:
 
   # Publicación y sync de insights son llamadas livianas a Meta: se quedan en Render.
   publish-daily:
-    if: github.event.schedule == '0 11 * * *' || github.event.inputs.job == 'publish-daily'
+    if: github.event.schedule == '0 11 * * *' || github.event.schedule == '0 15 * * *' || github.event.inputs.job == 'publish-daily'
     runs-on: ubuntu-latest
     steps:
       - name: Llamar al endpoint de publicación

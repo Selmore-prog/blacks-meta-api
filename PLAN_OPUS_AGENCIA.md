@@ -1,5 +1,28 @@
 # PLAN MAESTRO — BLACKS Content Engine → "Agencia de marketing virtual" (100% gratis)
 
+## Estado de implementación al 2026-07-02
+
+Checklist acumulado:
+
+- [x] A2 — Login simple del dashboard con `DASHBOARD_PASSWORD` y cookie firmada. Commit `91a8e17`.
+- [x] A5 — `GET /api/cron/has-pending-renders` + job liviano en GitHub Actions para no gastar minutos si no hay videos pendientes. Commit `91a8e17`.
+- [x] A4 — Cola `publish_queue` con reintentos, backoff y segunda pasada diaria de publicación. Implementada en la ronda posterior a `91a8e17`.
+- [x] A4 extra — `GET /api/publish-queue` para auditar cola/fallos desde panel o notificador.
+- [x] B1 parcial — Calendario editable por API y UI mínima: crear slot, editar fecha/hora/pilar/brief/formato/estado/carrusel.
+- [x] B3 — Tabla `commercial_dates`, seed de fechas argentinas, badges en calendario e inyección del contexto comercial en el prompt de copy.
+- [ ] A1 — Modularizar `src/server.js` en routers.
+- [ ] A3 — Migraciones versionadas con `schema_migrations`.
+- [ ] B1 pendiente — Vista mensual con drag & drop real y acciones rápidas por celda.
+- [ ] B2 — Planner mensual IA (`rotation_plans`) usando métricas, stock, ventas y fechas comerciales.
+- [ ] B4 — Campañas coordinadas.
+- [ ] C — Multi-plantilla visual y grilla preview.
+- [ ] D2/D3 — Historias de refuerzo y mejor horario por datos.
+- [ ] E — Dashboard de métricas completo, feedback loop y Telegram.
+- [ ] F — Inbox de comentarios y respuestas sugeridas.
+- [ ] G — Rediseño del panel con navegación lateral/mobile-first.
+
+Ver también `TRASPASO_FABLE_5.md` para detalle de archivos tocados, pruebas y decisiones de esta sesión.
+
 > **Cómo usar este documento:** dáselo a Claude Opus como prompt inicial y pedile que ejecute
 > **una fase por sesión** (o una "ronda" por commit, como se venía trabajando: `git log` muestra
 > Ronda 1–11). Cada fase termina con: código funcionando verificado localmente, commit, y una

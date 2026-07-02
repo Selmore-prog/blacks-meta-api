@@ -139,6 +139,15 @@ function comercialOf(it) {
   return 'otro';
 }
 
+function commercialDatesOf(it) {
+  const raw = it && it.commercial_dates;
+  if (Array.isArray(raw)) return raw;
+  if (typeof raw === 'string') {
+    try { return JSON.parse(raw); } catch (_) { return []; }
+  }
+  return [];
+}
+
 function groupByDate(items) {
   const groups = {};
   for (const it of items) {
@@ -385,6 +394,9 @@ function renderCard(item) {
   const commercialBadge = item.pillar === 'mayorista'
     ? `<span class="badge whole">Mayorista</span>`
     : (['producto', 'promo'].includes(item.pillar) ? `<span class="badge retail">Minorista</span>` : '');
+  const dateBadges = commercialDatesOf(item).slice(0, 2).map((d) =>
+    `<span class="badge commercial" title="${esc(d.angle || '')}">${icon('tag')} ${esc(d.title)}</span>`
+  ).join('');
 
   const regenBtn = `<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Regenerar</button>`;
   const videoBtn = (item.post_type === 'reel' && aid)
@@ -393,27 +405,29 @@ function renderCard(item) {
     ? `<button class="btn-ghost btn-sm" data-act="uploadvideo" data-id="${aid}">${icon('upload')} Subir video</button>` : '';
   const editVideoBtn = (item.post_type === 'reel' && aid && item.video_path)
     ? `<button class="btn-ghost btn-sm" data-act="editvideo" data-id="${aid}">${icon('film')} Subtítulos${item.edit_status === 'done' ? ' ✓' : ''}</button>` : '';
+  const planBtn = status !== 'published'
+    ? `<button class="btn-ghost btn-sm" data-act="planslot" data-id="${item.id}">${icon('calendar')} Planificar</button>` : '';
 
   let actions = '';
   if (isRepost) {
-    actions = `<span style="color:var(--muted); font-size:13px;">Día de descanso / repost — sin generación automática.</span>`;
+    actions = `<span style="color:var(--muted); font-size:13px;">Día de descanso / repost — sin generación automática.</span>${planBtn}`;
   } else if (!aid) {
     actions = `<button class="btn-primary" data-act="generate" data-id="${item.id}">${icon('bolt')} Generar pieza</button>
-      <button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Con otro tema</button>`;
+      <button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Con otro tema</button>${planBtn}`;
   } else if (status === 'draft') {
     actions = `<button class="btn-approve" data-act="approve" data-id="${aid}">${icon('check')} Aprobar</button>
       <button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Editar</button>
       ${regenBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}
-      <button class="btn-discard btn-sm" data-act="discard" data-id="${aid}">${icon('trash')} Descartar</button>`;
+      <button class="btn-discard btn-sm" data-act="discard" data-id="${aid}">${icon('trash')} Descartar</button>${planBtn}`;
   } else if (status === 'approved') {
     actions = (isSemi
       ? `<button class="btn-manual" data-act="publish" data-id="${aid}">${icon('info')} Cómo publicarla</button>`
       : `<button class="btn-publish" data-act="publish" data-id="${aid}">${icon('send')} Publicar ahora</button>`) +
-      `<button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Editar</button>${regenBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}`;
+      `<button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Editar</button>${regenBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${planBtn}`;
   } else if (status === 'published') {
     actions = `<span class="badge status-published">${icon('check')} Publicado ${item.meta_post_id ? `· ${esc(item.meta_post_id)}` : ''}</span>`;
   } else if (status === 'discarded') {
-    actions = `<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('refresh')} Regenerar</button>`;
+    actions = `<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('refresh')} Regenerar</button>${planBtn}`;
   }
 
   const interaction = (isSemi && item.interaction_hint && status !== 'published')
@@ -430,6 +444,7 @@ function renderCard(item) {
         <span class="badge type">${typeLabel(item)}</span>
         <span class="badge pillar">${esc(item.pillar)}</span>
         ${commercialBadge}
+        ${dateBadges}
         ${item.scheduled_time ? `<span class="badge time">${icon('clock')} ${esc(item.scheduled_time)} hs</span>` : ''}
         ${autoBadge}${statusBadge}
       </div>
@@ -466,6 +481,8 @@ async function handleAction(act, id, btn, card, item) {
       openVideoUpload(id);
     } else if (act === 'editvideo') {
       openVideoEditor(id);
+    } else if (act === 'planslot') {
+      openPlanSlot(item || calItems.find((x) => String(x.id) === String(id)));
     } else if (act === 'publish') {
       await doPublish(id, btn);
     }
@@ -474,6 +491,99 @@ async function handleAction(act, id, btn, card, item) {
     if (btn) btn.disabled = false;
     reloadKeepScroll();
   }
+}
+
+/* ============ planificar / editar slots ============ */
+function todayKey() {
+  return new Date().toLocaleDateString('sv-SE');
+}
+
+function planSelect(id, label, options, value) {
+  return `<div class="field"><label>${label}</label><select class="input" id="${id}">
+    ${options.map((o) => `<option value="${esc(o.v)}" ${o.v === value ? 'selected' : ''}>${esc(o.t)}</option>`).join('')}
+  </select></div>`;
+}
+
+function planText(id, label, value, placeholder = '') {
+  return `<div class="field"><label>${label}</label><input class="input" id="${id}" value="${esc(value || '')}" placeholder="${esc(placeholder)}" /></div>`;
+}
+
+function readPlanForm(overlay) {
+  const postType = overlay.querySelector('#plan-post-type').value;
+  const format = overlay.querySelector('#plan-format').value || (postType === 'feed' ? 'feed' : 'story');
+  const pillar = overlay.querySelector('#plan-pillar').value.trim() || 'producto';
+  const status = overlay.querySelector('#plan-status').value;
+  return {
+    scheduled_date: overlay.querySelector('#plan-date').value,
+    scheduled_time: overlay.querySelector('#plan-time').value,
+    post_type: postType,
+    format,
+    pillar,
+    pillar_detail: overlay.querySelector('#plan-detail').value.trim(),
+    theme_title: overlay.querySelector('#plan-theme').value.trim(),
+    automation_level: overlay.querySelector('#plan-auto').value,
+    interaction_hint: overlay.querySelector('#plan-hint').value.trim(),
+    carousel: overlay.querySelector('#plan-carousel').checked,
+    status,
+  };
+}
+
+function openPlanSlot(item = null) {
+  const isNew = !item;
+  const body = `
+    <p class="hint" style="margin-top:0;">Editá la estrategia del calendario sin regenerar todavía. Si ya hay una pieza creada, estos cambios aplican al slot; usá “Regenerar” para rehacer copy/imagen con el nuevo brief.</p>
+    <div class="plan-grid">
+      ${planText('plan-date', 'Fecha', item ? String(item.scheduled_date).slice(0, 10) : todayKey(), 'YYYY-MM-DD')}
+      ${planText('plan-time', 'Hora ARG', item?.scheduled_time || '18:00', '18:00')}
+      ${planSelect('plan-post-type', 'Formato de publicación', [
+        { v: 'feed', t: 'Feed' }, { v: 'story', t: 'Historia' }, { v: 'reel', t: 'Reel' },
+      ], item?.post_type || 'feed')}
+      ${planSelect('plan-format', 'Lienzo', [
+        { v: 'feed', t: 'Feed 4:5' }, { v: 'story', t: 'Story/Reel 9:16' },
+      ], item?.format || (item?.post_type === 'feed' ? 'feed' : 'story'))}
+      ${planSelect('plan-pillar', 'Pilar', [
+        { v: 'producto', t: 'Producto' }, { v: 'promo', t: 'Promo' }, { v: 'educativo', t: 'Educativo' },
+        { v: 'marca', t: 'Marca' }, { v: 'mayorista', t: 'Mayorista' }, { v: 'ugc', t: 'UGC/testimonio' },
+        { v: 'engagement', t: 'Engagement' }, { v: 'repost', t: 'Descanso/repost' },
+      ], item?.pillar || 'producto')}
+      ${planSelect('plan-auto', 'Automatización', [
+        { v: 'auto', t: 'Automática' }, { v: 'semi', t: 'Semi/manual' },
+      ], item?.automation_level || 'auto')}
+      ${planSelect('plan-status', 'Estado del slot', [
+        { v: 'pending', t: 'Pendiente' }, { v: 'skipped', t: 'Pausado/descanso' },
+      ], item?.status === 'skipped' ? 'skipped' : 'pending')}
+      <label class="check-row"><input type="checkbox" id="plan-carousel" ${item?.carousel ? 'checked' : ''} /> Carrusel</label>
+    </div>
+    <div class="field"><label>Título interno</label><input class="input" id="plan-theme" value="${esc(item?.theme_title || '')}" placeholder="Ej: Oferta aguinaldo" /></div>
+    <div class="field"><label>Brief / detalle del pilar</label><textarea class="input" id="plan-detail" placeholder="Ej: Botines con puntera para construcción">${esc(item?.pillar_detail || '')}</textarea></div>
+    <div class="field"><label>Acción manual si es semi</label><textarea class="input" id="plan-hint" placeholder="Ej: Agregá encuesta con dos opciones">${esc(item?.interaction_hint || '')}</textarea></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end;">
+      <button class="btn-discard" id="plan-cancel">Cancelar</button>
+      <button class="btn-primary" id="plan-save">${icon('check')} ${isNew ? 'Crear slot' : 'Guardar cambios'}</button>
+    </div>`;
+  const overlay = showInfoModal(isNew ? 'Agregar slot' : 'Planificar slot', body);
+  overlay.querySelector('#plan-post-type').addEventListener('change', (e) => {
+    overlay.querySelector('#plan-format').value = e.target.value === 'feed' ? 'feed' : 'story';
+  });
+  overlay.querySelector('#plan-cancel').addEventListener('click', () => overlay.remove());
+  overlay.querySelector('#plan-save').addEventListener('click', async () => {
+    const btn = overlay.querySelector('#plan-save');
+    btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Guardando…`;
+    try {
+      const payload = readPlanForm(overlay);
+      await api(isNew ? '/api/calendar' : `/api/calendar/${item.id}`, {
+        method: isNew ? 'POST' : 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      });
+      overlay.remove();
+      toast(isNew ? 'Slot agregado' : 'Slot actualizado', 'ok');
+      reloadKeepScroll();
+    } catch (e) {
+      toast(e.message, 'err');
+      btn.disabled = false; btn.innerHTML = `${icon('check')} ${isNew ? 'Crear slot' : 'Guardar cambios'}`;
+    }
+  });
 }
 
 /* ============ regenerar con otro tema ============ */
