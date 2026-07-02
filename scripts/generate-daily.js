@@ -195,6 +195,23 @@ async function pickRelevantVisualProduct(slot) {
   return rows[0] || null;
 }
 
+/**
+ * Feedback loop: captions de los posts publicados con mejor rendimiento real
+ * (alcance + engagement ponderado). Vacío hasta que haya métricas — no molesta.
+ */
+async function topPerformingCaptions(limit = 3) {
+  const { rows } = await pool.query(
+    `SELECT a.caption
+     FROM post_insights i
+     JOIN generated_assets a ON a.id = i.asset_id
+     WHERE a.caption IS NOT NULL AND length(a.caption) > 30
+     ORDER BY (COALESCE(i.reach, 0) + COALESCE(i.likes, 0) * 5 + COALESCE(i.comments, 0) * 10 + COALESCE(i.saved, 0) * 10) DESC
+     LIMIT $1`,
+    [limit]
+  );
+  return rows.map((r) => r.caption);
+}
+
 function interactionChip(slot) {
   if (slot.automation_level !== 'semi') return null;
   const hint = (slot.interaction_hint || '').toUpperCase();
@@ -238,6 +255,7 @@ async function generateForSlot(slot, overrides = {}) {
     wholesale,
     carousel: isCarousel,
     commercialContext,
+    topCaptions: await topPerformingCaptions().catch(() => []),
   });
 
   const badgeText = slot.pillar === 'mayorista' ? 'MAYORISTA' : null;
