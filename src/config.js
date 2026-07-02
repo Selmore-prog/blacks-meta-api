@@ -61,6 +61,12 @@ module.exports = {
 
   cronSecret: required('CRON_SECRET', 'secret-dev'),
 
+  // Notificaciones por Telegram (opcionales, gratis). Ver src/notifier.js para el paso a paso.
+  telegram: {
+    botToken: required('TELEGRAM_BOT_TOKEN', ''),
+    chatId: required('TELEGRAM_CHAT_ID', ''),
+  },
+
   // Contraseña del panel. Si está vacía, el panel queda SIN login (como antes) —
   // seteala en Render para cerrar el acceso público.
   dashboardPassword: required('DASHBOARD_PASSWORD', ''),

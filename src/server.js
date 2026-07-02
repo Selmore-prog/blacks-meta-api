@@ -18,6 +18,7 @@ const { hasGemini, buildVideoPrompt } = require('./ai');
 const { transcribeVideo } = require('./transcribe');
 const { getWholesaleSettings, saveWholesaleSettings } = require('./wholesale');
 const { listCommercialDates } = require('./commercialDates');
+const { notifyPublishResult, notifyWeeklyReport } = require('./notifier');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -168,11 +169,15 @@ app.post('/api/cron/generate-daily', authCron, wrap(async (req, res) => {
 }));
 
 app.post('/api/cron/publish-daily', authCron, wrap(async (req, res) => {
-  res.json({ ok: true, ...(await publishDailyAuto()) });
+  const result = await publishDailyAuto();
+  await notifyPublishResult(result).catch(() => {});
+  res.json({ ok: true, ...result });
 }));
 
 app.post('/api/cron/sync-insights', authCron, wrap(async (req, res) => {
   await syncPostInsights();
+  const report = await analyzePerformance().catch(() => null);
+  if (report) await notifyWeeklyReport(report).catch(() => {});
   res.json({ ok: true });
 }));
 

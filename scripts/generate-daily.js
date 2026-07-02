@@ -320,6 +320,10 @@ async function generateDaily() {
   }
 
   console.log(`[generate-daily] Listo. Generados ${generatedCount} slots.`);
+  if (generatedCount > 0) {
+    const { notifyPendingApproval } = require('../src/notifier');
+    await notifyPendingApproval(generatedCount).catch(() => {});
+  }
   return { generatedCount };
 }
 
