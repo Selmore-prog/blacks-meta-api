@@ -75,9 +75,28 @@ jobs:
       - run: npm run generate:daily
       - run: npm run render:reels
 
+  # Chequeo liviano (~10 seg) para no gastar minutos de Actions instalando todo
+  # cuando no hay ningún video pendiente de renderizar.
+  check-pending-renders:
+    if: github.event.schedule == '*/30 * * * *' || github.event.inputs.job == 'render-reels'
+    runs-on: ubuntu-latest
+    outputs:
+      pending: ${{ steps.check.outputs.pending }}
+    steps:
+      - name: Consultar si hay renders pendientes
+        id: check
+        run: |
+          PENDING=$(curl -sf \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            "${{ secrets.PUBLIC_BASE_URL }}/api/cron/has-pending-renders" \
+            | grep -o '"pending":[a-z]*' | cut -d: -f2 || echo "true")
+          echo "pending=$PENDING" >> "$GITHUB_OUTPUT"
+          echo "Renders pendientes: $PENDING"
+
   # Renderiza con ffmpeg el video de los Reels que todavía no lo tienen.
   render-reels:
-    if: github.event.schedule == '*/30 * * * *' || github.event.inputs.job == 'render-reels'
+    needs: check-pending-renders
+    if: needs.check-pending-renders.outputs.pending == 'true' || github.event.inputs.job == 'render-reels'
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}

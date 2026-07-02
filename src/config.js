@@ -61,6 +61,10 @@ module.exports = {
 
   cronSecret: required('CRON_SECRET', 'secret-dev'),
 
+  // Contraseña del panel. Si está vacía, el panel queda SIN login (como antes) —
+  // seteala en Render para cerrar el acceso público.
+  dashboardPassword: required('DASHBOARD_PASSWORD', ''),
+
   meta: {
     pageAccessToken: required('META_PAGE_ACCESS_TOKEN'),
     igUserId: required('IG_USER_ID'),

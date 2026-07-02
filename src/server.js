@@ -1,4 +1,5 @@
 const path = require('path');
+const crypto = require('crypto');
 const express = require('express');
 const multer = require('multer');
 const config = require('./config');
@@ -19,6 +20,49 @@ const { getWholesaleSettings, saveWholesaleSettings } = require('./wholesale');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
+
+/* ----------------------- Login del panel ----------------------- */
+// Si DASHBOARD_PASSWORD está seteada, todo el panel y la API piden sesión
+// (cookie firmada, stateless). Sin la variable, se comporta como antes (abierto).
+const SESSION_COOKIE = 'blacks_session';
+
+function sessionToken() {
+  return crypto
+    .createHmac('sha256', `${config.dashboardPassword}::${config.cronSecret}`)
+    .update('blacks-dashboard-v1')
+    .digest('hex');
+}
+
+function hasValidSession(req) {
+  const cookies = req.headers.cookie || '';
+  const match = cookies.split(';').map((c) => c.trim()).find((c) => c.startsWith(`${SESSION_COOKIE}=`));
+  if (!match) return false;
+  const value = match.slice(SESSION_COOKIE.length + 1);
+  const expected = sessionToken();
+  return value.length === expected.length && crypto.timingSafeEqual(Buffer.from(value), Buffer.from(expected));
+}
+
+app.post('/api/login', (req, res) => {
+  if (!config.dashboardPassword) return res.json({ ok: true });
+  const { password } = req.body || {};
+  if (!password || password !== config.dashboardPassword) {
+    return res.status(401).json({ error: 'Contraseña incorrecta.' });
+  }
+  const maxAge = 30 * 24 * 60 * 60; // 30 días
+  const secure = config.publicBaseUrl.startsWith('https') ? '; Secure' : '';
+  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${sessionToken()}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`);
+  res.json({ ok: true });
+});
+
+app.use((req, res, next) => {
+  if (!config.dashboardPassword) return next();
+  const open = ['/health', '/api/health', '/api/login', '/login.html', '/favicon.ico'];
+  if (open.includes(req.path) || req.path.startsWith('/api/cron/')) return next(); // cron tiene su propio secret
+  if (hasValidSession(req)) return next();
+  if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Sesión requerida.', needLogin: true });
+  return res.redirect('/login.html');
+});
+
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -86,6 +130,21 @@ app.post('/api/cron/publish-daily', authCron, wrap(async (req, res) => {
 app.post('/api/cron/sync-insights', authCron, wrap(async (req, res) => {
   await syncPostInsights();
   res.json({ ok: true });
+}));
+
+// Check liviano para que el cron de GitHub Actions (cada 30 min) no gaste minutos
+// instalando dependencias cuando no hay nada que renderizar.
+app.get('/api/cron/has-pending-renders', authCron, wrap(async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT
+       (SELECT COUNT(*) FROM generated_assets a
+          JOIN content_calendar c ON c.id = a.calendar_id
+        WHERE c.post_type = 'reel' AND a.video_path IS NULL AND a.status != 'discarded')::int AS reels,
+       (SELECT COUNT(*) FROM generated_assets
+        WHERE edit_status = 'queued' AND video_path IS NOT NULL)::int AS edits`
+  );
+  const { reels, edits } = rows[0];
+  res.json({ pending: reels + edits > 0, reels, edits });
 }));
 
 /* ----------------------- Calendario ----------------------- */

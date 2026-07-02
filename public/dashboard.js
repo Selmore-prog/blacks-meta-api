@@ -48,6 +48,10 @@ async function api(path, opts = {}) {
   const res = await fetch(path, opts);
   let data = null;
   try { data = await res.json(); } catch (_) {}
+  if (res.status === 401 && data && data.needLogin) {
+    window.location.href = '/login.html';
+    throw new Error('Sesión vencida.');
+  }
   if (!res.ok) throw new Error((data && data.error) || `Error ${res.status}`);
   return data;
 }
