@@ -80,13 +80,18 @@ function seasonContext(date = new Date()) {
   return `Estamos en ${estacion} en Argentina — ${nota} Si encaja, mencioná el clima/temporada de forma natural (sin forzar).`;
 }
 
-function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, brandProfile, interactionHint, carousel, slideCount = 3, wholesale, commercialContext }) {
+function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visualProduct, brandProfile, interactionHint, carousel, slideCount = 3, wholesale, commercialContext }) {
   let productInfo = product
     ? `Producto a destacar: ${product.name}${product.brand ? ` (marca ${product.brand})` : ''}${product.price ? `, precio $${Number(product.price).toLocaleString('es-AR')}` : ''}${typeof product.stock === 'number' ? `, stock ${product.stock}` : ''}.`
     : 'No hay un producto puntual; el foco es la marca/línea en general.';
   // Descripción real de Tiendanube: características para que el copy sea concreto y fiel.
   if (product && product.description) {
     productInfo += `\nCaracterísticas reales (usá SOLO datos de acá, no inventes): "${product.description}"`;
+  }
+  // Ancla visual: la pieza no vende este producto, pero SU FOTO es la imagen de fondo.
+  // El copy tiene que poder convivir con esa foto (mismo rubro/tipo de prenda), sin venderla.
+  if (!product && visualProduct) {
+    productInfo += `\nIMAGEN DE LA PIEZA: la foto de fondo es "${visualProduct.name}"${visualProduct.brand ? ` (marca ${visualProduct.brand})` : ''}. NO estás vendiendo ese producto puntual: usalo como ejemplo/ilustración del tema. El copy y el overlay tienen que tener sentido con esa foto (mismo tipo de prenda/calzado); si das ejemplos, que sean de ese tipo de producto.`;
   }
   const wholesaleInfo = (pillar === 'mayorista' && wholesale)
     ? `\nCONDICIONES MAYORISTAS (metelas en el copy, tono B2B, sin precio unitario, cerrá con "pedí tu presupuesto"): ${wholesale}`

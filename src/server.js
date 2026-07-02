@@ -103,7 +103,9 @@ function assertOneOf(name, value, allowed) {
 
 function assertDate(value) {
   if (value === undefined || value === null) return;
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) {
+  const valid = /^\d{4}-\d{2}-\d{2}$/.test(value) && !Number.isNaN(new Date(`${value}T00:00:00Z`).getTime())
+    && new Date(`${value}T00:00:00Z`).toISOString().slice(0, 10) === value;
+  if (!valid) {
     const err = new Error('scheduled_date inválida. Usá formato YYYY-MM-DD.');
     err.status = 400;
     throw err;
@@ -112,8 +114,8 @@ function assertDate(value) {
 
 function assertTime(value) {
   if (value === undefined || value === null) return;
-  if (!/^\d{2}:\d{2}$/.test(value)) {
-    const err = new Error('scheduled_time inválida. Usá formato HH:MM.');
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(value)) {
+    const err = new Error('scheduled_time inválida. Usá formato HH:MM (00:00 a 23:59).');
     err.status = 400;
     throw err;
   }

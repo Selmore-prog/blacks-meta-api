@@ -95,46 +95,103 @@ async function pickProductForSlot(slot) {
 }
 
 const STOPWORDS = new Set(['para', 'con', 'sin', 'los', 'las', 'del', 'una', 'uno', 'que', 'por', 'cuando',
-  'como', 'este', 'esta', 'mas', 'más', 'cada', 'entre', 'elegi', 'elegí', 'vos', 'the', 'and']);
+  'como', 'este', 'esta', 'mas', 'cada', 'entre', 'elegi', 'vos', 'the', 'and', 'correcto',
+  'correcta', 'justo', 'justa', 'mejor', 'laburo',
+  // Verbos/palabras genéricas que matchean cualquier descripción y arruinan la relevancia:
+  'cambiar', 'conviene', 'cuanto', 'trivia', 'sabes', 'saber', 'hora', 'tiene', 'tener',
+  'usar', 'usas', 'poner', 'lleva', 'llevar', 'hace', 'hacer', 'todo', 'todos', 'semana', 'destacado']);
+
+function stripAccents(s) {
+  return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
 
 function keywordsFromText(text) {
-  return String(text || '').toLowerCase()
-    .replace(/[^a-záéíóúñ0-9 ]/gi, ' ')
+  return stripAccents(String(text || '').toLowerCase())
+    .replace(/[^a-z0-9 ]/gi, ' ')
     .split(/\s+/)
     .filter((w) => w.length >= 4 && !STOPWORDS.has(w))
     .slice(0, 6)
     .map((w) => `%${w}%`);
 }
 
+function topicVisualRules(slot) {
+  const text = `${slot.pillar_detail || ''} ${slot.theme_title || ''}`.toLowerCase();
+  const include = [];
+  const exclude = [];
+
+  const add = (...words) => {
+    for (const word of words) include.push(`%${word}%`);
+  };
+  const ban = (...words) => {
+    for (const word of words) exclude.push(`%${word}%`);
+  };
+
+  // Los patrones van SIN acentos: la comparación en SQL también se hace sin acentos.
+  if (/(talle|calce|medida|medidas|queda|quede)/i.test(text)) {
+    add('campera', 'buzo', 'pantalon', 'remera', 'chomba', 'camisa', 'botin', 'zapato', 'mameluco');
+    ban('pasamont', 'balaclava', 'gorro', 'guante', 'cuello', 'bufanda', 'media', 'plantilla');
+  }
+  if (/(puntera|acero|calzado|botin|botín|zapato|suela)/i.test(text)) {
+    // OJO: sin 'seguridad' a secas — matchea fajas/cascos/anteojos que no son calzado.
+    add('botin', 'zapato', 'calzado', 'puntera', 'borcego', 'borcegui');
+    ban('remera', 'chomba', 'campera', 'buzo', 'gorro', 'guante', 'pasamont', 'faja', 'casco', 'anteojo', 'media', 'plantilla');
+  }
+  if (/(frio|frío|invierno|abrigo|abrigad)/i.test(text)) {
+    add('campera', 'buzo', 'polar', 'softshell', 'termica', 'chaleco');
+    ban('pasamont', 'balaclava', 'gorro', 'guante', 'cuello', 'bufanda');
+  }
+  if (/(uniform|empresa|corporativ|mayorista)/i.test(text)) {
+    add('camisa', 'pantalon', 'chomba', 'remera', 'mameluco', 'campera');
+  }
+
+  return { include, exclude };
+}
+
+function uniquePatterns(patterns) {
+  return [...new Set((patterns || []).filter(Boolean))];
+}
+
 /**
  * Para pilares SIN producto (educativo/marca/ugc/engagement), busca en el catálogo
- * una FOTO real relacionada al tema para que la pieza nunca quede vacía.
- * Ej: "puntera de acero" -> un botín de seguridad. Siempre devuelve algo con imagen.
+ * una FOTO real relacionada al tema.
+ * Regla importante: si no hay match fuerte, devuelve null. Es mejor una pieza textual
+ * de marca que mostrar un producto cualquiera que contradiga el copy.
  */
-async function pickRelevantProductImage(slot) {
-  const words = [...keywordsFromText(slot.pillar_detail), ...keywordsFromText(slot.theme_title)];
-  const patterns = words.length ? words : seasonKeywords();
+async function pickRelevantVisualProduct(slot) {
+  const rawWords = [...keywordsFromText(slot.pillar_detail), ...keywordsFromText(slot.theme_title)];
+  const rules = topicVisualRules(slot);
+  const include = uniquePatterns([...rawWords, ...rules.include]);
+  if (!include.length) return null;
 
-  let { rows } = await pool.query(
+  // La foto tiene que salir del catálogo correcto: piezas mayoristas/corporativas usan
+  // productos mayoristas (stock infinito o "Consultar precio"); el resto, productos
+  // minoristas reales (con precio y stock, para no mostrar algo que no se puede comprar).
+  const isMayoristaSlot = slot.pillar === 'mayorista'
+    || /(mayorista|empresa|corporativ|uniform)/i.test(`${slot.pillar_detail || ''} ${slot.theme_title || ''}`);
+  const poolFilter = isMayoristaSlot
+    ? `(stock IS NULL OR price IS NULL OR price <= 0)`
+    : `(stock > 0 AND price > 0)`;
+
+  // Comparación sin acentos ('%botin%' tiene que matchear "Botín" y "Botines").
+  const norm = (col) => `translate(lower(${col}), 'áéíóúñü', 'aeiounu')`;
+  const params = [include, rules.exclude.length ? rules.exclude : ['%__never_match__%']];
+  const { rows } = await pool.query(
     `SELECT * FROM (
-       SELECT * FROM products_cache
-       WHERE image_url IS NOT NULL AND (name ILIKE ANY($1) OR category ILIKE ANY($1))
-       ORDER BY (stock > 0) DESC, sales_30d DESC NULLS LAST LIMIT 12
-     ) t ORDER BY random() LIMIT 1`,
-    [patterns]
+       SELECT *,
+         -- Calidad del match: SOLO nombre/categoría califican (la descripción menciona
+         -- de todo y hacía elegir productos que no tenían nada que ver con el tema).
+         ((CASE WHEN ${norm('name')} LIKE ANY($1) THEN 4 ELSE 0 END) +
+          (CASE WHEN ${norm(`COALESCE(category, '')`)} LIKE ANY($1) THEN 3 ELSE 0 END)) AS relevance_score
+       FROM products_cache
+       WHERE image_url IS NOT NULL
+         AND ${poolFilter}
+         AND NOT (${norm('name')} LIKE ANY($2) OR ${norm(`COALESCE(category, '')`)} LIKE ANY($2))
+     ) t
+     WHERE relevance_score >= 3
+     ORDER BY relevance_score DESC, sales_30d DESC NULLS LAST, stock DESC NULLS LAST
+     LIMIT 1`,
+    params
   );
-  if (rows[0]) return rows[0];
-
-  ({ rows } = await pool.query(
-    `SELECT * FROM (
-       SELECT * FROM products_cache WHERE image_url IS NOT NULL AND (name ILIKE ANY($1) OR category ILIKE ANY($1))
-       ORDER BY (stock > 0) DESC LIMIT 12
-     ) t ORDER BY random() LIMIT 1`,
-    [seasonKeywords()]
-  ));
-  if (rows[0]) return rows[0];
-
-  ({ rows } = await pool.query(`SELECT * FROM products_cache WHERE image_url IS NOT NULL AND stock > 0 ORDER BY random() LIMIT 1`));
   return rows[0] || null;
 }
 
@@ -157,17 +214,14 @@ async function generateForSlot(slot, overrides = {}) {
   const product = isMayorista
     ? await pickMayoristaProduct(effectiveSlot)
     : (PRODUCT_PILLARS.includes(slot.pillar) ? await pickProductForSlot(effectiveSlot) : null);
+  const visualProduct = product || await pickRelevantVisualProduct(effectiveSlot);
   const wholesale = isMayorista ? wholesaleContext(await getWholesaleSettings()) : null;
   const format = slot.format === 'story' ? 'story' : 'feed';
   const commercialContext = await getCommercialContextForDate(slot.scheduled_date).catch(() => null);
 
-  // Foto REAL siempre: la del producto o, si el pilar no es de producto, una foto del
-  // catálogo relacionada al tema (así la pieza nunca queda vacía).
-  let visualImageUrl = product ? product.image_url : null;
-  if (!visualImageUrl) {
-    const rel = await pickRelevantProductImage(effectiveSlot);
-    if (rel) visualImageUrl = rel.image_url;
-  }
+  // Foto REAL y coherente: producto principal o producto visual con match fuerte.
+  // No usamos fallback estacional/random porque puede contradecir el copy.
+  const visualImageUrl = visualProduct ? visualProduct.image_url : null;
 
   const logoUrl = await getActiveLogo().catch(() => null);
 
@@ -178,6 +232,7 @@ async function generateForSlot(slot, overrides = {}) {
     postType: slot.post_type,
     format,
     product,
+    visualProduct: product ? null : visualProduct,
     brandProfile,
     interactionHint: slot.interaction_hint,
     wholesale,
@@ -197,8 +252,8 @@ async function generateForSlot(slot, overrides = {}) {
   const slides = isCarousel && Array.isArray(copy.slides) && copy.slides.length >= 2 ? copy.slides.slice(0, 4) : null;
   if (slides) {
     // Carrusel: una slide por punto, usando distintas fotos del producto si hay.
-    const imgs = (product && Array.isArray(product.images) && product.images.length)
-      ? product.images : (visualImageUrl ? [visualImageUrl] : []);
+    const imgs = (visualProduct && Array.isArray(visualProduct.images) && visualProduct.images.length)
+      ? visualProduct.images : (visualImageUrl ? [visualImageUrl] : []);
     const urls = [];
     for (let i = 0; i < slides.length; i += 1) {
       const img = imgs.length ? imgs[i % imgs.length] : visualImageUrl;
@@ -226,8 +281,8 @@ async function generateForSlot(slot, overrides = {}) {
       badgeText,
       productImageUrl: visualImageUrl,
       logoUrl,
-      useAiProductScene: Boolean(product),
-      useAiBackground: !visualImageUrl,
+      useAiProductScene: PRODUCT_PILLARS.includes(slot.pillar) && Boolean(product),
+      useAiBackground: false,
       bgTheme: pillarDetail || slot.theme_title,
       interactionLabel: interactionChip(slot),
     });
@@ -239,7 +294,7 @@ async function generateForSlot(slot, overrides = {}) {
   await pool.query(
     `INSERT INTO generated_assets (calendar_id, product_id, caption, hashtags, cta, image_path, video_path, format, slides, status)
      VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, 'draft')`,
-    [slot.id, product ? product.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson]
+    [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson]
   );
 
   await pool.query(`UPDATE content_calendar SET status = 'draft' WHERE id = $1`, [slot.id]);
@@ -277,4 +332,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { generateDaily, generateForSlot };
+module.exports = { generateDaily, generateForSlot, pickRelevantVisualProduct };
