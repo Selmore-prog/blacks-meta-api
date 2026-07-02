@@ -15,12 +15,14 @@
 - [x] E3/E4 — Notificador Telegram (`39aa80b`): piezas nuevas, resultado de publicación (con fallos y reintentos) e informe semanal. **Se activa con `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`** (paso a paso en `src/notifier.js`); sin tokens es no-op.
 - [x] E2 — Feedback loop (`ea96ec0`): los 3 posts con mejor rendimiento real entran como few-shot al prompt. Activo apenas `post_insights` tenga datos.
 - [x] E1 básico — La pestaña Métricas ya muestra análisis de cuenta, tabla por pilar y recomendación.
+- [x] B2 — Planner mensual IA (`ae8b9f4`/`e382c1f`): `rotation_plans` generado por IA con fechas comerciales + ventas 30d + insights + stock (`src/planner.js`). `seedCalendar` aplica el plan día a día ("el plan manda": limpia slots pending/skipped de la rotación vieja, nunca toca drafts/aprobados/manuales — columna `origin`). Botón "Plan del mes (IA)" en el panel, `POST /api/plan/generate`, cron el día 25 (`/api/cron/generate-plan`). Verificado: plan real de julio y agosto 2026 generado con Groq (31 días, productos reales, 9 de Julio → promo).
+- [x] C parcial — Multi-plantillas (`ae8b9f4`): 5 plantillas en `src/imageRenderer.js` (fullbleed, minimal, promo, educativo, mayorista), selección automática por pilar con alternancia por seed, override manual en el modal Regenerar (`template` en `POST /api/generate/:id`, guardado en `generated_assets.template`). Carruseles usan la educativa con chip 1/N y texto de apoyo. Las 5 verificadas visualmente con producto real.
 
 ### Pendiente (en orden sugerido para la próxima sesión)
 
 - [ ] F — Inbox de comentarios de IG (cron cada 2 h vía Graph API `GET /{media-id}/comments`) + respuestas sugeridas por IA con aprobación manual + detección de intención de compra. **Es lo más valioso que queda.**
-- [ ] B2 — Planner mensual IA (`rotation_plans`) usando `commercial_dates`, `products_cache.sales_30d`, `post_insights` y stock. Reemplaza la rotación fija de `src/calendar.js`.
-- [ ] C — Multi-plantilla visual (4-5 variantes de `templates/post-template.html`) + vista de grilla del perfil + "dame 3 opciones".
+- [ ] C restante — Vista de grilla del perfil (mock 3xN con piezas aprobadas + publicadas) y botón "dame 3 opciones" (3 variantes plantilla+copy para elegir).
+- [ ] B2 extra — Editor visual del plan mensual en el panel (hoy se edita slot por slot con "Planificar"); regenerar plan de un mes puntual desde UI (hoy el botón elige mes automáticamente).
 - [ ] E1 completo — Gráfico de evolución semanal (Chart.js CDN) cuando haya datos acumulados; tarjeta de cola de publicación con fallos.
 - [ ] D2/D3 — Historia de refuerzo automática post-publicación; mejor horario por datos (necesita ≥20 posts con métricas).
 - [ ] B4 — Campañas coordinadas (anuncio → recordatorio → último día).
