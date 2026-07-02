@@ -39,9 +39,16 @@ function detectBrand(name) {
 function normalizeProduct(product) {
   const name = pickText(product.name);
   const mainImage = product.images && product.images[0] ? product.images[0].src : null;
-  const firstVariant = product.variants && product.variants[0] ? product.variants[0] : {};
-  const regular = firstVariant.price ? Number(firstVariant.price) : null;
-  const promo = firstVariant.promotional_price ? Number(firstVariant.promotional_price) : null;
+  const variants = product.variants || [];
+  const firstVariant = variants[0] || {};
+  // Stock TOTAL: suma de todas las variantes (talles). Si ninguna trackea stock
+  // (todas null) => infinito/null (mayorista). Antes tomábamos sólo la 1a variante (bug).
+  const stockNums = variants.map((v) => v.stock).filter((s) => typeof s === 'number');
+  const totalStock = stockNums.length ? stockNums.reduce((a, b) => a + b, 0) : null;
+  // Precio: el de la variante principal (lo que muestra Tiendanube); si no tiene, la 1a con precio.
+  const pricedVariant = firstVariant.price ? firstVariant : (variants.find((v) => v.price) || firstVariant);
+  const regular = pricedVariant.price ? Number(pricedVariant.price) : null;
+  const promo = pricedVariant.promotional_price ? Number(pricedVariant.promotional_price) : null;
   const images = (product.images || []).map((i) => i.src).filter(Boolean);
   // Descripción: viene como HTML multi-idioma. Sacamos tags, decodificamos entidades y acotamos.
   const description = decodeEntities(pickText(product.description).replace(/<[^>]+>/g, ' '))
@@ -54,8 +61,8 @@ function normalizeProduct(product) {
     price: regular,
     // promo válido sólo si es menor al precio regular.
     promo_price: promo && regular && promo < regular ? promo : null,
-    // stock null = infinito (producto mayorista / a pedido).
-    stock: typeof firstVariant.stock === 'number' ? firstVariant.stock : null,
+    // stock total (null = infinito / mayorista / a pedido).
+    stock: totalStock,
     image_url: mainImage,
     images: images.length ? images : (mainImage ? [mainImage] : []),
     description,

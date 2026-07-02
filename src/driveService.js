@@ -91,7 +91,7 @@ async function walkFolder(folderId, pathPrefix, out, opts, depth = 0) {
  * Importa imágenes de una carpeta pública de Drive como piezas de referencia de estilo.
  * Idempotente: no reimporta archivos ya traídos (dedupe por id de Drive).
  */
-async function importDriveFolder(url, { maxImages = 40, perFolderCap = 6, maxDepth = 5 } = {}) {
+async function importDriveFolder(url, { maxImages = 250, perFolderCap = 30, maxDepth = 6 } = {}) {
   const rootId = parseFolderId(url);
   if (!rootId) throw new Error('No pude leer el ID de la carpeta de Drive. Pegá el link completo de la carpeta.');
 

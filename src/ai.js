@@ -349,8 +349,8 @@ async function analyzeStyle({ images = [], captions = [] } = {}) {
     throw new Error('El análisis de estilo necesita GEMINI_API_KEY (Google AI Studio). Cargala en las variables de entorno.');
   }
 
-  // 1) Observación por lotes de hasta 60 imágenes (10 por llamada) — se toma su tiempo.
-  const batches = chunk(images.slice(0, 60), 10);
+  // 1) Observación por lotes de hasta 120 imágenes (10 por llamada) — se toma su tiempo.
+  const batches = chunk(images.slice(0, 120), 10);
   const notes = [];
   for (const batch of batches) {
     try { notes.push(await observeBatch(batch)); }

@@ -20,7 +20,15 @@ function assEscape(text) {
   return String(text || '').replace(/[{}]/g, '').replace(/\r?\n/g, '\\N').trim();
 }
 
-// Agrupa las palabras en frases cortas (estilo reel: pocas palabras a la vez).
+// #RRGGBB -> color ASS (&HAABBGGRR).
+function hexToAss(hex) {
+  const h = String(hex || '').replace('#', '');
+  if (h.length !== 6) return '&H0000A5FF';
+  const r = h.slice(0, 2), g = h.slice(2, 4), b = h.slice(4, 6);
+  return `&H00${b}${g}${r}`.toUpperCase();
+}
+
+// Agrupa las palabras en frases cortas (estilo reel), conservando cada palabra con sus tiempos.
 function groupWords(words, maxWords = 3, maxDur = 1.6) {
   const groups = [];
   let cur = [];
@@ -31,25 +39,26 @@ function groupWords(words, maxWords = 3, maxDur = 1.6) {
     cur.push(w);
   }
   if (cur.length) groups.push(cur);
-  return groups.map((g) => ({
-    start: Number(g[0].start),
-    end: Number(g[g.length - 1].end),
-    text: g.map((x) => x.word).join(' ').replace(/\s+([,.!?;:])/g, '$1'),
-  }));
+  return groups.map((g) => ({ start: Number(g[0].start), end: Number(g[g.length - 1].end), words: g }));
 }
 
 /**
- * Construye el archivo .ass a partir de las palabras (editables) y overlays.
- * style: { position:'bottom'|'top', uppercase:bool, fontSize:number, maxWords:number }
+ * Construye el .ass estilo CREADOR (karaoke: cada palabra se pinta con color de acento
+ * cuando se dice) con pop-in. style: { position, uppercase, fontSize, maxWords, color, karaoke }
  */
 function buildAss({ words = [], overlays = [], style = {}, w = 1080, h = 1920 }) {
-  const up = style.uppercase !== false; // por defecto MAYÚSCULAS (más impacto)
-  const size = style.fontSize || 92;
-  const marginV = style.position === 'top' ? 240 : 360; // deja libre la UI de IG
+  const up = style.uppercase !== false;
+  const size = style.fontSize || 96;
+  const marginV = style.position === 'top' ? 300 : 420; // por encima de la UI de IG
   const align = style.position === 'top' ? 8 : 2;
-  const primary = '&H00FFFFFF'; // blanco
-  const outline = '&H00000000'; // negro
+  const font = style.font || 'DejaVu Sans'; // disponible en el runner; Bold garantiza impacto
+  const white = '&H00FFFFFF';
+  const accent = hexToAss(style.color || '#E4571B'); // color con el que se resalta la palabra
+  const outline = '&H00000000';
+  const karaoke = style.karaoke !== false;
 
+  // En karaoke: PrimaryColour = color "cantado" (acento), SecondaryColour = base (blanco).
+  const primary = karaoke ? accent : white;
   const header = `[Script Info]
 ScriptType: v4.00+
 PlayResX: ${w}
@@ -59,21 +68,31 @@ ScaledBorderAndShadow: yes
 
 [V4+ Styles]
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
-Style: Sub,Arial Black,${size},${primary},&H000000FF,${outline},&H64000000,-1,0,0,0,100,100,0,0,1,7,4,${align},90,90,${marginV},1
-Style: Top,Arial Black,${Math.round(size * 0.9)},${primary},&H000000FF,${outline},&H64000000,-1,0,0,0,100,100,0,0,1,7,4,8,90,90,230,1
+Style: Sub,${font},${size},${primary},${white},${outline},&H90000000,-1,0,0,0,100,100,1,0,1,8,3,${align},80,80,${marginV},1
+Style: Top,${font},${Math.round(size * 0.9)},${white},${white},${outline},&H90000000,-1,0,0,0,100,100,1,0,1,8,3,8,80,80,260,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 `;
 
   const subs = groupWords(words, style.maxWords || 3).map((g) => {
-    const txt = assEscape(up ? g.text.toUpperCase() : g.text);
-    return `Dialogue: 0,${assTime(g.start)},${assTime(g.end)},Sub,,0,0,0,,${txt}`;
+    let body;
+    if (karaoke) {
+      body = g.words.map((wd) => {
+        const cs = Math.max(6, Math.round((Number(wd.end) - Number(wd.start)) * 100));
+        return `{\\k${cs}}${assEscape(up ? String(wd.word).toUpperCase() : wd.word)} `;
+      }).join('').trim();
+    } else {
+      body = assEscape(up ? g.words.map((x) => x.word).join(' ').toUpperCase() : g.words.map((x) => x.word).join(' '));
+    }
+    // pop-in: aparece con un pequeño escalado + fade.
+    const intro = '{\\fad(60,40)\\fscx70\\fscy70\\t(0,130,\\fscx100\\fscy100)}';
+    return `Dialogue: 0,${assTime(g.start)},${assTime(g.end)},Sub,,0,0,0,,${intro}${body}`;
   });
 
   const tops = (overlays || []).filter((o) => o && o.text).map((o) => {
     const txt = assEscape(up ? String(o.text).toUpperCase() : o.text);
-    return `Dialogue: 0,${assTime(o.start || 0)},${assTime(o.end || 3)},Top,,0,0,0,,${txt}`;
+    return `Dialogue: 0,${assTime(o.start || 0)},${assTime(o.end || 3)},Top,,0,0,0,,{\\fad(80,60)}${txt}`;
   });
 
   return header + subs.concat(tops).join('\n') + '\n';

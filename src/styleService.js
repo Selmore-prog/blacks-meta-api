@@ -98,7 +98,7 @@ async function urlToInlineImage(url) {
  * captions reales de la cuenta de IG, se los pasa a Gemini y guarda el brand_profile.
  */
 async function runStyleAnalysis({ includeAccount = true } = {}) {
-  const MAX_IMAGES = 60;
+  const MAX_IMAGES = 120;
   const refs = await listReferences();
   const images = [];
   // Se toma su tiempo: procesa hasta 30 piezas de referencia.

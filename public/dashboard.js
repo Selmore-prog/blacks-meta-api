@@ -28,6 +28,8 @@ const ICONS = {
   tag: '<path d="M20.59 13.41l-7.17 7.17a2 2 0 0 1-2.83 0L2 12V2h10l8.59 8.59a2 2 0 0 1 0 2.82z"/><line x1="7" y1="7" x2="7.01" y2="7"/>',
   plus: '<line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>',
   x: '<line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/>',
+  mic: '<path d="M12 1a3 3 0 0 0-3 3v8a3 3 0 0 0 6 0V4a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/>',
+  stop: '<rect x="6" y="6" width="12" height="12" rx="2"/>',
   eye: '<path d="M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z"/><circle cx="12" cy="12" r="3"/>',
   heart: '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"/>',
   comment: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z"/>',
@@ -126,7 +128,12 @@ async function loadConfig() {
 /* ============ calendario ============ */
 let calItems = [];
 let calView = 'list';
-const filters = { status: 'all', format: 'all', pillar: 'all', auto: 'all', q: '' };
+const filters = { status: 'all', format: 'all', pillar: 'all', auto: 'all', comercial: 'all', q: '' };
+function comercialOf(it) {
+  if (it.pillar === 'mayorista') return 'mayorista';
+  if (['producto', 'promo'].includes(it.pillar)) return 'minorista';
+  return 'otro';
+}
 
 function groupByDate(items) {
   const groups = {};
@@ -148,6 +155,7 @@ function getFiltered() {
     if (filters.format !== 'all' && it.post_type !== filters.format) return false;
     if (filters.pillar !== 'all' && it.pillar !== filters.pillar) return false;
     if (filters.auto !== 'all' && (it.automation_level || 'auto') !== filters.auto) return false;
+    if (filters.comercial !== 'all' && comercialOf(it) !== filters.comercial) return false;
     if (filters.q) {
       const hay = `${it.caption || ''} ${it.pillar_detail || ''} ${it.theme_title || ''} ${it.pillar}`.toLowerCase();
       if (!hay.includes(filters.q.toLowerCase())) return false;
@@ -171,12 +179,13 @@ function renderFilters() {
     sel('f-format', 'Formato', [{ v: 'feed', t: 'Feed' }, { v: 'story', t: 'Historia' }, { v: 'reel', t: 'Reel' }], filters.format) +
     sel('f-pillar', 'Pilar', pillars.map((p) => ({ v: p, t: p })), filters.pillar) +
     sel('f-auto', 'Tipo', [{ v: 'auto', t: 'Automática' }, { v: 'semi', t: 'Semi' }], filters.auto) +
+    sel('f-comercial', 'Venta', [{ v: 'minorista', t: 'Minorista' }, { v: 'mayorista', t: 'Mayorista' }], filters.comercial) +
     `<input class="filter-search" id="f-q" placeholder="Buscar en el texto…" value="${esc(filters.q)}" oninput="onFilter('f-q', this.value)" />` +
     `<span class="filter-count" id="f-count"></span>`;
 }
 
 function onFilter(id, val) {
-  const map = { 'f-status': 'status', 'f-format': 'format', 'f-pillar': 'pillar', 'f-auto': 'auto', 'f-q': 'q' };
+  const map = { 'f-status': 'status', 'f-format': 'format', 'f-pillar': 'pillar', 'f-auto': 'auto', 'f-comercial': 'comercial', 'f-q': 'q' };
   filters[map[id]] = val;
   renderCalView();
 }
@@ -551,10 +560,11 @@ function openVideoEditor(assetId) {
     <div class="field">
       <label>1 · Voz en off (opcional)</label>
       <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
-        <button class="btn-ghost btn-sm" id="ve-vo">${icon('upload')} Subir audio de voz</button>
+        <button class="btn-ghost btn-sm" id="ve-rec">${icon('mic')} Grabar voz</button>
+        <button class="btn-ghost btn-sm" id="ve-vo">${icon('upload')} Subir audio</button>
         <span class="hint" id="ve-vo-st"></span>
       </div>
-      <p class="hint" style="margin:6px 0 0;">Si el video no tiene audio (ej: generado en Gemini) o querés narrarlo, subí acá la voz (mp3/m4a/wav). Los subtítulos salen de esta voz.</p>
+      <p class="hint" style="margin:6px 0 0;">Grabá con el micrófono o subí un audio (mp3/m4a/wav). Si el video no tiene audio (ej: generado en Gemini), la voz de acá se usa para el audio y los subtítulos.</p>
     </div>
 
     <div class="field">
@@ -602,6 +612,32 @@ function openVideoEditor(assetId) {
       catch (e) { toast(e.message, 'err'); ov.querySelector('#ve-vo-st').textContent = ''; }
     });
     inp.click();
+  });
+
+  // Grabar voz con el micrófono (MediaRecorder).
+  let mediaRecorder = null, recChunks = [], recTimer = null, recSecs = 0;
+  ov.querySelector('#ve-rec').addEventListener('click', async () => {
+    const btn = ov.querySelector('#ve-rec');
+    if (mediaRecorder && mediaRecorder.state === 'recording') { mediaRecorder.stop(); return; }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      mediaRecorder = new MediaRecorder(stream);
+      recChunks = [];
+      mediaRecorder.ondataavailable = (e) => { if (e.data && e.data.size) recChunks.push(e.data); };
+      mediaRecorder.onstop = async () => {
+        clearInterval(recTimer);
+        stream.getTracks().forEach((t) => t.stop());
+        btn.innerHTML = `${icon('mic')} Grabar voz`;
+        const blob = new Blob(recChunks, { type: 'audio/webm' });
+        const fd = new FormData(); fd.append('file', new File([blob], 'grabacion.webm', { type: 'audio/webm' }));
+        ov.querySelector('#ve-vo-st').textContent = 'Subiendo grabación…';
+        try { await api(`/api/assets/${assetId}/upload-voiceover`, { method: 'POST', body: fd }); ov.querySelector('#ve-vo-st').textContent = 'Voz grabada ✓ — ahora tocá "Transcribir con IA"'; }
+        catch (e) { toast(e.message, 'err'); ov.querySelector('#ve-vo-st').textContent = ''; }
+      };
+      mediaRecorder.start();
+      recSecs = 0; btn.innerHTML = `${icon('stop')} Detener (0s)`;
+      recTimer = setInterval(() => { recSecs += 1; btn.innerHTML = `${icon('stop')} Detener (${recSecs}s)`; }, 1000);
+    } catch (e) { toast('No pude acceder al micrófono. Dale permiso al navegador.', 'err'); }
   });
 
   ov.querySelector('#ve-go').addEventListener('click', async (e) => {

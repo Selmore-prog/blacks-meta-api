@@ -385,7 +385,7 @@ app.post('/api/style/analyze', wrap(async (req, res) => {
 app.post('/api/style/drive-import', wrap(async (req, res) => {
   const { url, maxImages } = req.body || {};
   if (!url) return res.status(400).json({ error: 'Falta el link de la carpeta de Drive.' });
-  res.json(await importDriveFolder(url, { maxImages: Math.min(Number(maxImages) || 40, 80) }));
+  res.json(await importDriveFolder(url, { maxImages: Math.min(Number(maxImages) || 250, 400) }));
 }));
 
 /* ----------------------- Análisis de cuenta (IG) ----------------------- */
