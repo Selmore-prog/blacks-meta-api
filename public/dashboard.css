@@ -302,7 +302,8 @@ select.filter:focus, .filter-search:focus { outline: none; border-color: var(--o
 .carousel { width: 100%; height: 100%; display: flex; overflow-x: auto; scroll-snap-type: x mandatory; scrollbar-width: none; }
 .carousel::-webkit-scrollbar { display: none; }
 .carousel img { flex: none; width: 100%; height: 100%; object-fit: cover; scroll-snap-align: center; }
-.c-count { position: absolute; top: 8px; right: 8px; background: rgba(0,0,0,.6); color: #fff; font-size: 11px;
+/* Abajo a la derecha: las plantillas ya hornean su propio chip 1/N arriba a la derecha. */
+.c-count { position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,.6); color: #fff; font-size: 11px;
   font-weight: 700; padding: 3px 8px; border-radius: 100px; display: inline-flex; align-items: center; gap: 4px; z-index: 3; }
 .c-count .ic { width: .9em; height: .9em; }
 
@@ -353,7 +354,15 @@ select.filter:focus, .filter-search:focus { outline: none; border-color: var(--o
 .ig-av.sm { width: 26px; height: 26px; font-size: 11px; border: 2px solid #fff; }
 .ig-user { font-weight: 700; font-size: 14px; flex: 1; }
 .ig-dots { letter-spacing: 1px; }
-.ig-media.feed { width: 100%; aspect-ratio: 4 / 5; background: #111; }
+.ig-media.feed { width: 100%; aspect-ratio: 4 / 5; background: #111; position: relative; }
+/* Flechas del carrusel en la previsualización */
+.c-nav { position: absolute; top: 50%; transform: translateY(-50%); z-index: 4;
+  width: 38px; height: 38px; padding: 0; border-radius: 50%; border: none;
+  background: rgba(0,0,0,.55); color: #fff; font-size: 24px; line-height: 1;
+  display: flex; align-items: center; justify-content: center; cursor: pointer; }
+.c-nav:hover { background: rgba(0,0,0,.8); }
+.c-nav.prev { left: 10px; }
+.c-nav.next { right: 10px; }
 .ig-media.feed img { width: 100%; height: 100%; object-fit: cover; display: block; }
 .ig-empty { display: flex; align-items: center; justify-content: center; height: 100%; color: var(--muted); font-size: 13px; }
 .ig-actions { display: flex; align-items: center; gap: 16px; padding: 12px 14px 4px; }

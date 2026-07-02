@@ -321,6 +321,19 @@ function renderPreview(item) {
   </div>`;
 }
 
+/**
+ * Badge de carrusel, a simple vista:
+ *  - la pieza YA es carrusel -> "CARRUSEL · N"
+ *  - el slot está marcado carrusel pero la pieza generada es simple -> aviso de regenerar
+ */
+function carouselBadge(item) {
+  const slides = parseSlides(item.slides);
+  if (slides && slides.length > 1) return `<span class="badge whole">${icon('grid')} Carrusel · ${slides.length}</span>`;
+  if (item.carousel && item.asset_id) return `<span class="badge semi" title="Marcaste este slot como carrusel después de generar la pieza. Tocá Regenerar para que salga como carrusel.">${icon('grid')} Carrusel — regenerá para aplicar</span>`;
+  if (item.carousel) return `<span class="badge semi">${icon('grid')} Carrusel</span>`;
+  return '';
+}
+
 function interactionShort(item) {
   const h = (item.interaction_hint || '').toUpperCase();
   if (h.includes('ENCUESTA')) return 'Encuesta';
@@ -375,6 +388,22 @@ function openPreview(item) {
     ${inner}${note}</div>`;
   overlay.addEventListener('click', (e) => { if (e.target === overlay || e.target.closest('.preview-close')) overlay.remove(); });
   document.body.appendChild(overlay);
+
+  // Carrusel: flechas para pasar de slide (además del swipe) + contador en vivo.
+  const car = overlay.querySelector('.carousel');
+  if (car && slides && slides.length > 1) {
+    const holder = car.parentElement;
+    holder.insertAdjacentHTML('beforeend',
+      `<button class="c-nav prev">‹</button><button class="c-nav next">›</button>`);
+    const count = holder.querySelector('.c-count');
+    const goto = (dir) => car.scrollBy({ left: dir * car.clientWidth, behavior: 'smooth' });
+    holder.querySelector('.c-nav.prev').addEventListener('click', (e) => { e.stopPropagation(); goto(-1); });
+    holder.querySelector('.c-nav.next').addEventListener('click', (e) => { e.stopPropagation(); goto(1); });
+    car.addEventListener('scroll', () => {
+      const i = Math.round(car.scrollLeft / car.clientWidth) + 1;
+      if (count) count.innerHTML = `${icon('grid')} ${i}/${slides.length}`;
+    }, { passive: true });
+  }
 }
 
 function renderCard(item) {
@@ -442,6 +471,7 @@ function renderCard(item) {
     <div class="body">
       <div class="meta-row">
         <span class="badge type">${typeLabel(item)}</span>
+        ${carouselBadge(item)}
         <span class="badge pillar">${esc(item.pillar)}</span>
         ${commercialBadge}
         ${dateBadges}

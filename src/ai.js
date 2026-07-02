@@ -134,7 +134,9 @@ Pilar de contenido: ${pillar}
 ${productInfo}${wholesaleInfo}
 Temporada: ${seasonContext()}${commercial}${winners}${interaction}${voice}
 
-${carousel ? `\nCARRUSEL: además, devolvé "slides": un array de ${slideCount} objetos {"title","text"} para un carrusel deslizable. Cada slide UN punto distinto, con progresión: (1) gancho, (2-${slideCount - 1}) beneficios/datos concretos, (${slideCount}) cierre + CTA. "title" cortísimo (2-4 palabras, va grande en pantalla), "text" 1 línea corta. Nada repetido entre slides.\n` : ''}
+${carousel ? (['educativo', 'mayorista'].includes(pillar)
+    ? `\nCARRUSEL PASO A PASO: devolvé "slides": un array de ${slideCount} objetos {"title","text"}. Es una GUÍA accionable, no un folleto: (1) portada con gancho que promete el resultado ("Guía de talles sin pifiarla", "Cómo comprar al por mayor"), (2-${slideCount - 1}) PASOS numerados y concretos — "title" tipo "PASO 1 — MEDÍ TU CINTURA" y "text" con la instrucción exacta (qué hacer, con qué, qué número anotar), (${slideCount}) cierre con el beneficio + CTA. Cada paso tiene que poder hacerse EN EL MOMENTO. Nada repetido entre slides.\n`
+    : `\nCARRUSEL: además, devolvé "slides": un array de ${slideCount} objetos {"title","text"} para un carrusel deslizable. Cada slide UN punto distinto, con progresión: (1) gancho, (2-${slideCount - 1}) beneficios/datos concretos, (${slideCount}) cierre + CTA. "title" cortísimo (2-4 palabras, va grande en pantalla), "text" 1 línea corta. Nada repetido entre slides.\n`) : ''}
 Escribí el copy siguiendo la voz de marca y las reglas. Devolvé SOLO un JSON válido con esta forma exacta:
 {"overlay": "...", "caption": "...", "hashtags": "...", "cta": "..."${carousel ? ', "slides": [{"title":"...","text":"..."}]' : ''}}`;
 }
@@ -325,9 +327,10 @@ async function generateBackground({ theme, format = 'feed', referenceImages = []
   if (!config.ai.useAiImages || !hasGemini() || imageQuotaHit) return null;
 
   const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
-  const prompt = `Generá una imagen de fondo ${ratio} para una pieza de redes de una marca argentina de ropa de trabajo y calzado de seguridad llamada BLACKS.
-Estilo: industrial, sobrio, premium, real (obra, taller, depósito, industria). Paleta oscura con acentos naranja (#C1440C), negro y gris. Textura sutil, iluminación cinematográfica.
-IMPORTANTE: SIN texto, SIN logos, SIN letras. Dejá aire/espacio negativo en el centro y abajo para sobreimprimir texto después. Tema: ${theme || 'ropa de trabajo e industria'}.`;
+  const prompt = `Generá una imagen de fondo ${ratio} para una pieza de Instagram de BLACKS, marca argentina de ropa de trabajo y calzado de seguridad.
+El fondo tiene que tener SENTIDO DIRECTO con este tema (no genérico): "${theme || 'ropa de trabajo e industria'}".
+Estilo: moderno, sobrio, premium. Puede ser una escena real (obra, taller, depósito, industria, manos trabajando) con iluminación cinematográfica, o una composición abstracta/geométrica contemporánea. Paleta: negro/gris oscuro con acentos naranja (#C1440C). Textura sutil, profundidad de campo.
+IMPORTANTE: SIN texto, SIN logos, SIN letras, SIN marcas visibles. Dejá aire/espacio negativo en el centro-abajo para sobreimprimir el titular después.`;
 
   try {
     const parts = [{ text: prompt }];

@@ -212,6 +212,21 @@ async function topPerformingCaptions(limit = 3) {
   return rows.map((r) => r.caption);
 }
 
+/**
+ * Imágenes que el vendedor subió DENTRO de la descripción de Tiendanube (guías de
+ * talle, tablas de medidas, fichas). Salen del JSON crudo cacheado en products_cache.raw.
+ */
+function descriptionImages(product) {
+  if (!product || !product.raw) return [];
+  let raw = product.raw;
+  if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch (_) { return []; } }
+  const html = raw && raw.description ? (raw.description.es || raw.description) : null;
+  if (!html || typeof html !== 'string') return [];
+  return [...html.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)]
+    .map((m) => m[1])
+    .filter((u) => /^https?:\/\//i.test(u));
+}
+
 const VALID_TEMPLATES = ['fullbleed', 'minimal', 'promo', 'educativo', 'mayorista'];
 
 /**
@@ -274,6 +289,8 @@ async function generateForSlot(slot, overrides = {}) {
     interactionHint: slot.interaction_hint,
     wholesale,
     carousel: isCarousel,
+    // Educativo/mayorista: el carrusel es una guía paso a paso (más slides).
+    slideCount: isCarousel && ['educativo', 'mayorista'].includes(slot.pillar) ? 5 : 3,
     commercialContext,
     topCaptions: await topPerformingCaptions().catch(() => []),
   });
@@ -290,20 +307,31 @@ async function generateForSlot(slot, overrides = {}) {
   let imagePath;
   let slidesJson = null;
 
-  const slides = isCarousel && Array.isArray(copy.slides) && copy.slides.length >= 2 ? copy.slides.slice(0, 4) : null;
+  const isStepCarousel = isCarousel && ['educativo', 'mayorista'].includes(slot.pillar);
+  const slides = isCarousel && Array.isArray(copy.slides) && copy.slides.length >= 2
+    ? copy.slides.slice(0, isStepCarousel ? 5 : 4) : null;
   if (slides) {
-    // Carrusel: una slide por punto, plantilla educativa (numerada, con texto de apoyo).
+    // Carrusel: portada con foto (si hay), pasos tipográficos SIN foto de producto
+    // (una guía no necesita mostrar el producto en cada slide), y si el tema es de
+    // talles/medidas y el producto tiene su guía real en Tiendanube, va como slide extra.
     const imgs = (visualProduct && Array.isArray(visualProduct.images) && visualProduct.images.length)
       ? visualProduct.images : (visualImageUrl ? [visualImageUrl] : []);
+    const topicText = `${pillarDetail || ''} ${slot.theme_title || ''} ${slides.map((s) => s.title).join(' ')}`;
+    const sizeChart = isStepCarousel && /talle|medida|calce|guia|guía/i.test(topicText)
+      ? descriptionImages(visualProduct)[0] || null : null;
+    const total = slides.length + (sizeChart ? 1 : 0);
+
     const urls = [];
     for (let i = 0; i < slides.length; i += 1) {
-      const img = imgs.length ? imgs[i % imgs.length] : visualImageUrl;
+      const img = isStepCarousel
+        ? (i === 0 ? visualImageUrl : null) // pasos limpios, foto sólo en la portada
+        : (imgs.length ? imgs[i % imgs.length] : visualImageUrl);
       const { url } = await renderPostBuffer({
         format,
         template: 'educativo',
         overlayTitle: slides[i].title || overlayTitle,
         bodyText: slides[i].text || null,
-        slideChip: `${i + 1}/${slides.length}`,
+        slideChip: `${i + 1}/${total}`,
         kicker: slot.pillar === 'mayorista' ? 'PARA EMPRESAS' : 'PARA SABER',
         badgeText: i === 0 ? badgeText : null,
         productImageUrl: img,
@@ -314,6 +342,21 @@ async function generateForSlot(slot, overrides = {}) {
       });
       urls.push(url);
     }
+
+    // Slide final: la guía de talles REAL del producto (ya viene diseñada con la marca).
+    if (sizeChart) {
+      const { url } = await renderPostBuffer({
+        format,
+        template: 'fullbleed',
+        overlayTitle: null,
+        productImageUrl: sizeChart,
+        logoUrl,
+        showBrand: false,
+        bgTheme: 'guía de talles',
+      });
+      urls.push(url);
+    }
+
     imagePath = urls[0];
     slidesJson = JSON.stringify(urls);
   } else {
@@ -329,8 +372,10 @@ async function generateForSlot(slot, overrides = {}) {
       logoUrl,
       layoutSeed: Number(slot.id),
       useAiProductScene: PRODUCT_PILLARS.includes(slot.pillar) && Boolean(product),
-      useAiBackground: false,
-      bgTheme: pillarDetail || slot.theme_title,
+      // Piezas SIN foto de catálogo: fondo original generado con IA (sólo si AI_IMAGES=true
+      // y hay GEMINI_API_KEY con facturación; si no, queda el diseño tipográfico).
+      useAiBackground: !visualImageUrl,
+      bgTheme: [pillarDetail || slot.theme_title, copy.overlay].filter(Boolean).join(' — '),
       interactionLabel: interactionChip(slot),
     });
     imagePath = url;
