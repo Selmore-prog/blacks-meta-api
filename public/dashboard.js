@@ -957,7 +957,7 @@ async function loadStyle() {
     const warn = document.getElementById('gemini-warn');
     if (!data.geminiReady && !warn) {
       document.getElementById('analyze-btn').insertAdjacentHTML('afterend',
-        '<p class="hint" id="gemini-warn" style="color:var(--amber); margin-top:10px;">Cargá tu GEMINI_API_KEY para poder analizar el estilo.</p>');
+        '<p class="hint" id="gemini-warn" style="color:var(--muted); margin-top:10px;">Cargá tu GEMINI_API_KEY para poder analizar el estilo.</p>');
     }
   } catch (e) { toast(e.message, 'err'); }
 }
@@ -1107,7 +1107,7 @@ async function analyzeAccount() {
         <div class="an-block hint">${icon('info')} ${esc(d.note)}</div>
       </div>`;
   } catch (e) {
-    out.innerHTML = `<p class="hint" style="color:var(--amber)">No pude analizar: ${esc(e.message)} (revisá permisos de Instagram insights).</p>`;
+    out.innerHTML = `<p class="hint" style="color:var(--muted)">No pude analizar: ${esc(e.message)} (revisá permisos de Instagram insights).</p>`;
   } finally { btn.disabled = false; btn.innerHTML = `${icon('chart')} Analizar mi cuenta`; }
 }
 
