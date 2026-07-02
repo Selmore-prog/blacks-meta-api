@@ -420,7 +420,8 @@ app.post('/api/generate/:calendarId', wrap(async (req, res) => {
     slot = r2[0];
   }
 
-  await generateForSlot(slot, { pillarDetail: newDetail || slot.pillar_detail });
+  const template = ['fullbleed', 'minimal', 'promo', 'educativo', 'mayorista'].includes(body.template) ? body.template : null;
+  await generateForSlot(slot, { pillarDetail: newDetail || slot.pillar_detail, template });
   const { rows: assetRows } = await pool.query(
     `SELECT * FROM generated_assets WHERE calendar_id = $1 ORDER BY id DESC LIMIT 1`, [id]
   );

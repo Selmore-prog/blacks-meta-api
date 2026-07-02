@@ -20,12 +20,72 @@ function esc(s) {
     .replace(/>/g, '&gt;');
 }
 
+/* =========================================================================
+ * SISTEMA DE PLANTILLAS
+ *  - fullbleed : foto a sangre + bloque de precio (la clásica). Producto/promo con precio.
+ *  - minimal   : estudio claro, producto flotando, titular oscuro. Feed evergreen/marca.
+ *  - promo     : oscura y agresiva, % OFF gigante. Ofertas y fechas comerciales.
+ *  - educativo : tipográfica clara, titular primero, foto de apoyo. Tips/carruseles.
+ *  - mayorista : corporativa oscura, badge MAYORISTA + CTA presupuesto. B2B.
+ * Todas comparten dims, zonas seguras de IG y footer con dominio.
+ * ========================================================================= */
+
+const TEMPLATES = ['fullbleed', 'minimal', 'promo', 'educativo', 'mayorista'];
+
+function sharedGeometry(format) {
+  const { w, h } = DIMS[format] || DIMS.feed;
+  const isStory = format === 'story';
+  return {
+    w, h, isStory,
+    padX: isStory ? 84 : 60,
+    wmTop: isStory ? 170 : 54,
+    footBottom: isStory ? 360 : 140,
+    domainBottom: isStory ? 250 : 54,
+  };
+}
+
+function headHtml(w, h) {
+  return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; }
+    html,body { width:${w}px; height:${h}px; overflow:hidden; font-family:'Inter','Helvetica Neue',Arial,sans-serif; }
+  </style>`;
+}
+
+function brandMarkHtml(logoUrl, { dark = false, heightPx = 64 } = {}) {
+  if (logoUrl) {
+    return `<img class="logo" style="height:${heightPx}px; max-width:52%; object-fit:contain;
+      filter:drop-shadow(0 1px 2px ${dark ? 'rgba(0,0,0,.25)' : 'rgba(255,255,255,.35)'}) drop-shadow(0 4px 12px ${dark ? 'rgba(255,255,255,.2)' : 'rgba(0,0,0,.55)'});" src="${esc(logoUrl)}" alt="BLACKS"/>`;
+  }
+  return `<div style="font-family:'Anton',sans-serif; font-size:${Math.round(heightPx * 0.62)}px; letter-spacing:8px; color:${dark ? '#111' : '#fff'};">BLACKS</div>`;
+}
+
+function domainHtml(g, { dark = false, accent }) {
+  const site = String(config.brand.site || '').toUpperCase();
+  return `<div style="position:absolute; left:0; right:0; bottom:${g.domainBottom}px; display:flex; align-items:center; justify-content:center; gap:12px; z-index:4;">
+    <span style="width:13px; height:13px; background:${accent}; border-radius:3px;"></span>
+    <span style="font-size:${g.isStory ? 24 : 22}px; font-weight:700; letter-spacing:3px; color:${dark ? '#1c1c1e' : '#fff'}; ${dark ? '' : 'text-shadow:0 1px 6px rgba(0,0,0,.6);'}">${esc(site)}</span>
+  </div>`;
+}
+
+function priceParts(price, promoPrice) {
+  const hasPromo = price && promoPrice && Number(promoPrice) < Number(price);
+  return {
+    hasPromo,
+    off: hasPromo ? Math.round((1 - Number(promoPrice) / Number(price)) * 100) : 0,
+    now: hasPromo ? promoPrice : price,
+  };
+}
+
 /**
  * Construye el HTML de la pieza estilo diseñador: foto a sangre (full-bleed) con
  * overlays — wordmark arriba, bloque de precio (ANTES tachado / % OFF / AHORA /
  * transferencia) abajo, y footer con el dominio. Respeta zonas seguras en historias.
  */
-function buildHtml(opts) {
+function buildFullbleedHtml(opts) {
   const {
     format = 'feed',
     overlayTitle,
@@ -145,6 +205,141 @@ function buildHtml(opts) {
   </body></html>`;
 }
 
+/** MINIMAL: estudio claro, producto flotando grande, titular oscuro. Evergreen. */
+function buildMinimalHtml(opts) {
+  const g = sharedGeometry(opts.format);
+  const accent = opts.accent || config.brand.colors.darkOrange;
+  const img = opts.bgImageUrl || opts.productImageUrl;
+  const { hasPromo, off, now } = priceParts(opts.price, opts.promoPrice);
+  const price = opts.price ? `
+    <div style="display:flex; align-items:baseline; gap:18px; margin-top:18px;">
+      ${hasPromo ? `<span style="font-family:'Anton',sans-serif; font-size:40px; color:#8b8b90; text-decoration:line-through;">$${formatPrice(opts.price)}</span>
+        <span style="background:${accent}; color:#fff; font-weight:800; font-size:22px; padding:4px 12px; border-radius:6px;">-${off}%</span>` : ''}
+      <span style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 84 : 72}px; color:#111;">$${formatPrice(now)}</span>
+    </div>` : '';
+
+  return `${headHtml(g.w, g.h)}</head><body>
+    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#111;
+      background:radial-gradient(130% 100% at 50% 0%, #ffffff 0%, #f0f0f2 55%, #e0e0e4 100%);">
+      <div style="position:absolute; top:${g.wmTop}px; left:0; right:0; display:flex; justify-content:center; z-index:4;">
+        ${opts.showBrand !== false ? brandMarkHtml(opts.logoUrl, { dark: true, heightPx: g.isStory ? 74 : 60 }) : ''}
+      </div>
+      ${opts.badgeText ? `<div style="position:absolute; top:${g.wmTop - 6}px; right:${g.padX}px; background:${accent}; color:#fff; font-weight:800; font-size:22px; padding:11px 22px; border-radius:100px; text-transform:uppercase; letter-spacing:2px; z-index:4;">${esc(opts.badgeText)}</div>` : ''}
+      ${img ? `<div style="position:absolute; top:${g.isStory ? 300 : 190}px; bottom:${g.isStory ? 620 : 420}px; left:${g.padX}px; right:${g.padX}px; display:flex; align-items:center; justify-content:center; z-index:1;">
+        <img src="${esc(img)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 34px 54px rgba(0,0,0,.22));"/>
+      </div>` : ''}
+      <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
+        ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 72 : 60}px; line-height:.98; text-transform:uppercase; color:#111; max-width:94%;">${esc(opts.overlayTitle)}</div>` : ''}
+        ${price}
+      </div>
+      ${domainHtml(g, { dark: true, accent })}
+    </div>
+  </body></html>`;
+}
+
+/** PROMO: oscura y agresiva, % OFF y precio gigantes. Ofertas / fechas comerciales. */
+function buildPromoHtml(opts) {
+  const g = sharedGeometry(opts.format);
+  const accent = opts.accent || config.brand.colors.darkOrange;
+  const img = opts.bgImageUrl || opts.productImageUrl;
+  const { hasPromo, off, now } = priceParts(opts.price, opts.promoPrice);
+  const transfer = String(config.brand.transferNote || '').toUpperCase();
+
+  const priceBlock = opts.price ? `
+    ${hasPromo ? `<div style="display:flex; align-items:center; gap:16px; margin-bottom:10px;">
+      <span style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 52 : 46}px; color:rgba(255,255,255,.75); text-decoration:line-through;">$${formatPrice(opts.price)}</span>
+      <span style="background:${accent}; color:#fff; font-family:'Anton',sans-serif; font-size:${g.isStory ? 52 : 44}px; padding:6px 20px; border-radius:10px; transform:rotate(-2deg);">-${off}% OFF</span>
+    </div>` : ''}
+    <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 128 : 108}px; color:#fff; line-height:.9; text-shadow:0 4px 26px rgba(0,0,0,.6);">$${formatPrice(now)}</div>
+    ${transfer ? `<div style="font-size:22px; font-weight:600; letter-spacing:1px; color:rgba(255,255,255,.92); margin-top:14px; max-width:560px;">${esc(transfer)}</div>` : ''}`
+    : (opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 84 : 70}px; line-height:.96; text-transform:uppercase; color:#fff; text-shadow:0 3px 20px rgba(0,0,0,.7);">${esc(opts.overlayTitle)}</div>` : '');
+
+  return `${headHtml(g.w, g.h)}</head><body>
+    <div style="position:relative; width:${g.w}px; height:${g.h}px; background:#0b0b0d; color:#fff; overflow:hidden;">
+      <div style="position:absolute; inset:0; background:
+        radial-gradient(90% 60% at 78% 18%, rgba(232,93,27,.32) 0%, rgba(232,93,27,0) 60%),
+        radial-gradient(120% 80% at 20% 100%, rgba(232,93,27,.14) 0%, rgba(0,0,0,0) 55%);"></div>
+      <div style="position:absolute; top:0; left:0; right:0; height:14px; background:${accent};"></div>
+      <div style="position:absolute; top:${g.wmTop}px; left:0; right:0; display:flex; justify-content:center; z-index:4;">
+        ${opts.showBrand !== false ? brandMarkHtml(opts.logoUrl, { heightPx: g.isStory ? 74 : 60 }) : ''}
+      </div>
+      <div style="position:absolute; top:${g.wmTop - 6}px; right:${g.padX}px; background:#fff; color:#111; font-weight:800; font-size:22px; padding:11px 22px; border-radius:100px; text-transform:uppercase; letter-spacing:2px; z-index:4;">${esc(opts.badgeText || 'OFERTA')}</div>
+      ${img ? `<div style="position:absolute; top:${g.isStory ? 320 : 200}px; bottom:${g.isStory ? 700 : 470}px; left:${g.padX}px; right:${g.padX}px; display:flex; align-items:center; justify-content:center; z-index:1;">
+        <img src="${esc(img)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 30px 50px rgba(0,0,0,.65));"/>
+      </div>` : ''}
+      <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
+        ${opts.overlayTitle && opts.price ? `<div style="font-size:${g.isStory ? 34 : 30}px; font-weight:800; letter-spacing:2px; text-transform:uppercase; color:rgba(255,255,255,.9); margin-bottom:14px;">${esc(opts.overlayTitle)}</div>` : ''}
+        ${priceBlock}
+      </div>
+      ${domainHtml(g, { accent })}
+    </div>
+  </body></html>`;
+}
+
+/** EDUCATIVO: tipográfica clara, titular primero, foto de apoyo abajo. Tips/carruseles. */
+function buildEducativoHtml(opts) {
+  const g = sharedGeometry(opts.format);
+  const accent = opts.accent || config.brand.colors.darkOrange;
+  const img = opts.bgImageUrl || opts.productImageUrl;
+
+  return `${headHtml(g.w, g.h)}</head><body>
+    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#141416;
+      background:linear-gradient(170deg, #fafafa 0%, #ededf0 70%, #e3e3e7 100%);">
+      <div style="position:absolute; top:0; left:0; bottom:0; width:14px; background:${accent};"></div>
+      <div style="position:absolute; top:${g.wmTop}px; left:${g.padX + 20}px; display:flex; align-items:center; gap:16px; z-index:4;">
+        ${opts.showBrand !== false ? brandMarkHtml(opts.logoUrl, { dark: true, heightPx: g.isStory ? 60 : 52 }) : ''}
+      </div>
+      ${opts.slideChip ? `<div style="position:absolute; top:${g.wmTop}px; right:${g.padX}px; background:#141416; color:#fff; font-weight:800; font-size:24px; padding:9px 18px; border-radius:100px; z-index:4;">${esc(opts.slideChip)}</div>` : ''}
+      <div style="position:absolute; top:${g.isStory ? 340 : 220}px; left:${g.padX + 20}px; right:${g.padX}px; z-index:3;">
+        <div style="display:inline-block; background:${accent}; color:#fff; font-weight:800; font-size:${g.isStory ? 26 : 24}px; letter-spacing:3px; text-transform:uppercase; padding:8px 18px; border-radius:6px; margin-bottom:26px;">${esc(opts.kicker || 'PARA SABER')}</div>
+        <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 88 : 72}px; line-height:1; text-transform:uppercase; color:#141416; max-width:96%;">${esc(opts.overlayTitle || '')}</div>
+        ${opts.bodyText ? `<div style="font-size:${g.isStory ? 34 : 30}px; font-weight:500; line-height:1.4; color:#3c3c42; margin-top:26px; max-width:88%;">${esc(opts.bodyText)}</div>` : ''}
+      </div>
+      ${img ? `<div style="position:absolute; bottom:${g.footBottom - 30}px; right:${g.padX}px; width:${Math.round(g.w * 0.42)}px; height:${Math.round(g.h * (g.isStory ? 0.26 : 0.3))}px; display:flex; align-items:flex-end; justify-content:flex-end; z-index:2;">
+        <img src="${esc(img)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 24px 40px rgba(0,0,0,.25));"/>
+      </div>` : ''}
+      ${domainHtml(g, { dark: true, accent })}
+    </div>
+  </body></html>`;
+}
+
+/** MAYORISTA: corporativa oscura, badge + CTA de presupuesto, sin precio unitario. */
+function buildMayoristaHtml(opts) {
+  const g = sharedGeometry(opts.format);
+  const accent = opts.accent || config.brand.colors.darkOrange;
+  const img = opts.bgImageUrl || opts.productImageUrl;
+
+  return `${headHtml(g.w, g.h)}</head><body>
+    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#fff;
+      background:linear-gradient(165deg, #101216 0%, #171a20 55%, #1d212a 100%);">
+      <div style="position:absolute; top:0; left:0; right:0; height:12px; background:${accent};"></div>
+      <div style="position:absolute; top:${g.wmTop}px; left:${g.padX}px; z-index:4;">
+        ${opts.showBrand !== false ? brandMarkHtml(opts.logoUrl, { heightPx: g.isStory ? 68 : 56 }) : ''}
+      </div>
+      <div style="position:absolute; top:${g.wmTop - 4}px; right:${g.padX}px; border:2px solid ${accent}; color:${accent}; font-weight:800; font-size:24px; padding:10px 22px; border-radius:8px; text-transform:uppercase; letter-spacing:3px; z-index:4;">MAYORISTA</div>
+      ${img ? `<div style="position:absolute; top:${g.isStory ? 320 : 200}px; bottom:${g.isStory ? 660 : 440}px; left:${g.padX}px; right:${g.padX}px; display:flex; align-items:center; justify-content:center; z-index:1;">
+        <img src="${esc(img)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 30px 50px rgba(0,0,0,.6));"/>
+      </div>` : ''}
+      <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
+        ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 74 : 62}px; line-height:.98; text-transform:uppercase; color:#fff; max-width:94%;">${esc(opts.overlayTitle)}</div>` : ''}
+        <div style="display:inline-flex; align-items:center; gap:12px; background:${accent}; color:#fff; font-weight:800; font-size:${g.isStory ? 32 : 28}px; letter-spacing:1px; padding:16px 34px; border-radius:100px; margin-top:28px; text-transform:uppercase;">Pedí tu presupuesto</div>
+      </div>
+      ${domainHtml(g, { accent })}
+    </div>
+  </body></html>`;
+}
+
+/** Despachador: elige el builder según opts.template (default: fullbleed, la clásica). */
+function buildHtml(opts) {
+  switch (opts.template) {
+    case 'minimal': return buildMinimalHtml(opts);
+    case 'promo': return buildPromoHtml(opts);
+    case 'educativo': return buildEducativoHtml(opts);
+    case 'mayorista': return buildMayoristaHtml(opts);
+    default: return buildFullbleedHtml(opts);
+  }
+}
+
 /**
  * Renderiza una pieza y la sube a Supabase. Devuelve { url, buffer }.
  * Si config.ai.useAiImages y hay Gemini, intenta generar un fondo con IA (best-effort).
@@ -211,4 +406,4 @@ async function renderPostImage(options) {
   return url;
 }
 
-module.exports = { renderPostImage, renderPostBuffer, buildHtml, DIMS };
+module.exports = { renderPostImage, renderPostBuffer, buildHtml, DIMS, TEMPLATES };

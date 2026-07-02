@@ -212,6 +212,26 @@ async function topPerformingCaptions(limit = 3) {
   return rows.map((r) => r.caption);
 }
 
+const VALID_TEMPLATES = ['fullbleed', 'minimal', 'promo', 'educativo', 'mayorista'];
+
+/**
+ * Plantilla visual según pilar (con override manual desde el panel).
+ * producto alterna fullbleed/minimal por slot para que el feed no sea monótono.
+ */
+function chooseTemplate(slot, { override } = {}) {
+  if (VALID_TEMPLATES.includes(override)) return override;
+  switch (slot.pillar) {
+    case 'promo': return 'promo';
+    case 'mayorista': return 'mayorista';
+    case 'educativo': return 'educativo';
+    case 'producto': return Number(slot.id) % 2 === 0 ? 'minimal' : 'fullbleed';
+    case 'marca':
+    case 'ugc':
+    case 'engagement': return Number(slot.id) % 2 === 0 ? 'fullbleed' : 'minimal';
+    default: return 'fullbleed';
+  }
+}
+
 function interactionChip(slot) {
   if (slot.automation_level !== 'semi') return null;
   const hint = (slot.interaction_hint || '').toUpperCase();
@@ -264,12 +284,15 @@ async function generateForSlot(slot, overrides = {}) {
   // que envejezca). Reels tampoco llevan precio en el copy visual.
   const showPrice = format === 'story' && slot.post_type !== 'reel';
 
+  // Plantilla visual: override manual > pilar > variedad por seed.
+  const template = chooseTemplate(effectiveSlot, { override: overrides.template });
+
   let imagePath;
   let slidesJson = null;
 
   const slides = isCarousel && Array.isArray(copy.slides) && copy.slides.length >= 2 ? copy.slides.slice(0, 4) : null;
   if (slides) {
-    // Carrusel: una slide por punto, usando distintas fotos del producto si hay.
+    // Carrusel: una slide por punto, plantilla educativa (numerada, con texto de apoyo).
     const imgs = (visualProduct && Array.isArray(visualProduct.images) && visualProduct.images.length)
       ? visualProduct.images : (visualImageUrl ? [visualImageUrl] : []);
     const urls = [];
@@ -277,7 +300,11 @@ async function generateForSlot(slot, overrides = {}) {
       const img = imgs.length ? imgs[i % imgs.length] : visualImageUrl;
       const { url } = await renderPostBuffer({
         format,
+        template: 'educativo',
         overlayTitle: slides[i].title || overlayTitle,
+        bodyText: slides[i].text || null,
+        slideChip: `${i + 1}/${slides.length}`,
+        kicker: slot.pillar === 'mayorista' ? 'PARA EMPRESAS' : 'PARA SABER',
         badgeText: i === 0 ? badgeText : null,
         productImageUrl: img,
         logoUrl,
@@ -292,6 +319,7 @@ async function generateForSlot(slot, overrides = {}) {
   } else {
     const { url } = await renderPostBuffer({
       format,
+      template,
       overlayTitle,
       price: showPrice && product ? product.price : null,
       promoPrice: showPrice && product ? product.promo_price : null,
@@ -299,6 +327,7 @@ async function generateForSlot(slot, overrides = {}) {
       badgeText,
       productImageUrl: visualImageUrl,
       logoUrl,
+      layoutSeed: Number(slot.id),
       useAiProductScene: PRODUCT_PILLARS.includes(slot.pillar) && Boolean(product),
       useAiBackground: false,
       bgTheme: pillarDetail || slot.theme_title,
@@ -310,9 +339,9 @@ async function generateForSlot(slot, overrides = {}) {
   // El video del Reel NO se renderiza acá (ffmpeg es pesado). Lo completa
   // scripts/render-pending-reels.js corriendo en GitHub Actions.
   await pool.query(
-    `INSERT INTO generated_assets (calendar_id, product_id, caption, hashtags, cta, image_path, video_path, format, slides, status)
-     VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, 'draft')`,
-    [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson]
+    `INSERT INTO generated_assets (calendar_id, product_id, caption, hashtags, cta, image_path, video_path, format, slides, status, template)
+     VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, 'draft', $9)`,
+    [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson, slides ? 'educativo' : template]
   );
 
   await pool.query(`UPDATE content_calendar SET status = 'draft' WHERE id = $1`, [slot.id]);

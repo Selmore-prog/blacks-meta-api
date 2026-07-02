@@ -605,6 +605,17 @@ function openRegen(item) {
       <textarea class="input" id="regen-detail" placeholder="Ej: Botines con puntera para la construcción">${esc(current)}</textarea>
       <div class="chips-suggest">${sugg.map((s) => `<span class="chip-suggest" data-s="${esc(s)}">${esc(s)}</span>`).join('')}</div>
     </div>
+    <div class="field">
+      <label>Plantilla visual</label>
+      <select class="input" id="regen-template">
+        <option value="">Automática (según pilar)</option>
+        <option value="fullbleed">Full-bleed — foto a sangre + precio</option>
+        <option value="minimal">Minimal — estudio claro, evergreen</option>
+        <option value="promo">Promo — oscura, % OFF gigante</option>
+        <option value="educativo">Educativa — tipográfica clara</option>
+        <option value="mayorista">Mayorista — corporativa + presupuesto</option>
+      </select>
+    </div>
     <div style="display:flex; gap:8px; justify-content:flex-end;">
       <button class="btn-discard" id="regen-cancel">Cancelar</button>
       <button class="btn-primary" id="regen-go">${icon('wand')} Regenerar con IA</button>
@@ -620,7 +631,7 @@ function openRegen(item) {
     try {
       await api(`/api/generate/${item.id}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pillarDetail: detail, theme: detail }),
+        body: JSON.stringify({ pillarDetail: detail, theme: detail, template: overlay.querySelector('#regen-template').value || undefined }),
       });
       overlay.remove(); toast('Pieza regenerada', 'ok'); reloadKeepScroll();
     } catch (e) { toast(e.message, 'err'); go.disabled = false; go.innerHTML = `${icon('wand')} Regenerar con IA`; }
