@@ -1,27 +1,40 @@
 # PLAN MAESTRO — BLACKS Content Engine → "Agencia de marketing virtual" (100% gratis)
 
-## Estado de implementación al 2026-07-02
+## Estado de implementación al 2026-07-02 (actualizado, Rondas 12–17)
 
-Checklist acumulado:
+### Hecho y verificado
 
-- [x] A2 — Login simple del dashboard con `DASHBOARD_PASSWORD` y cookie firmada. Commit `91a8e17`.
-- [x] A5 — `GET /api/cron/has-pending-renders` + job liviano en GitHub Actions para no gastar minutos si no hay videos pendientes. Commit `91a8e17`.
-- [x] A4 — Cola `publish_queue` con reintentos, backoff y segunda pasada diaria de publicación. Implementada en la ronda posterior a `91a8e17`.
-- [x] A4 extra — `GET /api/publish-queue` para auditar cola/fallos desde panel o notificador.
-- [x] B1 parcial — Calendario editable por API y UI mínima: crear slot, editar fecha/hora/pilar/brief/formato/estado/carrusel.
-- [x] B3 — Tabla `commercial_dates`, seed de fechas argentinas, badges en calendario e inyección del contexto comercial en el prompt de copy.
-- [ ] A1 — Modularizar `src/server.js` en routers.
-- [ ] A3 — Migraciones versionadas con `schema_migrations`.
-- [ ] B1 pendiente — Vista mensual con drag & drop real y acciones rápidas por celda.
-- [ ] B2 — Planner mensual IA (`rotation_plans`) usando métricas, stock, ventas y fechas comerciales.
-- [ ] B4 — Campañas coordinadas.
-- [ ] C — Multi-plantilla visual y grilla preview.
-- [ ] D2/D3 — Historias de refuerzo y mejor horario por datos.
-- [ ] E — Dashboard de métricas completo, feedback loop y Telegram.
-- [ ] F — Inbox de comentarios y respuestas sugeridas.
-- [ ] G — Rediseño del panel con navegación lateral/mobile-first.
+- [x] A2 — Login del dashboard con `DASHBOARD_PASSWORD` y cookie firmada (`91a8e17`). **Falta setear la variable en Render para activarlo.**
+- [x] A5 — `GET /api/cron/has-pending-renders` + job liviano en Actions (`91a8e17`).
+- [x] A4 — Cola `publish_queue` con reintentos, backoff, segunda pasada diaria (15:00 UTC) y `GET /api/publish-queue` (`e515c54`). Probada contra DB real (caso frío y caso error/backoff).
+- [x] B1 parcial — Calendario editable: `POST/PATCH /api/calendar`, modal en el panel, validación real de fecha/hora (fix `6000633`: antes aceptaba `25:99`).
+- [x] B3 — `commercial_dates` con seed argentino (Hot Sale, CyberMonday, aguinaldos, etc.), badges en panel y contexto en el prompt (`e515c54`).
+- [x] **Coherencia imagen-copy** (`6000633`): el producto visual se elige por match real de nombre/categoría (sin acentos, sin fallback estacional random), respeta pool minorista/mayorista, y entra al prompt como "ancla visual" para que el texto hable de lo que se ve. Verificado end-to-end con pieza real (trivia botín → foto de botín + copy de botín).
+- [x] D1 — Cross-post a Facebook Page: ya existía en `publishService.js:72`; tokens de Meta verificados contra la Graph API.
+- [x] G parcial — UI ordenada (`d199c3e`): paleta reducida a neutros + naranja de marca (verde solo para ok/aprobado), tabs con subrayado, badges quietos, botones consistentes, fixes mobile (tabs scrolleables, botones full-width).
+- [x] E3/E4 — Notificador Telegram (`39aa80b`): piezas nuevas, resultado de publicación (con fallos y reintentos) e informe semanal. **Se activa con `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID`** (paso a paso en `src/notifier.js`); sin tokens es no-op.
+- [x] E2 — Feedback loop (`ea96ec0`): los 3 posts con mejor rendimiento real entran como few-shot al prompt. Activo apenas `post_insights` tenga datos.
+- [x] E1 básico — La pestaña Métricas ya muestra análisis de cuenta, tabla por pilar y recomendación.
 
-Ver también `TRASPASO_FABLE_5.md` para detalle de archivos tocados, pruebas y decisiones de esta sesión.
+### Pendiente (en orden sugerido para la próxima sesión)
+
+- [ ] F — Inbox de comentarios de IG (cron cada 2 h vía Graph API `GET /{media-id}/comments`) + respuestas sugeridas por IA con aprobación manual + detección de intención de compra. **Es lo más valioso que queda.**
+- [ ] B2 — Planner mensual IA (`rotation_plans`) usando `commercial_dates`, `products_cache.sales_30d`, `post_insights` y stock. Reemplaza la rotación fija de `src/calendar.js`.
+- [ ] C — Multi-plantilla visual (4-5 variantes de `templates/post-template.html`) + vista de grilla del perfil + "dame 3 opciones".
+- [ ] E1 completo — Gráfico de evolución semanal (Chart.js CDN) cuando haya datos acumulados; tarjeta de cola de publicación con fallos.
+- [ ] D2/D3 — Historia de refuerzo automática post-publicación; mejor horario por datos (necesita ≥20 posts con métricas).
+- [ ] B4 — Campañas coordinadas (anuncio → recordatorio → último día).
+- [ ] A1 — Modularizar `src/server.js` (ya ~650 líneas) en routers. Ronda propia, sin mezclar con features.
+- [ ] A3 — Migraciones versionadas (hoy `migrate.js` es idempotente y alcanza; hacerlo solo si empieza a molestar).
+- [ ] Limpieza de storage: borrar de Supabase los assets descartados de >30 días (el free tier es 1 GB).
+
+### Configuración manual pendiente (Sebastián)
+
+1. **Render** → Environment → agregar `DASHBOARD_PASSWORD` (activa el login del panel).
+2. **Telegram** → crear bot con @BotFather, y cargar `TELEGRAM_BOT_TOKEN` + `TELEGRAM_CHAT_ID` en Render (Environment) **y** en GitHub → Settings → Secrets → Actions (los usa el job `generate-daily`).
+3. `git push` de las rondas locales si todavía no está hecho.
+
+Ver también `TRASPASO_FABLE_5.md` (sesión de Codex) para detalle de decisiones previas.
 
 > **Cómo usar este documento:** dáselo a Claude Opus como prompt inicial y pedile que ejecute
 > **una fase por sesión** (o una "ronda" por commit, como se venía trabajando: `git log` muestra
