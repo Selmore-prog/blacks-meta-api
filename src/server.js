@@ -138,19 +138,24 @@ app.get('/api/products', wrap(async (req, res) => {
 
 // Análisis de productos: ventas (30d) + stock. Ganadores y "a dar visibilidad".
 app.get('/api/products/analytics', wrap(async (req, res) => {
-  const [winners, needVisibility, totals] = await Promise.all([
+  const [winners, needVisibility, retail, totals] = await Promise.all([
     pool.query(`SELECT id, name, brand, price, promo_price, stock, sales_30d, image_url
                 FROM products_cache WHERE sales_30d > 0 ORDER BY sales_30d DESC LIMIT 15`),
     pool.query(`SELECT id, name, brand, price, stock, sales_30d, image_url
                 FROM products_cache WHERE stock >= 10 AND COALESCE(sales_30d,0) = 0 AND price > 0
                 ORDER BY stock DESC LIMIT 15`),
+    // Minoristas: precio > 0 y stock finito > 0. Todos, para chequear sincronización.
+    pool.query(`SELECT id, name, brand, price, promo_price, stock, sales_30d, image_url
+                FROM products_cache WHERE price > 0 AND stock > 0 ORDER BY name ASC LIMIT 100`),
     pool.query(`SELECT count(*)::int total,
                        count(*) FILTER (WHERE stock > 0)::int con_stock,
                        count(*) FILTER (WHERE sales_30d > 0)::int con_ventas,
+                       count(*) FILTER (WHERE price > 0 AND stock > 0)::int retail,
+                       count(*) FILTER (WHERE stock IS NULL OR price IS NULL OR price <= 0)::int mayorista,
                        COALESCE(sum(sales_30d),0)::int unidades
                 FROM products_cache`),
   ]);
-  res.json({ winners: winners.rows, needVisibility: needVisibility.rows, totals: totals.rows[0] });
+  res.json({ winners: winners.rows, needVisibility: needVisibility.rows, retail: retail.rows, totals: totals.rows[0] });
 }));
 
 // Condiciones mayoristas (editables) que entran al copy de las piezas mayoristas.
@@ -267,10 +272,13 @@ function assetVideoUrl(row) {
 app.post('/api/assets/:assetId/transcribe', wrap(async (req, res) => {
   const id = intParam(req.params.assetId);
   if (!id) return res.status(400).json({ error: 'assetId inválido' });
-  const { rows } = await pool.query('SELECT video_path FROM generated_assets WHERE id = $1', [id]);
+  const { rows } = await pool.query('SELECT video_path, voiceover_path FROM generated_assets WHERE id = $1', [id]);
   if (!rows[0]) return res.status(404).json({ error: 'No existe el asset' });
-  if (!rows[0].video_path) return res.status(400).json({ error: 'Este asset no tiene video. Subí un video primero.' });
-  const result = await transcribeVideo(assetVideoUrl(rows[0]));
+  const { getPublicUrl } = require('./storage');
+  // Si hay voz en off cargada, transcribimos ESA voz (para videos mudos/narrados).
+  const source = rows[0].voiceover_path ? getPublicUrl(rows[0].voiceover_path) : assetVideoUrl(rows[0]);
+  if (!source) return res.status(400).json({ error: 'No hay audio para transcribir. Subí un video con voz o una voz en off.' });
+  const result = await transcribeVideo(source);
   await pool.query(`UPDATE generated_assets SET subtitles = $2, updated_at = now() WHERE id = $1`, [id, JSON.stringify(result.words)]);
   res.json({ ok: true, text: result.text, words: result.words });
 }));
@@ -329,8 +337,10 @@ app.post('/api/assets/:assetId/publish', wrap(async (req, res) => {
 
 /* ----------------------- Estilo de marca ----------------------- */
 app.get('/api/style', wrap(async (req, res) => {
-  const [references, profile] = await Promise.all([styleService.listReferences(), getBrandProfile()]);
-  res.json({ references, profile, geminiReady: hasGemini() });
+  const [references, profile, folders] = await Promise.all([
+    styleService.listReferences(), getBrandProfile(), styleService.foldersSummary(),
+  ]);
+  res.json({ references, profile, folders, geminiReady: hasGemini() });
 }));
 
 app.post('/api/style/upload', upload.array('files', 20), wrap(async (req, res) => {

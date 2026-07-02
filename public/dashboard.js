@@ -368,6 +368,11 @@ function renderCard(item) {
     : `<span class="badge auto"><span class="idot green"></span>Automática</span>`);
   const statusBadge = aid ? `<span class="badge status-${item.asset_status || item.status}">${item.asset_status || item.status}</span>` : '';
 
+  // Mayorista / Minorista a simple vista.
+  const commercialBadge = item.pillar === 'mayorista'
+    ? `<span class="badge whole">Mayorista</span>`
+    : (['producto', 'promo'].includes(item.pillar) ? `<span class="badge retail">Minorista</span>` : '');
+
   const regenBtn = `<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Regenerar</button>`;
   const videoBtn = (item.post_type === 'reel' && aid)
     ? `<button class="btn-ghost btn-sm" data-act="videoprompt" data-id="${aid}">${icon('film')} Prompt video IA</button>` : '';
@@ -411,6 +416,7 @@ function renderCard(item) {
       <div class="meta-row">
         <span class="badge type">${typeLabel(item)}</span>
         <span class="badge pillar">${esc(item.pillar)}</span>
+        ${commercialBadge}
         ${item.scheduled_time ? `<span class="badge time">${icon('clock')} ${esc(item.scheduled_time)} hs</span>` : ''}
         ${autoBadge}${statusBadge}
       </div>
@@ -539,30 +545,38 @@ function openVideoUpload(assetId) {
 function openVideoEditor(assetId) {
   const it = calItems.find((x) => String(x.asset_id) === String(assetId));
   const body = `
-    <p class="hint" style="margin-top:0;">Transcribí el audio (Groq Whisper), corregí palabras si hace falta, elegí el estilo y generá el Reel con subtítulos quemados. Podés sumar una voz en off.</p>
-    ${it && it.video_path ? `<video src="${esc(it.video_path)}" controls playsinline style="width:160px;border-radius:10px;display:block;margin-bottom:12px;"></video>` : ''}
-    <button class="btn-primary btn-sm" id="ve-transcribe">${icon('sparkles')} Transcribir con IA</button>
-    <div id="ve-words" style="margin-top:14px;"></div>
-    <div id="ve-opts" class="hidden">
-      <div class="field" style="margin-top:14px;">
-        <label>Estilo de subtítulos</label>
-        <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
-          <select class="filter" id="ve-pos"><option value="bottom">Abajo</option><option value="top">Arriba</option></select>
-          <select class="filter" id="ve-n"><option value="2">2 palabras</option><option value="3" selected>3 palabras</option><option value="4">4 palabras</option></select>
-          <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);"><input type="checkbox" id="ve-upper" checked/> MAYÚSCULAS</label>
-        </div>
+    <p class="hint" style="margin-top:0;">Sumá una voz en off (opcional), transcribí para sacar los subtítulos, corregí palabras y generá el Reel con subtítulos quemados.</p>
+    ${it && it.video_path ? `<video src="${esc(it.video_path)}" controls playsinline style="width:160px;border-radius:10px;display:block;margin-bottom:14px;"></video>` : ''}
+
+    <div class="field">
+      <label>1 · Voz en off (opcional)</label>
+      <div style="display:flex; align-items:center; gap:8px; flex-wrap:wrap;">
+        <button class="btn-ghost btn-sm" id="ve-vo">${icon('upload')} Subir audio de voz</button>
+        <span class="hint" id="ve-vo-st"></span>
       </div>
-      <div class="field">
-        <label>Voz en off (opcional)</label>
-        <button class="btn-ghost btn-sm" id="ve-vo">${icon('upload')} Subir audio</button>
-        <span class="hint" id="ve-vo-st" style="margin-left:8px;"></span>
+      <p class="hint" style="margin:6px 0 0;">Si el video no tiene audio (ej: generado en Gemini) o querés narrarlo, subí acá la voz (mp3/m4a/wav). Los subtítulos salen de esta voz.</p>
+    </div>
+
+    <div class="field">
+      <label>2 · Subtítulos</label>
+      <button class="btn-primary btn-sm" id="ve-transcribe">${icon('sparkles')} Transcribir con IA</button>
+      <div id="ve-words" style="margin-top:12px;"></div>
+    </div>
+
+    <div class="field">
+      <label>3 · Estilo de subtítulos</label>
+      <div style="display:flex; gap:10px; flex-wrap:wrap; align-items:center;">
+        <select class="filter" id="ve-pos"><option value="bottom">Abajo</option><option value="top">Arriba</option></select>
+        <select class="filter" id="ve-n"><option value="2">2 palabras</option><option value="3" selected>3 palabras</option><option value="4">4 palabras</option></select>
+        <label style="display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted);"><input type="checkbox" id="ve-upper" checked/> MAYÚSCULAS</label>
       </div>
-      <div style="display:flex; gap:8px; justify-content:flex-end;">
-        <button class="btn-primary" id="ve-go">${icon('film')} Generar con subtítulos</button>
-      </div>
-      <div id="ve-st" class="hint" style="margin-top:10px;"></div>
-    </div>`;
-  const ov = showInfoModal('Editor de video · subtítulos', body);
+    </div>
+
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:6px;">
+      <button class="btn-primary" id="ve-go">${icon('film')} Generar Reel con subtítulos</button>
+    </div>
+    <div id="ve-st" class="hint" style="margin-top:10px;"></div>`;
+  const ov = showInfoModal('Editor de video · subtítulos + voz', body);
   let words = [];
 
   ov.querySelector('#ve-transcribe').addEventListener('click', async (e) => {
@@ -572,9 +586,8 @@ function openVideoEditor(assetId) {
       words = d.words || [];
       const wEl = ov.querySelector('#ve-words');
       wEl.innerHTML = words.length
-        ? `<label class="fmt-label">Palabras (tocá para corregir):</label><div class="ve-grid">${words.map((w, i) => `<input class="ve-w" data-i="${i}" value="${esc(w.word)}"/>`).join('')}</div>`
-        : '<p class="hint">No detecté voz en el video. Podés subir una voz en off y generar igual.</p>';
-      ov.querySelector('#ve-opts').classList.remove('hidden');
+        ? `<label class="fmt-label">Palabras (tocá para corregir errores):</label><div class="ve-grid">${words.map((w, i) => `<input class="ve-w" data-i="${i}" value="${esc(w.word)}"/>`).join('')}</div>`
+        : '<p class="hint">No detecté voz. Subí una voz en off arriba y transcribí de nuevo.</p>';
     } catch (err) { toast(err.message, 'err'); }
     finally { b.disabled = false; b.innerHTML = `${icon('sparkles')} Transcribir de nuevo`; }
   });
@@ -585,7 +598,7 @@ function openVideoEditor(assetId) {
       if (!inp.files || !inp.files.length) return;
       const fd = new FormData(); fd.append('file', inp.files[0]);
       ov.querySelector('#ve-vo-st').textContent = 'Subiendo…';
-      try { await api(`/api/assets/${assetId}/upload-voiceover`, { method: 'POST', body: fd }); ov.querySelector('#ve-vo-st').textContent = 'Voz cargada ✓'; }
+      try { await api(`/api/assets/${assetId}/upload-voiceover`, { method: 'POST', body: fd }); ov.querySelector('#ve-vo-st').textContent = 'Voz cargada ✓ — ahora tocá "Transcribir con IA"'; }
       catch (e) { toast(e.message, 'err'); ov.querySelector('#ve-vo-st').textContent = ''; }
     });
     inp.click();
@@ -671,7 +684,8 @@ async function loadProducts() {
     body.innerHTML = wholesalePanel + `
       <div class="prod-totals">
         <div class="stat"><b>${t.total ?? 0}</b><span>productos</span></div>
-        <div class="stat"><b>${t.con_stock ?? 0}</b><span>con stock</span></div>
+        <div class="stat"><b>${t.retail ?? 0}</b><span>minoristas</span></div>
+        <div class="stat"><b>${t.mayorista ?? 0}</b><span>mayoristas</span></div>
         <div class="stat"><b>${t.con_ventas ?? 0}</b><span>se vendieron (30d)</span></div>
         <div class="stat"><b>${t.unidades ?? 0}</b><span>unidades vendidas</span></div>
       </div>
@@ -680,6 +694,11 @@ async function loadProducts() {
           <p class="hint">Dales continuidad: destacalos en historias y feed.</p>${rowsHtml(d.winners, (p) => `<b>${p.sales_30d}</b><span>vendidos</span>`)}</div>
         <div class="panel"><h3>${icon('alert')} A darles visibilidad</h3>
           <p class="hint">Mucho stock y pocas/ninguna venta: conviene mostrarlos más.</p>${rowsHtml(d.needVisibility, (p) => `<b>${p.stock}</b><span>en stock</span>`)}</div>
+      </div>
+      <div class="panel" style="margin-top:18px;">
+        <h3>${icon('list')} Minoristas detectados (${(d.retail || []).length}) — precio y stock</h3>
+        <p class="hint">Estos son los que van con precio a las historias. Si falta alguno que debería estar acá, revisá que en Tiendanube tenga precio y stock cargado, y volvé a sincronizar.</p>
+        ${rowsHtml(d.retail, (p) => `<b>${p.stock}</b><span>stock</span>`)}
       </div>`;
     const ws = document.getElementById('w-save');
     if (ws) ws.addEventListener('click', saveWholesale);
@@ -770,6 +789,20 @@ async function loadStyle() {
       <div class="ref-thumb"><img src="${esc(r.url)}" alt="" onerror="this.parentNode.style.opacity=.3" />
         <button class="del" onclick="deleteRef(${r.id})">&times;</button></div>`).join('');
 
+    // Carpetas/orígenes leídos + fecha del último análisis.
+    const sum = document.getElementById('style-summary');
+    if (sum) {
+      const folders = data.folders || [];
+      const last = data.profile && data.profile.updated_at
+        ? new Date(data.profile.updated_at).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+        : null;
+      sum.innerHTML = (folders.length || last)
+        ? `<div class="voice-out" style="margin-top:12px;">
+             ${last ? `<div><b>Último análisis:</b> ${esc(last)}</div>` : ''}
+             ${folders.length ? `<div style="margin-top:6px;"><b>Analizado de:</b> ${folders.map((f) => `${esc(f.folder)} <span style="color:var(--muted)">(${f.n})</span>`).join(' · ')}</div>` : ''}
+           </div>` : '';
+    }
+
     renderProfile(data.profile);
     const warn = document.getElementById('gemini-warn');
     if (!data.geminiReady && !warn) {
@@ -792,6 +825,8 @@ function renderProfile(profile) {
   if (sg) {
     const list = (label, arr) => Array.isArray(arr) && arr.length ? `<div class="voice-out"><b>${label}:</b> ${arr.map(esc).join(' · ')}</div>` : '';
     html += list('Hashtags frecuentes', sg.hashtags_frecuentes);
+    html += list('Mejores horarios (tu cuenta)', sg.mejores_horarios);
+    html += list('Mejores días (tu cuenta)', sg.mejores_dias);
     html += list('CTAs típicos', sg.cta_frecuentes);
     html += list('Temas recurrentes', sg.temas_recurrentes);
     html += list('Hacer', sg.do);

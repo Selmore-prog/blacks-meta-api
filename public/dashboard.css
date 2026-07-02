@@ -103,6 +103,8 @@ button:disabled { opacity: .55; cursor: default; }
 .badge.time { background: var(--panel-2); color: var(--muted); border: 1px solid var(--line); }
 .badge.auto { background: rgba(34,197,94,.14); color: var(--green); }
 .badge.semi { background: rgba(245,166,35,.14); color: var(--amber); }
+.badge.whole { background: rgba(59,130,246,.16); color: var(--blue); }
+.badge.retail { background: rgba(34,197,94,.16); color: var(--green); }
 .badge.status-draft { background: rgba(245,166,35,.14); color: var(--amber); }
 .badge.status-approved { background: rgba(34,197,94,.14); color: var(--green); }
 .badge.status-published { background: rgba(59,130,246,.16); color: var(--blue); }

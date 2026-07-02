@@ -12,6 +12,8 @@ on:
     - cron: '0 11 * * *'
     # Sincronización semanal de métricas e insights los lunes a las 12:00 UTC
     - cron: '0 12 * * 1'
+    # Análisis de estilo automático cada 48 h (06:00 UTC / 03:00 ARG)
+    - cron: '0 6 */2 * *'
   workflow_dispatch:
     inputs:
       job:
@@ -25,6 +27,7 @@ on:
           - render-reels
           - publish-daily
           - sync-insights
+          - analyze-style
 
 jobs:
   # Trae precios/stock actualizados de Tiendanube al cache.
@@ -112,3 +115,23 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
             "${{ secrets.PUBLIC_BASE_URL }}/api/cron/sync-insights"
+
+  # Análisis de estilo automático cada 48 h (piezas + cuenta -> brand_profile).
+  analyze-style:
+    if: github.event.schedule == '0 6 */2 * *' || github.event.inputs.job == 'analyze-style'
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+      SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+      SUPABASE_STORAGE_BUCKET: ${{ secrets.SUPABASE_STORAGE_BUCKET }}
+      GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+      META_PAGE_ACCESS_TOKEN: ${{ secrets.META_PAGE_ACCESS_TOKEN }}
+      IG_USER_ID: ${{ secrets.IG_USER_ID }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run analyze:style

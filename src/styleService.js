@@ -2,8 +2,20 @@ const pool = require('./db');
 const { uploadAsset } = require('./storage');
 const { analyzeStyle } = require('./ai');
 const { saveBrandProfile } = require('./brandProfile');
-const { fetchRecentCaptions } = require('./accountAnalyzer');
+const { fetchRecentCaptions, analyzeAccountPerformance } = require('./accountAnalyzer');
 const { resizeImage } = require('./imageUtils');
+
+/** Resumen de carpetas/orígenes leídos, agrupado por mes/sección (para mostrar qué se analizó). */
+async function foldersSummary() {
+  const { rows } = await pool.query(`SELECT caption, source FROM style_references`);
+  const map = {};
+  for (const r of rows) {
+    // "ABRIL / FEED / 10" -> "ABRIL / FEED"; sin caption -> el origen (upload/drive/url).
+    const key = r.caption ? r.caption.split(' / ').slice(0, 2).join(' / ') : (r.source || 'suelto');
+    map[key] = (map[key] || 0) + 1;
+  }
+  return Object.entries(map).map(([folder, n]) => ({ folder, n })).sort((a, b) => b.n - a.n);
+}
 
 /** Convierte un link de Google Drive a una URL de descarga directa del archivo. */
 function normalizeDriveLink(url) {
@@ -86,7 +98,7 @@ async function urlToInlineImage(url) {
  * captions reales de la cuenta de IG, se los pasa a Gemini y guarda el brand_profile.
  */
 async function runStyleAnalysis({ includeAccount = true } = {}) {
-  const MAX_IMAGES = 30;
+  const MAX_IMAGES = 60;
   const refs = await listReferences();
   const images = [];
   // Se toma su tiempo: procesa hasta 30 piezas de referencia.
@@ -119,13 +131,27 @@ async function runStyleAnalysis({ includeAccount = true } = {}) {
   }
 
   const result = await analyzeStyle({ images, captions });
+
+  // Fusionar señales REALES de la cuenta (hashtags y horarios que más rinden) al perfil.
+  if (includeAccount) {
+    try {
+      const perf = await analyzeAccountPerformance(60);
+      const sg = result.style_guide || (result.style_guide = {});
+      const existing = Array.isArray(sg.hashtags_frecuentes) ? sg.hashtags_frecuentes : [];
+      const fromAccount = (perf.topHashtags || []).map((h) => h.tag);
+      sg.hashtags_frecuentes = [...new Set([...existing, ...fromAccount])].slice(0, 12);
+      sg.mejores_horarios = (perf.bestHours || []).map((h) => `${h.hour} hs`);
+      sg.mejores_dias = (perf.bestDays || []).map((d) => d.day);
+    } catch (err) { console.warn(`[styleService] Performance de cuenta no disponible: ${err.message}`); }
+  }
+
   await saveBrandProfile({
     style_guide: result.style_guide,
     voice_guide: result.voice_guide,
     sample_captions: captions.slice(0, 15),
   });
 
-  return { analyzedImages: images.length, analyzedCaptions: captions.length, ...result };
+  return { analyzedImages: images.length, analyzedCaptions: captions.length, folders: await foldersSummary(), ...result };
 }
 
 module.exports = {
@@ -134,6 +160,7 @@ module.exports = {
   getActiveLogo,
   addLink,
   listReferences,
+  foldersSummary,
   deleteReference,
   runStyleAnalysis,
   normalizeDriveLink,
