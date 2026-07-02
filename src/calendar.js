@@ -41,16 +41,23 @@ function toDateOnly(date) {
 async function seedCalendar(daysAhead = 14, startDate = new Date()) {
   const inserted = [];
 
+  // Plan mensual IA (si existe): manda sobre la rotación fija, día por día.
+  const { getPlanMap } = require('./planner'); // require acá para evitar dependencia circular
+  const planMap = await getPlanMap(startDate, daysAhead).catch(() => ({}));
+
   for (let i = 0; i < daysAhead; i += 1) {
     const date = new Date(startDate);
     date.setDate(date.getDate() + i);
-    const slot = ROTATION[i % ROTATION.length];
+    const dateStr = toDateOnly(date);
+    const planSlot = planMap[dateStr];
+    const slot = planSlot || ROTATION[i % ROTATION.length];
     const status = slot.pillar === 'repost' ? 'skipped' : 'pending';
+    const origin = planSlot ? 'plan' : 'rotation';
 
     const result = await pool.query(
       `INSERT INTO content_calendar
-         (scheduled_date, platform, post_type, format, pillar, pillar_detail, automation_level, interaction_hint, scheduled_time, theme_title, carousel, status)
-       VALUES ($1, 'instagram', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+         (scheduled_date, platform, post_type, format, pillar, pillar_detail, automation_level, interaction_hint, scheduled_time, theme_title, carousel, status, origin)
+       VALUES ($1, 'instagram', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
        ON CONFLICT (scheduled_date, platform, post_type) DO UPDATE SET
          format = EXCLUDED.format,
          pillar = EXCLUDED.pillar,
@@ -59,15 +66,30 @@ async function seedCalendar(daysAhead = 14, startDate = new Date()) {
          interaction_hint = EXCLUDED.interaction_hint,
          scheduled_time = EXCLUDED.scheduled_time,
          theme_title = EXCLUDED.theme_title,
-         carousel = EXCLUDED.carousel
-       WHERE content_calendar.status = 'pending'
+         carousel = EXCLUDED.carousel,
+         origin = EXCLUDED.origin,
+         status = EXCLUDED.status
+       WHERE content_calendar.status IN ('pending', 'skipped')
        RETURNING id`,
-      [toDateOnly(date), slot.post_type, slot.format, slot.pillar, slot.pillar_detail,
+      [dateStr, slot.post_type, slot.format, slot.pillar, slot.pillar_detail,
        slot.automation_level || 'auto', slot.interaction_hint || null, slot.scheduled_time || null,
-       slot.theme_title || null, Boolean(slot.carousel), status]
+       slot.theme_title || null, Boolean(slot.carousel), status, origin]
     );
 
     if (result.rows[0]) inserted.push(result.rows[0].id);
+
+    // El plan manda: si este día tiene plan, limpiamos los slots PENDING sembrados por
+    // la rotación vieja con otro post_type. No toca drafts/aprobados/publicados ni
+    // slots agregados a mano (origin = 'manual').
+    if (planSlot) {
+      await pool.query(
+        `DELETE FROM content_calendar
+         WHERE scheduled_date = $1 AND platform = 'instagram'
+           AND status IN ('pending', 'skipped') AND post_type != $2
+           AND COALESCE(origin, 'rotation') != 'manual'`,
+        [dateStr, slot.post_type]
+      );
+    }
   }
 
   return inserted;

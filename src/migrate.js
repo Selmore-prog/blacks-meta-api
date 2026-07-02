@@ -114,6 +114,18 @@ CREATE TABLE IF NOT EXISTS commercial_dates (
   UNIQUE (event_date, title)
 );
 
+-- Plan mensual generado con IA (planner). Un plan por mes; seedCalendar lo usa
+-- día a día y cae a la ROTATION fija si un día no tiene plan.
+CREATE TABLE IF NOT EXISTS rotation_plans (
+  id              SERIAL PRIMARY KEY,
+  month           TEXT NOT NULL UNIQUE,           -- 'YYYY-MM'
+  plan            JSONB NOT NULL,                 -- [{date, post_type, format, pillar, ...}]
+  source          TEXT NOT NULL DEFAULT 'ai',
+  notes           TEXT,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_calendar_date ON content_calendar (scheduled_date);
 CREATE INDEX IF NOT EXISTS idx_publish_queue_status ON publish_queue (status, next_attempt_at);
 CREATE INDEX IF NOT EXISTS idx_commercial_dates_date ON commercial_dates (event_date);
@@ -144,6 +156,7 @@ ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS automation_level TEXT DEFA
 ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS interaction_hint TEXT;   -- sticker/interaccion a agregar a mano
 ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS scheduled_time TEXT;     -- 'HH:MM' hora ARG sugerida
 ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS theme_title TEXT;        -- tematica/titulo del dia
+ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS origin TEXT DEFAULT 'rotation'; -- 'rotation' | 'plan' | 'manual'
 
 -- Rellenar 'format' en filas viejas segun post_type (feed=4:5, reel/story=9:16).
 UPDATE content_calendar SET format = CASE WHEN post_type = 'feed' THEN 'feed' ELSE 'story' END WHERE format IS NULL;

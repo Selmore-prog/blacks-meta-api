@@ -19,6 +19,7 @@ const { transcribeVideo } = require('./transcribe');
 const { getWholesaleSettings, saveWholesaleSettings } = require('./wholesale');
 const { listCommercialDates } = require('./commercialDates');
 const { notifyPublishResult, notifyWeeklyReport } = require('./notifier');
+const { generateMonthlyPlan, getPlan, nextPlannableMonth } = require('./planner');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -268,8 +269,8 @@ app.post('/api/calendar', wrap(async (req, res) => {
   const { rows } = await pool.query(
     `INSERT INTO content_calendar
        (scheduled_date, platform, post_type, format, pillar, pillar_detail, automation_level,
-        interaction_hint, scheduled_time, theme_title, carousel, status)
-     VALUES ($1, 'instagram', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11)
+        interaction_hint, scheduled_time, theme_title, carousel, status, origin)
+     VALUES ($1, 'instagram', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'manual')
      RETURNING *`,
     [
       scheduledDate,
@@ -328,6 +329,26 @@ app.patch('/api/calendar/:calendarId', wrap(async (req, res) => {
 
 app.get('/api/commercial-dates', wrap(async (req, res) => {
   res.json(await listCommercialDates({ from: req.query.from, to: req.query.to }));
+}));
+
+/* ----------------------- Planner mensual IA ----------------------- */
+app.get('/api/plan', wrap(async (req, res) => {
+  const month = /^\d{4}-\d{2}$/.test(req.query.month || '') ? req.query.month : new Date().toISOString().slice(0, 7);
+  const plan = await getPlan(month);
+  res.json(plan || { month, plan: null });
+}));
+
+app.post('/api/plan/generate', wrap(async (req, res) => {
+  const body = req.body || {};
+  const month = /^\d{4}-\d{2}$/.test(body.month || '') ? body.month : await nextPlannableMonth();
+  const summary = await generateMonthlyPlan({ month });
+  res.json({ ok: true, ...summary });
+}));
+
+// Cron mensual (día 25): deja armado el plan del mes siguiente.
+app.post('/api/cron/generate-plan', authCron, wrap(async (req, res) => {
+  const month = await nextPlannableMonth();
+  res.json({ ok: true, ...(await generateMonthlyPlan({ month })) });
 }));
 
 /* ----------------------- Insights / Productos ----------------------- */

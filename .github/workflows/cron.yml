@@ -16,6 +16,8 @@ on:
     - cron: '0 12 * * 1'
     # Análisis de estilo automático cada 48 h (06:00 UTC / 03:00 ARG)
     - cron: '0 6 */2 * *'
+    # Plan mensual IA: el día 25 deja armado el plan del mes siguiente (12:00 UTC)
+    - cron: '0 12 25 * *'
   workflow_dispatch:
     inputs:
       job:
@@ -30,6 +32,7 @@ on:
           - publish-daily
           - sync-insights
           - analyze-style
+          - generate-plan
 
 jobs:
   # Trae precios/stock actualizados de Tiendanube al cache.
@@ -140,6 +143,18 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
             "${{ secrets.PUBLIC_BASE_URL }}/api/cron/sync-insights"
+
+  # Plan mensual IA (liviano: una llamada a Gemini/Groq desde Render).
+  generate-plan:
+    if: github.event.schedule == '0 12 25 * *' || github.event.inputs.job == 'generate-plan'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Generar plan del mes siguiente
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            "${{ secrets.PUBLIC_BASE_URL }}/api/cron/generate-plan"
 
   # Análisis de estilo automático cada 48 h (piezas + cuenta -> brand_profile).
   analyze-style:

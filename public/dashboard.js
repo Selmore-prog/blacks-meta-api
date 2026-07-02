@@ -898,6 +898,26 @@ async function generateAllPending() {
   toast('Listo', 'ok'); reloadKeepScroll();
 }
 
+/* Plan mensual con IA: arma la rotación del mes (fechas comerciales + ventas + métricas). */
+async function generateMonthPlan() {
+  const btn = document.getElementById('btn-month-plan');
+  if (!confirm('¿Generar el plan del mes con IA? Usa tus fechas comerciales, ventas y métricas. Los días ya generados/aprobados no se tocan; los pendientes se replanifican.')) return;
+  btn.disabled = true;
+  toast('Armando el plan del mes… (puede tardar ~30 seg)');
+  try {
+    const r = await api('/api/plan/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    const mix = Object.entries(r.byPillar || {}).map(([k, v]) => `${k}: ${v}`).join(' · ');
+    toast(`Plan de ${r.month} listo (${r.days} días). ${mix}`, 'ok');
+    // Re-sembrar el calendario para que los próximos días tomen el plan nuevo.
+    await api('/api/calendar/seed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
+    reloadKeepScroll();
+  } catch (e) {
+    toast(`No se pudo generar el plan: ${e.message}`, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}
+
 /* ============ edición ============ */
 let editingId = null;
 function openEdit(assetId) {

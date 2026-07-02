@@ -268,6 +268,55 @@ async function generateCopy(opts) {
 }
 
 /**
+ * Genera un objeto JSON arbitrario (para el planner y otras tareas estructuradas).
+ * Intenta Gemini (con responseSchema) y cae a Groq (json_object). Lanza si ambos fallan.
+ */
+async function generateJson({ system, prompt, schema, maxTokens = 4000, temperature = 0.6 }) {
+  if (preferGemini()) {
+    try {
+      const data = await geminiGenerateContent(config.gemini.textModel, {
+        ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
+        contents: [{ role: 'user', parts: [{ text: prompt }] }],
+        generationConfig: {
+          temperature,
+          maxOutputTokens: maxTokens,
+          responseMimeType: 'application/json',
+          thinkingConfig: { thinkingBudget: 0 },
+          ...(schema ? { responseSchema: schema } : {}),
+        },
+      });
+      const text = textFromResponse(data);
+      return JSON.parse(text.replace(/```json|```/g, '').trim());
+    } catch (err) {
+      console.warn(`[ai] Gemini JSON falló, caigo a Groq: ${err.message}`);
+    }
+  }
+  if (!config.groq.apiKey) throw new Error('No hay GROQ_API_KEY ni GEMINI_API_KEY para generar JSON.');
+  const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.groq.apiKey}` },
+    body: JSON.stringify({
+      model: config.groq.model || 'llama-3.3-70b-versatile',
+      temperature,
+      max_tokens: maxTokens,
+      response_format: { type: 'json_object' },
+      messages: [
+        { role: 'system', content: `${system || 'Sos un asistente que devuelve datos estructurados.'}\n\nDevolvé SIEMPRE un JSON válido y nada más.` },
+        { role: 'user', content: prompt },
+      ],
+    }),
+  });
+  if (!res.ok) {
+    const body = await res.text().catch(() => '');
+    throw new Error(`Groq API ${res.status}: ${body.slice(0, 300)}`);
+  }
+  const data = await res.json();
+  const content = data.choices && data.choices[0] && data.choices[0].message && data.choices[0].message.content;
+  if (!content) throw new Error('Respuesta de Groq sin contenido.');
+  return JSON.parse(content.replace(/```json|```/g, '').trim());
+}
+
+/**
  * Genera un fondo/lienzo con IA (sin texto) para usar de backdrop de la pieza.
  * Best-effort: si no hay Gemini o falla, devuelve null y se usa el diseño plano.
  * Devuelve { buffer, mimeType } o null.
@@ -446,6 +495,7 @@ ESTÉTICA: robusta, premium, alto contraste, look de aviso moderno. SIN texto en
 
 module.exports = {
   generateCopy,
+  generateJson,
   generateBackground,
   generateProductScene,
   analyzeStyle,
