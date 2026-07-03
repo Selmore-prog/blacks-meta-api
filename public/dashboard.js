@@ -515,7 +515,8 @@ function renderCard(item) {
       : `<button class="btn-publish" data-act="publish" data-id="${aid}">${icon('send')} Publicar ahora</button>`) +
       `<button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Editar</button>${regenBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${planBtn}`;
   } else if (status === 'published') {
-    actions = `<span class="badge status-published">${icon('check')} Publicado ${item.meta_post_id ? `· ${esc(item.meta_post_id)}` : ''}</span>`;
+    actions = `<span class="badge status-published">${icon('check')} Publicado ${item.meta_post_id ? `· ${esc(item.meta_post_id)}` : ''}</span>
+      <button class="btn-ghost btn-sm" data-act="republish" data-id="${aid}" title="Por si la borraste de Instagram o querés volver a publicarla">${icon('refresh')} Republicar</button>`;
   } else if (status === 'discarded') {
     actions = `<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('refresh')} Regenerar</button>${planBtn}`;
   }
@@ -576,6 +577,10 @@ async function handleAction(act, id, btn, card, item) {
       openPlanSlot(item || calItems.find((x) => String(x.id) === String(id)));
     } else if (act === 'publish') {
       await doPublish(id, btn);
+    } else if (act === 'republish') {
+      if (!confirm('¿Republicar esta pieza? Queda como "aprobada" de nuevo — sale sola en la próxima pasada automática, o la publicás ahora mismo con el botón "Publicar ahora".')) return;
+      await api(`/api/assets/${id}/republish`, { method: 'POST' });
+      toast('Lista para volver a publicar', 'ok'); reloadKeepScroll();
     }
   } catch (e) {
     toast(e.message, 'err');

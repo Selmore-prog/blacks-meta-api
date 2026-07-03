@@ -485,6 +485,25 @@ app.post('/api/assets/:assetId/discard', wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Vuelve a dejar una pieza YA PUBLICADA como aprobada, para republicarla — por si el
+// usuario la borró de Instagram a mano o simplemente quiere que salga de nuevo.
+// Limpia el meta_post_id viejo (una nueva publicación va a tener un ID distinto).
+app.post('/api/assets/:assetId/republish', wrap(async (req, res) => {
+  const id = intParam(req.params.assetId);
+  if (!id) return res.status(400).json({ error: 'assetId inválido' });
+  const { rows } = await pool.query(
+    `UPDATE generated_assets SET status = 'approved', meta_post_id = NULL, updated_at = now()
+     WHERE id = $1 AND status = 'published' RETURNING calendar_id`,
+    [id]
+  );
+  if (!rows[0]) return res.status(400).json({ error: 'Esa pieza no está publicada; no hace falta republicarla.' });
+  await pool.query(`UPDATE content_calendar SET status = 'approved' WHERE id = $1`, [rows[0].calendar_id]);
+  // Por si había quedado una fila vieja en la cola de publicación, la limpiamos para
+  // que la próxima pasada la vuelva a encolar en limpio.
+  await pool.query(`DELETE FROM publish_queue WHERE asset_id = $1`, [id]);
+  res.json({ ok: true });
+}));
+
 // Súper-prompt para generar una escena de video a mano en Gemini/Veo.
 app.get('/api/assets/:assetId/video-prompt', wrap(async (req, res) => {
   const id = intParam(req.params.assetId);
