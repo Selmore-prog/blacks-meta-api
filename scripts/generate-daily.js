@@ -4,7 +4,7 @@ const { generateCopy } = require('../src/ai');
 const { renderPostBuffer } = require('../src/imageRenderer');
 const { fetchProduct } = require('../src/tiendanube');
 const { getBrandProfile } = require('../src/brandProfile');
-const { getActiveLogo } = require('../src/styleService');
+const { getLogos } = require('../src/styleService');
 const { getWholesaleSettings, wholesaleContext } = require('../src/wholesale');
 const { getCommercialContextForDate } = require('../src/commercialDates');
 const config = require('../src/config');
@@ -260,6 +260,13 @@ const VALID_TEMPLATES = ['fullbleed', 'minimal', 'promo', 'educativo', 'mayorist
  */
 function chooseTemplate(slot, { override } = {}) {
   if (VALID_TEMPLATES.includes(override)) return override;
+  // La plantilla 'educativo' es una tarjeta tipográfica CON MUCHO texto y una foto
+  // chica de apoyo: pensada para feed/carrusel estático. En un Reel (post_type='reel')
+  // se ve casi vacía (el video ocupa toda la pantalla, no una tarjeta) — ahí conviene
+  // una plantilla de foto a pantalla completa, sin importar el pilar.
+  if (slot.post_type === 'reel') {
+    return slot.pillar === 'mayorista' ? 'mayorista' : (Number(slot.id) % 2 === 0 ? 'fullbleed' : 'promo');
+  }
   switch (slot.pillar) {
     case 'promo': return 'promo';
     case 'mayorista': return 'mayorista';
@@ -300,7 +307,7 @@ async function generateForSlot(slot, overrides = {}) {
   // No usamos fallback estacional/random porque puede contradecir el copy.
   const visualImageUrl = visualProduct ? visualProduct.image_url : null;
 
-  const logoUrl = await getActiveLogo().catch(() => null);
+  const logos = await getLogos().catch(() => ({ onLight: null, onDark: null }));
 
   const isCarousel = Boolean(slot.carousel) && format === 'feed'; // los carruseles de la API de Meta son de feed
   const copy = await generateCopy({
@@ -360,7 +367,7 @@ async function generateForSlot(slot, overrides = {}) {
         kicker: slot.pillar === 'mayorista' ? 'PARA EMPRESAS' : 'PARA SABER',
         badgeText: i === 0 ? badgeText : null,
         productImageUrl: img,
-        logoUrl,
+        logos,
         showBrand: i === 0, // el logo sólo en la portada
         layoutSeed: Number(slot.id) + i,
         bgTheme: pillarDetail || slot.theme_title,
@@ -375,7 +382,7 @@ async function generateForSlot(slot, overrides = {}) {
         template: 'fullbleed',
         overlayTitle: null,
         productImageUrl: sizeChart,
-        logoUrl,
+        logos,
         showBrand: false,
         bgTheme: 'guía de talles',
       });
@@ -394,7 +401,7 @@ async function generateForSlot(slot, overrides = {}) {
       cta: copy.cta,
       badgeText,
       productImageUrl: visualImageUrl,
-      logoUrl,
+      logos,
       layoutSeed: Number(slot.id),
       useAiProductScene: PRODUCT_PILLARS.includes(slot.pillar) && Boolean(product),
       // Piezas SIN foto de catálogo: fondo original generado con IA (sólo si AI_IMAGES=true
@@ -423,7 +430,7 @@ async function generateForSlot(slot, overrides = {}) {
         badgeText: 'NUEVO EN EL FEED',
         kicker: 'NUEVO EN EL FEED', // la plantilla educativa muestra esto en vez del badge
         productImageUrl: visualImageUrl,
-        logoUrl,
+        logos,
         layoutSeed: Number(slot.id) + 7,
         bgTheme: pillarDetail || slot.theme_title,
       });

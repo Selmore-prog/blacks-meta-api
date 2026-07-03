@@ -31,4 +31,49 @@ function resizeImage(buffer, maxWidth = 1080, quality = 3) {
   });
 }
 
-module.exports = { resizeImage };
+/**
+ * Detecta si el LOGO (imagen con transparencia) está dibujado en tinta oscura o clara,
+ * mirando solo los píxeles OPACOS (ignora el fondo transparente, que sesgaría el promedio).
+ * Devuelve 'dark' (va bien sobre fondos CLAROS) o 'light' (va bien sobre fondos OSCUROS).
+ */
+function detectLogoVariant(buffer) {
+  return new Promise((resolve) => {
+    const id = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const inPath = path.join(os.tmpdir(), `logo-in-${id}`);
+    const clean = () => { try { fs.unlinkSync(inPath); } catch (_) {} };
+    fs.writeFileSync(inPath, buffer);
+    const SIZE = 48;
+    execFile(
+      ffmpegPath,
+      ['-y', '-loglevel', 'error', '-i', inPath, '-vf', `scale=${SIZE}:${SIZE}`, '-pix_fmt', 'rgba', '-f', 'rawvideo', '-'],
+      { encoding: 'buffer', maxBuffer: 1024 * 1024 },
+      (err, stdout) => {
+        clean();
+        if (err || !stdout || stdout.length < SIZE * SIZE * 4) return resolve('dark'); // sin datos: asumimos oscuro (el caso más común)
+        let sum = 0;
+        let opaquePixels = 0;
+        for (let i = 0; i < stdout.length; i += 4) {
+          const alpha = stdout[i + 3];
+          if (alpha < 200) continue; // ignoramos transparente/semi-transparente
+          const lum = 0.299 * stdout[i] + 0.587 * stdout[i + 1] + 0.114 * stdout[i + 2];
+          sum += lum;
+          opaquePixels += 1;
+        }
+        // Sin transparencia detectable (ej. logo con fondo sólido, no PNG transparente):
+        // usamos el promedio de TODA la imagen como aproximación.
+        if (opaquePixels < 20) {
+          let total = 0;
+          for (let i = 0; i < stdout.length; i += 4) {
+            total += 0.299 * stdout[i] + 0.587 * stdout[i + 1] + 0.114 * stdout[i + 2];
+          }
+          const avg = total / (stdout.length / 4);
+          return resolve(avg < 128 ? 'dark' : 'light');
+        }
+        const avg = sum / opaquePixels;
+        resolve(avg < 128 ? 'dark' : 'light');
+      }
+    );
+  });
+}
+
+module.exports = { resizeImage, detectLogoVariant };

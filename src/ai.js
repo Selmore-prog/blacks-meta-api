@@ -177,9 +177,20 @@ async function geminiGenerateContent(model, body) {
   return res.json();
 }
 
-// Si un modelo de imagen devuelve 429 (cuota agotada / plan gratuito), dejamos de
-// intentar generar imágenes en este proceso para no acumular errores ni demoras.
-let imageQuotaHit = false;
+// Si un modelo de imagen devuelve 429 (cuota agotada), pausamos los intentos por un
+// rato en vez de apagarlos para siempre: en Render el proceso web vive días, así que
+// un flag fijo dejaba las imágenes IA apagadas hasta el próximo deploy aunque la cuota
+// ya se hubiera recuperado (o el usuario hubiera activado facturación mientras tanto).
+let imageQuotaHitUntil = 0;
+const IMAGE_QUOTA_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutos
+
+function isImageQuotaCoolingDown() {
+  return Date.now() < imageQuotaHitUntil;
+}
+
+function markImageQuotaHit() {
+  imageQuotaHitUntil = Date.now() + IMAGE_QUOTA_COOLDOWN_MS;
+}
 
 // Precio estimado en USD por imagen generada, por modelo (referencia jul-2026;
 // ajustar si Google cambia tarifas). Sólo para MOSTRAR consumo, no factura nada.
@@ -382,7 +393,7 @@ async function generateJson({ system, prompt, schema, maxTokens = 4000, temperat
  * Devuelve { buffer, mimeType } o null.
  */
 async function generateBackground({ theme, format = 'feed', referenceImages = [] } = {}) {
-  if (!config.ai.useAiImages || !hasGemini() || imageQuotaHit) return null;
+  if (!config.ai.useAiImages || !hasGemini() || isImageQuotaCoolingDown()) return null;
 
   const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
   const brandStyle = await brandStyleForImages();
@@ -415,7 +426,7 @@ COMPOSICIÓN PARA DISEÑO:
     if (img) await logImageUsage('fondo');
     return img;
   } catch (err) {
-    if (err.status === 429) { imageQuotaHit = true; console.warn('[ai] Imágenes IA sin cuota gratis (429): uso plantilla. Activá facturación en Google para habilitarlas.'); }
+    if (err.status === 429) { markImageQuotaHit(); console.warn(`[ai] Cuota de imágenes agotada (429): pauso ${IMAGE_QUOTA_COOLDOWN_MS / 60000} min y sigo con plantilla mientras tanto.`); }
     else console.warn(`[ai] generateBackground falló (sigo con diseño plano): ${err.message}`);
     return null;
   }
@@ -426,7 +437,7 @@ COMPOSICIÓN PARA DISEÑO:
  * referencia). Devuelve { buffer, mimeType } o null (best-effort, con fallback).
  */
 async function generateProductScene({ productImageUrl, productName, theme, format = 'feed' } = {}) {
-  if (!config.ai.useAiImages || !hasGemini() || imageQuotaHit || !productImageUrl) return null;
+  if (!config.ai.useAiImages || !hasGemini() || isImageQuotaCoolingDown() || !productImageUrl) return null;
 
   let ref;
   try {
@@ -464,7 +475,7 @@ COMPOSICIÓN PARA DISEÑO:
     if (img) await logImageUsage('escena de producto');
     return img;
   } catch (err) {
-    if (err.status === 429) { imageQuotaHit = true; console.warn('[ai] Imágenes IA sin cuota gratis (429): uso plantilla con la foto del producto.'); }
+    if (err.status === 429) { markImageQuotaHit(); console.warn(`[ai] Cuota de imágenes agotada (429): pauso ${IMAGE_QUOTA_COOLDOWN_MS / 60000} min y sigo con la foto del producto mientras tanto.`); }
     else console.warn(`[ai] generateProductScene falló (uso plantilla): ${err.message}`);
     return null;
   }

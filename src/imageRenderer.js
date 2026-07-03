@@ -55,7 +55,14 @@ function headHtml(w, h) {
   </style>`;
 }
 
-function brandMarkHtml(logoUrl, { dark = false, heightPx = 64 } = {}) {
+/**
+ * Marca de BLACKS. `dark` = el FONDO donde va a ir es oscuro -> necesita el logo de
+ * tinta CLARA (logoOnDark); fondo claro -> logo de tinta OSCURA (logoOnLight).
+ * Acepta el par {logoOnLight, logoOnDark} (selección automática) o un logoUrl único
+ * (compat vieja, sin distinción de fondo).
+ */
+function brandMarkHtml(logos, { dark = false, heightPx = 64 } = {}) {
+  const logoUrl = typeof logos === 'string' ? logos : (dark ? logos?.onLight : logos?.onDark) || logos?.fallback;
   if (logoUrl) {
     return `<img class="logo" style="height:${heightPx}px; max-width:52%; object-fit:contain;
       filter:drop-shadow(0 1px 2px ${dark ? 'rgba(0,0,0,.25)' : 'rgba(255,255,255,.35)'}) drop-shadow(0 4px 12px ${dark ? 'rgba(255,255,255,.2)' : 'rgba(0,0,0,.55)'});" src="${esc(logoUrl)}" alt="BLACKS"/>`;
@@ -130,7 +137,7 @@ function buildFullbleedHtml(opts) {
     badgeText,
     productImageUrl,
     bgImageUrl,
-    logoUrl,
+    logos,
     interactionLabel,
   } = opts;
 
@@ -177,8 +184,10 @@ function buildFullbleedHtml(opts) {
   }
 
   // El logo va SIN fondo (PNG transparente), sólo con una sombra sutil para legibilidad.
-  const brandMark = logoUrl
-    ? `<img class="logo" src="${esc(logoUrl)}" alt="BLACKS"/>`
+  // El wordmark siempre queda sobre un scrim oscuro (arriba de la pieza) -> logo de tinta clara.
+  const fullbleedLogoUrl = (logos && typeof logos === 'object') ? (logos.onDark || logos.fallback) : logos;
+  const brandMark = fullbleedLogoUrl
+    ? `<img class="logo" src="${esc(fullbleedLogoUrl)}" alt="BLACKS"/>`
     : `<div class="wordmark">BLACKS</div>`;
   const badgeHtml = badgeText ? `<div class="badge">${esc(badgeText)}</div>` : '';
   const interactionHtml = interactionLabel ? `<div class="interaction">${esc(interactionLabel)}</div>` : '';
@@ -265,7 +274,7 @@ function buildMinimalHtml(opts) {
       ${hero.html}
       ${hero.fullBleed ? scrimHtml({ dark: true }) : ''}
       <div style="position:absolute; top:${g.wmTop}px; left:0; right:0; display:flex; justify-content:center; z-index:4;">
-        ${opts.showBrand !== false ? brandMarkHtml(opts.logoUrl, { dark: !hero.fullBleed, heightPx: g.isStory ? 74 : 60 }) : ''}
+        ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: !hero.fullBleed, heightPx: g.isStory ? 74 : 60 }) : ''}
       </div>
       ${opts.badgeText ? `<div style="position:absolute; top:${g.wmTop - 6}px; right:${g.padX}px; background:${accent}; color:#fff; font-weight:800; font-size:22px; padding:11px 22px; border-radius:100px; text-transform:uppercase; letter-spacing:2px; z-index:4;">${esc(opts.badgeText)}</div>` : ''}
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
@@ -309,7 +318,7 @@ function buildPromoHtml(opts) {
         radial-gradient(120% 80% at 20% 100%, rgba(232,93,27,.14) 0%, rgba(0,0,0,0) 55%);"></div>`}
       <div style="position:absolute; top:0; left:0; right:0; height:14px; background:${accent}; z-index:4;"></div>
       <div style="position:absolute; top:${g.wmTop}px; left:0; right:0; display:flex; justify-content:center; z-index:4;">
-        ${opts.showBrand !== false ? brandMarkHtml(opts.logoUrl, { heightPx: g.isStory ? 74 : 60 }) : ''}
+        ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: false, heightPx: g.isStory ? 74 : 60 }) : ''}
       </div>
       <div style="position:absolute; top:${g.wmTop - 6}px; right:${g.padX}px; background:#fff; color:#111; font-weight:800; font-size:22px; padding:11px 22px; border-radius:100px; text-transform:uppercase; letter-spacing:2px; z-index:4;">${esc(opts.badgeText || 'OFERTA')}</div>
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
@@ -332,7 +341,7 @@ function buildEducativoHtml(opts) {
       background:linear-gradient(170deg, #fafafa 0%, #ededf0 70%, #e3e3e7 100%);">
       <div style="position:absolute; top:0; left:0; bottom:0; width:14px; background:${accent};"></div>
       <div style="position:absolute; top:${g.wmTop}px; left:${g.padX + 20}px; display:flex; align-items:center; gap:16px; z-index:4;">
-        ${opts.showBrand !== false ? brandMarkHtml(opts.logoUrl, { dark: true, heightPx: g.isStory ? 60 : 52 }) : ''}
+        ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: true, heightPx: g.isStory ? 60 : 52 }) : ''}
       </div>
       ${opts.slideChip ? `<div style="position:absolute; top:${g.wmTop}px; right:${g.padX}px; background:#141416; color:#fff; font-weight:800; font-size:24px; padding:9px 18px; border-radius:100px; z-index:4;">${esc(opts.slideChip)}</div>` : ''}
       <div style="position:absolute; top:${g.isStory ? 340 : 220}px; left:${g.padX + 20}px; right:${g.padX}px; z-index:3;">
@@ -366,7 +375,7 @@ function buildMayoristaHtml(opts) {
       ${hero.fullBleed ? scrimHtml({ dark: true }) : ''}
       <div style="position:absolute; top:0; left:0; right:0; height:12px; background:${accent}; z-index:4;"></div>
       <div style="position:absolute; top:${g.wmTop}px; left:${g.padX}px; z-index:4;">
-        ${opts.showBrand !== false ? brandMarkHtml(opts.logoUrl, { heightPx: g.isStory ? 68 : 56 }) : ''}
+        ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: false, heightPx: g.isStory ? 68 : 56 }) : ''}
       </div>
       <div style="position:absolute; top:${g.wmTop - 4}px; right:${g.padX}px; border:2px solid ${accent}; color:${accent}; font-weight:800; font-size:24px; padding:10px 22px; border-radius:8px; text-transform:uppercase; letter-spacing:3px; z-index:4;">MAYORISTA</div>
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">

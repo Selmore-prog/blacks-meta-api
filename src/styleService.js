@@ -3,7 +3,7 @@ const { uploadAsset } = require('./storage');
 const { analyzeStyle } = require('./ai');
 const { saveBrandProfile } = require('./brandProfile');
 const { fetchRecentCaptions, analyzeAccountPerformance } = require('./accountAnalyzer');
-const { resizeImage } = require('./imageUtils');
+const { resizeImage, detectLogoVariant } = require('./imageUtils');
 
 /** Resumen de carpetas/orígenes leídos, agrupado por mes/sección (para mostrar qué se analizó). */
 async function foldersSummary() {
@@ -54,14 +54,33 @@ async function addLogo({ buffer, mimetype, originalname }) {
   const safe = String(originalname || 'logo').replace(/[^a-zA-Z0-9._-]/g, '_').slice(0, 40);
   const filename = `logos/${Date.now()}-${safe}.${ext.replace(/[^a-z0-9]/gi, '')}`;
   const url = await uploadAsset({ buffer, filename, contentType: mimetype || 'image/png' });
+  // Detectamos sola la variante (tinta oscura/clara) para elegir el logo correcto
+  // según el fondo de cada plantilla (best-effort: si falla, queda sin variante).
+  const variant = await detectLogoVariant(buffer).catch(() => null);
   const { rows } = await pool.query(
-    `INSERT INTO style_references (kind, source, url, storage_path) VALUES ('logo', 'upload', $1, $2) RETURNING *`,
-    [url, filename]
+    `INSERT INTO style_references (kind, source, url, storage_path, variant) VALUES ('logo', 'upload', $1, $2, $3) RETURNING *`,
+    [url, filename, variant]
   );
   return rows[0];
 }
 
-/** Devuelve la URL del logo activo (el último subido) o null. */
+/**
+ * Devuelve los logos disponibles para cada tipo de fondo:
+ *  - onLight: logo de tinta oscura, para plantillas con fondo CLARO.
+ *  - onDark: logo de tinta clara, para plantillas con fondo OSCURO.
+ * Si sólo hay un logo (o no tiene variante detectada), se usa igual para ambos casos
+ * — es mejor mostrar el único logo que tenés que no mostrar ninguno.
+ */
+async function getLogos() {
+  const { rows } = await pool.query(`SELECT url, variant FROM style_references WHERE kind = 'logo' ORDER BY id DESC`);
+  if (!rows.length) return { onLight: null, onDark: null };
+  const dark = rows.find((r) => r.variant === 'dark'); // tinta oscura -> va sobre fondo claro
+  const light = rows.find((r) => r.variant === 'light'); // tinta clara -> va sobre fondo oscuro
+  const fallback = rows[0].url;
+  return { onLight: (dark || rows[0]).url, onDark: (light || rows[0]).url, fallback };
+}
+
+/** Compat: logo único (el más reciente), para código que todavía no distingue fondos. */
 async function getActiveLogo() {
   const { rows } = await pool.query(`SELECT url FROM style_references WHERE kind = 'logo' ORDER BY id DESC LIMIT 1`);
   return rows[0] ? rows[0].url : null;
@@ -158,6 +177,7 @@ module.exports = {
   addUpload,
   addLogo,
   getActiveLogo,
+  getLogos,
   addLink,
   listReferences,
   foldersSummary,
