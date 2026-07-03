@@ -91,7 +91,7 @@ REGLAS DEL PLAN (obligatorias):
     ? ` HORARIOS QUE MEJOR RINDIERON EN ESTA CUENTA (usalos como preferencia): ${ctx.bestHours.join(', ')}.`
     : ' Sin datos de la cuenta todavía: 17:00-18:00 suele rendir mejor; los story pueden ir 11:00-13:00.'}
 - carousel: true sólo en 1-2 feed educativos/mayoristas por mes.
-- pillar_detail: concreto y accionable en español rioplatense (qué producto/tema/ángulo). theme_title: título corto del día.
+- pillar_detail: concreto y accionable en español argentino profesional, sin lunfardo (qué producto/tema/ángulo). theme_title: título corto del día.
 
 Devolvé SOLO este JSON:
 {"days":[{"date":"${monthStr}-01","post_type":"...","format":"...","pillar":"...","pillar_detail":"...","theme_title":"...","automation_level":"auto","interaction_hint":null,"scheduled_time":"HH:MM","carousel":false}, ...]}`;

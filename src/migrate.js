@@ -169,6 +169,7 @@ ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS scheduled_time TEXT;     -
 ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS theme_title TEXT;        -- tematica/titulo del dia
 ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS origin TEXT DEFAULT 'rotation'; -- 'rotation' | 'plan' | 'manual'
 ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS template TEXT; -- plantilla visual usada (fullbleed|minimal|promo|educativo|mayorista)
+ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS story_teaser_path TEXT; -- historia 9:16 de refuerzo pre-renderizada (se publica al salir el feed)
 
 -- Rellenar 'format' en filas viejas segun post_type (feed=4:5, reel/story=9:16).
 UPDATE content_calendar SET format = CASE WHEN post_type = 'feed' THEN 'feed' ELSE 'story' END WHERE format IS NULL;

@@ -17,15 +17,16 @@ function preferGemini() {
 
 const VOICE_CORE = `Sos el/la community manager y copywriter de BLACKS Indumentaria (@blacks.indumentaria), una marca ARGENTINA de indumentaria de trabajo/industria (remeras, pantalones cargo, camisas, buzos, camperas, mamelucos, chalecos) y calzado de seguridad (botines y zapatos con o sin puntera de acero). Vende las marcas Pampero, Ombú, Grafa 70 y Gurre. Atiende venta minorista y también mayorista/corporativa (uniformes con logo para empresas).
 
-ESCRIBÍS EN ESPAÑOL RIOPLATENSE (ARGENTINA), NATURAL Y HUMANO:
+ESCRIBÍS EN ESPAÑOL ARGENTINO PROFESIONAL (formal pero cercano):
 - Voseo SIEMPRE: "conseguí", "llevate", "fijate", "aprovechá", "mirá", "pedí". Nunca tuteo ("consigue", "llévate", "mira").
-- Hablás como una persona real de Argentina, no como un aviso traducido ni como una IA. Cero tono neutro/mexicano/español.
-- Vocabulario real del rubro y del país: "ropa de laburo", "para el laburo", "calzado de seguridad", "puntera de acero", "en cuotas", "por transferencia", "envío a todo el país", "retirás por el local", "presupuesto para tu empresa", "aguanta los trapos".
-- Tono: directo, canchero pero profesional, sin vueltas. Le hablás a alguien que trabaja con las manos y valora que le dure y le rinda la plata. Nunca grandilocuente ni motivacional trucho.
+- Sos la voz de una MARCA SERIA del rubro: profesional, clara y confiable. Argentino sí, pero SIN lunfardo ni jerga excesiva.
+- PROHIBIDO el lunfardo: "laburo", "laburante", "laburás", "pifiarla", "la banca", "canchero", "aguanta los trapos", "posta", "una masa", "de una". En su lugar: "trabajo", "quienes trabajan", "equivocarte", "resiste", "rinde".
+- Vocabulario correcto del rubro: "ropa de trabajo", "indumentaria laboral", "calzado de seguridad", "puntera de acero", "en cuotas", "por transferencia", "envío a todo el país", "retiro por el local", "presupuesto para tu empresa".
+- Tono: directo y concreto, sin vueltas. Le hablás a alguien que trabaja con las manos y valora la durabilidad y el rendimiento de su inversión. Nunca grandilocuente ni motivacional vacío. Profesional no significa acartonado: frases simples, cero solemnidad.
 
 REGLAS DURAS PARA QUE NO SUENE A IA (si rompés esto, está mal):
 - PROHIBIDO: "descubrí/descubre", "eleva/llevá tu X al siguiente nivel", "no te lo pierdas", "en el mundo de", "sumérgete", "potenciá tu experiencia", "calidad premium excepcional", "vive la experiencia", cadenas de signos de exclamación.
-- Nada de frases genéricas de catálogo. Decí algo CONCRETO: para qué sirve, el aguante, la terminación, para qué laburo va, el beneficio real.
+- Nada de frases genéricas de catálogo. Decí algo CONCRETO: para qué sirve, la resistencia, la terminación, para qué tipo de trabajo va, el beneficio real.
 - Máximo 1 o 2 emojis por pieza, sólo si suman. Muchas veces, ninguno.
 - Un solo CTA claro por pieza. Nunca dos llamados a la acción.
 
@@ -73,9 +74,9 @@ function formatGuidance(postType, format) {
 function seasonContext(date = new Date()) {
   const m = date.getMonth();
   let estacion, nota;
-  if (m === 11 || m <= 1) { estacion = 'verano'; nota = 'hace calor: remeras, chombas, ropa fresca y liviana para el laburo.'; }
+  if (m === 11 || m <= 1) { estacion = 'verano'; nota = 'hace calor: remeras, chombas, ropa fresca y liviana para el trabajo.'; }
   else if (m <= 4) { estacion = 'otoño'; nota = 'refresca: buzos, camperas livianas, media estación.'; }
-  else if (m <= 7) { estacion = 'invierno'; nota = 'hace frío: camperas, buzos, polares, softshell, ropa térmica, abrigo para el laburo a la intemperie.'; }
+  else if (m <= 7) { estacion = 'invierno'; nota = 'hace frío: camperas, buzos, polares, softshell, ropa térmica, abrigo para el trabajo a la intemperie.'; }
   else { estacion = 'primavera'; nota = 'empieza a templar: buzos livianos, camperas rompeviento, media estación.'; }
   return `Estamos en ${estacion} en Argentina — ${nota} Si encaja, mencioná el clima/temporada de forma natural (sin forzar).`;
 }
@@ -190,6 +191,30 @@ const IMAGE_PRICE_USD = {
   'gemini-3-pro-image-preview': 0.139,
 };
 
+// Guía de estilo APRENDIDA de la marca (brand_profile) resumida para prompts de imagen.
+// Cache por proceso: la generación diaria corre en un proceso nuevo cada vez.
+let brandStyleCache;
+async function brandStyleForImages() {
+  if (brandStyleCache !== undefined) return brandStyleCache;
+  try {
+    const { getBrandProfile } = require('./brandProfile');
+    const bp = await getBrandProfile();
+    let sg = bp && bp.style_guide;
+    if (typeof sg === 'string') { try { sg = JSON.parse(sg); } catch (_) { sg = null; } }
+    const parts = [];
+    if (sg) {
+      if (sg.paleta) parts.push(`Paleta de la marca: ${Array.isArray(sg.paleta) ? sg.paleta.slice(0, 6).join(', ') : sg.paleta}.`);
+      if (sg.tratamiento_foto) parts.push(`Tratamiento fotográfico de la marca: ${sg.tratamiento_foto}.`);
+      if (sg.composicion) parts.push(`Composición típica: ${sg.composicion}.`);
+      if (Array.isArray(sg.elementos_recurrentes) && sg.elementos_recurrentes.length) {
+        parts.push(`Elementos recurrentes de sus piezas: ${sg.elementos_recurrentes.slice(0, 5).join('; ')}.`);
+      }
+    }
+    brandStyleCache = parts.join(' ');
+  } catch (_) { brandStyleCache = ''; }
+  return brandStyleCache;
+}
+
 /** Registra cada imagen generada con su costo estimado (best-effort, nunca rompe). */
 async function logImageUsage(purpose) {
   try {
@@ -225,8 +250,11 @@ function inlineImageFromResponse(data) {
  * GROQ (fallback de copy)
  * ========================================================================= */
 
-async function groqCopy(promptUser) {
+async function groqCopy(promptUser, wantSlides = false) {
   if (!config.groq.apiKey) throw new Error('No hay GROQ_API_KEY ni GEMINI_API_KEY configuradas para generar copy.');
+  const shape = wantSlides
+    ? '{"overlay","caption","hashtags","cta","slides":[{"title","text"},...]} — "slides" es OBLIGATORIO'
+    : '{"overlay","caption","hashtags","cta"}';
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.groq.apiKey}` },
@@ -236,7 +264,7 @@ async function groqCopy(promptUser) {
       max_tokens: 700,
       response_format: { type: 'json_object' },
       messages: [
-        { role: 'system', content: `${VOICE_CORE}\n\nDevolvé SIEMPRE un JSON válido y nada más: {"overlay","caption","hashtags","cta"}.` },
+        { role: 'system', content: `${VOICE_CORE}\n\nDevolvé SIEMPRE un JSON válido y nada más: ${shape}.` },
         { role: 'user', content: promptUser },
       ],
     }),
@@ -280,18 +308,23 @@ async function generateCopy(opts) {
               caption: { type: 'string' },
               hashtags: { type: 'string' },
               cta: { type: 'string' },
-              ...(opts.carousel ? { slides: { type: 'array', items: { type: 'object', properties: { title: { type: 'string' }, text: { type: 'string' } }, required: ['title', 'text'] } } } : {}),
+              ...(opts.carousel ? { slides: { type: 'array', minItems: 3, items: { type: 'object', properties: { title: { type: 'string' }, text: { type: 'string' } }, required: ['title', 'text'] } } } : {}),
             },
-            required: ['overlay', 'caption', 'hashtags', 'cta'],
+            // En carrusel las slides son OBLIGATORIAS: sin ellas la pieza sale simple.
+            required: ['overlay', 'caption', 'hashtags', 'cta', ...(opts.carousel ? ['slides'] : [])],
           },
         },
       });
-      return sanitizeCopy(parseCopyJson(textFromResponse(data)));
+      const parsed = parseCopyJson(textFromResponse(data));
+      if (opts.carousel && (!Array.isArray(parsed.slides) || parsed.slides.length < 2)) {
+        throw new Error('Gemini no devolvió slides para el carrusel');
+      }
+      return sanitizeCopy(parsed);
     } catch (err) {
       console.warn(`[ai] Gemini copy falló, caigo a Groq: ${err.message}`);
     }
   }
-  return sanitizeCopy(await groqCopy(promptUser));
+  return sanitizeCopy(await groqCopy(promptUser, Boolean(opts.carousel)));
 }
 
 /**
@@ -352,10 +385,21 @@ async function generateBackground({ theme, format = 'feed', referenceImages = []
   if (!config.ai.useAiImages || !hasGemini() || imageQuotaHit) return null;
 
   const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
-  const prompt = `Generá una imagen de fondo ${ratio} para una pieza de Instagram de BLACKS, marca argentina de ropa de trabajo y calzado de seguridad.
-El fondo tiene que tener SENTIDO DIRECTO con este tema (no genérico): "${theme || 'ropa de trabajo e industria'}".
-Estilo: moderno, sobrio, premium. Puede ser una escena real (obra, taller, depósito, industria, manos trabajando) con iluminación cinematográfica, o una composición abstracta/geométrica contemporánea. Paleta: negro/gris oscuro con acentos naranja (#C1440C). Textura sutil, profundidad de campo.
-IMPORTANTE: SIN texto, SIN logos, SIN letras, SIN marcas visibles. Dejá aire/espacio negativo en el centro-abajo para sobreimprimir el titular después.`;
+  const brandStyle = await brandStyleForImages();
+  const prompt = `Actuás como DIRECTOR DE ARTE SENIOR de una agencia creativa premium. Generá la imagen de fondo ${ratio} para una pieza de Instagram de BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
+
+CONCEPTO (la imagen tiene que contarlo, no ser decorativa): "${theme || 'ropa de trabajo e industria'}".
+
+DIRECCIÓN DE FOTOGRAFÍA:
+- Fotografía editorial hiperrealista, calidad de campaña publicitaria impresa. Lente 35-50mm, apertura amplia, profundidad de campo real, enfoque selectivo.
+- Iluminación cinematográfica motivada (luz de galpón, sol bajo entrando por un portón, tubo fluorescente industrial): contraste alto, sombras con detalle.
+- Escenario auténtico argentino del rubro: obra en construcción, taller metalúrgico, depósito logístico, galpón, manos trabajando con herramientas reales. NADA de estudios genéricos ni escenarios "de stock".
+- Color grading sobrio y premium: base negro/gris carbón con UN acento naranja quemado (#C1440C) apareciendo natural en la escena (casco, cinta de peligro, luz cálida, óxido). Grano fílmico sutil.
+${brandStyle ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
+
+COMPOSICIÓN PARA DISEÑO:
+- Regla de tercios, con AMPLIO espacio negativo limpio en el centro-abajo para sobreimprimir un titular tipográfico después.
+- PROHIBIDO: texto, letras, números, logos, marcas visibles, caras reconocibles en primer plano, manos deformes, objetos flotando, aspecto "render 3D" o "imagen de IA" evidente. Si hay personas, de espaldas o fuera de foco.`;
 
   try {
     const parts = [{ text: prompt }];
@@ -393,9 +437,21 @@ async function generateProductScene({ productImageUrl, productName, theme, forma
   } catch (_) { return null; }
 
   const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
-  const prompt = `Usá EXACTAMENTE el producto de la imagen de referencia (no lo cambies) y ponelo en una escena de catálogo profesional ${ratio} para una marca argentina de ropa de trabajo y calzado de seguridad (BLACKS).
-Estilo: foto de estudio premium, industrial y real (obra/taller/depósito), fondo degradado neutro u oscuro con acentos naranja (#C1440C). Iluminación cinematográfica, sombras suaves.
-IMPORTANTE: mantené el producto fiel al de la referencia. SIN texto, SIN logos, SIN letras. Dejá aire en el centro y abajo para sobreimprimir texto después. Tema/contexto: ${theme || productName || 'ropa de trabajo'}.`;
+  const brandStyle = await brandStyleForImages();
+  const prompt = `Actuás como DIRECTOR DE ARTE SENIOR de una campaña de e-commerce premium. Tomá EXACTAMENTE el producto de la imagen de referencia (fidelidad total: mismo modelo, color, costuras, etiquetas — no lo rediseñes) y componé una escena de catálogo profesional ${ratio} para BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
+
+CONTEXTO DE LA PIEZA: ${theme || productName || 'ropa de trabajo'}.
+
+DIRECCIÓN DE FOTOGRAFÍA:
+- El producto es EL protagonista absoluto: nítido, con textura de tela/cuero visible, ocupando el centro visual.
+- Escena real y creíble del uso: banco de taller, andamio, pallet de depósito, piso de hormigón, chapa. Utilería mínima y auténtica (guantes, casco, herramientas) SIN robar protagonismo.
+- Luz de estudio dramática tipo campaña (softbox lateral + contraluz sutil) o luz natural motivada de galpón. Sombras suaves con caída real.
+- Color grading premium: fondo neutro oscuro (carbón/grafito) con un acento naranja (#C1440C) discreto en la escena. Nada saturado ni plástico.
+${brandStyle ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
+
+COMPOSICIÓN PARA DISEÑO:
+- Aire limpio en el centro-abajo para sobreimprimir titular y precio después.
+- PROHIBIDO: texto, letras, logos inventados, manos/pies deformes, duplicar el producto, cambiarle color o forma, aspecto "render 3D" o IA evidente.`;
 
   try {
     const data = await geminiGenerateContent(config.gemini.imageModel, {

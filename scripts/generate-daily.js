@@ -381,12 +381,35 @@ async function generateForSlot(slot, overrides = {}) {
     imagePath = url;
   }
 
+  // Historia de refuerzo (9:16) para posts de FEED: se pre-renderiza acá (donde hay
+  // Puppeteer) y se publica sola cuando el post sale, para levantarlo en historias.
+  let storyTeaserPath = null;
+  if (config.meta.storyBoost && slot.post_type === 'feed' && slot.pillar !== 'repost') {
+    try {
+      const { url } = await renderPostBuffer({
+        format: 'story',
+        template: slides ? 'educativo' : template,
+        overlayTitle,
+        bodyText: slides ? 'Deslizá el nuevo post del feed' : null,
+        badgeText: 'NUEVO EN EL FEED',
+        kicker: 'NUEVO EN EL FEED', // la plantilla educativa muestra esto en vez del badge
+        productImageUrl: visualImageUrl,
+        logoUrl,
+        layoutSeed: Number(slot.id) + 7,
+        bgTheme: pillarDetail || slot.theme_title,
+      });
+      storyTeaserPath = url;
+    } catch (err) {
+      console.warn(`[generate-daily] No pude renderizar la historia de refuerzo (sigo sin ella): ${err.message}`);
+    }
+  }
+
   // El video del Reel NO se renderiza acá (ffmpeg es pesado). Lo completa
   // scripts/render-pending-reels.js corriendo en GitHub Actions.
   await pool.query(
-    `INSERT INTO generated_assets (calendar_id, product_id, caption, hashtags, cta, image_path, video_path, format, slides, status, template)
-     VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, 'draft', $9)`,
-    [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson, slides ? 'educativo' : template]
+    `INSERT INTO generated_assets (calendar_id, product_id, caption, hashtags, cta, image_path, video_path, format, slides, status, template, story_teaser_path)
+     VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, 'draft', $9, $10)`,
+    [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson, slides ? 'educativo' : template, storyTeaserPath]
   );
 
   await pool.query(`UPDATE content_calendar SET status = 'draft' WHERE id = $1`, [slot.id]);

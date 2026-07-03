@@ -77,6 +77,8 @@ module.exports = {
     pageId: required('META_PAGE_ID'),
     apiVersion: 'v21.0',
     autoPublishPillars: (process.env.AUTO_PUBLISH_PILLARS || 'promo,producto').split(',').map((s) => s.trim()).filter(Boolean),
+    // Historia de refuerzo automática cuando se publica un post de feed (STORY_BOOST=false para apagarla).
+    storyBoost: bool('STORY_BOOST', true),
   },
 
   publicBaseUrl: required('PUBLIC_BASE_URL', 'http://localhost:8080'),

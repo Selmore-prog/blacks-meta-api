@@ -78,6 +78,17 @@ async function publishAssetById(assetId, { force = false } = {}) {
     }
   }
 
+  // Historia de refuerzo: al publicar un post de FEED, sale sola la historia 9:16
+  // pre-renderizada que lo levanta (best-effort: si falla, el post ya está publicado).
+  if (config.meta.storyBoost && asset.post_type === 'feed' && asset.story_teaser_path) {
+    try {
+      await publishToInstagram({ imageUrl: getPublicUrl(asset.story_teaser_path), mediaType: 'STORIES' });
+      console.log(`[publishService] Historia de refuerzo publicada para asset #${assetId}.`);
+    } catch (stErr) {
+      console.warn(`[publishService] Historia de refuerzo falló para #${assetId} (el post igual salió): ${stErr.message}`);
+    }
+  }
+
   await pool.query(
     `UPDATE generated_assets SET status = 'published', meta_post_id = $2, updated_at = now() WHERE id = $1`,
     [assetId, String(metaPostId || 'pub_' + Date.now())]
