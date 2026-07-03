@@ -210,7 +210,7 @@ async function loadCalendar() {
   try {
     calItems = await api('/api/calendar?days=21');
     document.getElementById('next-plan').innerHTML =
-      `${icon('bot')} <b>Automático:</b> genera piezas todos los días a las <b>07:00 ARG</b> y auto-publica lo aprobado a las <b>08:00</b>. El resto lo revisás y publicás vos desde acá.`;
+      `${icon('bot')} <b>Automático:</b> genera piezas todos los días a las <b>07:00 ARG</b> y publica lo aprobado <b>en el horario programado de cada pieza</b>. Los posts de feed salen con su historia de refuerzo. El resto lo revisás y publicás vos desde acá.`;
     renderFilters();
     renderCalView();
   } catch (e) {
