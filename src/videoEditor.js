@@ -102,8 +102,13 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
 
 function runFfmpeg(args) {
   return new Promise((resolve, reject) => {
-    execFile(ffmpegPath, args, { timeout: 300000, maxBuffer: 1024 * 1024 * 8 }, (err, stdout, stderr) =>
-      err ? reject(new Error(String(stderr || err.message).slice(-400))) : resolve());
+    execFile(ffmpegPath, ['-nostdin', ...args], { timeout: 300000, maxBuffer: 1024 * 1024 * 8 }, (err, stdout, stderr) => {
+      if (!err) return resolve();
+      // Mensaje limpio para el panel: la última línea del stderr (nunca la línea de comando).
+      const detail = String(stderr || '').trim().split('\n').pop()
+        || (err.killed ? 'se agotó el tiempo de render' : 'ffmpeg falló');
+      reject(new Error(`Error renderizando el video: ${detail.slice(0, 250)}`));
+    });
   });
 }
 

@@ -507,9 +507,10 @@ app.post('/api/assets/:assetId/transcribe', wrap(async (req, res) => {
   if (!rows[0]) return res.status(404).json({ error: 'No existe el asset' });
   const { getPublicUrl } = require('./storage');
   // Si hay voz en off cargada, transcribimos ESA voz (para videos mudos/narrados).
-  const source = rows[0].voiceover_path ? getPublicUrl(rows[0].voiceover_path) : assetVideoUrl(rows[0]);
+  const isAudio = Boolean(rows[0].voiceover_path);
+  const source = isAudio ? getPublicUrl(rows[0].voiceover_path) : assetVideoUrl(rows[0]);
   if (!source) return res.status(400).json({ error: 'No hay audio para transcribir. Subí un video con voz o una voz en off.' });
-  const result = await transcribeVideo(source);
+  const result = await transcribeVideo(source, { isAudio });
   await pool.query(`UPDATE generated_assets SET subtitles = $2, updated_at = now() WHERE id = $1`, [id, JSON.stringify(result.words)]);
   res.json({ ok: true, text: result.text, words: result.words });
 }));
