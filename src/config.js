@@ -61,6 +61,12 @@ module.exports = {
 
   cronSecret: required('CRON_SECRET', 'secret-dev'),
 
+  // Google Analytics 4 de la tienda (Tiendanube). Ver src/analytics.js.
+  ga: {
+    propertyId: required('GA_PROPERTY_ID', ''),
+    credentialsB64: required('GA_CREDENTIALS_B64', ''),
+  },
+
   // Notificaciones por Telegram (opcionales, gratis). Ver src/notifier.js para el paso a paso.
   telegram: {
     botToken: required('TELEGRAM_BOT_TOKEN', ''),

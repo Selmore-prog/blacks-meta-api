@@ -327,6 +327,17 @@ app.patch('/api/calendar/:calendarId', wrap(async (req, res) => {
   res.json({ ok: true, slot: rows[0] });
 }));
 
+// Google Analytics de la tienda (cache 1 h: GA no hace falta consultarlo en cada carga).
+let gaCache = { data: null, at: 0 };
+app.get('/api/analytics/summary', wrap(async (req, res) => {
+  const { storeSummary, isEnabled } = require('./analytics');
+  if (!isEnabled()) return res.json({ enabled: false });
+  if (!gaCache.data || Date.now() - gaCache.at > 60 * 60 * 1000) {
+    gaCache = { data: await storeSummary(), at: Date.now() };
+  }
+  res.json({ enabled: true, ...gaCache.data });
+}));
+
 // Consumo de imágenes IA del mes (estimado en USD) + proyección a fin de mes.
 app.get('/api/ai-usage', wrap(async (req, res) => {
   const { rows } = await pool.query(

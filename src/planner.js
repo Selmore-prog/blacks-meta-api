@@ -26,7 +26,7 @@ async function gatherContext(monthStr) {
   const to = `${monthStr}-${String(daysInMonth(monthStr)).padStart(2, '0')}`;
 
   const { analyzeAccountPerformance } = require('./accountAnalyzer');
-  const [dates, topProducts, insights, wholesale, account] = await Promise.all([
+  const [dates, topProducts, insights, wholesale, account, store] = await Promise.all([
     pool.query(
       `SELECT event_date, title, category, angle, priority FROM commercial_dates
        WHERE event_date BETWEEN $1 AND $2 ORDER BY priority DESC, event_date`,
@@ -40,9 +40,12 @@ async function gatherContext(monthStr) {
     getWholesaleSettings().catch(() => null),
     // Mejores horarios REALES de la cuenta de IG (best-effort: sin token no rompe).
     analyzeAccountPerformance().catch(() => null),
+    // Google Analytics de la tienda: qué productos mira la gente (best-effort).
+    require('./analytics').storeSummary().catch(() => null),
   ]);
 
   return {
+    store,
     bestHours: account && Array.isArray(account.bestHours)
       ? account.bestHours.map((h) => `${h.hour}:00 (${h.avgEngagement} eng)`) : [],
     commercialDates: dates.rows.map((d) => ({
@@ -76,7 +79,11 @@ ${datesTxt}
 PRODUCTOS QUE MÁS SE VENDEN (con stock real):
 ${productsTxt}
 
-RENDIMIENTO HISTÓRICO POR PILAR:
+${ctx.store && ctx.store.topViewedProducts && ctx.store.topViewedProducts.length ? `LO QUE LA GENTE MÁS MIRA EN LA TIENDA (Google Analytics, ${ctx.store.days} días — interés REAL de compra):
+${ctx.store.topViewedProducts.map((p) => `- ${p.name}: ${p.views} vistas, ${p.purchased} compras${p.purchased === 0 && p.views > 100 ? ' (MUCHO interés y CERO venta: hacé contenido que empuje a comprarlo)' : ''}`).join('\n')}
+Tráfico desde Instagram: ${ctx.store.igSessions} de ${ctx.store.sessions} sesiones. El contenido debe llevar más gente a la tienda.
+
+` : ''}RENDIMIENTO HISTÓRICO POR PILAR:
 ${insightsTxt}
 ${ctx.wholesale ? `\nCONDICIONES MAYORISTAS: ${ctx.wholesale}` : ''}
 

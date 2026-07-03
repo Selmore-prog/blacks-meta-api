@@ -1198,7 +1198,37 @@ async function loadAiUsage() {
   } catch (_) { el.innerHTML = ''; }
 }
 
+/* Google Analytics de la tienda: sesiones, tráfico desde IG y productos más vistos. */
+async function loadGaSummary() {
+  const el = document.getElementById('ga-summary');
+  if (!el) return;
+  try {
+    const g = await api('/api/analytics/summary');
+    if (!g.enabled) { el.innerHTML = ''; return; }
+    const money = (n) => '$' + Math.round(Number(n)).toLocaleString('es-AR');
+    const igPct = g.sessions ? Math.round((g.igSessions / g.sessions) * 100) : 0;
+    el.innerHTML = `
+      <div class="prod-totals" style="margin-bottom:14px;">
+        <div class="stat"><b>${g.sessions.toLocaleString('es-AR')}</b><span>Visitas a la tienda (${g.days} días)</span></div>
+        <div class="stat"><b>${g.igSessions.toLocaleString('es-AR')} · ${igPct}%</b><span>Llegaron desde Instagram</span></div>
+        <div class="stat"><b>${g.purchases}</b><span>Compras</span></div>
+        <div class="stat"><b>${money(g.revenue)}</b><span>Ingresos</span></div>
+      </div>
+      <div class="panel">
+        <h3>Lo más visto en tu tienda</h3>
+        <p class="hint">Interés real de compra según Google Analytics. Lo que tiene muchas vistas y pocas compras es el mejor candidato para contenido que empuje la venta.</p>
+        ${g.topViewedProducts.map((p) => `
+          <div class="prod-row">
+            <div class="prod-info"><div class="prod-name">${esc(p.name)}</div>
+              <div class="prod-sub">${p.purchased} compra(s) en ${g.days} días</div></div>
+            <div class="prod-metric"><b>${p.views}</b><span>vistas</span></div>
+          </div>`).join('')}
+      </div>`;
+  } catch (_) { el.innerHTML = ''; }
+}
+
 async function loadMetrics() {
+  loadGaSummary();
   loadAiUsage();
   const body = document.getElementById('metrics-body');
   body.innerHTML = '<p class="loading">Cargando métricas...</p>';
