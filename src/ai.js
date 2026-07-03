@@ -180,6 +180,31 @@ async function geminiGenerateContent(model, body) {
 // intentar generar imágenes en este proceso para no acumular errores ni demoras.
 let imageQuotaHit = false;
 
+// Precio estimado en USD por imagen generada, por modelo (referencia jul-2026;
+// ajustar si Google cambia tarifas). Sólo para MOSTRAR consumo, no factura nada.
+const IMAGE_PRICE_USD = {
+  'gemini-2.5-flash-image': 0.039,
+  'gemini-3.1-flash-image': 0.039,
+  'gemini-3.1-flash-lite-image': 0.02,
+  'gemini-3-pro-image': 0.139,
+  'gemini-3-pro-image-preview': 0.139,
+};
+
+/** Registra cada imagen generada con su costo estimado (best-effort, nunca rompe). */
+async function logImageUsage(purpose) {
+  try {
+    const pool = require('./db');
+    const model = config.gemini.imageModel;
+    const cost = IMAGE_PRICE_USD[model] ?? 0.05;
+    await pool.query(
+      `INSERT INTO ai_usage (kind, model, purpose, est_cost_usd) VALUES ('image', $1, $2, $3)`,
+      [model, purpose, cost]
+    );
+  } catch (err) {
+    console.warn('[ai] No pude registrar el consumo de imagen:', err.message);
+  }
+}
+
 function textFromResponse(data) {
   const parts = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
   if (!parts) return '';
@@ -341,7 +366,9 @@ IMPORTANTE: SIN texto, SIN logos, SIN letras, SIN marcas visibles. Dejá aire/es
       contents: [{ role: 'user', parts }],
       generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
     });
-    return inlineImageFromResponse(data);
+    const img = inlineImageFromResponse(data);
+    if (img) await logImageUsage('fondo');
+    return img;
   } catch (err) {
     if (err.status === 429) { imageQuotaHit = true; console.warn('[ai] Imágenes IA sin cuota gratis (429): uso plantilla. Activá facturación en Google para habilitarlas.'); }
     else console.warn(`[ai] generateBackground falló (sigo con diseño plano): ${err.message}`);
@@ -375,7 +402,9 @@ IMPORTANTE: mantené el producto fiel al de la referencia. SIN texto, SIN logos,
       contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: ref }] }],
       generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
     });
-    return inlineImageFromResponse(data);
+    const img = inlineImageFromResponse(data);
+    if (img) await logImageUsage('escena de producto');
+    return img;
   } catch (err) {
     if (err.status === 429) { imageQuotaHit = true; console.warn('[ai] Imágenes IA sin cuota gratis (429): uso plantilla con la foto del producto.'); }
     else console.warn(`[ai] generateProductScene falló (uso plantilla): ${err.message}`);

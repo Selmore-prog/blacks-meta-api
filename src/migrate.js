@@ -126,6 +126,17 @@ CREATE TABLE IF NOT EXISTS rotation_plans (
   updated_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Consumo de IA generativa (imágenes): cada generación con su costo estimado en USD.
+CREATE TABLE IF NOT EXISTS ai_usage (
+  id              SERIAL PRIMARY KEY,
+  kind            TEXT NOT NULL DEFAULT 'image',
+  model           TEXT,
+  purpose         TEXT,
+  est_cost_usd    NUMERIC NOT NULL DEFAULT 0,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_ai_usage_created ON ai_usage (created_at);
 CREATE INDEX IF NOT EXISTS idx_calendar_date ON content_calendar (scheduled_date);
 CREATE INDEX IF NOT EXISTS idx_publish_queue_status ON publish_queue (status, next_attempt_at);
 CREATE INDEX IF NOT EXISTS idx_commercial_dates_date ON commercial_dates (event_date);

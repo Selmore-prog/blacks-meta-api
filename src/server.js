@@ -327,6 +327,26 @@ app.patch('/api/calendar/:calendarId', wrap(async (req, res) => {
   res.json({ ok: true, slot: rows[0] });
 }));
 
+// Consumo de imágenes IA del mes (estimado en USD) + proyección a fin de mes.
+app.get('/api/ai-usage', wrap(async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT COUNT(*)::int AS images, COALESCE(SUM(est_cost_usd), 0)::numeric(10,2) AS usd,
+            COALESCE(MIN(created_at), now()) AS since
+     FROM ai_usage WHERE kind = 'image' AND created_at >= date_trunc('month', now())`
+  );
+  const { rows: byModel } = await pool.query(
+    `SELECT model, COUNT(*)::int AS images, COALESCE(SUM(est_cost_usd), 0)::numeric(10,2) AS usd
+     FROM ai_usage WHERE kind = 'image' AND created_at >= date_trunc('month', now())
+     GROUP BY model ORDER BY usd DESC`
+  );
+  const now = new Date();
+  const dayOfMonth = now.getDate();
+  const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
+  const usd = Number(rows[0].usd);
+  const projection = dayOfMonth >= 2 ? Number(((usd / dayOfMonth) * daysInMonth).toFixed(2)) : null;
+  res.json({ month: now.toISOString().slice(0, 7), images: rows[0].images, usd, projection, byModel, enabled: config.ai.useAiImages });
+}));
+
 app.get('/api/commercial-dates', wrap(async (req, res) => {
   res.json(await listCommercialDates({ from: req.query.from, to: req.query.to }));
 }));

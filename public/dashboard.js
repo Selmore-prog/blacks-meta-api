@@ -1127,7 +1127,23 @@ async function analyzeStyle() {
 }
 
 /* ============ métricas ============ */
+/* Consumo de imágenes IA del mes (estimado) + proyección. */
+async function loadAiUsage() {
+  const el = document.getElementById('ai-usage');
+  if (!el) return;
+  try {
+    const u = await api('/api/ai-usage');
+    const fmt = (n) => `US$ ${Number(n).toFixed(2)}`;
+    el.innerHTML = `
+      <div class="stat"><b>${u.images}</b><span>Imágenes IA este mes</span></div>
+      <div class="stat"><b>${fmt(u.usd)}</b><span>Gasto estimado (${esc(u.month)})</span></div>
+      <div class="stat"><b>${u.projection === null ? '—' : fmt(u.projection)}</b><span>Proyección a fin de mes</span></div>
+      <div class="stat"><b>${u.enabled ? 'ON' : 'OFF'}</b><span>Imágenes IA (AI_IMAGES)</span></div>`;
+  } catch (_) { el.innerHTML = ''; }
+}
+
 async function loadMetrics() {
+  loadAiUsage();
   const body = document.getElementById('metrics-body');
   body.innerHTML = '<p class="loading">Cargando métricas...</p>';
   try {
