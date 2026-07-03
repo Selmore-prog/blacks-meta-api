@@ -399,7 +399,8 @@ ${brandStyle ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
 
 COMPOSICIÓN PARA DISEÑO:
 - Regla de tercios, con AMPLIO espacio negativo limpio en el centro-abajo para sobreimprimir un titular tipográfico después.
-- PROHIBIDO: texto, letras, números, logos, marcas visibles, caras reconocibles en primer plano, manos deformes, objetos flotando, aspecto "render 3D" o "imagen de IA" evidente. Si hay personas, de espaldas o fuera de foco.`;
+- LA SALIDA ES SOLO LA FOTOGRAFÍA. El diseño gráfico (títulos, precios, logos, íconos, placas) lo agrega DESPUÉS otro sistema: si la imagen trae CUALQUIER texto, letra, número, ícono o logo, se descarta y se pierde el trabajo.
+- PROHIBIDO además: marcas visibles, caras reconocibles en primer plano, manos deformes, objetos flotando, aspecto "render 3D" o "imagen de IA" evidente. Si hay personas, de espaldas o fuera de foco.`;
 
   try {
     const parts = [{ text: prompt }];
@@ -451,7 +452,8 @@ ${brandStyle ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
 
 COMPOSICIÓN PARA DISEÑO:
 - Aire limpio en el centro-abajo para sobreimprimir titular y precio después.
-- PROHIBIDO: texto, letras, logos inventados, manos/pies deformes, duplicar el producto, cambiarle color o forma, aspecto "render 3D" o IA evidente.`;
+- LA SALIDA ES SOLO LA FOTOGRAFÍA. El diseño gráfico (títulos, precios, logos, íconos, placas, badges) lo agrega DESPUÉS otro sistema: si la imagen trae CUALQUIER texto, letra, número, ícono o placa gráfica, se descarta y se pierde el trabajo.
+- PROHIBIDO además: logos inventados, manos/pies deformes, duplicar el producto, cambiarle color o forma, aspecto "render 3D" o IA evidente.`;
 
   try {
     const data = await geminiGenerateContent(config.gemini.imageModel, {

@@ -63,7 +63,31 @@ async function topInStock({ brand, seasonal } = {}) {
   return rows[0] || null;
 }
 
-/** Elige un producto (marca > temporada > más vendido) y refresca precio/stock EN VIVO. */
+/**
+ * Si el slot nombra un producto/tipo puntual ("Remera Lisa Algodón Pampero"),
+ * lo buscamos PRIMERO por esas palabras: el plan manda sobre temporada/ventas.
+ */
+async function productFromDetail(slot) {
+  const patterns = keywordsFromText(slot.pillar_detail);
+  if (patterns.length < 2) return null; // muy poco texto para confiar en el match
+  const norm = (col) => `translate(lower(${col}), 'áéíóúñü', 'aeiounu')`;
+  const { rows } = await pool.query(
+    `SELECT * FROM (
+       SELECT *,
+         ((CASE WHEN ${norm('name')} LIKE ANY($1) THEN 4 ELSE 0 END) +
+          (CASE WHEN ${norm(`COALESCE(category, '')`)} LIKE ANY($1) THEN 2 ELSE 0 END)) AS match_score
+       FROM products_cache
+       WHERE image_url IS NOT NULL AND stock > 0 AND price > 0
+     ) t
+     WHERE match_score >= 4
+     ORDER BY match_score DESC, sales_30d DESC NULLS LAST
+     LIMIT 1`,
+    [patterns]
+  );
+  return rows[0] || null;
+}
+
+/** Elige un producto (detalle del slot > marca > temporada > más vendido) y refresca precio/stock EN VIVO. */
 async function pickProductForSlot(slot) {
   const mentionedBrand = config.brand.knownBrands.find((b) =>
     (slot.pillar_detail || '').toLowerCase().includes(b.toLowerCase())
@@ -71,6 +95,7 @@ async function pickProductForSlot(slot) {
   const kw = seasonKeywords();
 
   let candidate =
+    await productFromDetail(slot) ||
     (mentionedBrand && await topInStock({ brand: mentionedBrand, seasonal: kw })) ||
     (mentionedBrand && await topInStock({ brand: mentionedBrand })) ||
     await topInStock({ seasonal: kw }) ||
@@ -375,7 +400,11 @@ async function generateForSlot(slot, overrides = {}) {
       // Piezas SIN foto de catálogo: fondo original generado con IA (sólo si AI_IMAGES=true
       // y hay GEMINI_API_KEY con facturación; si no, queda el diseño tipográfico).
       useAiBackground: !visualImageUrl,
-      bgTheme: [pillarDetail || slot.theme_title, copy.overlay].filter(Boolean).join(' — '),
+      // Para escenas de producto el tema es EL PRODUCTO (nunca el texto de venta del slot:
+      // el modelo lo "hornea" en la imagen y puede contradecir la foto). Para fondos, el concepto.
+      bgTheme: product
+        ? `${product.name}${product.category ? ` (${product.category})` : ''}`
+        : [pillarDetail || slot.theme_title, copy.overlay].filter(Boolean).join(' — '),
       interactionLabel: interactionChip(slot),
     });
     imagePath = url;
