@@ -259,6 +259,25 @@ table.insights th { color: var(--muted); font-weight: 700; text-transform: upper
 .cal-legend { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; font-size: 12px; color: var(--muted); }
 .cal-legend .cal-dot { margin-left: 10px; }
 
+/* ---------- vista Perfil (grilla IG) ---------- */
+.pg-wrap { max-width: 500px; margin: 0 auto; background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); overflow: hidden; }
+.pg-head { display: flex; align-items: center; gap: 12px; padding: 16px 18px; font-size: 14px; }
+.pg-head .hint { font-size: 12.5px; }
+.pg-legend { display: flex; align-items: center; gap: 6px; padding: 0 18px 12px; font-size: 12px; color: var(--muted); }
+.pg-legend .pg-dot { position: static; margin-left: 10px; }
+.pg-legend .pg-dot:first-child { margin-left: 0; }
+.pg-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; background: var(--bg); }
+.pg-tile { position: relative; aspect-ratio: 3 / 4; overflow: hidden; cursor: zoom-in; background: var(--panel-2); }
+.pg-tile img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.pg-tile:hover img { filter: brightness(1.12); }
+.pg-mark { position: absolute; top: 6px; right: 6px; color: #fff; filter: drop-shadow(0 1px 3px rgba(0,0,0,.7)); }
+.pg-mark .ic { width: 16px; height: 16px; }
+.pg-dot { position: absolute; bottom: 6px; left: 6px; width: 9px; height: 9px; border-radius: 50%; }
+.pg-dot.pub { background: rgba(244,244,245,.5); }
+.pg-dot.appr { background: var(--green); }
+.pg-dot.draft { background: #fff; border: 2px solid rgba(0,0,0,.35); }
+
 /* ---------- account analysis ---------- */
 .analysis { display: flex; flex-direction: column; gap: 12px; margin-top: 14px; }
 .an-block { background: var(--panel-2); border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; font-size: 13px; }

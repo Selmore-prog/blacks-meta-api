@@ -18,6 +18,7 @@ const ICONS = {
   play: '<polygon points="5 3 19 12 5 21 5 3"/>',
   list: '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><line x1="3" y1="6" x2="3.01" y2="6"/><line x1="3" y1="12" x2="3.01" y2="12"/><line x1="3" y1="18" x2="3.01" y2="18"/>',
   grid: '<rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/>',
+  user: '<path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/>',
   filter: '<polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>',
   image: '<rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.5"/><polyline points="21 15 16 10 5 21"/>',
   upload: '<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/>',
@@ -221,18 +222,73 @@ function setCalView(mode) {
   calView = mode;
   document.getElementById('vt-list').classList.toggle('active', mode === 'list');
   document.getElementById('vt-grid').classList.toggle('active', mode === 'grid');
+  document.getElementById('vt-profile').classList.toggle('active', mode === 'profile');
   renderCalView();
 }
 
 function renderCalView() {
   const list = document.getElementById('calendar-list');
   const grid = document.getElementById('calendar-grid');
+  const profile = document.getElementById('calendar-profile');
   list.classList.toggle('hidden', calView !== 'list');
   grid.classList.toggle('hidden', calView !== 'grid');
+  profile.classList.toggle('hidden', calView !== 'profile');
   const items = getFiltered();
   const countEl = document.getElementById('f-count');
   if (countEl) countEl.textContent = `${items.length} de ${calItems.length} piezas`;
-  if (calView === 'list') renderCalList(items); else renderCalGrid(items);
+  if (calView === 'list') renderCalList(items);
+  else if (calView === 'grid') renderCalGrid(items);
+  else renderProfileGrid();
+}
+
+/**
+ * Vista "Perfil": cómo va a quedar la grilla de Instagram con lo planificado.
+ * Sólo lo que aparece en la grilla real (feed y reels), del más nuevo al más viejo,
+ * ignorando los filtros (la grilla se evalúa completa).
+ */
+function renderProfileGrid() {
+  const holder = document.getElementById('calendar-profile');
+  const tiles = calItems
+    .filter((i) => (i.post_type === 'feed' || i.post_type === 'reel') && i.image_path
+      && ['draft', 'approved', 'published'].includes(i.asset_status || i.status))
+    .sort((a, b) => String(b.scheduled_date).localeCompare(String(a.scheduled_date)));
+
+  if (!tiles.length) {
+    holder.innerHTML = '<p class="empty">Todavía no hay piezas de feed/reel generadas para armar la grilla.</p>';
+    return;
+  }
+
+  const dot = (i) => {
+    const st = i.asset_status || i.status;
+    if (st === 'published') return '<span class="pg-dot pub" title="Publicado"></span>';
+    if (st === 'approved') return '<span class="pg-dot appr" title="Aprobado"></span>';
+    return '<span class="pg-dot draft" title="Borrador"></span>';
+  };
+  const mark = (i) => {
+    const slides = parseSlides(i.slides);
+    if (slides && slides.length > 1) return `<span class="pg-mark">${icon('grid')}</span>`;
+    if (i.post_type === 'reel') return `<span class="pg-mark">${icon('play')}</span>`;
+    return '';
+  };
+
+  holder.innerHTML = `
+    <div class="pg-wrap">
+      <div class="pg-head">
+        <div class="ig-av">B</div>
+        <div><b>blacks.indumentaria</b><span class="hint"> · así queda tu grilla con lo planificado (${tiles.length} piezas)</span></div>
+      </div>
+      <div class="pg-legend"><span class="pg-dot pub"></span> publicado <span class="pg-dot appr"></span> aprobado <span class="pg-dot draft"></span> borrador</div>
+      <div class="pg-grid">
+        ${tiles.map((i, idx) => `
+          <div class="pg-tile" data-idx="${idx}" title="${esc(i.theme_title || i.pillar_detail || '')} · ${String(i.scheduled_date).slice(0, 10)}">
+            <img src="${esc(i.image_path)}" loading="lazy" alt=""/>
+            ${mark(i)}${dot(i)}
+          </div>`).join('')}
+      </div>
+    </div>`;
+
+  holder.querySelectorAll('.pg-tile').forEach((t) =>
+    t.addEventListener('click', () => openPreview(tiles[Number(t.dataset.idx)])));
 }
 
 function renderCalList(items) {

@@ -36,6 +36,7 @@
         <div class="view-toggle">
           <button class="vt active" id="vt-list" onclick="setCalView('list')"><span data-ic="list"></span> Lista</button>
           <button class="vt" id="vt-grid" onclick="setCalView('grid')"><span data-ic="grid"></span> Calendario</button>
+          <button class="vt" id="vt-profile" onclick="setCalView('profile')"><span data-ic="user"></span> Perfil</button>
         </div>
         <button class="btn-primary" onclick="openPlanSlot()"><span data-ic="plus"></span> Agregar slot</button>
         <button class="btn-ghost" id="btn-month-plan" onclick="generateMonthPlan()"><span data-ic="calendar"></span> Plan del mes (IA)</button>
@@ -47,6 +48,7 @@
     <div class="filters" id="filters"></div>
     <div id="calendar-list"><p class="loading">Cargando calendario...</p></div>
     <div id="calendar-grid" class="hidden"></div>
+    <div id="calendar-profile" class="hidden"></div>
   </section>
 
   <!-- ===== Estilo de marca ===== -->
