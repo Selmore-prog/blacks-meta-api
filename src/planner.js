@@ -25,7 +25,8 @@ async function gatherContext(monthStr) {
   const from = `${monthStr}-01`;
   const to = `${monthStr}-${String(daysInMonth(monthStr)).padStart(2, '0')}`;
 
-  const [dates, topProducts, insights, wholesale] = await Promise.all([
+  const { analyzeAccountPerformance } = require('./accountAnalyzer');
+  const [dates, topProducts, insights, wholesale, account] = await Promise.all([
     pool.query(
       `SELECT event_date, title, category, angle, priority FROM commercial_dates
        WHERE event_date BETWEEN $1 AND $2 ORDER BY priority DESC, event_date`,
@@ -37,9 +38,13 @@ async function gatherContext(monthStr) {
     ),
     analyzePerformance().catch(() => ({ pillars: [], recommendation: '' })),
     getWholesaleSettings().catch(() => null),
+    // Mejores horarios REALES de la cuenta de IG (best-effort: sin token no rompe).
+    analyzeAccountPerformance().catch(() => null),
   ]);
 
   return {
+    bestHours: account && Array.isArray(account.bestHours)
+      ? account.bestHours.map((h) => `${h.hour}:00 (${h.avgEngagement} eng)`) : [],
     commercialDates: dates.rows.map((d) => ({
       date: (d.event_date instanceof Date ? d.event_date.toISOString() : String(d.event_date)).slice(0, 10),
       title: d.title, category: d.category, angle: d.angle, priority: d.priority,
@@ -82,7 +87,9 @@ REGLAS DEL PLAN (obligatorias):
 - Pilares por semana: 2 producto, 1 promo, 1 educativo, 1 de marca o ugc, 1 mayorista cada 2 semanas, 1 engagement como máximo.
 - En los días de fechas comerciales de prioridad >= 8, poné 'promo' con pillar_detail referido a esa fecha. El día ANTERIOR a una fecha de prioridad 10, anticipala.
 - automation_level: 'auto' siempre, salvo engagement con encuesta -> 'semi' (máximo 1 'semi' por semana, con interaction_hint explicando la encuesta).
-- scheduled_time entre '11:00' y '18:00' (los horarios 17:00-18:00 son los que mejor rinden; los story pueden ir 11:00-13:00).
+- scheduled_time entre '11:00' y '18:00'.${ctx.bestHours && ctx.bestHours.length
+    ? ` HORARIOS QUE MEJOR RINDIERON EN ESTA CUENTA (usalos como preferencia): ${ctx.bestHours.join(', ')}.`
+    : ' Sin datos de la cuenta todavía: 17:00-18:00 suele rendir mejor; los story pueden ir 11:00-13:00.'}
 - carousel: true sólo en 1-2 feed educativos/mayoristas por mes.
 - pillar_detail: concreto y accionable en español rioplatense (qué producto/tema/ángulo). theme_title: título corto del día.
 

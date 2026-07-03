@@ -92,13 +92,18 @@ async function publishAssetById(assetId, { force = false } = {}) {
 
 /**
  * Encola los assets aprobados de hoy que sean AUTOMÁTICOS y de pilares habilitados.
+ * Cada uno queda agendado para SU horario (scheduled_time, hora argentina): la cola
+ * corre cada hora y publica lo que ya venció. Sin horario, sale en la próxima pasada.
  * Idempotente: si ya están en la cola no los duplica. Nunca toca semiautomatizados.
  */
 async function enqueueDailyAuto() {
   const pillars = config.meta.autoPublishPillars;
   const { rows } = await pool.query(
-    `INSERT INTO publish_queue (asset_id)
-     SELECT a.id
+    `INSERT INTO publish_queue (asset_id, next_attempt_at)
+     SELECT a.id,
+            CASE WHEN c.scheduled_time ~ '^([01][0-9]|2[0-3]):[0-5][0-9]$'
+                 THEN ((c.scheduled_date::text || ' ' || c.scheduled_time)::timestamp AT TIME ZONE $2)
+                 ELSE now() END
      FROM generated_assets a
      JOIN content_calendar c ON c.id = a.calendar_id
      WHERE c.scheduled_date = CURRENT_DATE
@@ -107,9 +112,9 @@ async function enqueueDailyAuto() {
        AND c.pillar = ANY($1)
      ON CONFLICT (asset_id) DO NOTHING
      RETURNING asset_id`,
-    [pillars]
+    [pillars, config.timezone]
   );
-  console.log(`[publishService] ${rows.length} asset(s) nuevos encolados para publicar.`);
+  console.log(`[publishService] ${rows.length} asset(s) nuevos encolados para publicar en su horario.`);
   return rows.map((r) => r.asset_id);
 }
 
