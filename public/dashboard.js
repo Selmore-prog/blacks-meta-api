@@ -133,6 +133,11 @@ async function loadConfig() {
 /* ============ calendario ============ */
 let calItems = [];
 let calView = 'list';
+// Horizonte de días que pedimos al calendario. Arranca en 30 para cubrir un mes
+// completo de entrada (antes eran 21 y "Plan del mes" quedaba con la cola cortada
+// en el calendario visible aunque el plan en sí tuviera los 31 días guardados).
+// Generar el plan mensual lo puede subir más si hace falta (ver generateMonthPlan).
+let calendarViewDays = 30;
 const filters = { status: 'all', format: 'all', pillar: 'all', auto: 'all', comercial: 'all', q: '' };
 function comercialOf(it) {
   if (it.pillar === 'mayorista') return 'mayorista';
@@ -208,7 +213,7 @@ async function loadCalendar() {
   const list = document.getElementById('calendar-list');
   list.innerHTML = '<p class="loading">Cargando calendario...</p>';
   try {
-    calItems = await api('/api/calendar?days=21');
+    calItems = await api(`/api/calendar?days=${calendarViewDays}`);
     document.getElementById('next-plan').innerHTML =
       `${icon('bot')} <b>Automático:</b> genera piezas todos los días a las <b>07:00 ARG</b> y publica lo aprobado <b>en el horario programado de cada pieza</b>. Los posts de feed salen con su historia de refuerzo. El resto lo revisás y publicás vos desde acá.`;
     renderFilters();
@@ -1005,8 +1010,14 @@ async function generateMonthPlan() {
     const r = await api('/api/plan/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
     const mix = Object.entries(r.byPillar || {}).map(([k, v]) => `${k}: ${v}`).join(' · ');
     toast(`Plan de ${r.month} listo (${r.days} días). ${mix}`, 'ok');
-    // Re-sembrar el calendario para que los próximos días tomen el plan nuevo.
-    await api('/api/calendar/seed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' }).catch(() => {});
+    // Re-sembrar el calendario hasta el ÚLTIMO día del mes planificado (si no, el default
+    // de 14-21 días dejaba el plan "cortado" a mitad de mes en el calendario visible).
+    const [y, m] = r.month.split('-').map(Number);
+    const lastDay = new Date(Date.UTC(y, m, 0));
+    const today = new Date();
+    const daysAhead = Math.max(21, Math.ceil((lastDay - today) / 86400000) + 1);
+    await api('/api/calendar/seed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ days: daysAhead }) }).catch(() => {});
+    calendarViewDays = Math.max(calendarViewDays, daysAhead);
     reloadKeepScroll();
   } catch (e) {
     toast(`No se pudo generar el plan: ${e.message}`, 'err');
