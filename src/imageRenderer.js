@@ -81,6 +81,42 @@ function priceParts(price, promoPrice) {
 }
 
 /**
+ * Capa de foto para plantillas que NO son full-bleed por diseño (minimal/promo/mayorista).
+ *  - bgImageUrl (escena generada con IA, con fondo propio): sangra TODO el canvas
+ *    (cover) para que se vea como una foto real, no como un recorte pegado.
+ *  - productImageUrl (recorte de catálogo, fondo blanco/plano): se contiene en una
+ *    caja del layout — ahí sí queda bien porque el fondo del recorte ya es liso.
+ * Devuelve { html, fullBleed } para que el template sepa si necesita un scrim.
+ */
+function heroPhotoHtml({ bgImageUrl, productImageUrl, box, shadow = 'rgba(0,0,0,.5)' }) {
+  if (bgImageUrl) {
+    return {
+      fullBleed: true,
+      html: `<img src="${esc(bgImageUrl)}" alt="" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:0;"/>`,
+    };
+  }
+  if (productImageUrl) {
+    return {
+      fullBleed: false,
+      html: `<div style="position:absolute; top:${box.top}px; bottom:${box.bottom}px; left:${box.left}px; right:${box.right}px;
+        display:flex; align-items:center; justify-content:center; z-index:1;">
+        <img src="${esc(productImageUrl)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 30px 50px ${shadow});"/>
+      </div>`,
+    };
+  }
+  return { fullBleed: false, html: '' };
+}
+
+/** Degradé de legibilidad sobre una foto full-bleed (arriba/abajo oscuro, centro despejado). */
+function scrimHtml({ dark = true, extra = '' } = {}) {
+  const a = dark ? '.6' : '.75';
+  const b = dark ? '.85' : '.9';
+  const base = dark ? '0,0,0' : '255,255,255';
+  return `<div style="position:absolute; inset:0; z-index:2; background:
+    linear-gradient(to bottom, rgba(${base},${a}) 0%, rgba(${base},.12) 26%, rgba(${base},.12) 56%, rgba(${base},${b}) 100%)${extra ? `, ${extra}` : ''};"></div>`;
+}
+
+/**
  * Construye el HTML de la pieza estilo diseñador: foto a sangre (full-bleed) con
  * overlays — wordmark arriba, bloque de precio (ANTES tachado / % OFF / AHORA /
  * transferencia) abajo, y footer con el dominio. Respeta zonas seguras en historias.
@@ -209,30 +245,34 @@ function buildFullbleedHtml(opts) {
 function buildMinimalHtml(opts) {
   const g = sharedGeometry(opts.format);
   const accent = opts.accent || config.brand.colors.darkOrange;
-  const img = opts.bgImageUrl || opts.productImageUrl;
   const { hasPromo, off, now } = priceParts(opts.price, opts.promoPrice);
+  const hero = heroPhotoHtml({
+    bgImageUrl: opts.bgImageUrl,
+    productImageUrl: opts.productImageUrl,
+    box: { top: g.isStory ? 300 : 190, bottom: g.isStory ? 620 : 420, left: g.padX, right: g.padX },
+    shadow: 'rgba(0,0,0,.22)',
+  });
   const price = opts.price ? `
     <div style="display:flex; align-items:baseline; gap:18px; margin-top:18px;">
-      ${hasPromo ? `<span style="font-family:'Anton',sans-serif; font-size:40px; color:#8b8b90; text-decoration:line-through;">$${formatPrice(opts.price)}</span>
+      ${hasPromo ? `<span style="font-family:'Anton',sans-serif; font-size:40px; color:${hero.fullBleed ? 'rgba(255,255,255,.7)' : '#8b8b90'}; text-decoration:line-through;">$${formatPrice(opts.price)}</span>
         <span style="background:${accent}; color:#fff; font-weight:800; font-size:22px; padding:4px 12px; border-radius:6px;">-${off}%</span>` : ''}
-      <span style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 84 : 72}px; color:#111;">$${formatPrice(now)}</span>
+      <span style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 84 : 72}px; color:${hero.fullBleed ? '#fff' : '#111'};">$${formatPrice(now)}</span>
     </div>` : '';
 
   return `${headHtml(g.w, g.h)}</head><body>
-    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#111;
+    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:${hero.fullBleed ? '#fff' : '#111'}; overflow:hidden;
       background:radial-gradient(130% 100% at 50% 0%, #ffffff 0%, #f0f0f2 55%, #e0e0e4 100%);">
+      ${hero.html}
+      ${hero.fullBleed ? scrimHtml({ dark: true }) : ''}
       <div style="position:absolute; top:${g.wmTop}px; left:0; right:0; display:flex; justify-content:center; z-index:4;">
-        ${opts.showBrand !== false ? brandMarkHtml(opts.logoUrl, { dark: true, heightPx: g.isStory ? 74 : 60 }) : ''}
+        ${opts.showBrand !== false ? brandMarkHtml(opts.logoUrl, { dark: !hero.fullBleed, heightPx: g.isStory ? 74 : 60 }) : ''}
       </div>
       ${opts.badgeText ? `<div style="position:absolute; top:${g.wmTop - 6}px; right:${g.padX}px; background:${accent}; color:#fff; font-weight:800; font-size:22px; padding:11px 22px; border-radius:100px; text-transform:uppercase; letter-spacing:2px; z-index:4;">${esc(opts.badgeText)}</div>` : ''}
-      ${img ? `<div style="position:absolute; top:${g.isStory ? 300 : 190}px; bottom:${g.isStory ? 620 : 420}px; left:${g.padX}px; right:${g.padX}px; display:flex; align-items:center; justify-content:center; z-index:1;">
-        <img src="${esc(img)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 34px 54px rgba(0,0,0,.22));"/>
-      </div>` : ''}
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
-        ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 72 : 60}px; line-height:.98; text-transform:uppercase; color:#111; max-width:94%;">${esc(opts.overlayTitle)}</div>` : ''}
+        ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 72 : 60}px; line-height:.98; text-transform:uppercase; color:${hero.fullBleed ? '#fff' : '#111'}; max-width:94%; ${hero.fullBleed ? 'text-shadow:0 2px 16px rgba(0,0,0,.6);' : ''}">${esc(opts.overlayTitle)}</div>` : ''}
         ${price}
       </div>
-      ${domainHtml(g, { dark: true, accent })}
+      ${domainHtml(g, { dark: !hero.fullBleed, accent })}
     </div>
   </body></html>`;
 }
@@ -241,7 +281,12 @@ function buildMinimalHtml(opts) {
 function buildPromoHtml(opts) {
   const g = sharedGeometry(opts.format);
   const accent = opts.accent || config.brand.colors.darkOrange;
-  const img = opts.bgImageUrl || opts.productImageUrl;
+  const hero = heroPhotoHtml({
+    bgImageUrl: opts.bgImageUrl,
+    productImageUrl: opts.productImageUrl,
+    box: { top: g.isStory ? 320 : 200, bottom: g.isStory ? 700 : 470, left: g.padX, right: g.padX },
+    shadow: 'rgba(0,0,0,.65)',
+  });
   const { hasPromo, off, now } = priceParts(opts.price, opts.promoPrice);
   const transfer = String(config.brand.transferNote || '').toUpperCase();
 
@@ -256,17 +301,17 @@ function buildPromoHtml(opts) {
 
   return `${headHtml(g.w, g.h)}</head><body>
     <div style="position:relative; width:${g.w}px; height:${g.h}px; background:#0b0b0d; color:#fff; overflow:hidden;">
-      <div style="position:absolute; inset:0; background:
+      ${hero.html}
+      ${hero.fullBleed
+        ? scrimHtml({ dark: true, extra: 'radial-gradient(90% 60% at 78% 12%, rgba(232,93,27,.28) 0%, rgba(232,93,27,0) 55%)' })
+        : `<div style="position:absolute; inset:0; background:
         radial-gradient(90% 60% at 78% 18%, rgba(232,93,27,.32) 0%, rgba(232,93,27,0) 60%),
-        radial-gradient(120% 80% at 20% 100%, rgba(232,93,27,.14) 0%, rgba(0,0,0,0) 55%);"></div>
-      <div style="position:absolute; top:0; left:0; right:0; height:14px; background:${accent};"></div>
+        radial-gradient(120% 80% at 20% 100%, rgba(232,93,27,.14) 0%, rgba(0,0,0,0) 55%);"></div>`}
+      <div style="position:absolute; top:0; left:0; right:0; height:14px; background:${accent}; z-index:4;"></div>
       <div style="position:absolute; top:${g.wmTop}px; left:0; right:0; display:flex; justify-content:center; z-index:4;">
         ${opts.showBrand !== false ? brandMarkHtml(opts.logoUrl, { heightPx: g.isStory ? 74 : 60 }) : ''}
       </div>
       <div style="position:absolute; top:${g.wmTop - 6}px; right:${g.padX}px; background:#fff; color:#111; font-weight:800; font-size:22px; padding:11px 22px; border-radius:100px; text-transform:uppercase; letter-spacing:2px; z-index:4;">${esc(opts.badgeText || 'OFERTA')}</div>
-      ${img ? `<div style="position:absolute; top:${g.isStory ? 320 : 200}px; bottom:${g.isStory ? 700 : 470}px; left:${g.padX}px; right:${g.padX}px; display:flex; align-items:center; justify-content:center; z-index:1;">
-        <img src="${esc(img)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 30px 50px rgba(0,0,0,.65));"/>
-      </div>` : ''}
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
         ${opts.overlayTitle && opts.price ? `<div style="font-size:${g.isStory ? 34 : 30}px; font-weight:800; letter-spacing:2px; text-transform:uppercase; color:rgba(255,255,255,.9); margin-bottom:14px;">${esc(opts.overlayTitle)}</div>` : ''}
         ${priceBlock}
@@ -307,19 +352,23 @@ function buildEducativoHtml(opts) {
 function buildMayoristaHtml(opts) {
   const g = sharedGeometry(opts.format);
   const accent = opts.accent || config.brand.colors.darkOrange;
-  const img = opts.bgImageUrl || opts.productImageUrl;
+  const hero = heroPhotoHtml({
+    bgImageUrl: opts.bgImageUrl,
+    productImageUrl: opts.productImageUrl,
+    box: { top: g.isStory ? 320 : 200, bottom: g.isStory ? 660 : 440, left: g.padX, right: g.padX },
+    shadow: 'rgba(0,0,0,.6)',
+  });
 
   return `${headHtml(g.w, g.h)}</head><body>
-    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#fff;
+    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#fff; overflow:hidden;
       background:linear-gradient(165deg, #101216 0%, #171a20 55%, #1d212a 100%);">
-      <div style="position:absolute; top:0; left:0; right:0; height:12px; background:${accent};"></div>
+      ${hero.html}
+      ${hero.fullBleed ? scrimHtml({ dark: true }) : ''}
+      <div style="position:absolute; top:0; left:0; right:0; height:12px; background:${accent}; z-index:4;"></div>
       <div style="position:absolute; top:${g.wmTop}px; left:${g.padX}px; z-index:4;">
         ${opts.showBrand !== false ? brandMarkHtml(opts.logoUrl, { heightPx: g.isStory ? 68 : 56 }) : ''}
       </div>
       <div style="position:absolute; top:${g.wmTop - 4}px; right:${g.padX}px; border:2px solid ${accent}; color:${accent}; font-weight:800; font-size:24px; padding:10px 22px; border-radius:8px; text-transform:uppercase; letter-spacing:3px; z-index:4;">MAYORISTA</div>
-      ${img ? `<div style="position:absolute; top:${g.isStory ? 320 : 200}px; bottom:${g.isStory ? 660 : 440}px; left:${g.padX}px; right:${g.padX}px; display:flex; align-items:center; justify-content:center; z-index:1;">
-        <img src="${esc(img)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 30px 50px rgba(0,0,0,.6));"/>
-      </div>` : ''}
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
         ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 74 : 62}px; line-height:.98; text-transform:uppercase; color:#fff; max-width:94%;">${esc(opts.overlayTitle)}</div>` : ''}
         <div style="display:inline-flex; align-items:center; gap:12px; background:${accent}; color:#fff; font-weight:800; font-size:${g.isStory ? 32 : 28}px; letter-spacing:1px; padding:16px 34px; border-radius:100px; margin-top:28px; text-transform:uppercase;">Pedí tu presupuesto</div>

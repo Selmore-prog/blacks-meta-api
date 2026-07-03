@@ -938,7 +938,7 @@ async function loadProducts() {
       </div>
       <div class="grid-2" style="margin-top:18px;">
         <div class="panel"><h3>${icon('chart')} Se venden bien (últimos 30 días)</h3>
-          <p class="hint">Dales continuidad: destacalos en historias y feed.</p>${rowsHtml(d.winners, (p) => `<b>${p.sales_30d}</b><span>vendidos</span>`)}</div>
+          <p class="hint">Darle continuidad: destacarlos en historias y feed.</p>${rowsHtml(d.winners, (p) => `<b>${p.sales_30d}</b><span>vendidos</span>`)}</div>
         <div class="panel"><h3>${icon('alert')} A darles visibilidad</h3>
           <p class="hint">Mucho stock y pocas/ninguna venta: conviene mostrarlos más.</p>${rowsHtml(d.needVisibility, (p) => `<b>${p.stock}</b><span>en stock</span>`)}</div>
       </div>
@@ -1216,8 +1216,8 @@ async function loadGaSummary() {
         <div class="stat"><b>${g.paidTraffic.googleAds.pct}%</b><span>Tráfico de Google Ads (pauta) ${src('Google Analytics')}</span></div>
       </div>
       <div class="panel" style="margin-bottom:14px;">
-        <h3>Lo más visto en tu tienda</h3>
-        <p class="hint">Vistas según Google Analytics, cruzadas con ventas REALES de Tiendanube (el conteo de compras de Analytics subestima: no todas las compras completan el evento de e-commerce). Muchas vistas y pocas ventas = mejor candidato para contenido que empuje la compra.</p>
+        <h3>Lo más visto en la tienda</h3>
+        <p class="hint">Vistas según Google Analytics, cruzadas con ventas REALES de Tiendanube. Muchas vistas y pocas ventas = mejor candidato para contenido que empuje la compra.</p>
         ${g.topViewedProducts.map((p) => `
           <div class="prod-row">
             <div class="prod-info"><div class="prod-name">${esc(p.name)}</div>
@@ -1225,7 +1225,7 @@ async function loadGaSummary() {
             <div class="prod-metric"><b>${p.views}</b><span>vistas · ${src('GA')}</span></div>
           </div>`).join('')}
       </div>
-      <p class="hint" style="margin:0 0 14px;">Ingresos y compras "según Analytics" no se muestran acá porque ese conteo subestima ventas reales (ver nota arriba) — mirá la pestaña <b>Productos</b> para los números reales de Tiendanube.</p>`;
+      <p class="hint" style="margin:0 0 14px;">Ingresos y compras "según Analytics" no se muestran acá porque ese conteo subestima ventas reales. — mirá la pestaña <b>Productos</b> para los números reales de Tiendanube.</p>`;
   } catch (_) { el.innerHTML = ''; }
 }
 
