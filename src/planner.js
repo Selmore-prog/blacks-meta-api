@@ -40,8 +40,9 @@ async function gatherContext(monthStr) {
     getWholesaleSettings().catch(() => null),
     // Mejores horarios REALES de la cuenta de IG (best-effort: sin token no rompe).
     analyzeAccountPerformance().catch(() => null),
-    // Google Analytics de la tienda: qué productos mira la gente (best-effort).
-    require('./analytics').storeSummary().catch(() => null),
+    // Google Analytics de la tienda cruzado con ventas REALES de Tiendanube
+    // (best-effort). GA dice qué mira la gente; Tiendanube dice qué se vendió.
+    require('./analytics').topViewedWithRealSales(pool).catch(() => null),
   ]);
 
   return {
@@ -79,9 +80,9 @@ ${datesTxt}
 PRODUCTOS QUE MÁS SE VENDEN (con stock real):
 ${productsTxt}
 
-${ctx.store && ctx.store.topViewedProducts && ctx.store.topViewedProducts.length ? `LO QUE LA GENTE MÁS MIRA EN LA TIENDA (Google Analytics, ${ctx.store.days} días — interés REAL de compra):
-${ctx.store.topViewedProducts.map((p) => `- ${p.name}: ${p.views} vistas, ${p.purchased} compras${p.purchased === 0 && p.views > 100 ? ' (MUCHO interés y CERO venta: hacé contenido que empuje a comprarlo)' : ''}`).join('\n')}
-Tráfico desde Instagram: ${ctx.store.igSessions} de ${ctx.store.sessions} sesiones. El contenido debe llevar más gente a la tienda.
+${ctx.store && ctx.store.topViewedProducts && ctx.store.topViewedProducts.length ? `LO QUE LA GENTE MÁS MIRA EN LA TIENDA (Google Analytics, ${ctx.store.days} días) CRUZADO CON VENTAS REALES (Tiendanube):
+${ctx.store.topViewedProducts.map((p) => `- ${p.name}: ${p.views} vistas, ${p.realSales30d === null ? 'sin datos de venta' : `${p.realSales30d} vendidos (30d real)`}${p.realSales30d === 0 && p.views > 100 ? ' (MUCHO interés y CERO venta: hacé contenido que empuje a comprarlo, puede ser objeción de precio/talle/confianza)' : ''}`).join('\n')}
+Tráfico pago: Meta Ads ${ctx.store.paidTraffic.metaAds.pct}% · Google Ads ${ctx.store.paidTraffic.googleAds.pct}% de las sesiones. Tráfico de Instagram (orgánico+pago): ${ctx.store.igSessions} de ${ctx.store.sessions} sesiones. El contenido orgánico debe llevar más gente a la tienda sin depender de la pauta.
 
 ` : ''}RENDIMIENTO HISTÓRICO POR PILAR:
 ${insightsTxt}

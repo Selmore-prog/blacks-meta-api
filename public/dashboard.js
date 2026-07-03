@@ -1207,23 +1207,25 @@ async function loadGaSummary() {
     if (!g.enabled) { el.innerHTML = ''; return; }
     const money = (n) => '$' + Math.round(Number(n)).toLocaleString('es-AR');
     const igPct = g.sessions ? Math.round((g.igSessions / g.sessions) * 100) : 0;
+    const src = (label) => `<span class="src-tag">${esc(label)}</span>`;
     el.innerHTML = `
       <div class="prod-totals" style="margin-bottom:14px;">
-        <div class="stat"><b>${g.sessions.toLocaleString('es-AR')}</b><span>Visitas a la tienda (${g.days} días)</span></div>
-        <div class="stat"><b>${g.igSessions.toLocaleString('es-AR')} · ${igPct}%</b><span>Llegaron desde Instagram</span></div>
-        <div class="stat"><b>${g.purchases}</b><span>Compras</span></div>
-        <div class="stat"><b>${money(g.revenue)}</b><span>Ingresos</span></div>
+        <div class="stat"><b>${g.sessions.toLocaleString('es-AR')}</b><span>Visitas a la tienda (${g.days} días) ${src('Google Analytics')}</span></div>
+        <div class="stat"><b>${g.igSessions.toLocaleString('es-AR')} · ${igPct}%</b><span>Llegaron desde Instagram ${src('Google Analytics')}</span></div>
+        <div class="stat"><b>${g.paidTraffic.metaAds.pct}%</b><span>Tráfico de Meta Ads (pauta) ${src('Google Analytics')}</span></div>
+        <div class="stat"><b>${g.paidTraffic.googleAds.pct}%</b><span>Tráfico de Google Ads (pauta) ${src('Google Analytics')}</span></div>
       </div>
-      <div class="panel">
+      <div class="panel" style="margin-bottom:14px;">
         <h3>Lo más visto en tu tienda</h3>
-        <p class="hint">Interés real de compra según Google Analytics. Lo que tiene muchas vistas y pocas compras es el mejor candidato para contenido que empuje la venta.</p>
+        <p class="hint">Vistas según Google Analytics, cruzadas con ventas REALES de Tiendanube (el conteo de compras de Analytics subestima: no todas las compras completan el evento de e-commerce). Muchas vistas y pocas ventas = mejor candidato para contenido que empuje la compra.</p>
         ${g.topViewedProducts.map((p) => `
           <div class="prod-row">
             <div class="prod-info"><div class="prod-name">${esc(p.name)}</div>
-              <div class="prod-sub">${p.purchased} compra(s) en ${g.days} días</div></div>
-            <div class="prod-metric"><b>${p.views}</b><span>vistas</span></div>
+              <div class="prod-sub">${p.realSales30d === null ? 'no está en el catálogo actual' : `${p.realSales30d} vendido(s) en ${g.days} días ${src('Tiendanube')}`}</div></div>
+            <div class="prod-metric"><b>${p.views}</b><span>vistas · ${src('GA')}</span></div>
           </div>`).join('')}
-      </div>`;
+      </div>
+      <p class="hint" style="margin:0 0 14px;">Ingresos y compras "según Analytics" no se muestran acá porque ese conteo subestima ventas reales (ver nota arriba) — mirá la pestaña <b>Productos</b> para los números reales de Tiendanube.</p>`;
   } catch (_) { el.innerHTML = ''; }
 }
 
