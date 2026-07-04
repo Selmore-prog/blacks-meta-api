@@ -318,6 +318,12 @@ async function generateForSlot(slot, overrides = {}) {
   const pillarDetail = overrides.pillarDetail || slot.pillar_detail;
   const effectiveSlot = { ...slot, pillar_detail: pillarDetail };
 
+  // Objetivo de la pieza: si el slot no lo tiene (slots viejos, previos al planner
+  // con objetivos), usamos el que corresponde al pilar para que el copy igual salga
+  // orientado (venta/tráfico/confianza/comunidad).
+  const { defaultObjective } = require('../src/planner');
+  const objective = slot.objective || defaultObjective(slot.pillar);
+
   const isMayorista = slot.pillar === 'mayorista';
   const product = isMayorista
     ? await pickMayoristaProduct(effectiveSlot, await recentlyFeaturedIds().catch(() => []))
@@ -339,7 +345,7 @@ async function generateForSlot(slot, overrides = {}) {
     pillarDetail,
     postType: slot.post_type,
     format,
-    objective: slot.objective || null,
+    objective,
     product,
     visualProduct: product ? null : visualProduct,
     brandProfile,
@@ -490,7 +496,12 @@ async function generateForSlot(slot, overrides = {}) {
     [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson, slides ? 'educativo' : template, storyTeaserPath, pieceCostUsd, copy.gen_model || null, copy.qa_notes || null]
   );
 
-  await pool.query(`UPDATE content_calendar SET status = 'draft' WHERE id = $1`, [slot.id]);
+  // Marca el slot como generado y, si no tenía objetivo (slot viejo), lo fija ahora
+  // para que el panel muestre el chip coherente con el copy recién generado.
+  await pool.query(
+    `UPDATE content_calendar SET status = 'draft', objective = COALESCE(objective, $2) WHERE id = $1`,
+    [slot.id, objective]
+  );
 
   console.log(`[generate-daily] Slot #${slot.id} (${slot.pillar}/${slot.post_type}/${format}${slides ? '/carrusel' : ''}) -> ${imagePath}`);
 }

@@ -159,11 +159,20 @@ async function loadConfig() {
 /* ============ calendario ============ */
 let calItems = [];
 let calView = 'list';
-// Horizonte de días que pedimos al calendario. Arranca en 30 para cubrir un mes
-// completo de entrada (antes eran 21 y "Plan del mes" quedaba con la cola cortada
-// en el calendario visible aunque el plan en sí tuviera los 31 días guardados).
-// Generar el plan mensual lo puede subir más si hace falta (ver generateMonthPlan).
-let calendarViewDays = 30;
+// Horizonte de días que pedimos al calendario. Se PERSISTE en localStorage: al
+// planificar un mes que se estira más allá de la ventana (ej. agosto visto desde
+// julio) el horizonte sube y sobrevive al recargar la página — antes volvía a 30 y
+// el mes recién planificado "desaparecía" de la vista aunque estaba en la base.
+const CAL_DAYS_MAX = 60; // tope que acepta /api/calendar
+function loadCalDays() {
+  const saved = Number(localStorage.getItem('calViewDays'));
+  return saved >= 21 && saved <= CAL_DAYS_MAX ? saved : 30;
+}
+function setCalDays(n) {
+  calendarViewDays = Math.min(CAL_DAYS_MAX, Math.max(21, Math.round(n)));
+  localStorage.setItem('calViewDays', String(calendarViewDays));
+}
+let calendarViewDays = loadCalDays();
 const filters = { status: 'all', format: 'all', pillar: 'all', auto: 'all', comercial: 'all', q: '' };
 function comercialOf(it) {
   if (it.pillar === 'mayorista') return 'mayorista';
@@ -266,9 +275,44 @@ async function loadCalendar() {
       `${icon('bot')} <b>Automático:</b> genera piezas todos los días a las <b>07:00 ARG</b> y publica lo aprobado <b>en el horario programado de cada pieza</b>. Los posts de feed salen con su historia de refuerzo. El resto lo revisás y publicás vos desde acá.`;
     renderFilters();
     renderCalView();
+    refreshStaleDraftsButton();
   } catch (e) {
     list.innerHTML = `<p class="empty">Error cargando el calendario: ${esc(e.message)}</p>`;
   }
+}
+
+/* Muestra "Actualizar borradores" sólo si hay piezas hechas con el código viejo. */
+async function refreshStaleDraftsButton() {
+  const btn = document.getElementById('btn-stale-drafts');
+  if (!btn) return;
+  try {
+    const info = await api('/api/regenerate-drafts/preview');
+    const stale = info && info.stale ? info.stale : 0;
+    btn.classList.toggle('hidden', stale === 0);
+    if (stale) btn.innerHTML = `${icon('wand')} Actualizar ${stale} borrador${stale > 1 ? 'es' : ''}`;
+  } catch (_) { btn.classList.add('hidden'); }
+}
+
+/**
+ * Botón "Ver más días" al pie del calendario: aparece sólo si el horizonte todavía
+ * no llegó al tope (60) y estamos mostrando la última tanda completa. Sube el
+ * horizonte de a ~3 semanas y recuerda la preferencia (localStorage).
+ */
+function renderCalMore() {
+  const host = document.getElementById('calendar-list');
+  if (!host) return;
+  const existing = document.getElementById('cal-more');
+  if (existing) existing.remove();
+  if (calView !== 'list' || calendarViewDays >= CAL_DAYS_MAX) return;
+  const wrap = document.createElement('div');
+  wrap.id = 'cal-more';
+  wrap.style.cssText = 'text-align:center; margin:18px 0 4px;';
+  wrap.innerHTML = `<button class="btn-ghost btn-sm" id="cal-more-btn">${icon('calendar')} Ver más días</button>`;
+  host.appendChild(wrap);
+  wrap.querySelector('#cal-more-btn').addEventListener('click', () => {
+    setCalDays(calendarViewDays + 21);
+    loadCalendar();
+  });
 }
 
 function setCalView(mode) {
@@ -292,6 +336,7 @@ function renderCalView() {
   if (calView === 'list') renderCalList(items);
   else if (calView === 'grid') renderCalGrid(items);
   else renderProfileGrid();
+  renderCalMore();
 }
 
 /**
@@ -1074,29 +1119,97 @@ async function generateAllPending() {
   toast('Listo', 'ok'); reloadKeepScroll();
 }
 
-/* Plan mensual con IA: arma la rotación del mes (fechas comerciales + ventas + métricas). */
+/* Nombre "Julio 2026" a partir de un 'YYYY-MM'. */
+function monthName(ym) {
+  const [y, m] = ym.split('-').map(Number);
+  const d = new Date(Date.UTC(y, m - 1, 1)).toLocaleDateString('es-AR', { month: 'long', year: 'numeric', timeZone: 'UTC' });
+  return d.charAt(0).toUpperCase() + d.slice(1);
+}
+
+/* 'YYYY-MM' del mes actual y del siguiente (para el selector del plan). */
+function plannableMonths() {
+  const now = new Date();
+  const cur = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const nx = new Date(now.getFullYear(), now.getMonth() + 1, 1);
+  const next = `${nx.getFullYear()}-${String(nx.getMonth() + 1).padStart(2, '0')}`;
+  return { cur, next };
+}
+
+/* Plan mensual con IA: modal con selector de mes (actual o siguiente). El actual sirve
+ * para RE-planificar con la lógica nueva un mes que ya tenía plan viejo. */
 async function generateMonthPlan() {
-  const btn = document.getElementById('btn-month-plan');
-  if (!confirm('¿Generar el plan del mes con IA? Usa tus fechas comerciales, ventas y métricas. Los días ya generados/aprobados no se tocan; los pendientes se replanifican.')) return;
-  btn.disabled = true;
-  toast('Armando el plan del mes… (puede tardar ~30 seg)');
+  const { cur, next } = plannableMonths();
+  const body = `
+    <p class="hint" style="margin-top:0;">La IA arma la rotación del mes con tus fechas comerciales, ventas reales, stock y métricas. Los días ya <b>generados o aprobados no se tocan</b>; se replanifican los pendientes.</p>
+    <div class="field">
+      <label>¿Qué mes querés planificar?</label>
+      <select class="input" id="plan-month">
+        <option value="${cur}">${monthName(cur)} — actual (re-planifica con la lógica nueva)</option>
+        <option value="${next}" selected>${monthName(next)} — próximo mes</option>
+      </select>
+    </div>
+    <div style="display:flex; gap:8px; justify-content:flex-end;">
+      <button class="btn-discard" id="plan-cancel">Cancelar</button>
+      <button class="btn-primary" id="plan-go">${icon('calendar')} Generar plan ${costTag('Gratis')}</button>
+    </div>`;
+  const overlay = showInfoModal('Plan del mes con IA', body);
+  overlay.querySelector('#plan-cancel').addEventListener('click', () => overlay.remove());
+  overlay.querySelector('#plan-go').addEventListener('click', async () => {
+    const month = overlay.querySelector('#plan-month').value;
+    const go = overlay.querySelector('#plan-go');
+    go.disabled = true; go.innerHTML = `${icon('refresh', 'spin')} Armando el plan… (~30 seg)`;
+    try {
+      const r = await api('/api/plan/generate', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ month }),
+      });
+      overlay.remove();
+      const mix = Object.entries(r.byPillar || {}).map(([k, v]) => `${k}: ${v}`).join(' · ');
+      toast(`Plan de ${monthName(r.month)} listo (${r.days} días). ${mix}`, 'ok');
+      // Re-sembrar y estirar la vista hasta el último día del mes planificado, para
+      // que un mes futuro (ej. agosto desde julio) quede visible sin recargar.
+      const [y, m] = r.month.split('-').map(Number);
+      const daysAhead = Math.max(21, Math.ceil((new Date(Date.UTC(y, m, 0)) - new Date()) / 86400000) + 1);
+      await api('/api/calendar/seed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ days: daysAhead }) }).catch(() => {});
+      setCalDays(Math.max(calendarViewDays, daysAhead));
+      reloadKeepScroll();
+    } catch (e) {
+      toast(`No se pudo generar el plan: ${e.message}`, 'err');
+      go.disabled = false; go.innerHTML = `${icon('calendar')} Generar plan`;
+    }
+  });
+}
+
+/**
+ * Actualiza en lote los borradores viejos (hechos con el código anterior) para que
+ * tomen la lógica actual: objetivo por pieza, control de calidad del copy, selección
+ * de producto por talles e imágenes didácticas. Nunca toca aprobados/publicados.
+ */
+async function updateStaleDrafts() {
+  let info;
+  try { info = await api('/api/regenerate-drafts/preview'); }
+  catch (e) { toast(`No pude revisar los borradores: ${e.message}`, 'err'); return; }
+
+  if (!info.total) { toast('No hay borradores pendientes para actualizar.'); return; }
+  const stale = info.stale || 0;
+  if (!stale) { toast('Tus borradores ya están con la lógica nueva.', 'ok'); return; }
+
+  const cost = (appCfg && appCfg.aiImages)
+    ? ` Con imágenes IA activas puede costar hasta US$ ${(stale * Number(appCfg.imageCostUsd || 0.04)).toFixed(2)}.`
+    : ' Es gratis (texto + plantillas).';
+  const ok = await confirmModal('Actualizar borradores viejos',
+    `Hay <b>${stale}</b> borrador(es) hechos con la versión anterior. Se vuelven a generar con la lógica nueva (objetivo, control de calidad del copy, selección por talles, imágenes que enseñan). Los <b>aprobados y publicados no se tocan</b>.${cost}`,
+    `Actualizar ${stale}`);
+  if (!ok) return;
+
+  toast(`Actualizando ${stale} borrador(es)… puede tardar.`);
   try {
-    const r = await api('/api/plan/generate', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-    const mix = Object.entries(r.byPillar || {}).map(([k, v]) => `${k}: ${v}`).join(' · ');
-    toast(`Plan de ${r.month} listo (${r.days} días). ${mix}`, 'ok');
-    // Re-sembrar el calendario hasta el ÚLTIMO día del mes planificado (si no, el default
-    // de 14-21 días dejaba el plan "cortado" a mitad de mes en el calendario visible).
-    const [y, m] = r.month.split('-').map(Number);
-    const lastDay = new Date(Date.UTC(y, m, 0));
-    const today = new Date();
-    const daysAhead = Math.max(21, Math.ceil((lastDay - today) / 86400000) + 1);
-    await api('/api/calendar/seed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ days: daysAhead }) }).catch(() => {});
-    calendarViewDays = Math.max(calendarViewDays, daysAhead);
+    const r = await api('/api/regenerate-drafts', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ scope: 'stale' }),
+    });
+    toast(`Listo: ${r.regenerated} actualizado(s)${r.failed ? `, ${r.failed} con error` : ''}.`, r.failed ? '' : 'ok');
     reloadKeepScroll();
   } catch (e) {
-    toast(`No se pudo generar el plan: ${e.message}`, 'err');
-  } finally {
-    btn.disabled = false;
+    toast(`No se pudo actualizar: ${e.message}`, 'err');
   }
 }
 

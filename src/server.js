@@ -474,6 +474,59 @@ app.post('/api/generate/:calendarId', wrap(async (req, res) => {
   res.json(assetRows[0]);
 }));
 
+/**
+ * Cuántos borradores conviene actualizar y por qué. 'stale' = piezas hechas con el
+ * código viejo (sin gen_model): no tienen objetivo, control de calidad ni la
+ * selección de producto por talles. Sólo cuenta borradores de hoy en adelante.
+ */
+app.get('/api/regenerate-drafts/preview', wrap(async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT
+       COUNT(*) FILTER (WHERE a.gen_model IS NULL)::int AS stale,
+       COUNT(*)::int AS total
+     FROM content_calendar c
+     JOIN LATERAL (SELECT * FROM generated_assets WHERE calendar_id = c.id ORDER BY id DESC LIMIT 1) a ON true
+     WHERE a.status = 'draft' AND c.scheduled_date >= CURRENT_DATE AND c.pillar != 'repost'`
+  );
+  res.json(rows[0]);
+}));
+
+/**
+ * Regenera EN LOTE los borradores con la lógica actual (objetivo, QA de copy,
+ * selección por talles, imágenes didácticas). Nunca toca aprobados/publicados.
+ * scope 'stale' (default) = sólo los del código viejo; 'all' = todos los borradores.
+ * El borrador anterior de cada slot se descarta para no acumular.
+ */
+app.post('/api/regenerate-drafts', wrap(async (req, res) => {
+  const scope = (req.body && req.body.scope) === 'all' ? 'all' : 'stale';
+  const { rows: slots } = await pool.query(
+    `SELECT c.* FROM content_calendar c
+     JOIN LATERAL (SELECT * FROM generated_assets WHERE calendar_id = c.id ORDER BY id DESC LIMIT 1) a ON true
+     WHERE a.status = 'draft' AND c.scheduled_date >= CURRENT_DATE AND c.pillar != 'repost'
+       ${scope === 'stale' ? 'AND a.gen_model IS NULL' : ''}
+     ORDER BY c.scheduled_date, c.id`
+  );
+
+  let regenerated = 0;
+  const failed = [];
+  for (const slot of slots) {
+    try {
+      // Descartamos el borrador viejo ANTES de rehacer: así el nuevo queda como
+      // única versión vigente y no se acumulan piezas huérfanas.
+      await pool.query(
+        `UPDATE generated_assets SET status = 'discarded', updated_at = now()
+         WHERE calendar_id = $1 AND status = 'draft'`, [slot.id]
+      );
+      await generateForSlot(slot);
+      regenerated += 1;
+    } catch (err) {
+      console.error(`[regenerate-drafts] Slot #${slot.id} falló:`, err.message);
+      failed.push({ id: slot.id, date: slot.scheduled_date, error: err.message });
+    }
+  }
+  res.json({ ok: true, regenerated, failed: failed.length, total: slots.length, errors: failed.slice(0, 5) });
+}));
+
 app.post('/api/assets/:assetId/approve', wrap(async (req, res) => {
   const id = intParam(req.params.assetId);
   if (!id) return res.status(400).json({ error: 'assetId inválido' });
