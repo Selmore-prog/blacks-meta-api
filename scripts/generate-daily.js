@@ -472,9 +472,9 @@ async function generateForSlot(slot, overrides = {}) {
   // El video del Reel NO se renderiza acá (ffmpeg es pesado). Lo completa
   // scripts/render-pending-reels.js corriendo en GitHub Actions.
   await pool.query(
-    `INSERT INTO generated_assets (calendar_id, product_id, caption, hashtags, cta, image_path, video_path, format, slides, status, template, story_teaser_path, est_cost_usd)
-     VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, 'draft', $9, $10, $11)`,
-    [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson, slides ? 'educativo' : template, storyTeaserPath, pieceCostUsd]
+    `INSERT INTO generated_assets (calendar_id, product_id, caption, hashtags, cta, image_path, video_path, format, slides, status, template, story_teaser_path, est_cost_usd, gen_model, qa_notes)
+     VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, 'draft', $9, $10, $11, $12, $13)`,
+    [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson, slides ? 'educativo' : template, storyTeaserPath, pieceCostUsd, copy.gen_model || null, copy.qa_notes || null]
   );
 
   await pool.query(`UPDATE content_calendar SET status = 'draft' WHERE id = $1`, [slot.id]);

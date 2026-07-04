@@ -510,6 +510,11 @@ function renderCard(item) {
   const costBadge = aid
     ? `<span class="cost-tag ${pieceCost > 0 ? 'paid' : 'free'}" title="Costo de generación de esta pieza">${pieceCost > 0 ? `US$ ${pieceCost.toFixed(2)}` : 'Gratis'}</span>`
     : '';
+  // Groq es el modelo de respaldo (calidad menor): conviene regenerar esos copys.
+  const modelBadge = (aid && item.gen_model === 'groq' && status === 'draft')
+    ? `<span class="badge qa-warn" title="Se generó con el modelo de respaldo (Gemini falló en ese momento). Si el texto no convence, regenerala.">respaldo</span>` : '';
+  const qaBadge = (aid && item.qa_notes && status === 'draft')
+    ? `<span class="badge qa-warn" title="${esc(item.qa_notes)}">revisar copy</span>` : '';
 
   // Mayorista / Minorista a simple vista.
   const commercialBadge = item.pillar === 'mayorista'
@@ -569,7 +574,7 @@ function renderCard(item) {
         ${commercialBadge}
         ${dateBadges}
         ${item.scheduled_time ? `<span class="badge time">${icon('clock')} ${esc(item.scheduled_time)} hs</span>` : ''}
-        ${autoBadge}${statusBadge}${costBadge}
+        ${autoBadge}${statusBadge}${costBadge}${modelBadge}${qaBadge}
       </div>
       ${caption}
       ${interaction}

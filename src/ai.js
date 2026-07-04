@@ -142,6 +142,62 @@ Escribí el copy siguiendo la voz de marca y las reglas. Devolvé SOLO un JSON v
 {"overlay": "...", "caption": "...", "hashtags": "...", "cta": "..."${carousel ? ', "slides": [{"title":"...","text":"..."}]' : ''}}`;
 }
 
+/* =========================================================================
+ * CONTROL DE CALIDAD DEL COPY (determinístico, gratis)
+ * Chequea lo que más obligaba a editar a mano. Si falla, se regenera UNA vez
+ * pasándole los problemas como feedback; si vuelve a fallar, gana la versión
+ * con menos problemas y queda registrado en qa_notes.
+ * ========================================================================= */
+
+// Frases que delatan copy de IA + lunfardo prohibido por la voz de marca.
+const BANNED_PATTERNS = [
+  { re: /descubr[ií]/i, label: 'usa "descubrí/descubre" (frase de IA)' },
+  { re: /siguiente nivel/i, label: 'usa "al siguiente nivel" (frase de IA)' },
+  { re: /no te lo pierdas/i, label: 'usa "no te lo pierdas" (frase de IA)' },
+  { re: /en el mundo de/i, label: 'usa "en el mundo de" (frase de IA)' },
+  { re: /sum[eé]rge?te|sumergite/i, label: 'usa "sumérgete" (frase de IA)' },
+  { re: /potenci[aá] tu experiencia|viv[ií] la experiencia|vive la experiencia/i, label: 'frase de experiencia genérica (IA)' },
+  { re: /calidad premium excepcional/i, label: 'usa "calidad premium excepcional"' },
+  { re: /!{2,}/, label: 'cadena de signos de exclamación' },
+  { re: /\blabur(o|a|ás|as|ante|antes)\b/i, label: 'lunfardo ("laburo/laburante")' },
+  { re: /\bbanca(n|r|mos)?\b/i, label: 'lunfardo ("banca/bancan")' },
+  { re: /\bposta\b/i, label: 'lunfardo ("posta")' },
+  { re: /\bcanchero/i, label: 'lunfardo ("canchero")' },
+  { re: /\bpifi/i, label: 'lunfardo ("pifiar")' },
+  { re: /aguanta los trapos/i, label: 'lunfardo ("aguanta los trapos")' },
+];
+
+/** Revisa un copy generado y devuelve la lista de problemas (vacía = pasa). */
+function lintCopy(copy, { format = 'feed', postType = 'feed' } = {}) {
+  const problems = [];
+  const all = [copy.overlay, copy.caption, copy.cta, ...(copy.slides || []).map((s) => `${s.title} ${s.text}`)]
+    .filter(Boolean).join('\n');
+
+  for (const { re, label } of BANNED_PATTERNS) {
+    if (re.test(all)) problems.push(label);
+  }
+
+  const overlayWords = String(copy.overlay || '').trim().split(/\s+/).filter(Boolean).length;
+  if (overlayWords > 10) problems.push(`overlay muy largo (${overlayWords} palabras, máximo ~7)`);
+
+  const capLen = String(copy.caption || '').length;
+  if (format === 'story' && postType !== 'reel' && capLen > 220) {
+    problems.push(`caption de historia muy largo (${capLen} caracteres, va 1 línea corta)`);
+  }
+  if (format === 'feed' && capLen > 500) problems.push(`caption muy largo (${capLen} caracteres)`);
+  if (!String(copy.caption || '').trim()) problems.push('caption vacío');
+
+  const ov = String(copy.overlay || '').trim().toLowerCase();
+  if (ov && ov.length > 12 && String(copy.caption || '').toLowerCase().includes(ov)) {
+    problems.push('el caption repite textual el overlay');
+  }
+
+  const tags = String(copy.hashtags || '').match(/#[^\s#]+/g) || [];
+  if (tags.length > 8) problems.push(`demasiados hashtags (${tags.length}, van 4-6)`);
+
+  return problems;
+}
+
 function parseCopyJson(text) {
   const cleaned = String(text || '').replace(/```json|```/g, '').trim();
   const match = cleaned.match(/\{[\s\S]*\}/);
@@ -299,11 +355,12 @@ async function groqCopy(promptUser, wantSlides = false) {
  * API PUBLICA
  * ========================================================================= */
 
-/**
- * Genera { overlay, caption, hashtags, cta }. Intenta Gemini y cae a Groq.
- */
-async function generateCopy(opts) {
-  const promptUser = buildCopyPrompt(opts);
+/** Un intento de copy. `feedback`: problemas de la versión anterior para corregir. */
+async function generateCopyOnce(opts, feedback = null) {
+  let promptUser = buildCopyPrompt(opts);
+  if (feedback && feedback.length) {
+    promptUser += `\n\nIMPORTANTE: una versión anterior de este copy se rechazó por estos problemas. Corregilos TODOS:\n${feedback.map((p) => `- ${p}`).join('\n')}`;
+  }
 
   if (preferGemini()) {
     try {
@@ -335,12 +392,42 @@ async function generateCopy(opts) {
       if (opts.carousel && (!Array.isArray(parsed.slides) || parsed.slides.length < 2)) {
         throw new Error('Gemini no devolvió slides para el carrusel');
       }
-      return sanitizeCopy(parsed);
+      return { copy: sanitizeCopy(parsed), model: 'gemini' };
     } catch (err) {
       console.warn(`[ai] Gemini copy falló, caigo a Groq: ${err.message}`);
     }
   }
-  return sanitizeCopy(await groqCopy(promptUser, Boolean(opts.carousel)));
+  return { copy: sanitizeCopy(await groqCopy(promptUser, Boolean(opts.carousel))), model: 'groq' };
+}
+
+/**
+ * Genera { overlay, caption, hashtags, cta } con control de calidad: si el copy
+ * rompe reglas de la voz (lunfardo, frases de IA, largos), se regenera UNA vez
+ * con los problemas como feedback. Devuelve además:
+ *  - gen_model: 'gemini' | 'groq' (con qué modelo salió — groq es el respaldo)
+ *  - qa_notes: problemas que quedaron sin resolver (null = pasó limpio)
+ */
+async function generateCopy(opts) {
+  let attempt = await generateCopyOnce(opts);
+  let problems = lintCopy(attempt.copy, opts);
+
+  if (problems.length) {
+    console.warn(`[ai] Copy rechazado por QA (${problems.join(' · ')}). Regenero con feedback.`);
+    try {
+      const retry = await generateCopyOnce(opts, problems);
+      const retryProblems = lintCopy(retry.copy, opts);
+      // Gana la versión con menos problemas (el reintento suele salir limpio).
+      if (retryProblems.length <= problems.length) { attempt = retry; problems = retryProblems; }
+    } catch (err) {
+      console.warn(`[ai] El reintento de copy falló (queda la 1a versión): ${err.message}`);
+    }
+  }
+
+  return {
+    ...attempt.copy,
+    gen_model: attempt.model,
+    qa_notes: problems.length ? problems.join(' · ') : null,
+  };
 }
 
 /**
@@ -609,5 +696,6 @@ module.exports = {
   sanitizeText,
   hasGemini,
   currentImagePriceUsd,
+  lintCopy,
   VOICE_CORE,
 };
