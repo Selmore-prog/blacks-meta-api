@@ -339,6 +339,7 @@ async function generateForSlot(slot, overrides = {}) {
     pillarDetail,
     postType: slot.post_type,
     format,
+    objective: slot.objective || null,
     product,
     visualProduct: product ? null : visualProduct,
     brandProfile,

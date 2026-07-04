@@ -81,7 +81,15 @@ function seasonContext(date = new Date()) {
   return `Estamos en ${estacion} en Argentina — ${nota} Si encaja, mencioná el clima/temporada de forma natural (sin forzar).`;
 }
 
-function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visualProduct, brandProfile, interactionHint, carousel, slideCount = 3, wholesale, commercialContext, topCaptions }) {
+// Qué busca cada pieza: baja del plan mensual al copy para que el CTA tenga sentido.
+const OBJECTIVE_GUIDE = {
+  venta: 'OBJETIVO: VENDER. Cerrá con un motivo concreto para comprar ahora (beneficio real, cuotas, envío, descuento por transferencia). CTA de compra directo.',
+  trafico: 'OBJETIVO: LLEVAR TRÁFICO A LA TIENDA. Despertá interés y mandá a ver el producto/catálogo en la web. El CTA apunta al sitio, no a "comprá ya".',
+  confianza: 'OBJETIVO: CONSTRUIR CONFIANZA. Aportá valor real (un dato útil, prueba social, historia) SIN vender agresivo. CTA suave o ninguno.',
+  comunidad: 'OBJETIVO: GENERAR CONVERSACIÓN. Terminá con una pregunta fácil de responder o una invitación a votar/comentar. El CTA es responder, no comprar.',
+};
+
+function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visualProduct, brandProfile, interactionHint, carousel, slideCount = 3, wholesale, commercialContext, topCaptions, objective }) {
   let productInfo = product
     ? `Producto a destacar: ${product.name}${product.brand ? ` (marca ${product.brand})` : ''}${product.price ? `, precio $${Number(product.price).toLocaleString('es-AR')}` : ''}${typeof product.stock === 'number' ? `, stock ${product.stock}` : ''}.`
     : 'No hay un producto puntual; el foco es la marca/línea en general.';
@@ -130,7 +138,7 @@ function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visu
 
   return `${formatGuidance(postType, format)}
 
-Pilar de contenido: ${pillar}
+Pilar de contenido: ${pillar}${OBJECTIVE_GUIDE[objective] ? `\n${OBJECTIVE_GUIDE[objective]}` : ''}
 Ángulo/detalle: ${pillarDetail || 'sin detalle adicional'}
 ${productInfo}${wholesaleInfo}
 Temporada: ${seasonContext()}${commercial}${winners}${interaction}${voice}

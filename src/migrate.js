@@ -173,6 +173,8 @@ ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS story_teaser_path TEXT; --
 ALTER TABLE style_references ADD COLUMN IF NOT EXISTS variant TEXT; -- logos: 'dark' (tinta oscura, va en fondo claro) | 'light' (tinta clara, va en fondo oscuro)
 -- Costo real de cada pieza en imágenes IA (Ronda 37). 0 = se generó gratis.
 ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS est_cost_usd NUMERIC DEFAULT 0;
+-- Objetivo de cada pieza (Ronda 40): venta | trafico | confianza | comunidad.
+ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS objective TEXT;
 -- QA del copy (Ronda 38): con qué modelo salió y qué problemas quedaron (null = limpio).
 ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS gen_model TEXT;
 ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS qa_notes TEXT;

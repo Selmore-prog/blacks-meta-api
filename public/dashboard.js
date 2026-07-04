@@ -571,6 +571,7 @@ function renderCard(item) {
         <span class="badge type">${typeLabel(item)}</span>
         ${carouselBadge(item)}
         <span class="badge pillar">${esc(item.pillar)}</span>
+        ${item.objective ? `<span class="badge objective" title="Qué busca esta pieza">${esc(item.objective)}</span>` : ''}
         ${commercialBadge}
         ${dateBadges}
         ${item.scheduled_time ? `<span class="badge time">${icon('clock')} ${esc(item.scheduled_time)} hs</span>` : ''}

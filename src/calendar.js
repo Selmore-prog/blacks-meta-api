@@ -54,10 +54,11 @@ async function seedCalendar(daysAhead = 14, startDate = new Date()) {
     const status = slot.pillar === 'repost' ? 'skipped' : 'pending';
     const origin = planSlot ? 'plan' : 'rotation';
 
+    const { defaultObjective } = require('./planner');
     const result = await pool.query(
       `INSERT INTO content_calendar
-         (scheduled_date, platform, post_type, format, pillar, pillar_detail, automation_level, interaction_hint, scheduled_time, theme_title, carousel, status, origin)
-       VALUES ($1, 'instagram', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+         (scheduled_date, platform, post_type, format, pillar, pillar_detail, automation_level, interaction_hint, scheduled_time, theme_title, carousel, status, origin, objective)
+       VALUES ($1, 'instagram', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
        ON CONFLICT (scheduled_date, platform, post_type) DO UPDATE SET
          format = EXCLUDED.format,
          pillar = EXCLUDED.pillar,
@@ -68,12 +69,14 @@ async function seedCalendar(daysAhead = 14, startDate = new Date()) {
          theme_title = EXCLUDED.theme_title,
          carousel = EXCLUDED.carousel,
          origin = EXCLUDED.origin,
-         status = EXCLUDED.status
+         status = EXCLUDED.status,
+         objective = EXCLUDED.objective
        WHERE content_calendar.status IN ('pending', 'skipped')
        RETURNING id`,
       [dateStr, slot.post_type, slot.format, slot.pillar, slot.pillar_detail,
        slot.automation_level || 'auto', slot.interaction_hint || null, slot.scheduled_time || null,
-       slot.theme_title || null, Boolean(slot.carousel), status, origin]
+       slot.theme_title || null, Boolean(slot.carousel), status, origin,
+       slot.objective || defaultObjective(slot.pillar)]
     );
 
     if (result.rows[0]) inserted.push(result.rows[0].id);

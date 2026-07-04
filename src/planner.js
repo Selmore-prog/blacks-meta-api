@@ -11,6 +11,15 @@ const { getWholesaleSettings, wholesaleContext } = require('./wholesale');
 
 const PILLARS = ['producto', 'promo', 'educativo', 'marca', 'mayorista', 'ugc', 'engagement', 'repost'];
 const POST_TYPES = ['feed', 'story', 'reel'];
+const OBJECTIVES = ['venta', 'trafico', 'confianza', 'comunidad'];
+
+/** Objetivo por defecto según pilar (para planes viejos y la rotación fija). */
+function defaultObjective(pillar) {
+  if (['producto', 'promo', 'mayorista'].includes(pillar)) return 'venta';
+  if (pillar === 'engagement') return 'comunidad';
+  if (pillar === 'repost') return null;
+  return 'confianza'; // educativo / marca / ugc
+}
 
 function monthString(date = new Date()) {
   return date.toISOString().slice(0, 7); // YYYY-MM
@@ -92,10 +101,13 @@ ${insightsTxt}
 ${ctx.wholesale ? `\nCONDICIONES MAYORISTAS: ${ctx.wholesale}` : ''}
 
 REGLAS DEL PLAN (obligatorias):
-- UN slot por día, TODOS los días del mes (del 1 al ${nDays}).
+- Asigná TODOS los días del mes (del 1 al ${nDays}), pero NO todos llevan publicación: cuando un día no tenga nada valioso que decir, usá pillar 'repost' (descanso). CALIDAD SOBRE CANTIDAD: mejor 4-5 piezas fuertes por semana que 7 de relleno. Mínimo 1 descanso por semana; hasta 2-3 si el material del mes es flojo.
+- Cada pieza tiene que justificar su lugar: preguntate "¿por qué alguien pararía a mirar esto?". Si la respuesta es débil, ese día es descanso.
+- objective ∈ {${OBJECTIVES.join(', ')}}: qué busca la pieza. venta = empujar compra ahora; trafico = llevar gente a la tienda; confianza = valor/prueba social sin vender; comunidad = conversación. Distribuí: ni todo venta (cansa) ni todo confianza (no convierte).
 - pillar ∈ {${PILLARS.join(', ')}} · post_type ∈ {feed, story, reel} · format: 'feed' para post_type feed, 'story' para story/reel.
-- Mezcla semanal aproximada: 2-3 feed, 1-2 reel, 2-3 story. Un día por semana puede ser 'repost' (descanso).
+- Mezcla semanal aproximada: 2-3 feed, 1-2 reel, 2-3 story.
 - Pilares por semana: 2 producto, 1 promo, 1 educativo, 1 de marca o ugc, 1 mayorista cada 2 semanas, 1 engagement como máximo.
+- En piezas de 'producto'/'promo', nombrá SOLO productos de la lista de arriba (son los que tienen stock y curva de talles reales). No inventes productos.
 - En los días de fechas comerciales de prioridad >= 8, poné 'promo' con pillar_detail referido a esa fecha. El día ANTERIOR a una fecha de prioridad 10, anticipala.
 - automation_level: 'auto' siempre, salvo engagement con encuesta -> 'semi' (máximo 1 'semi' por semana, con interaction_hint explicando la encuesta).
 - scheduled_time entre '11:00' y '18:00'.${ctx.bestHours && ctx.bestHours.length
@@ -105,7 +117,7 @@ REGLAS DEL PLAN (obligatorias):
 - pillar_detail: concreto y accionable en español argentino profesional, sin lunfardo (qué producto/tema/ángulo). theme_title: título corto del día.
 
 Devolvé SOLO este JSON:
-{"days":[{"date":"${monthStr}-01","post_type":"...","format":"...","pillar":"...","pillar_detail":"...","theme_title":"...","automation_level":"auto","interaction_hint":null,"scheduled_time":"HH:MM","carousel":false}, ...]}`;
+{"days":[{"date":"${monthStr}-01","post_type":"...","format":"...","pillar":"...","pillar_detail":"...","theme_title":"...","objective":"venta","automation_level":"auto","interaction_hint":null,"scheduled_time":"HH:MM","carousel":false}, ...]}`;
 }
 
 /** Valida y normaliza lo que devolvió la IA. Descarta días inválidos. */
@@ -135,6 +147,7 @@ function validatePlan(days, monthStr) {
       pillar,
       pillar_detail: d.pillar_detail ? String(d.pillar_detail).slice(0, 300) : null,
       theme_title: d.theme_title ? String(d.theme_title).slice(0, 120) : null,
+      objective: OBJECTIVES.includes(d.objective) ? d.objective : defaultObjective(pillar),
       automation_level: d.automation_level === 'semi' ? 'semi' : 'auto',
       interaction_hint: d.interaction_hint ? String(d.interaction_hint).slice(0, 300) : null,
       scheduled_time: time,
@@ -217,4 +230,4 @@ async function nextPlannableMonth(now = new Date()) {
   return monthString(next);
 }
 
-module.exports = { generateMonthlyPlan, getPlan, getPlanMap, nextPlannableMonth, validatePlan, buildPlanPrompt };
+module.exports = { generateMonthlyPlan, getPlan, getPlanMap, nextPlannableMonth, validatePlan, buildPlanPrompt, defaultObjective };

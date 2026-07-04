@@ -310,6 +310,7 @@ app.patch('/api/calendar/:calendarId', wrap(async (req, res) => {
     theme_title: textOrNull(body.theme_title),
     status: textOrNull(body.status),
     carousel: boolOrNull(body.carousel),
+    objective: textOrNull(body.objective),
   };
 
   assertDate(values.scheduled_date);
@@ -318,6 +319,7 @@ app.patch('/api/calendar/:calendarId', wrap(async (req, res) => {
   assertOneOf('format', values.format, ['feed', 'story']);
   assertOneOf('automation_level', values.automation_level, ['auto', 'semi']);
   assertOneOf('status', values.status, ['pending', 'draft', 'approved', 'published', 'skipped']);
+  assertOneOf('objective', values.objective, ['venta', 'trafico', 'confianza', 'comunidad']);
 
   const allowed = Object.keys(values).filter((key) => values[key] !== undefined);
   if (!allowed.length) return res.status(400).json({ error: 'No hay campos para actualizar.' });
