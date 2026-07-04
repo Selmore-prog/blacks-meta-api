@@ -117,16 +117,42 @@ function parseSlides(s) {
 }
 
 /* ============ status chips ============ */
+let appCfg = null; // config del server (IA activa, costo por imagen, etc.)
+
+/**
+ * Costo de generar UNA pieza: el texto siempre es gratis (tier free); si las
+ * imágenes IA están activadas, puede sumar hasta 1 imagen (~US$0.04).
+ */
+function genCostLabel() {
+  if (!appCfg || !appCfg.aiImages) return 'Gratis';
+  const usd = Number(appCfg.imageCostUsd || 0.04).toFixed(2).replace('.', ',');
+  return `hasta US$ ${usd}`;
+}
+
+/** Etiqueta chica de costo para poner dentro de un botón que genera algo. */
+function costTag(label) {
+  const free = /gratis/i.test(label);
+  return `<span class="cost-tag ${free ? 'free' : 'paid'}">${label}</span>`;
+}
+
 async function loadConfig() {
   try {
     const c = await api('/api/config');
+    appCfg = c;
     const chips = document.getElementById('status-chips');
     const ai = c.geminiReady ? `<span class="chip ok"><span class="dot"></span>IA: Gemini</span>`
       : `<span class="chip warn"><span class="dot"></span>IA: Groq (cargá Gemini)</span>`;
-    const img = c.aiImages ? `<span class="chip ok"><span class="dot"></span>Imágenes IA</span>` : '';
+    const img = c.aiImages ? `<span class="chip ok"><span class="dot"></span>Imágenes IA · US$ ${Number(c.imageCostUsd || 0).toFixed(2)} c/u</span>`
+      : `<span class="chip ok"><span class="dot"></span>Generación gratis</span>`;
     const meta = c.metaReady ? `<span class="chip ok"><span class="dot"></span>Meta conectado</span>`
       : `<span class="chip warn"><span class="dot"></span>Meta sin conectar</span>`;
     chips.innerHTML = ai + img + meta;
+    // Costos en los botones que generan: plan y estilo son texto (gratis siempre);
+    // "Generar hoy" depende de si las imágenes IA están activadas.
+    const tagInto = (el, label) => { if (el && !el.querySelector('.cost-tag')) el.insertAdjacentHTML('beforeend', costTag(label)); };
+    tagInto(document.getElementById('btn-month-plan'), 'Gratis');
+    tagInto(document.getElementById('btn-generate-today'), genCostLabel() === 'Gratis' ? 'Gratis' : `${genCostLabel()} c/u`);
+    tagInto(document.getElementById('analyze-btn'), 'Gratis');
   } catch (e) { /* silencioso */ }
 }
 
@@ -479,6 +505,11 @@ function renderCard(item) {
     ? `<span class="badge semi"><span class="idot amber"></span>Semi · publicás vos</span>`
     : `<span class="badge auto"><span class="idot green"></span>Automática</span>`);
   const statusBadge = aid ? `<span class="badge status-${item.asset_status || item.status}">${item.asset_status || item.status}</span>` : '';
+  // Qué costó generar ESTA pieza (imágenes IA). 0 = salió gratis (plantilla/copy free tier).
+  const pieceCost = Number(item.est_cost_usd || 0);
+  const costBadge = aid
+    ? `<span class="cost-tag ${pieceCost > 0 ? 'paid' : 'free'}" title="Costo de generación de esta pieza">${pieceCost > 0 ? `US$ ${pieceCost.toFixed(2)}` : 'Gratis'}</span>`
+    : '';
 
   // Mayorista / Minorista a simple vista.
   const commercialBadge = item.pillar === 'mayorista'
@@ -502,7 +533,7 @@ function renderCard(item) {
   if (isRepost) {
     actions = `<span style="color:var(--muted); font-size:13px;">Día de descanso / repost — sin generación automática.</span>${planBtn}`;
   } else if (!aid) {
-    actions = `<button class="btn-primary" data-act="generate" data-id="${item.id}">${icon('bolt')} Generar pieza</button>
+    actions = `<button class="btn-primary" data-act="generate" data-id="${item.id}">${icon('bolt')} Generar pieza ${costTag(genCostLabel())}</button>
       <button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Con otro tema</button>${planBtn}`;
   } else if (status === 'draft') {
     actions = `<button class="btn-approve" data-act="approve" data-id="${aid}">${icon('check')} Aprobar</button>
@@ -538,7 +569,7 @@ function renderCard(item) {
         ${commercialBadge}
         ${dateBadges}
         ${item.scheduled_time ? `<span class="badge time">${icon('clock')} ${esc(item.scheduled_time)} hs</span>` : ''}
-        ${autoBadge}${statusBadge}
+        ${autoBadge}${statusBadge}${costBadge}
       </div>
       ${caption}
       ${interaction}
@@ -714,7 +745,7 @@ function openRegen(item) {
     </div>
     <div style="display:flex; gap:8px; justify-content:flex-end;">
       <button class="btn-discard" id="regen-cancel">Cancelar</button>
-      <button class="btn-primary" id="regen-go">${icon('wand')} Regenerar con IA</button>
+      <button class="btn-primary" id="regen-go">${icon('wand')} Regenerar con IA ${costTag(genCostLabel())}</button>
     </div>`;
   const overlay = showInfoModal('Regenerar pieza', body);
   overlay.querySelectorAll('.chip-suggest').forEach((c) =>

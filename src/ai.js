@@ -226,19 +226,24 @@ async function brandStyleForImages() {
   return brandStyleCache;
 }
 
-/** Registra cada imagen generada con su costo estimado (best-effort, nunca rompe). */
+/** Precio estimado por imagen del modelo configurado (para mostrar ANTES de generar). */
+function currentImagePriceUsd() {
+  return IMAGE_PRICE_USD[config.gemini.imageModel] ?? 0.05;
+}
+
+/** Registra cada imagen generada con su costo estimado y lo devuelve (best-effort, nunca rompe). */
 async function logImageUsage(purpose) {
+  const cost = currentImagePriceUsd();
   try {
     const pool = require('./db');
-    const model = config.gemini.imageModel;
-    const cost = IMAGE_PRICE_USD[model] ?? 0.05;
     await pool.query(
       `INSERT INTO ai_usage (kind, model, purpose, est_cost_usd) VALUES ('image', $1, $2, $3)`,
-      [model, purpose, cost]
+      [config.gemini.imageModel, purpose, cost]
     );
   } catch (err) {
     console.warn('[ai] No pude registrar el consumo de imagen:', err.message);
   }
+  return cost;
 }
 
 function textFromResponse(data) {
@@ -423,7 +428,7 @@ COMPOSICIÓN PARA DISEÑO:
       generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
     });
     const img = inlineImageFromResponse(data);
-    if (img) await logImageUsage('fondo');
+    if (img) img.costUsd = await logImageUsage('fondo');
     return img;
   } catch (err) {
     if (err.status === 429) { markImageQuotaHit(); console.warn(`[ai] Cuota de imágenes agotada (429): pauso ${IMAGE_QUOTA_COOLDOWN_MS / 60000} min y sigo con plantilla mientras tanto.`); }
@@ -472,7 +477,7 @@ COMPOSICIÓN PARA DISEÑO:
       generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
     });
     const img = inlineImageFromResponse(data);
-    if (img) await logImageUsage('escena de producto');
+    if (img) img.costUsd = await logImageUsage('escena de producto');
     return img;
   } catch (err) {
     if (err.status === 429) { markImageQuotaHit(); console.warn(`[ai] Cuota de imágenes agotada (429): pauso ${IMAGE_QUOTA_COOLDOWN_MS / 60000} min y sigo con la foto del producto mientras tanto.`); }
@@ -603,5 +608,6 @@ module.exports = {
   buildVideoPrompt,
   sanitizeText,
   hasGemini,
+  currentImagePriceUsd,
   VOICE_CORE,
 };

@@ -171,6 +171,8 @@ ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS origin TEXT DEFAULT 'rotat
 ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS template TEXT; -- plantilla visual usada (fullbleed|minimal|promo|educativo|mayorista)
 ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS story_teaser_path TEXT; -- historia 9:16 de refuerzo pre-renderizada (se publica al salir el feed)
 ALTER TABLE style_references ADD COLUMN IF NOT EXISTS variant TEXT; -- logos: 'dark' (tinta oscura, va en fondo claro) | 'light' (tinta clara, va en fondo oscuro)
+-- Costo real de cada pieza en imágenes IA (Ronda 37). 0 = se generó gratis.
+ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS est_cost_usd NUMERIC DEFAULT 0;
 -- Curva de talles (Ronda 36): para no protagonizar productos con stock en un solo talle.
 ALTER TABLE products_cache ADD COLUMN IF NOT EXISTS sizes_total INTEGER;    -- variantes/talles del producto
 ALTER TABLE products_cache ADD COLUMN IF NOT EXISTS sizes_in_stock INTEGER; -- variantes/talles con stock

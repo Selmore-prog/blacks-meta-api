@@ -407,21 +407,29 @@ async function renderPostBuffer(options) {
   const { w, h } = DIMS[format];
   const outFile = options.filename || `${format}-${Date.now()}-${Math.floor(Math.random() * 1000)}.jpg`;
 
-  // Imagen con IA opcional (no rompe si falla).
+  // Imagen con IA opcional (no rompe si falla). costUsd acumula lo gastado en esta pieza.
   let bgImageUrl = options.bgImageUrl || null;
   let productImageUrl = options.productImageUrl || null;
+  let costUsd = 0;
 
   // 1) Si hay producto, intentamos meterlo en una escena profesional generada con IA.
   if (!bgImageUrl && options.useAiProductScene && productImageUrl) {
     const scene = await generateProductScene({
       productImageUrl, productName: options.overlayTitle, theme: options.bgTheme, format,
     });
-    if (scene) { bgImageUrl = `data:${scene.mimeType};base64,${scene.buffer.toString('base64')}`; productImageUrl = null; }
+    if (scene) {
+      bgImageUrl = `data:${scene.mimeType};base64,${scene.buffer.toString('base64')}`;
+      productImageUrl = null;
+      costUsd += scene.costUsd || 0;
+    }
   }
   // 2) Si no hay producto (marca/lifestyle), generamos un fondo temático.
   if (!bgImageUrl && options.useAiBackground) {
     const bg = await generateBackground({ theme: options.bgTheme || options.overlayTitle, format });
-    if (bg) bgImageUrl = `data:${bg.mimeType};base64,${bg.buffer.toString('base64')}`;
+    if (bg) {
+      bgImageUrl = `data:${bg.mimeType};base64,${bg.buffer.toString('base64')}`;
+      costUsd += bg.costUsd || 0;
+    }
   }
 
   const html = buildHtml({ ...options, format, bgImageUrl, productImageUrl });
@@ -456,7 +464,7 @@ async function renderPostBuffer(options) {
   }
 
   const url = await uploadAsset({ buffer, filename: outFile, contentType: 'image/jpeg' });
-  return { url, buffer };
+  return { url, buffer, costUsd };
 }
 
 async function renderPostImage(options) {

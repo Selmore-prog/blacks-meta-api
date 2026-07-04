@@ -362,6 +362,7 @@ async function generateForSlot(slot, overrides = {}) {
 
   let imagePath;
   let slidesJson = null;
+  let pieceCostUsd = 0; // lo que costó ESTA pieza en imágenes IA (0 = gratis)
 
   const isStepCarousel = isCarousel && ['educativo', 'mayorista'].includes(slot.pillar);
   const slides = isCarousel && Array.isArray(copy.slides) && copy.slides.length >= 2
@@ -382,7 +383,7 @@ async function generateForSlot(slot, overrides = {}) {
       const img = isStepCarousel
         ? (i === 0 ? visualImageUrl : null) // pasos limpios, foto sólo en la portada
         : (imgs.length ? imgs[i % imgs.length] : visualImageUrl);
-      const { url } = await renderPostBuffer({
+      const { url, costUsd } = await renderPostBuffer({
         format,
         template: 'educativo',
         overlayTitle: slides[i].title || overlayTitle,
@@ -397,11 +398,12 @@ async function generateForSlot(slot, overrides = {}) {
         bgTheme: pillarDetail || slot.theme_title,
       });
       urls.push(url);
+      pieceCostUsd += costUsd || 0;
     }
 
     // Slide final: la guía de talles REAL del producto (ya viene diseñada con la marca).
     if (sizeChart) {
-      const { url } = await renderPostBuffer({
+      const { url, costUsd } = await renderPostBuffer({
         format,
         template: 'fullbleed',
         overlayTitle: null,
@@ -411,12 +413,13 @@ async function generateForSlot(slot, overrides = {}) {
         bgTheme: 'guía de talles',
       });
       urls.push(url);
+      pieceCostUsd += costUsd || 0;
     }
 
     imagePath = urls[0];
     slidesJson = JSON.stringify(urls);
   } else {
-    const { url } = await renderPostBuffer({
+    const { url, costUsd } = await renderPostBuffer({
       format,
       template,
       overlayTitle,
@@ -439,6 +442,7 @@ async function generateForSlot(slot, overrides = {}) {
       interactionLabel: interactionChip(slot),
     });
     imagePath = url;
+    pieceCostUsd += costUsd || 0;
   }
 
   // Historia de refuerzo (9:16) para posts de FEED: se pre-renderiza acá (donde hay
@@ -446,7 +450,7 @@ async function generateForSlot(slot, overrides = {}) {
   let storyTeaserPath = null;
   if (config.meta.storyBoost && slot.post_type === 'feed' && slot.pillar !== 'repost') {
     try {
-      const { url } = await renderPostBuffer({
+      const { url, costUsd } = await renderPostBuffer({
         format: 'story',
         template: slides ? 'educativo' : template,
         overlayTitle,
@@ -459,6 +463,7 @@ async function generateForSlot(slot, overrides = {}) {
         bgTheme: pillarDetail || slot.theme_title,
       });
       storyTeaserPath = url;
+      pieceCostUsd += costUsd || 0;
     } catch (err) {
       console.warn(`[generate-daily] No pude renderizar la historia de refuerzo (sigo sin ella): ${err.message}`);
     }
@@ -467,9 +472,9 @@ async function generateForSlot(slot, overrides = {}) {
   // El video del Reel NO se renderiza acá (ffmpeg es pesado). Lo completa
   // scripts/render-pending-reels.js corriendo en GitHub Actions.
   await pool.query(
-    `INSERT INTO generated_assets (calendar_id, product_id, caption, hashtags, cta, image_path, video_path, format, slides, status, template, story_teaser_path)
-     VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, 'draft', $9, $10)`,
-    [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson, slides ? 'educativo' : template, storyTeaserPath]
+    `INSERT INTO generated_assets (calendar_id, product_id, caption, hashtags, cta, image_path, video_path, format, slides, status, template, story_teaser_path, est_cost_usd)
+     VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, 'draft', $9, $10, $11)`,
+    [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson, slides ? 'educativo' : template, storyTeaserPath, pieceCostUsd]
   );
 
   await pool.query(`UPDATE content_calendar SET status = 'draft' WHERE id = $1`, [slot.id]);

@@ -143,9 +143,13 @@ app.get(['/health', '/api/health'], wrap(async (req, res) => {
 
 // --- Config para el panel (qué está activo) ---
 app.get('/api/config', (req, res) => {
+  const { currentImagePriceUsd } = require('./ai');
   res.json({
     ai: hasGemini() ? 'gemini' : (config.groq.apiKey ? 'groq' : 'none'),
     aiImages: config.ai.useAiImages,
+    // Precio estimado por imagen IA del modelo configurado: el panel lo muestra
+    // ANTES de generar. El copy/plan es gratis (tier free de Gemini/Groq).
+    imageCostUsd: currentImagePriceUsd(),
     geminiReady: hasGemini(),
     autoPublishPillars: config.meta.autoPublishPillars,
     metaReady: Boolean(config.meta.igUserId && config.meta.pageAccessToken),
@@ -212,7 +216,7 @@ app.get('/api/calendar', wrap(async (req, res) => {
     `SELECT c.*,
             a.id as asset_id, a.caption, a.hashtags, a.cta, a.image_path, a.video_path,
             a.meta_post_id, a.status as asset_status, a.format as asset_format, a.slides,
-            a.edited_video_path, a.edit_status, a.voiceover_path,
+            a.edited_video_path, a.edit_status, a.voiceover_path, a.est_cost_usd,
             p.name as product_name, p.image_url as product_image_url, p.price as product_price, p.stock as product_stock,
             COALESCE(cd.events, '[]'::json) AS commercial_dates
      FROM content_calendar c
