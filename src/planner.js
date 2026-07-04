@@ -32,9 +32,12 @@ async function gatherContext(monthStr) {
        WHERE event_date BETWEEN $1 AND $2 ORDER BY priority DESC, event_date`,
       [from, to]
     ),
+    // Sólo productos "publicables" (curva de talles sana, stock razonable): el plan
+    // no debe proponer productos que después el generador va a descartar.
     pool.query(
       `SELECT name, brand, category, sales_30d, stock FROM products_cache
-       WHERE stock > 0 AND price > 0 ORDER BY sales_30d DESC NULLS LAST LIMIT 8`
+       WHERE ${require('./productScore').eligibleSQL()}
+       ORDER BY sales_30d DESC NULLS LAST LIMIT 8`
     ),
     analyzePerformance().catch(() => ({ pillars: [], recommendation: '' })),
     getWholesaleSettings().catch(() => null),

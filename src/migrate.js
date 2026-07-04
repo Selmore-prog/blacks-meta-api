@@ -171,11 +171,42 @@ ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS origin TEXT DEFAULT 'rotat
 ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS template TEXT; -- plantilla visual usada (fullbleed|minimal|promo|educativo|mayorista)
 ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS story_teaser_path TEXT; -- historia 9:16 de refuerzo pre-renderizada (se publica al salir el feed)
 ALTER TABLE style_references ADD COLUMN IF NOT EXISTS variant TEXT; -- logos: 'dark' (tinta oscura, va en fondo claro) | 'light' (tinta clara, va en fondo oscuro)
+-- Curva de talles (Ronda 36): para no protagonizar productos con stock en un solo talle.
+ALTER TABLE products_cache ADD COLUMN IF NOT EXISTS sizes_total INTEGER;    -- variantes/talles del producto
+ALTER TABLE products_cache ADD COLUMN IF NOT EXISTS sizes_in_stock INTEGER; -- variantes/talles con stock
+ALTER TABLE products_cache ADD COLUMN IF NOT EXISTS size_coverage NUMERIC;  -- sizes_in_stock / sizes_total (0-1)
 
 -- Rellenar 'format' en filas viejas segun post_type (feed=4:5, reel/story=9:16).
 UPDATE content_calendar SET format = CASE WHEN post_type = 'feed' THEN 'feed' ELSE 'story' END WHERE format IS NULL;
 UPDATE content_calendar SET automation_level = 'auto' WHERE automation_level IS NULL;
 `;
+
+/**
+ * Backfill de la curva de talles para productos ya cacheados: se recalcula desde
+ * el JSON crudo de Tiendanube (raw) sin tocar la API. Sólo filas sin calcular.
+ */
+async function backfillSizeCoverage() {
+  const { rows } = await pool.query(
+    `SELECT id, raw FROM products_cache WHERE sizes_total IS NULL AND raw IS NOT NULL`
+  );
+  if (!rows.length) return;
+  const { normalizeProduct } = require('./tiendanube');
+  let done = 0;
+  for (const row of rows) {
+    try {
+      const raw = typeof row.raw === 'string' ? JSON.parse(row.raw) : row.raw;
+      const p = normalizeProduct(raw);
+      await pool.query(
+        `UPDATE products_cache SET sizes_total = $2, sizes_in_stock = $3, size_coverage = $4 WHERE id = $1`,
+        [row.id, p.sizes_total, p.sizes_in_stock, p.size_coverage]
+      );
+      done += 1;
+    } catch (err) {
+      console.warn(`[migrate] No pude calcular talles del producto ${row.id}: ${err.message}`);
+    }
+  }
+  console.log(`[migrate] Curva de talles calculada para ${done} producto(s).`);
+}
 
 async function migrate() {
   console.log('[migrate] Creando y actualizando tablas si no existen...');
@@ -184,6 +215,7 @@ async function migrate() {
   // Asegurar la fila unica del perfil de marca.
   await pool.query(`INSERT INTO brand_profile (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
   await seedCommercialDates({ fromYear: new Date().getFullYear(), years: 2 });
+  await backfillSizeCoverage();
   console.log('[migrate] Listo.');
   await pool.end();
 }

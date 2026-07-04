@@ -7,28 +7,37 @@ const { getBrandProfile } = require('../src/brandProfile');
 const { getLogos } = require('../src/styleService');
 const { getWholesaleSettings, wholesaleContext } = require('../src/wholesale');
 const { getCommercialContextForDate } = require('../src/commercialDates');
+const { eligibleSQL, recentlyFeaturedIds } = require('../src/productScore');
 const config = require('../src/config');
 
 // Retail (con precio y stock finito). 'mayorista' se maneja aparte con pickMayoristaProduct.
 const PRODUCT_PILLARS = ['producto', 'promo'];
 
 /** Producto mayorista: stock infinito (null) o sin precio ("Consultar precio"). */
-async function pickMayoristaProduct(slot) {
+async function pickMayoristaProduct(slot, excludeIds = []) {
   const brand = config.brand.knownBrands.find((b) => (slot.pillar_detail || '').toLowerCase().includes(b.toLowerCase()));
   const cond = `image_url IS NOT NULL AND (stock IS NULL OR price IS NULL OR price <= 0)`;
-  if (brand) {
+  const notRecent = `AND NOT (id = ANY($EXC))`;
+  // Primero sin repetir productos recientes; si el catálogo mayorista es chico, se permite repetir.
+  for (const exc of [excludeIds, []]) {
+    if (brand) {
+      const { rows } = await pool.query(
+        `SELECT * FROM products_cache WHERE ${cond} AND brand ILIKE $1 ${notRecent.replace('$EXC', '$2')} ORDER BY random() LIMIT 1`,
+        [`%${brand}%`, exc]);
+      if (rows[0]) return rows[0];
+    }
     const { rows } = await pool.query(
-      `SELECT * FROM products_cache WHERE ${cond} AND brand ILIKE $1 ORDER BY random() LIMIT 1`, [`%${brand}%`]);
+      `SELECT * FROM products_cache WHERE ${cond} ${notRecent.replace('$EXC', '$1')} ORDER BY random() LIMIT 1`, [exc]);
     if (rows[0]) return rows[0];
   }
-  const { rows } = await pool.query(`SELECT * FROM products_cache WHERE ${cond} ORDER BY random() LIMIT 1`);
-  return rows[0] || null;
+  return null;
 }
 
 async function updateCacheFromLive(live) {
   await pool.query(
-    `UPDATE products_cache SET price = $2, stock = $3, image_url = COALESCE($4, image_url), synced_at = now() WHERE id = $1`,
-    [live.id, live.price, live.stock, live.image_url]
+    `UPDATE products_cache SET price = $2, stock = $3, sizes_total = $4, sizes_in_stock = $5, size_coverage = $6,
+       image_url = COALESCE($7, image_url), synced_at = now() WHERE id = $1`,
+    [live.id, live.price, live.stock, live.sizes_total, live.sizes_in_stock, live.size_coverage, live.image_url]
   );
 }
 
@@ -42,16 +51,23 @@ function seasonKeywords(date = new Date()) {
 }
 
 /**
- * Trae un producto entre los 10 más vendidos que tengan STOCK y PRECIO real
- * (se excluye "Consultar precio" = sin precio). Filtros opcionales: marca y temporada.
+ * Trae un producto entre los 10 más vendidos que valga la pena mostrar:
+ * stock y precio reales Y curva de talles sana (ver src/productScore.js) — un
+ * producto con mucho stock pero un solo talle no protagoniza piezas.
+ * `relaxed: true` afloja a la regla vieja (stock>0) como último recurso.
+ * `excludeIds`: productos que ya protagonizaron piezas hace poco (anti-repetición).
  */
-async function topInStock({ brand, seasonal } = {}) {
-  const conds = ['stock > 0', 'price IS NOT NULL', 'price > 0'];
+async function topInStock({ brand, seasonal, excludeIds = [], relaxed = false } = {}) {
+  const conds = relaxed ? ['stock > 0', 'price IS NOT NULL', 'price > 0'] : [eligibleSQL()];
   const params = [];
   if (brand) { params.push(`%${brand}%`); conds.push(`brand ILIKE $${params.length}`); }
   if (seasonal && seasonal.length) {
     params.push(seasonal);
     conds.push(`(name ILIKE ANY($${params.length}) OR category ILIKE ANY($${params.length}))`);
+  }
+  if (excludeIds.length) {
+    params.push(excludeIds);
+    conds.push(`NOT (id = ANY($${params.length}))`);
   }
   const { rows } = await pool.query(
     `SELECT * FROM (
@@ -77,7 +93,7 @@ async function productFromDetail(slot) {
          ((CASE WHEN ${norm('name')} LIKE ANY($1) THEN 4 ELSE 0 END) +
           (CASE WHEN ${norm(`COALESCE(category, '')`)} LIKE ANY($1) THEN 2 ELSE 0 END)) AS match_score
        FROM products_cache
-       WHERE image_url IS NOT NULL AND stock > 0 AND price > 0
+       WHERE ${eligibleSQL()}
      ) t
      WHERE match_score >= 4
      ORDER BY match_score DESC, sales_30d DESC NULLS LAST
@@ -87,19 +103,27 @@ async function productFromDetail(slot) {
   return rows[0] || null;
 }
 
-/** Elige un producto (detalle del slot > marca > temporada > más vendido) y refresca precio/stock EN VIVO. */
+/**
+ * Elige un producto (detalle del slot > marca > temporada > más vendido) y refresca
+ * precio/stock EN VIVO. Evita repetir protagonistas de los últimos días y exige
+ * curva de talles sana; si el catálogo elegible se queda corto, afloja antes que fallar.
+ */
 async function pickProductForSlot(slot) {
   const mentionedBrand = config.brand.knownBrands.find((b) =>
     (slot.pillar_detail || '').toLowerCase().includes(b.toLowerCase())
   );
   const kw = seasonKeywords();
+  const recent = await recentlyFeaturedIds().catch(() => []);
 
   let candidate =
     await productFromDetail(slot) ||
-    (mentionedBrand && await topInStock({ brand: mentionedBrand, seasonal: kw })) ||
-    (mentionedBrand && await topInStock({ brand: mentionedBrand })) ||
-    await topInStock({ seasonal: kw }) ||
-    await topInStock({});
+    (mentionedBrand && await topInStock({ brand: mentionedBrand, seasonal: kw, excludeIds: recent })) ||
+    (mentionedBrand && await topInStock({ brand: mentionedBrand, excludeIds: recent })) ||
+    await topInStock({ seasonal: kw, excludeIds: recent }) ||
+    await topInStock({ excludeIds: recent }) ||
+    // Último recurso: repetir alguno reciente o aceptar curva floja antes que no generar.
+    await topInStock({}) ||
+    await topInStock({ relaxed: true });
   if (!candidate) return null;
 
   // Precio/stock en tiempo real: si se quedó sin stock o pasó a "Consultar precio", buscamos otro.
@@ -108,7 +132,7 @@ async function pickProductForSlot(slot) {
     await updateCacheFromLive(live).catch(() => {});
     const invalid = (live.stock !== null && live.stock <= 0) || !live.price || Number(live.price) <= 0;
     if (invalid) {
-      const alt = (await topInStock({ seasonal: kw })) || (await topInStock({}));
+      const alt = (await topInStock({ seasonal: kw, excludeIds: recent })) || (await topInStock({}));
       if (alt && alt.id !== candidate.id) {
         const liveAlt = await fetchProduct(alt.id);
         return liveAlt && liveAlt.price > 0 ? liveAlt : alt;
@@ -296,7 +320,7 @@ async function generateForSlot(slot, overrides = {}) {
 
   const isMayorista = slot.pillar === 'mayorista';
   const product = isMayorista
-    ? await pickMayoristaProduct(effectiveSlot)
+    ? await pickMayoristaProduct(effectiveSlot, await recentlyFeaturedIds().catch(() => []))
     : (PRODUCT_PILLARS.includes(slot.pillar) ? await pickProductForSlot(effectiveSlot) : null);
   const visualProduct = product || await pickRelevantVisualProduct(effectiveSlot);
   const wholesale = isMayorista ? wholesaleContext(await getWholesaleSettings()) : null;

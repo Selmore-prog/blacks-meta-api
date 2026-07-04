@@ -931,11 +931,19 @@ async function loadProducts() {
         <button class="btn-primary btn-sm" id="w-save">${icon('check')} Guardar condiciones</button>
       </div>`;
     const money = (n) => n ? `$${Number(n).toLocaleString('es-AR')}` : '—';
+    // Si el producto no califica para protagonizar contenido (talles incompletos,
+    // stock bajo), se muestra el motivo — es la razón por la que el motor no lo elige.
+    const contentTag = (p) => {
+      if (!p.content) return '';
+      if (p.content.ok) return `<span class="tag-ok">en rotación</span>`;
+      return `<span class="tag-excl" title="No protagoniza piezas de producto/promo">${esc(p.content.reason)}</span>`;
+    };
+    const sizesTxt = (p) => (p.sizes_total > 1 ? ` · talles ${p.sizes_in_stock}/${p.sizes_total}` : '');
     const rowsHtml = (arr, right) => (arr && arr.length)
       ? arr.map((p) => `<div class="prod-row">
           <img src="${esc(p.image_url || '')}" onerror="this.style.visibility='hidden'"/>
           <div class="prod-info"><div class="prod-name">${esc(p.name)}</div>
-            <div class="prod-sub">${esc(p.brand || '')} · stock ${p.stock ?? '—'} · ${money(p.promo_price || p.price)}</div></div>
+            <div class="prod-sub">${esc(p.brand || '')} · stock ${p.stock ?? '—'}${sizesTxt(p)} · ${money(p.promo_price || p.price)} ${contentTag(p)}</div></div>
           <div class="prod-metric">${right(p)}</div></div>`).join('')
       : '<p class="hint">Sin datos.</p>';
     body.innerHTML = wholesalePanel + `

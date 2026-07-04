@@ -45,6 +45,14 @@ function normalizeProduct(product) {
   // (todas null) => infinito/null (mayorista). Antes tomábamos sólo la 1a variante (bug).
   const stockNums = variants.map((v) => v.stock).filter((s) => typeof s === 'number');
   const totalStock = stockNums.length ? stockNums.reduce((a, b) => a + b, 0) : null;
+  // Curva de talles: cuántas variantes (talles) tienen stock sobre el total.
+  // Un producto con 35 unidades pero todas en UN talle no sirve para mostrar:
+  // el stock total engaña, la cobertura de talles no. stock null = sin tracking (cuenta como disponible).
+  const sizesTotal = variants.length || 1;
+  const sizesInStock = variants.length
+    ? variants.filter((v) => v.stock === null || v.stock === undefined || Number(v.stock) > 0).length
+    : (totalStock === null || totalStock > 0 ? 1 : 0);
+  const sizeCoverage = Math.round((sizesInStock / sizesTotal) * 100) / 100;
   // Precio: el de la variante principal (lo que muestra Tiendanube); si no tiene, la 1a con precio.
   const pricedVariant = firstVariant.price ? firstVariant : (variants.find((v) => v.price) || firstVariant);
   const regular = pricedVariant.price ? Number(pricedVariant.price) : null;
@@ -63,6 +71,9 @@ function normalizeProduct(product) {
     promo_price: promo && regular && promo < regular ? promo : null,
     // stock total (null = infinito / mayorista / a pedido).
     stock: totalStock,
+    sizes_total: sizesTotal,
+    sizes_in_stock: sizesInStock,
+    size_coverage: sizeCoverage,
     image_url: mainImage,
     images: images.length ? images : (mainImage ? [mainImage] : []),
     description,

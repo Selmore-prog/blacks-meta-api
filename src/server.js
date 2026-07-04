@@ -397,16 +397,18 @@ app.get('/api/products', wrap(async (req, res) => {
   res.json(rows);
 }));
 
-// Análisis de productos: ventas (30d) + stock. Ganadores y "a dar visibilidad".
+// Análisis de productos: ventas (30d) + stock + si califica para protagonizar contenido.
 app.get('/api/products/analytics', wrap(async (req, res) => {
+  const { contentEligibility } = require('./productScore');
+  const sizeCols = 'sizes_total, sizes_in_stock, size_coverage';
   const [winners, needVisibility, retail, totals] = await Promise.all([
-    pool.query(`SELECT id, name, brand, price, promo_price, stock, sales_30d, image_url
+    pool.query(`SELECT id, name, brand, price, promo_price, stock, sales_30d, image_url, ${sizeCols}
                 FROM products_cache WHERE sales_30d > 0 ORDER BY sales_30d DESC LIMIT 15`),
-    pool.query(`SELECT id, name, brand, price, stock, sales_30d, image_url
+    pool.query(`SELECT id, name, brand, price, stock, sales_30d, image_url, ${sizeCols}
                 FROM products_cache WHERE stock >= 10 AND COALESCE(sales_30d,0) = 0 AND price > 0
                 ORDER BY stock DESC LIMIT 15`),
     // Minoristas: precio > 0 y stock finito > 0. Todos, para chequear sincronización.
-    pool.query(`SELECT id, name, brand, price, promo_price, stock, sales_30d, image_url
+    pool.query(`SELECT id, name, brand, price, promo_price, stock, sales_30d, image_url, ${sizeCols}
                 FROM products_cache WHERE price > 0 AND stock > 0 ORDER BY name ASC LIMIT 100`),
     pool.query(`SELECT count(*)::int total,
                        count(*) FILTER (WHERE stock > 0)::int con_stock,
@@ -416,7 +418,14 @@ app.get('/api/products/analytics', wrap(async (req, res) => {
                        COALESCE(sum(sales_30d),0)::int unidades
                 FROM products_cache`),
   ]);
-  res.json({ winners: winners.rows, needVisibility: needVisibility.rows, retail: retail.rows, totals: totals.rows[0] });
+  // content: {ok, reason} — si el producto puede protagonizar piezas de producto/promo.
+  const withEligibility = (rows) => rows.map((p) => ({ ...p, content: contentEligibility(p) }));
+  res.json({
+    winners: withEligibility(winners.rows),
+    needVisibility: withEligibility(needVisibility.rows),
+    retail: withEligibility(retail.rows),
+    totals: totals.rows[0],
+  });
 }));
 
 // Condiciones mayoristas (editables) que entran al copy de las piezas mayoristas.
