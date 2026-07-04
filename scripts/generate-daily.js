@@ -364,6 +364,14 @@ async function generateForSlot(slot, overrides = {}) {
   let slidesJson = null;
   let pieceCostUsd = 0; // lo que costó ESTA pieza en imágenes IA (0 = gratis)
 
+  // Piezas educativas: la imagen tiene que ENSEÑAR el tema, no decorar.
+  // 1º la guía de talles real de Tiendanube (gratis y exacta), 2º ilustración
+  // didáctica generada con IA (si AI_IMAGES está activo), 3º foto de catálogo.
+  const isEducativo = slot.pillar === 'educativo';
+  const topicAll = `${pillarDetail || ''} ${slot.theme_title || ''}`;
+  const isSizeTopic = /talle|medida|calce|medir/i.test(topicAll);
+  const realSizeChart = isEducativo && isSizeTopic ? (descriptionImages(visualProduct)[0] || null) : null;
+
   const isStepCarousel = isCarousel && ['educativo', 'mayorista'].includes(slot.pillar);
   const slides = isCarousel && Array.isArray(copy.slides) && copy.slides.length >= 2
     ? copy.slides.slice(0, isStepCarousel ? 5 : 4) : null;
@@ -427,13 +435,17 @@ async function generateForSlot(slot, overrides = {}) {
       promoPrice: showPrice && product ? product.promo_price : null,
       cta: copy.cta,
       badgeText,
-      productImageUrl: visualImageUrl,
+      productImageUrl: realSizeChart || visualImageUrl,
       logos,
       layoutSeed: Number(slot.id),
       useAiProductScene: PRODUCT_PILLARS.includes(slot.pillar) && Boolean(product),
+      // Educativo sin guía real: ilustración didáctica (dibujo del tema) en vez de foto.
+      useAiDiagram: isEducativo && !realSizeChart,
+      diagramTopic: pillarDetail || slot.theme_title,
       // Piezas SIN foto de catálogo: fondo original generado con IA (sólo si AI_IMAGES=true
       // y hay GEMINI_API_KEY con facturación; si no, queda el diseño tipográfico).
-      useAiBackground: !visualImageUrl,
+      // Educativo no usa fondo fotográfico: ahí la imagen didáctica es la protagonista.
+      useAiBackground: !visualImageUrl && !isEducativo,
       // Para escenas de producto el tema es EL PRODUCTO (nunca el texto de venta del slot:
       // el modelo lo "hornea" en la imagen y puede contradecir la foto). Para fondos, el concepto.
       bgTheme: product

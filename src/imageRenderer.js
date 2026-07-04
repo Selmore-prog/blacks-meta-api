@@ -1,7 +1,7 @@
 const puppeteer = require('puppeteer');
 const config = require('./config');
 const { uploadAsset } = require('./storage');
-const { generateBackground, generateProductScene } = require('./ai');
+const { generateBackground, generateProductScene, generateDiagram } = require('./ai');
 
 const DIMS = {
   feed: { w: 1080, h: 1350 },   // 4:5
@@ -421,6 +421,16 @@ async function renderPostBuffer(options) {
       bgImageUrl = `data:${scene.mimeType};base64,${scene.buffer.toString('base64')}`;
       productImageUrl = null;
       costUsd += scene.costUsd || 0;
+    }
+  }
+  // 1.5) Piezas educativas: ilustración didáctica (dibujo que ENSEÑA el tema,
+  // ej. dónde medirse la prenda) en vez de una foto decorativa. Va contenida en
+  // la caja de la plantilla (no full-bleed). Si falla, queda la foto/plantilla.
+  if (!bgImageUrl && options.useAiDiagram) {
+    const diagram = await generateDiagram({ topic: options.diagramTopic || options.bgTheme || options.overlayTitle, format });
+    if (diagram) {
+      productImageUrl = `data:${diagram.mimeType};base64,${diagram.buffer.toString('base64')}`;
+      costUsd += diagram.costUsd || 0;
     }
   }
   // 2) Si no hay producto (marca/lifestyle), generamos un fondo temático.

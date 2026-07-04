@@ -525,6 +525,42 @@ COMPOSICIÓN PARA DISEÑO:
 }
 
 /**
+ * Genera una ILUSTRACIÓN DIDÁCTICA (no fotográfica) para piezas educativas:
+ * dibujos técnicos tipo "cómo medirse la prenda", comparativas, esquemas de uso.
+ * Pensada para la plantilla educativa (fondo claro). Best-effort: null si falla.
+ */
+async function generateDiagram({ topic, format = 'feed' } = {}) {
+  if (!config.ai.useAiImages || !hasGemini() || isImageQuotaCoolingDown()) return null;
+
+  const prompt = `Actuás como ILUSTRADOR TÉCNICO EDITORIAL de una marca de indumentaria de trabajo. Generá UNA ilustración didáctica (NO una fotografía) que ENSEÑE visualmente este tema: "${topic || 'cómo elegir ropa de trabajo'}".
+
+QUÉ TIENE QUE SER:
+- Un dibujo instructivo claro, tipo manual/infografía SIN texto: por ejemplo, la silueta de una prenda con cinta métrica y flechas mostrando DÓNDE se mide (pecho, cintura, largo), un botín en corte mostrando la puntera de acero, o una comparativa lado a lado de dos prendas.
+- Estilo ilustración vectorial plana (flat), trazos limpios y gruesos, mínima cantidad de elementos. Nada de estilo cartoon infantil ni 3D.
+
+PALETA (obligatoria, es la identidad de la marca):
+- Fondo blanco o gris muy claro (#f4f4f5), LISO.
+- Línea principal en gris carbón oscuro (#1c1c1e).
+- UN solo color de acento: naranja quemado (#C1440C) para las flechas/indicaciones importantes.
+
+REGLA DURA: la salida es SOLO el dibujo. PROHIBIDO cualquier texto, letra, número, cota, logo o etiqueta (los textos los agrega otro sistema después; si aparece alguno, la imagen se descarta). Composición centrada con aire alrededor, formato ${format === 'story' ? 'vertical' : 'cuadrado/vertical'}.`;
+
+  try {
+    const data = await geminiGenerateContent(config.gemini.imageModel, {
+      contents: [{ role: 'user', parts: [{ text: prompt }] }],
+      generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+    });
+    const img = inlineImageFromResponse(data);
+    if (img) img.costUsd = await logImageUsage('ilustración didáctica');
+    return img;
+  } catch (err) {
+    if (err.status === 429) { markImageQuotaHit(); console.warn(`[ai] Cuota de imágenes agotada (429): pauso ${IMAGE_QUOTA_COOLDOWN_MS / 60000} min.`); }
+    else console.warn(`[ai] generateDiagram falló (sigo sin ilustración): ${err.message}`);
+    return null;
+  }
+}
+
+/**
  * Genera una ESCENA PROFESIONAL con el producto real adentro (foto de producto como
  * referencia). Devuelve { buffer, mimeType } o null (best-effort, con fallback).
  */
@@ -691,6 +727,7 @@ module.exports = {
   generateJson,
   generateBackground,
   generateProductScene,
+  generateDiagram,
   analyzeStyle,
   buildVideoPrompt,
   sanitizeText,
