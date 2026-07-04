@@ -194,6 +194,28 @@ function statusOf(it) {
   return it.asset_status || it.status;
 }
 
+// Los estados viven en inglés en la DB; acá se muestran siempre en español.
+const STATUS_LABELS = {
+  pending: 'Pendiente', draft: 'Borrador', approved: 'Aprobada', published: 'Publicada',
+  discarded: 'Descartada', skipped: 'Pausada', failed: 'Falló',
+};
+function statusLabel(s) { return STATUS_LABELS[s] || s; }
+
+/** Confirmación con el modal propio (reemplaza al confirm() nativo del navegador). */
+function confirmModal(title, message, confirmLabel = 'Confirmar') {
+  return new Promise((resolve) => {
+    const overlay = showInfoModal(title, `
+      <p style="margin:0 0 16px; color:var(--muted); font-size:14px; line-height:1.5;">${message}</p>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button class="btn-discard" id="cm-no">Cancelar</button>
+        <button class="btn-primary" id="cm-yes">${confirmLabel}</button>
+      </div>`);
+    const done = (v) => { overlay.remove(); resolve(v); };
+    overlay.querySelector('#cm-no').addEventListener('click', () => done(false));
+    overlay.querySelector('#cm-yes').addEventListener('click', () => done(true));
+  });
+}
+
 function getFiltered() {
   return calItems.filter((it) => {
     if (filters.status !== 'all' && statusOf(it) !== filters.status) return false;
@@ -501,10 +523,10 @@ function renderCard(item) {
   const isRepost = status === 'repost';
   const aid = item.asset_id;
 
-  const autoBadge = isRepost ? '' : (isSemi
-    ? `<span class="badge semi"><span class="idot amber"></span>Semi · publicás vos</span>`
-    : `<span class="badge auto"><span class="idot green"></span>Automática</span>`);
-  const statusBadge = aid ? `<span class="badge status-${item.asset_status || item.status}">${item.asset_status || item.status}</span>` : '';
+  // Sólo se marca la EXCEPCIÓN (semi = requiere acción manual); lo automático es el default.
+  const autoBadge = (!isRepost && isSemi)
+    ? `<span class="badge semi"><span class="idot amber"></span>Semi · publicás vos</span>` : '';
+  const statusBadge = aid ? `<span class="badge status-${item.asset_status || item.status}">${statusLabel(item.asset_status || item.status)}</span>` : '';
   // Qué costó generar ESTA pieza (imágenes IA). 0 = salió gratis (plantilla/copy free tier).
   const pieceCost = Number(item.est_cost_usd || 0);
   const costBadge = aid
@@ -551,7 +573,7 @@ function renderCard(item) {
       : `<button class="btn-publish" data-act="publish" data-id="${aid}">${icon('send')} Publicar ahora</button>`) +
       `<button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Editar</button>${regenBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${planBtn}`;
   } else if (status === 'published') {
-    actions = `<span class="badge status-published">${icon('check')} Publicado ${item.meta_post_id ? `· ${esc(item.meta_post_id)}` : ''}</span>
+    actions = `<span class="badge status-published" ${item.meta_post_id ? `title="ID de Instagram: ${esc(item.meta_post_id)}"` : ''}>${icon('check')} Publicada</span>
       <button class="btn-ghost btn-sm" data-act="republish" data-id="${aid}" title="Por si la borraste de Instagram o querés volver a publicarla">${icon('refresh')} Republicar</button>`;
   } else if (status === 'discarded') {
     actions = `<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('refresh')} Regenerar</button>${planBtn}`;
@@ -615,7 +637,9 @@ async function handleAction(act, id, btn, card, item) {
     } else if (act === 'publish') {
       await doPublish(id, btn);
     } else if (act === 'republish') {
-      if (!confirm('¿Republicar esta pieza? Queda como "aprobada" de nuevo — sale sola en la próxima pasada automática, o la publicás ahora mismo con el botón "Publicar ahora".')) return;
+      const ok = await confirmModal('Republicar pieza',
+        'Vuelve a quedar <b>aprobada</b>: sale sola en la próxima pasada automática, o la publicás al instante con "Publicar ahora".', 'Republicar');
+      if (!ok) return;
       await api(`/api/assets/${id}/republish`, { method: 'POST' });
       toast('Lista para volver a publicar', 'ok'); reloadKeepScroll();
     }
@@ -728,7 +752,7 @@ function openRegen(item) {
     producto: ['Lo más vendido de la semana', 'Ideal para el frío', 'Novedad recién llegada'],
     promo: ['Ofertas de temporada', '3 cuotas sin interés', 'Envío gratis desde cierto monto'],
     marca: ['Por qué elegir esta marca', 'Historia de la marca'],
-    engagement: ['¿Qué preferís vos?', 'Contanos en qué laburás'],
+    engagement: ['¿Qué preferís vos?', 'Contanos en qué rubro trabajás'],
   };
   const sugg = (suggestions[item.pillar] || ['Enfoque en beneficios', 'Enfoque en temporada', 'Enfoque en precio']);
   const body = `
@@ -999,7 +1023,7 @@ async function loadProducts() {
       </div>
       <div class="panel" style="margin-top:18px;">
         <h3>${icon('list')} Minoristas detectados (${(d.retail || []).length}) — precio y stock</h3>
-        <p class="hint">Estos son los que van con precio a las historias. Si falta alguno que debería estar acá, revisá que en Tiendanube tenga precio y stock cargado, y volvé a sincronizar.</p>
+        <p class="hint">Van con precio a las historias. ¿Falta alguno? Revisá precio y stock en Tiendanube y sincronizá de nuevo.</p>
         ${rowsHtml(d.retail, (p) => `<b>${p.stock}</b><span>stock</span>`)}
       </div>`;
     const ws = document.getElementById('w-save');

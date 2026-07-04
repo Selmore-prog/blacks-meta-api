@@ -13,15 +13,15 @@ const pool = require('./db');
 const ROTATION = [
   // ---- Semana 1 ----
   { post_type: 'reel',  format: 'story', pillar: 'producto',   pillar_detail: 'Pampero - línea urbana/cargo', automation_level: 'auto', scheduled_time: '18:00', theme_title: 'Arranca la semana con lo nuevo' },
-  { post_type: 'story', format: 'story', pillar: 'engagement', pillar_detail: '¿En qué rubro laburás?', automation_level: 'semi', interaction_hint: 'Agregá una ENCUESTA con 2 opciones: "Construcción/Obra" vs "Industria/Taller".', scheduled_time: '13:00', theme_title: 'Conocé a la comunidad' },
+  { post_type: 'story', format: 'story', pillar: 'engagement', pillar_detail: '¿En qué rubro trabajás?', automation_level: 'semi', interaction_hint: 'Agregá una ENCUESTA con 2 opciones: "Construcción/Obra" vs "Industria/Taller".', scheduled_time: '13:00', theme_title: 'Conocé a la comunidad' },
   { post_type: 'feed',  format: 'feed',  pillar: 'educativo',  pillar_detail: 'Puntera de acero vs sin puntera: cuándo va cada una', automation_level: 'auto', carousel: true, scheduled_time: '17:00', theme_title: 'Miércoles de saber' },
   { post_type: 'feed',  format: 'feed',  pillar: 'promo',      pillar_detail: 'Envío a todo el país + cuotas sin interés', automation_level: 'auto', scheduled_time: '18:00', theme_title: 'Oferta de la semana' },
-  { post_type: 'story', format: 'story', pillar: 'marca',      pillar_detail: 'Pampero: por qué la banca el laburante', automation_level: 'auto', scheduled_time: '18:00', theme_title: 'Marca destacada' },
+  { post_type: 'story', format: 'story', pillar: 'marca',      pillar_detail: 'Pampero: por qué la elige quien trabaja', automation_level: 'auto', scheduled_time: '18:00', theme_title: 'Marca destacada' },
   { post_type: 'story', format: 'story', pillar: 'promo',      pillar_detail: 'Oferta de la semana en calzado de seguridad', automation_level: 'auto', scheduled_time: '11:00', theme_title: 'Aprovechá' },
   { post_type: 'feed',  format: 'feed',  pillar: 'repost',     pillar_detail: null, automation_level: 'auto', scheduled_time: '12:00', theme_title: 'Descanso / repost' },
 
   // ---- Semana 2 ----
-  { post_type: 'reel',  format: 'story', pillar: 'producto',   pillar_detail: 'EPP: casco + anteojos + faja lumbar', automation_level: 'auto', scheduled_time: '18:00', theme_title: 'Equipate para el laburo' },
+  { post_type: 'reel',  format: 'story', pillar: 'producto',   pillar_detail: 'EPP: casco + anteojos + faja lumbar', automation_level: 'auto', scheduled_time: '18:00', theme_title: 'Equipate para el trabajo' },
   { post_type: 'story', format: 'story', pillar: 'producto',   pillar_detail: 'Producto destacado: lo más vendido', automation_level: 'auto', scheduled_time: '13:00', theme_title: 'Recomendado de la semana' },
   { post_type: 'feed',  format: 'feed',  pillar: 'ugc',        pillar_detail: 'Caso mayorista: uniformamos a una empresa', automation_level: 'auto', scheduled_time: '17:00', theme_title: 'Clientes que confían' },
   { post_type: 'feed',  format: 'feed',  pillar: 'mayorista',  pillar_detail: 'Escala de descuentos + pedí tu presupuesto', automation_level: 'auto', carousel: true, scheduled_time: '18:00', theme_title: 'Para empresas' },

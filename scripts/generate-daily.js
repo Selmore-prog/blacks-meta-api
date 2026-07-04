@@ -307,7 +307,7 @@ function interactionChip(slot) {
   if (slot.automation_level !== 'semi') return null;
   const hint = (slot.interaction_hint || '').toUpperCase();
   if (hint.includes('ENCUESTA')) return '👆 Votá en la encuesta';
-  if (hint.includes('QUIZ')) return '🧠 ¿Cuál es la posta?';
+  if (hint.includes('QUIZ')) return '🧠 ¿Sabías la respuesta?';
   if (hint.includes('PREGUNTA')) return '💬 Contanos vos';
   return '👆 Respondé la historia';
 }

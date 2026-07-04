@@ -26,7 +26,7 @@ function event(date, title, category, angle, priority = 5, source = 'seed') {
 function defaultCommercialDates(year = new Date().getFullYear()) {
   const items = [
     event(`${year}-01-15`, 'Pleno verano', 'temporada', 'Ropa fresca, remeras y prendas livianas para laburar con calor.', 3),
-    event(`${year}-03-01`, 'Vuelta al ritmo de trabajo', 'temporada', 'Reponer básicos de laburo después del verano.', 4),
+    event(`${year}-03-01`, 'Vuelta al ritmo de trabajo', 'temporada', 'Reponer básicos de trabajo después del verano.', 4),
     event(`${year}-05-01`, 'Día del Trabajador', 'marca', 'Mensaje de marca para la gente que labura todos los días.', 8),
     event(`${year}-05-10`, 'Arranque del frío', 'temporada', 'Camperas, buzos, polares y abrigo para intemperie.', 7),
     event(`${year}-06-15`, 'Aguinaldo de invierno', 'promo', 'Momento fuerte para renovar calzado de seguridad y abrigo.', 9),
@@ -37,7 +37,7 @@ function defaultCommercialDates(year = new Date().getFullYear()) {
     event(`${year}-09-21`, 'Primavera', 'temporada', 'Media estación: buzos livianos, rompevientos y prendas versátiles.', 4),
     event(thirdSunday(year, 9), 'Día de la Madre', 'promo', 'Regalos útiles y promos de temporada.', 5),
     event(blackFriday(year), 'Black Friday', 'promo', 'Urgencia comercial con ofertas y cuotas.', 8),
-    event(`${year}-12-15`, 'Aguinaldo de fin de año', 'promo', 'Renovar equipo, calzado y ropa de laburo antes de cerrar el año.', 9),
+    event(`${year}-12-15`, 'Aguinaldo de fin de año', 'promo', 'Renovar equipo, calzado y ropa de trabajo antes de cerrar el año.', 9),
     event(`${year}-12-24`, 'Navidad', 'promo', 'Regalos útiles y compras de último momento.', 5),
   ];
 

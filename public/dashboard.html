@@ -38,10 +38,10 @@
           <button class="vt" id="vt-grid" onclick="setCalView('grid')"><span data-ic="grid"></span> Calendario</button>
           <button class="vt" id="vt-profile" onclick="setCalView('profile')"><span data-ic="user"></span> Perfil</button>
         </div>
-        <button class="btn-primary" onclick="openPlanSlot()"><span data-ic="plus"></span> Agregar slot</button>
+        <button class="btn-primary" id="btn-generate-today" onclick="generateAllPending()"><span data-ic="bolt"></span> Generar hoy</button>
+        <button class="btn-ghost" onclick="openPlanSlot()"><span data-ic="plus"></span> Agregar slot</button>
         <button class="btn-ghost" id="btn-month-plan" onclick="generateMonthPlan()"><span data-ic="calendar"></span> Plan del mes (IA)</button>
-        <button class="btn-ghost" id="btn-generate-today" onclick="generateAllPending()"><span data-ic="bolt"></span> Generar hoy</button>
-        <button class="btn-ghost" onclick="loadCalendar()"><span data-ic="refresh"></span> Refrescar</button>
+        <button class="btn-ghost" onclick="loadCalendar()" title="Refrescar"><span data-ic="refresh"></span></button>
       </div>
     </div>
     <div class="next-plan" id="next-plan"></div>
@@ -62,7 +62,7 @@
 
     <div class="panel" style="margin-bottom:18px;">
       <h3>Logos de la marca</h3>
-      <p class="hint">Se usan directamente en las piezas generadas (reemplazan el texto "BLACKS") y suman al análisis de estilo. Subí PNG con fondo transparente si tenés.</p>
+      <p class="hint">Reemplazan el texto "BLACKS" en las piezas generadas. Ideal: PNG con fondo transparente.</p>
       <div style="display:flex; gap:10px; align-items:center;">
         <button class="btn-primary btn-sm" id="logo-pick"><span data-ic="upload"></span> Subir logo</button>
         <input type="file" id="logo-input" accept="image/*" multiple hidden />
@@ -111,7 +111,7 @@
     <div class="toolbar">
       <div>
         <h2>Productos</h2>
-        <div class="sub">Qué darle más bolilla según ventas (30 días) y stock.</div>
+        <div class="sub">Prioridades según ventas (30 días), stock y curva de talles.</div>
       </div>
       <button class="btn-ghost" onclick="loadProducts()"><span data-ic="refresh"></span> Refrescar</button>
     </div>
