@@ -57,6 +57,25 @@ async function api(path, opts = {}) {
   return data;
 }
 
+/* ============ skeleton loaders ============ */
+/** HTML de carga con shimmer, en lugar de textos "Cargando…". */
+function skeleton(kind, n = 3) {
+  if (kind === 'cards') {
+    return `<div class="sk-chiprow">${'<span class="sk"></span>'.repeat(4)}</div>` +
+      Array.from({ length: n }, () => `<div class="sk-card">
+        <div class="sk sk-ph"></div>
+        <div>
+          <div class="sk-chiprow"><span class="sk"></span><span class="sk"></span></div>
+          <div class="sk sk-line w80"></div><div class="sk sk-line w60"></div>
+          <div class="sk sk-line w40" style="margin-top:26px; height:34px; border-radius:10px;"></div>
+        </div>
+      </div>`).join('');
+  }
+  if (kind === 'stats') return `<div class="prod-totals" style="margin-bottom:18px;">${'<div class="sk sk-stat"></div>'.repeat(4)}</div>`;
+  if (kind === 'rows') return Array.from({ length: n }, () => '<div class="sk sk-row"></div>').join('');
+  return '<div class="sk sk-row"></div>';
+}
+
 let toastTimer;
 function toast(msg, type = '') {
   const t = document.getElementById('toast');
@@ -330,7 +349,7 @@ function onFilter(id, val) {
 
 async function loadCalendar() {
   const list = document.getElementById('calendar-list');
-  list.innerHTML = '<p class="loading">Cargando calendario...</p>';
+  list.innerHTML = skeleton('cards', 3);
   try {
     calItems = await api(`/api/calendar?days=${calendarViewDays}`);
     document.getElementById('next-plan').innerHTML =
@@ -403,18 +422,25 @@ function renderCalView() {
 
 /**
  * Vista "Perfil": cómo va a quedar la grilla de Instagram con lo planificado.
- * Sólo lo que aparece en la grilla real (feed y reels), del más nuevo al más viejo,
- * ignorando los filtros (la grilla se evalúa completa).
+ * Mezcla lo PUBLICADO real con lo APROBADO en su posición cronológica exacta
+ * (del más nuevo al más viejo, como la grilla real). Con el toggle se pueden
+ * sumar también los borradores para ver el futuro completo. Ignora los filtros.
  */
+let pgIncludeDrafts = false;
 function renderProfileGrid() {
   const holder = document.getElementById('calendar-profile');
+  const allowed = pgIncludeDrafts ? ['draft', 'approved', 'published'] : ['approved', 'published'];
   const tiles = calItems
     .filter((i) => (i.post_type === 'feed' || i.post_type === 'reel') && i.image_path
-      && ['draft', 'approved', 'published'].includes(i.asset_status || i.status))
+      && allowed.includes(i.asset_status || i.status))
     .sort((a, b) => String(b.scheduled_date).localeCompare(String(a.scheduled_date)));
 
   if (!tiles.length) {
-    holder.innerHTML = '<p class="empty">Todavía no hay piezas de feed/reel generadas para armar la grilla.</p>';
+    const hasDrafts = calItems.some((i) => (i.post_type === 'feed' || i.post_type === 'reel')
+      && i.image_path && (i.asset_status || i.status) === 'draft');
+    holder.innerHTML = `<p class="empty">${!pgIncludeDrafts && hasDrafts
+      ? 'No hay piezas aprobadas o publicadas todavía. <br/><button class="btn-ghost btn-sm" style="margin-top:14px;" onclick="pgIncludeDrafts=true; renderProfileGrid()">Ver la grilla con los borradores</button>'
+      : 'Todavía no hay piezas de feed/reel generadas para armar la grilla.'}</p>`;
     return;
   }
 
@@ -435,9 +461,10 @@ function renderProfileGrid() {
     <div class="pg-wrap">
       <div class="pg-head">
         <div class="ig-av">B</div>
-        <div><b>blacks.indumentaria</b><span class="hint"> · así queda tu grilla con lo planificado (${tiles.length} piezas)</span></div>
+        <div><b>blacks.indumentaria</b><span class="hint"> · así queda tu grilla (${tiles.length} piezas)</span></div>
+        <label class="pg-toggle"><input type="checkbox" id="pg-drafts" ${pgIncludeDrafts ? 'checked' : ''}/> incluir borradores</label>
       </div>
-      <div class="pg-legend"><span class="pg-dot pub"></span> publicado <span class="pg-dot appr"></span> aprobado <span class="pg-dot draft"></span> borrador</div>
+      <div class="pg-legend"><span class="pg-dot pub"></span> publicado <span class="pg-dot appr"></span> aprobado${pgIncludeDrafts ? ' <span class="pg-dot draft"></span> borrador' : ''}</div>
       <div class="pg-grid">
         ${tiles.map((i, idx) => `
           <div class="pg-tile" data-idx="${idx}" title="${esc(i.theme_title || i.pillar_detail || '')} · ${String(i.scheduled_date).slice(0, 10)}">
@@ -449,6 +476,8 @@ function renderProfileGrid() {
 
   holder.querySelectorAll('.pg-tile').forEach((t) =>
     t.addEventListener('click', () => openPreview(tiles[Number(t.dataset.idx)])));
+  const tg = holder.querySelector('#pg-drafts');
+  if (tg) tg.addEventListener('change', () => { pgIncludeDrafts = tg.checked; renderProfileGrid(); });
 }
 
 /**
@@ -1192,7 +1221,7 @@ async function saveWholesale(e) {
 
 async function loadProducts() {
   const body = document.getElementById('products-body');
-  body.innerHTML = '<p class="loading">Cargando productos...</p>';
+  body.innerHTML = skeleton('stats') + skeleton('rows', 6);
   try {
     const [d, w] = await Promise.all([api('/api/products/analytics'), api('/api/wholesale')]);
     const t = d.totals || {};
@@ -1604,11 +1633,65 @@ async function loadGaSummary() {
   } catch (_) { el.innerHTML = ''; }
 }
 
+/* Gráfico de evolución del alcance semanal (Chart.js por CDN, best-effort). */
+let reachChart = null;
+async function loadReachChart() {
+  const holder = document.getElementById('reach-chart-panel');
+  if (!holder) return;
+  try {
+    const weeks = await api('/api/insights/weekly-reach');
+    if (!Array.isArray(weeks) || weeks.length < 2 || !window.Chart) { holder.innerHTML = ''; return; }
+    holder.innerHTML = `
+      <div class="panel chart-panel" style="margin-bottom:20px;">
+        <h3>Evolución del alcance</h3>
+        <p class="hint">Alcance total por semana de las piezas publicadas (Instagram insights).</p>
+        <div style="position:relative; height:260px;"><canvas id="reach-canvas"></canvas></div>
+      </div>`;
+    const fmtWeek = (w) => {
+      const [y, m, d] = String(w).slice(0, 10).split('-').map(Number);
+      return new Date(y, m - 1, d).toLocaleDateString('es-AR', { day: 'numeric', month: 'short' });
+    };
+    if (reachChart) { reachChart.destroy(); reachChart = null; }
+    reachChart = new Chart(document.getElementById('reach-canvas'), {
+      type: 'line',
+      data: {
+        labels: weeks.map((w) => fmtWeek(w.week)),
+        datasets: [{
+          label: 'Alcance',
+          data: weeks.map((w) => w.reach),
+          borderColor: '#e85d1b',
+          backgroundColor: 'rgba(232, 93, 27, .12)',
+          fill: true,
+          tension: .35,
+          borderWidth: 2,
+          pointRadius: 3.5,
+          pointBackgroundColor: '#e85d1b',
+        }],
+      },
+      options: {
+        responsive: true,
+        maintainAspectRatio: false,
+        plugins: {
+          legend: { display: false },
+          tooltip: {
+            callbacks: { afterLabel: (c) => `${weeks[c.dataIndex].posts} post(s) esa semana` },
+          },
+        },
+        scales: {
+          x: { grid: { color: 'rgba(255,255,255,.05)' }, ticks: { color: '#97979f' } },
+          y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,.05)' }, ticks: { color: '#97979f', precision: 0 } },
+        },
+      },
+    });
+  } catch (_) { holder.innerHTML = ''; }
+}
+
 async function loadMetrics() {
   loadGaSummary();
   loadAiUsage();
+  loadReachChart();
   const body = document.getElementById('metrics-body');
-  body.innerHTML = '<p class="loading">Cargando métricas...</p>';
+  body.innerHTML = skeleton('rows', 4);
   try {
     const data = await api('/api/insights/report');
     let html = `<div class="recommendation"><b>Recomendación:</b> ${esc(data.recommendation)}</div>`;

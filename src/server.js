@@ -423,6 +423,23 @@ app.get('/api/insights/report', wrap(async (req, res) => {
   res.json(await analyzePerformance());
 }));
 
+// Serie semanal de alcance (para el gráfico del panel): suma el reach de las piezas
+// publicadas agrupado por semana de publicación programada (últimas 12 semanas).
+app.get('/api/insights/weekly-reach', wrap(async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT to_char(date_trunc('week', c.scheduled_date), 'YYYY-MM-DD') AS week,
+            SUM(COALESCE(i.reach, 0))::int AS reach,
+            SUM(COALESCE(i.impressions, 0))::int AS impressions,
+            COUNT(*)::int AS posts
+     FROM post_insights i
+     JOIN generated_assets a ON a.id = i.asset_id
+     JOIN content_calendar c ON c.id = a.calendar_id
+     WHERE c.scheduled_date >= CURRENT_DATE - 84
+     GROUP BY 1 ORDER BY 1`
+  );
+  res.json(rows);
+}));
+
 app.get('/api/products', wrap(async (req, res) => {
   const search = req.query.q ? `%${req.query.q}%` : '%';
   const { rows } = await pool.query(

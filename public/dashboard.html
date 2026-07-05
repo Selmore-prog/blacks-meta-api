@@ -2,151 +2,174 @@
 <html lang="es">
 <head>
 <meta charset="UTF-8" />
-<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+<meta name="theme-color" content="#08080a" />
 <title>BLACKS — Panel de contenido</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap" rel="stylesheet" />
 <link rel="stylesheet" href="/dashboard.css" />
 </head>
 <body>
-  <header class="topbar">
+  <!-- ===== Navegación lateral (desktop) =====
+       Los botones .tab duplican los del bottom-nav: switchTab() actualiza el estado
+       activo de TODOS los .tab por data-view, así ambas navegaciones quedan en sincro. -->
+  <aside class="sidenav">
     <div class="brand-lockup">
       <div class="wordmark">BLA<b>C</b>KS</div>
       <div class="tagline">Content Engine</div>
     </div>
-    <div style="display:flex; align-items:center; gap:8px;">
-      <!-- Va FUERA de #status-chips: loadConfig() pisa ese innerHTML. -->
-      <button class="chip chip-btn hidden" id="bg-tasks" onclick="openBgTasks()" title="Tareas en segundo plano"></button>
-      <div class="status-chips" id="status-chips"></div>
-    </div>
-  </header>
+    <nav class="side-tabs">
+      <button class="tab active" data-view="calendar" onclick="switchTab('calendar')"><span data-ic="calendar"></span><span class="tl">Calendario</span></button>
+      <button class="tab" data-view="style" onclick="switchTab('style')"><span data-ic="sparkles"></span><span class="tl">Estilo de marca</span></button>
+      <button class="tab" data-view="products" onclick="switchTab('products')"><span data-ic="tag"></span><span class="tl">Productos</span></button>
+      <button class="tab" data-view="metrics" onclick="switchTab('metrics')"><span data-ic="chart"></span><span class="tl">Métricas</span></button>
+    </nav>
+    <div class="side-foot">@blacks.indumentaria</div>
+  </aside>
 
-  <nav class="tabs">
-    <button class="tab active" data-view="calendar" onclick="switchTab('calendar')">Calendario</button>
-    <button class="tab" data-view="style" onclick="switchTab('style')">Estilo de marca</button>
-    <button class="tab" data-view="products" onclick="switchTab('products')">Productos</button>
-    <button class="tab" data-view="metrics" onclick="switchTab('metrics')">Métricas</button>
+  <div class="shell">
+    <header class="topbar">
+      <div class="brand-lockup only-mobile">
+        <div class="wordmark">BLA<b>C</b>KS</div>
+        <div class="tagline">Content Engine</div>
+      </div>
+      <div class="top-right">
+        <!-- Va FUERA de #status-chips: loadConfig() pisa ese innerHTML. -->
+        <button class="chip chip-btn hidden" id="bg-tasks" onclick="openBgTasks()" title="Tareas en segundo plano"></button>
+        <div class="status-chips" id="status-chips"></div>
+      </div>
+    </header>
+
+    <!-- ===== Calendario ===== -->
+    <section id="view-calendar" class="view">
+      <div class="toolbar">
+        <div>
+          <h2>Calendario de contenido</h2>
+          <div class="sub">Próximas piezas · horarios de Argentina (GMT-3)</div>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <div class="view-toggle">
+            <button class="vt active" id="vt-list" onclick="setCalView('list')"><span data-ic="list"></span> Lista</button>
+            <button class="vt" id="vt-grid" onclick="setCalView('grid')"><span data-ic="grid"></span> Calendario</button>
+            <button class="vt" id="vt-profile" onclick="setCalView('profile')"><span data-ic="user"></span> Perfil</button>
+          </div>
+          <button class="btn-primary" id="btn-generate-today" onclick="generateAllPending()"><span data-ic="bolt"></span> Generar hoy</button>
+          <button class="btn-ghost" onclick="openPlanSlot()"><span data-ic="plus"></span> Agregar slot</button>
+          <button class="btn-ghost" id="btn-month-plan" onclick="generateMonthPlan()"><span data-ic="calendar"></span> Plan del mes (IA)</button>
+          <button class="btn-ghost hidden" id="btn-stale-drafts" onclick="updateStaleDrafts()"><span data-ic="wand"></span> Actualizar borradores</button>
+          <button class="btn-ghost" onclick="loadCalendar()" title="Refrescar"><span data-ic="refresh"></span></button>
+        </div>
+      </div>
+      <div class="next-plan" id="next-plan"></div>
+      <div class="filters" id="filters"></div>
+      <div id="calendar-list"><p class="loading">Cargando calendario...</p></div>
+      <div id="calendar-grid" class="hidden"></div>
+      <div id="calendar-profile" class="hidden"></div>
+    </section>
+
+    <!-- ===== Estilo de marca ===== -->
+    <section id="view-style" class="view hidden">
+      <div class="toolbar">
+        <div>
+          <h2>Estilo de marca</h2>
+          <div class="sub">Cargá logos y piezas, conectá la cuenta y la IA aprende tu estética y tu forma de escribir.</div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom:18px;">
+        <h3>Logos de la marca</h3>
+        <p class="hint">Reemplazan el texto "BLACKS" en las piezas generadas. Ideal: PNG con fondo transparente.</p>
+        <div style="display:flex; gap:10px; align-items:center;">
+          <button class="btn-primary btn-sm" id="logo-pick"><span data-ic="upload"></span> Subir logo</button>
+          <input type="file" id="logo-input" accept="image/*" multiple hidden />
+          <span class="hint" style="margin:0;">Se usa el último que subas.</span>
+        </div>
+        <div class="logo-row" id="logo-row"></div>
+      </div>
+
+      <div class="grid-2">
+        <div class="panel">
+          <h3>1 · Cargá material de referencia</h3>
+          <p class="hint">Piezas que hicieron tus diseñadores (feed/historias). La IA saca de acá la paleta, el formato y el tono.</p>
+          <div class="dropzone" id="dropzone">
+            <div><span data-ic="upload"></span> Arrastrá imágenes acá o <u>elegí archivos</u></div>
+            <input type="file" id="file-input" accept="image/*" multiple hidden />
+          </div>
+          <div style="margin-top:14px; display:flex; gap:8px;">
+            <input class="input" id="link-input" placeholder="Pegá una URL de imagen suelta" />
+            <button class="btn-primary btn-sm" onclick="addLink()"><span data-ic="plus"></span> Agregar</button>
+          </div>
+          <div style="margin-top:10px; display:flex; gap:8px;">
+            <input class="input" id="drive-input" placeholder="Link de carpeta pública de Google Drive" />
+            <button class="btn-ghost btn-sm" id="drive-btn" onclick="importDrive()"><span data-ic="folder"></span> Importar Drive</button>
+          </div>
+          <p class="hint" style="margin:8px 0 0;">La carpeta tiene que estar compartida como “Cualquiera con el enlace”. Trae varias imágenes de cada subcarpeta (FEED/HISTORIAS).</p>
+          <div id="drive-out"></div>
+          <div class="ref-grid" id="ref-grid"></div>
+        </div>
+
+        <div class="panel">
+          <h3>2 · Analizá el estilo</h3>
+          <p class="hint">La IA (Gemini) mira tus piezas y logos y lee los textos reales de tu cuenta para armar una guía (paleta, tono, hashtags, CTAs, do/don't) que después usa al generar.</p>
+          <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); margin-bottom:12px;">
+            <input type="checkbox" id="include-account" checked /> Incluir textos reales de mi cuenta de Instagram
+          </label>
+          <button class="btn-primary" id="analyze-btn" onclick="analyzeStyle()"><span data-ic="sparkles"></span> Analizar y aprender estilo</button>
+          <p class="hint" style="margin:8px 0 0;">También se reanaliza solo cada 48 h.</p>
+          <div id="style-summary"></div>
+          <div id="profile-out"></div>
+        </div>
+      </div>
+    </section>
+
+    <!-- ===== Productos ===== -->
+    <section id="view-products" class="view hidden">
+      <div class="toolbar">
+        <div>
+          <h2>Productos</h2>
+          <div class="sub">Prioridades según ventas (30 días), stock y curva de talles.</div>
+        </div>
+        <button class="btn-ghost" onclick="loadProducts()"><span data-ic="refresh"></span> Refrescar</button>
+      </div>
+      <div id="products-body"><p class="loading">Cargando productos...</p></div>
+    </section>
+
+    <!-- ===== Métricas ===== -->
+    <section id="view-metrics" class="view hidden">
+      <div class="toolbar">
+        <div>
+          <h2>Rendimiento</h2>
+          <div class="sub">Qué contenido funciona mejor, para reforzarlo en la rotación.</div>
+        </div>
+        <button class="btn-ghost" onclick="loadMetrics()"><span data-ic="refresh"></span> Refrescar</button>
+      </div>
+
+      <div id="ga-summary" style="margin-bottom:20px;"></div>
+      <div id="ai-usage" class="prod-totals" style="margin-bottom:20px;"></div>
+      <div id="reach-chart-panel"></div>
+
+      <div class="panel" style="margin-bottom:20px;">
+        <h3>Análisis de tu cuenta de Instagram</h3>
+        <p class="hint">Mira tus publicaciones reales y detecta qué horario, día, formato y hashtags rindieron mejor (engagement = likes + comentarios).</p>
+        <button class="btn-primary" id="account-btn" onclick="analyzeAccount()"><span data-ic="chart"></span> Analizar mi cuenta</button>
+        <div id="account-out"></div>
+      </div>
+
+      <div id="metrics-body"><p class="loading">Cargando métricas por pilar...</p></div>
+    </section>
+  </div>
+
+  <!-- ===== Navegación inferior (mobile, tipo app) ===== -->
+  <nav class="bottom-nav">
+    <button class="tab active" data-view="calendar" onclick="switchTab('calendar')"><span data-ic="calendar"></span><span class="tl">Calendario</span></button>
+    <button class="tab" data-view="style" onclick="switchTab('style')"><span data-ic="sparkles"></span><span class="tl">Estilo</span></button>
+    <button class="tab" data-view="products" onclick="switchTab('products')"><span data-ic="tag"></span><span class="tl">Productos</span></button>
+    <button class="tab" data-view="metrics" onclick="switchTab('metrics')"><span data-ic="chart"></span><span class="tl">Métricas</span></button>
   </nav>
 
-  <!-- ===== Calendario ===== -->
-  <section id="view-calendar" class="view">
-    <div class="toolbar">
-      <div>
-        <h2>Calendario de contenido</h2>
-        <div class="sub">Próximas piezas · horarios de Argentina (GMT-3)</div>
-      </div>
-      <div style="display:flex; gap:8px; align-items:center;">
-        <div class="view-toggle">
-          <button class="vt active" id="vt-list" onclick="setCalView('list')"><span data-ic="list"></span> Lista</button>
-          <button class="vt" id="vt-grid" onclick="setCalView('grid')"><span data-ic="grid"></span> Calendario</button>
-          <button class="vt" id="vt-profile" onclick="setCalView('profile')"><span data-ic="user"></span> Perfil</button>
-        </div>
-        <button class="btn-primary" id="btn-generate-today" onclick="generateAllPending()"><span data-ic="bolt"></span> Generar hoy</button>
-        <button class="btn-ghost" onclick="openPlanSlot()"><span data-ic="plus"></span> Agregar slot</button>
-        <button class="btn-ghost" id="btn-month-plan" onclick="generateMonthPlan()"><span data-ic="calendar"></span> Plan del mes (IA)</button>
-        <button class="btn-ghost hidden" id="btn-stale-drafts" onclick="updateStaleDrafts()"><span data-ic="wand"></span> Actualizar borradores</button>
-        <button class="btn-ghost" onclick="loadCalendar()" title="Refrescar"><span data-ic="refresh"></span></button>
-      </div>
-    </div>
-    <div class="next-plan" id="next-plan"></div>
-    <div class="filters" id="filters"></div>
-    <div id="calendar-list"><p class="loading">Cargando calendario...</p></div>
-    <div id="calendar-grid" class="hidden"></div>
-    <div id="calendar-profile" class="hidden"></div>
-  </section>
-
-  <!-- ===== Estilo de marca ===== -->
-  <section id="view-style" class="view hidden">
-    <div class="toolbar">
-      <div>
-        <h2>Estilo de marca</h2>
-        <div class="sub">Cargá logos y piezas, conectá la cuenta y la IA aprende tu estética y tu forma de escribir.</div>
-      </div>
-    </div>
-
-    <div class="panel" style="margin-bottom:18px;">
-      <h3>Logos de la marca</h3>
-      <p class="hint">Reemplazan el texto "BLACKS" en las piezas generadas. Ideal: PNG con fondo transparente.</p>
-      <div style="display:flex; gap:10px; align-items:center;">
-        <button class="btn-primary btn-sm" id="logo-pick"><span data-ic="upload"></span> Subir logo</button>
-        <input type="file" id="logo-input" accept="image/*" multiple hidden />
-        <span class="hint" style="margin:0;">Se usa el último que subas.</span>
-      </div>
-      <div class="logo-row" id="logo-row"></div>
-    </div>
-
-    <div class="grid-2">
-      <div class="panel">
-        <h3>1 · Cargá material de referencia</h3>
-        <p class="hint">Piezas que hicieron tus diseñadores (feed/historias). La IA saca de acá la paleta, el formato y el tono.</p>
-        <div class="dropzone" id="dropzone">
-          <div><span data-ic="upload"></span> Arrastrá imágenes acá o <u>elegí archivos</u></div>
-          <input type="file" id="file-input" accept="image/*" multiple hidden />
-        </div>
-        <div style="margin-top:14px; display:flex; gap:8px;">
-          <input class="input" id="link-input" placeholder="Pegá una URL de imagen suelta" />
-          <button class="btn-primary btn-sm" onclick="addLink()"><span data-ic="plus"></span> Agregar</button>
-        </div>
-        <div style="margin-top:10px; display:flex; gap:8px;">
-          <input class="input" id="drive-input" placeholder="Link de carpeta pública de Google Drive" />
-          <button class="btn-ghost btn-sm" id="drive-btn" onclick="importDrive()"><span data-ic="folder"></span> Importar Drive</button>
-        </div>
-        <p class="hint" style="margin:8px 0 0;">La carpeta tiene que estar compartida como “Cualquiera con el enlace”. Trae varias imágenes de cada subcarpeta (FEED/HISTORIAS).</p>
-        <div id="drive-out"></div>
-        <div class="ref-grid" id="ref-grid"></div>
-      </div>
-
-      <div class="panel">
-        <h3>2 · Analizá el estilo</h3>
-        <p class="hint">La IA (Gemini) mira tus piezas y logos y lee los textos reales de tu cuenta para armar una guía (paleta, tono, hashtags, CTAs, do/don't) que después usa al generar.</p>
-        <label style="display:flex; align-items:center; gap:8px; font-size:13px; color:var(--muted); margin-bottom:12px;">
-          <input type="checkbox" id="include-account" checked /> Incluir textos reales de mi cuenta de Instagram
-        </label>
-        <button class="btn-primary" id="analyze-btn" onclick="analyzeStyle()"><span data-ic="sparkles"></span> Analizar y aprender estilo</button>
-        <p class="hint" style="margin:8px 0 0;">También se reanaliza solo cada 48 h.</p>
-        <div id="style-summary"></div>
-        <div id="profile-out"></div>
-      </div>
-    </div>
-  </section>
-
-  <!-- ===== Productos ===== -->
-  <section id="view-products" class="view hidden">
-    <div class="toolbar">
-      <div>
-        <h2>Productos</h2>
-        <div class="sub">Prioridades según ventas (30 días), stock y curva de talles.</div>
-      </div>
-      <button class="btn-ghost" onclick="loadProducts()"><span data-ic="refresh"></span> Refrescar</button>
-    </div>
-    <div id="products-body"><p class="loading">Cargando productos...</p></div>
-  </section>
-
-  <!-- ===== Métricas ===== -->
-  <section id="view-metrics" class="view hidden">
-    <div class="toolbar">
-      <div>
-        <h2>Rendimiento</h2>
-        <div class="sub">Qué contenido funciona mejor, para reforzarlo en la rotación.</div>
-      </div>
-      <button class="btn-ghost" onclick="loadMetrics()"><span data-ic="refresh"></span> Refrescar</button>
-    </div>
-
-    <div id="ga-summary" style="margin-bottom:20px;"></div>
-    <div id="ai-usage" class="prod-totals" style="margin-bottom:20px;"></div>
-
-    <div class="panel" style="margin-bottom:20px;">
-      <h3>Análisis de tu cuenta de Instagram</h3>
-      <p class="hint">Mira tus publicaciones reales y detecta qué horario, día, formato y hashtags rindieron mejor (engagement = likes + comentarios).</p>
-      <button class="btn-primary" id="account-btn" onclick="analyzeAccount()"><span data-ic="chart"></span> Analizar mi cuenta</button>
-      <div id="account-out"></div>
-    </div>
-
-    <div id="metrics-body"><p class="loading">Cargando métricas por pilar...</p></div>
-  </section>
-
-  <!-- Modal edición -->
+  <!-- Modal edición: en desktop es un panel lateral que se desliza desde la derecha;
+       en mobile, una hoja inferior (bottom sheet). Mismos IDs de siempre. -->
   <div id="edit-modal" class="modal-overlay hidden">
     <div class="modal">
       <div class="modal-header">
@@ -166,6 +189,7 @@
   </div>
 
   <div id="toast" class="toast"></div>
+  <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js" defer></script>
   <script src="/dashboard.js"></script>
 </body>
 </html>
