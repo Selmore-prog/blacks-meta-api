@@ -64,7 +64,7 @@ function headHtml(w, h) {
 function brandMarkHtml(logos, { dark = false, heightPx = 64 } = {}) {
   const logoUrl = typeof logos === 'string' ? logos : (dark ? logos?.onLight : logos?.onDark) || logos?.fallback;
   if (logoUrl) {
-    return `<img class="logo" style="height:${heightPx}px; max-width:52%; object-fit:contain;
+    return `<img class="logo" style="height:${heightPx}px; max-width:68%; object-fit:contain;
       filter:drop-shadow(0 1px 2px ${dark ? 'rgba(0,0,0,.25)' : 'rgba(255,255,255,.35)'}) drop-shadow(0 4px 12px ${dark ? 'rgba(255,255,255,.2)' : 'rgba(0,0,0,.55)'});" src="${esc(logoUrl)}" alt="BLACKS"/>`;
   }
   return `<div style="font-family:'Anton',sans-serif; font-size:${Math.round(heightPx * 0.62)}px; letter-spacing:8px; color:${dark ? '#111' : '#fff'};">BLACKS</div>`;
@@ -158,7 +158,8 @@ function buildFullbleedHtml(opts) {
   const footBottom = isStory ? 360 : 140; // el texto abajo queda por ENCIMA de la barra de mensaje
   const footTop = isStory ? 330 : 175;    // para el layout con texto arriba
   const domainBottom = isStory ? 250 : 54;
-  const heroTop = isStory ? 250 : 150;
+  // El hero arranca más abajo para dejarle lugar al logo grande de arriba.
+  const heroTop = isStory ? 320 : 195;
   const heroBottom = isStory ? 480 : 300;
 
   // Posiciones dinámicas del texto (varía entre piezas). Con precio: siempre abajo-izquierda.
@@ -212,10 +213,11 @@ function buildFullbleedHtml(opts) {
     .scrim { position:absolute; inset:0; z-index:2; background:
       linear-gradient(to bottom, rgba(0,0,0,.5) 0%, rgba(0,0,0,0) 22%, rgba(0,0,0,0) 60%, rgba(0,0,0,.72) 100%); }
     .wm { position:absolute; top:${wmTop}px; left:0; right:0; display:flex; justify-content:center; z-index:4; }
-    .wordmark { font-family:'Anton',sans-serif; font-size:${isStory ? 46 : 42}px; letter-spacing:8px;
+    .wordmark { font-family:'Anton',sans-serif; font-size:${isStory ? 62 : 54}px; letter-spacing:8px;
       color:#fff; text-shadow:0 2px 18px rgba(0,0,0,.7); }
-    .logo { height:${isStory ? 78 : 64}px; max-width:52%; object-fit:contain;
-      filter:drop-shadow(0 1px 2px rgba(255,255,255,.35)) drop-shadow(0 4px 12px rgba(0,0,0,.55)); }
+    /* Logo GRANDE y protagonista: antes quedaba en ~5% del alto y casi no se veía. */
+    .logo { height:${isStory ? 130 : 104}px; max-width:68%; object-fit:contain;
+      filter:drop-shadow(0 1px 2px rgba(255,255,255,.35)) drop-shadow(0 4px 14px rgba(0,0,0,.6)); }
     .badge { position:absolute; top:${wmTop - 6}px; right:${padX}px; background:${accent}; color:#fff;
       font-weight:800; font-size:22px; padding:11px 22px; border-radius:100px; text-transform:uppercase; letter-spacing:2px; z-index:4; }
     .foot { position:absolute; left:${padX}px; right:${padX}px; ${footPos}; text-align:${L.a}; z-index:4; }
@@ -258,7 +260,7 @@ function buildMinimalHtml(opts) {
   const hero = heroPhotoHtml({
     bgImageUrl: opts.bgImageUrl,
     productImageUrl: opts.productImageUrl,
-    box: { top: g.isStory ? 300 : 190, bottom: g.isStory ? 620 : 420, left: g.padX, right: g.padX },
+    box: { top: g.isStory ? 340 : 230, bottom: g.isStory ? 620 : 420, left: g.padX, right: g.padX },
     shadow: 'rgba(0,0,0,.22)',
   });
   const price = opts.price ? `
@@ -274,7 +276,7 @@ function buildMinimalHtml(opts) {
       ${hero.html}
       ${hero.fullBleed ? scrimHtml({ dark: true }) : ''}
       <div style="position:absolute; top:${g.wmTop}px; left:0; right:0; display:flex; justify-content:center; z-index:4;">
-        ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: !hero.fullBleed, heightPx: g.isStory ? 74 : 60 }) : ''}
+        ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: !hero.fullBleed, heightPx: g.isStory ? 120 : 100 }) : ''}
       </div>
       ${opts.badgeText ? `<div style="position:absolute; top:${g.wmTop - 6}px; right:${g.padX}px; background:${accent}; color:#fff; font-weight:800; font-size:22px; padding:11px 22px; border-radius:100px; text-transform:uppercase; letter-spacing:2px; z-index:4;">${esc(opts.badgeText)}</div>` : ''}
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
@@ -293,7 +295,7 @@ function buildPromoHtml(opts) {
   const hero = heroPhotoHtml({
     bgImageUrl: opts.bgImageUrl,
     productImageUrl: opts.productImageUrl,
-    box: { top: g.isStory ? 320 : 200, bottom: g.isStory ? 700 : 470, left: g.padX, right: g.padX },
+    box: { top: g.isStory ? 360 : 240, bottom: g.isStory ? 700 : 470, left: g.padX, right: g.padX },
     shadow: 'rgba(0,0,0,.65)',
   });
   const { hasPromo, off, now } = priceParts(opts.price, opts.promoPrice);
@@ -318,7 +320,7 @@ function buildPromoHtml(opts) {
         radial-gradient(120% 80% at 20% 100%, rgba(232,93,27,.14) 0%, rgba(0,0,0,0) 55%);"></div>`}
       <div style="position:absolute; top:0; left:0; right:0; height:14px; background:${accent}; z-index:4;"></div>
       <div style="position:absolute; top:${g.wmTop}px; left:0; right:0; display:flex; justify-content:center; z-index:4;">
-        ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: false, heightPx: g.isStory ? 74 : 60 }) : ''}
+        ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: false, heightPx: g.isStory ? 120 : 100 }) : ''}
       </div>
       <div style="position:absolute; top:${g.wmTop - 6}px; right:${g.padX}px; background:#fff; color:#111; font-weight:800; font-size:22px; padding:11px 22px; border-radius:100px; text-transform:uppercase; letter-spacing:2px; z-index:4;">${esc(opts.badgeText || 'OFERTA')}</div>
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
@@ -341,7 +343,7 @@ function buildEducativoHtml(opts) {
       background:linear-gradient(170deg, #fafafa 0%, #ededf0 70%, #e3e3e7 100%);">
       <div style="position:absolute; top:0; left:0; bottom:0; width:14px; background:${accent};"></div>
       <div style="position:absolute; top:${g.wmTop}px; left:${g.padX + 20}px; display:flex; align-items:center; gap:16px; z-index:4;">
-        ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: true, heightPx: g.isStory ? 60 : 52 }) : ''}
+        ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: true, heightPx: g.isStory ? 100 : 85 }) : ''}
       </div>
       ${opts.slideChip ? `<div style="position:absolute; top:${g.wmTop}px; right:${g.padX}px; background:#141416; color:#fff; font-weight:800; font-size:24px; padding:9px 18px; border-radius:100px; z-index:4;">${esc(opts.slideChip)}</div>` : ''}
       <div style="position:absolute; top:${g.isStory ? 340 : 220}px; left:${g.padX + 20}px; right:${g.padX}px; z-index:3;">
@@ -364,7 +366,7 @@ function buildMayoristaHtml(opts) {
   const hero = heroPhotoHtml({
     bgImageUrl: opts.bgImageUrl,
     productImageUrl: opts.productImageUrl,
-    box: { top: g.isStory ? 320 : 200, bottom: g.isStory ? 660 : 440, left: g.padX, right: g.padX },
+    box: { top: g.isStory ? 355 : 235, bottom: g.isStory ? 660 : 440, left: g.padX, right: g.padX },
     shadow: 'rgba(0,0,0,.6)',
   });
 
@@ -375,7 +377,7 @@ function buildMayoristaHtml(opts) {
       ${hero.fullBleed ? scrimHtml({ dark: true }) : ''}
       <div style="position:absolute; top:0; left:0; right:0; height:12px; background:${accent}; z-index:4;"></div>
       <div style="position:absolute; top:${g.wmTop}px; left:${g.padX}px; z-index:4;">
-        ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: false, heightPx: g.isStory ? 68 : 56 }) : ''}
+        ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: false, heightPx: g.isStory ? 115 : 95 }) : ''}
       </div>
       <div style="position:absolute; top:${g.wmTop - 4}px; right:${g.padX}px; border:2px solid ${accent}; color:${accent}; font-weight:800; font-size:24px; padding:10px 22px; border-radius:8px; text-transform:uppercase; letter-spacing:3px; z-index:4;">MAYORISTA</div>
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">

@@ -15,7 +15,11 @@
       <div class="wordmark">BLA<b>C</b>KS</div>
       <div class="tagline">Content Engine</div>
     </div>
-    <div class="status-chips" id="status-chips"></div>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <!-- Va FUERA de #status-chips: loadConfig() pisa ese innerHTML. -->
+      <button class="chip chip-btn hidden" id="bg-tasks" onclick="openBgTasks()" title="Tareas en segundo plano"></button>
+      <div class="status-chips" id="status-chips"></div>
+    </div>
   </header>
 
   <nav class="tabs">

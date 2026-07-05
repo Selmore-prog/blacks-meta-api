@@ -35,7 +35,7 @@ async function gatherContext(monthStr) {
   const to = `${monthStr}-${String(daysInMonth(monthStr)).padStart(2, '0')}`;
 
   const { analyzeAccountPerformance } = require('./accountAnalyzer');
-  const [dates, topProducts, insights, wholesale, account, store] = await Promise.all([
+  const [dates, topProducts, insights, wholesale, account, store, recent] = await Promise.all([
     pool.query(
       `SELECT event_date, title, category, angle, priority FROM commercial_dates
        WHERE event_date BETWEEN $1 AND $2 ORDER BY priority DESC, event_date`,
@@ -55,10 +55,20 @@ async function gatherContext(monthStr) {
     // Google Analytics de la tienda cruzado con ventas REALES de Tiendanube
     // (best-effort). GA dice qué mira la gente; Tiendanube dice qué se vendió.
     require('./analytics').topViewedWithRealSales(pool).catch(() => null),
+    // Anti-repetición: temas ya usados en los últimos 2 meses (planificados o
+    // publicados) para que el plan nuevo no recicle los mismos ángulos.
+    pool.query(
+      `SELECT scheduled_date, pillar, COALESCE(theme_title, pillar_detail) AS topic
+       FROM content_calendar
+       WHERE scheduled_date >= CURRENT_DATE - 60 AND scheduled_date <= CURRENT_DATE
+         AND COALESCE(theme_title, pillar_detail) IS NOT NULL AND pillar != 'repost'
+       ORDER BY scheduled_date DESC LIMIT 40`
+    ).catch(() => ({ rows: [] })),
   ]);
 
   return {
     store,
+    recentTopics: recent.rows.map((r) => `[${r.pillar}] ${r.topic}`),
     bestHours: account && Array.isArray(account.bestHours)
       ? account.bestHours.map((h) => `${h.hour}:00 (${h.avgEngagement} eng)`) : [],
     commercialDates: dates.rows.map((d) => ({
@@ -99,7 +109,7 @@ Tráfico pago: Meta Ads ${ctx.store.paidTraffic.metaAds.pct}% · Google Ads ${ct
 ` : ''}RENDIMIENTO HISTÓRICO POR PILAR:
 ${insightsTxt}
 ${ctx.wholesale ? `\nCONDICIONES MAYORISTAS: ${ctx.wholesale}` : ''}
-
+${ctx.recentTopics && ctx.recentTopics.length ? `\nTEMAS YA USADOS EN LOS ÚLTIMOS 2 MESES (NO los repitas; si un producto vuelve, tiene que ser con un ángulo claramente distinto):\n${ctx.recentTopics.map((t) => `- ${t}`).join('\n')}\n` : ''}
 REGLAS DEL PLAN (obligatorias):
 - Asigná TODOS los días del mes (del 1 al ${nDays}), pero NO todos llevan publicación: cuando un día no tenga nada valioso que decir, usá pillar 'repost' (descanso). CALIDAD SOBRE CANTIDAD: mejor 4-5 piezas fuertes por semana que 7 de relleno. Mínimo 1 descanso por semana; hasta 2-3 si el material del mes es flojo.
 - Cada pieza tiene que justificar su lugar: preguntate "¿por qué alguien pararía a mirar esto?". Si la respuesta es débil, ese día es descanso.

@@ -89,9 +89,25 @@ const OBJECTIVE_GUIDE = {
   comunidad: 'OBJETIVO: GENERAR CONVERSACIÓN. Terminá con una pregunta fácil de responder o una invitación a votar/comentar. El CTA es responder, no comprar.',
 };
 
-function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visualProduct, brandProfile, interactionHint, carousel, slideCount = 3, wholesale, commercialContext, topCaptions, objective }) {
+/**
+ * Texto de precio para el prompt. REGLA DE ORO: si el producto tiene precio
+ * promocional (tachado con descuento en Tiendanube), EL PRECIO QUE VALE ES LA
+ * OFERTA — el regular sólo sirve como "antes" para mostrar el descuento.
+ */
+function productPriceText(product) {
+  const regular = product.price ? Number(product.price) : null;
+  const promo = product.promo_price && regular && Number(product.promo_price) < regular ? Number(product.promo_price) : null;
+  const fmt = (n) => `$${Number(n).toLocaleString('es-AR')}`;
+  if (promo) {
+    const off = Math.round((1 - promo / regular) * 100);
+    return `, EN OFERTA: el precio vigente es ${fmt(promo)} (antes ${fmt(regular)}, -${off}%). Si mencionás precio, usá SIEMPRE el de oferta (${fmt(promo)}) y aprovechá el descuento como argumento de venta. NUNCA presentes ${fmt(regular)} como el precio actual: es el tachado.`;
+  }
+  return regular ? `, precio ${fmt(regular)}` : '';
+}
+
+function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visualProduct, brandProfile, interactionHint, carousel, slideCount = 3, wholesale, commercialContext, topCaptions, objective, recentPieces }) {
   let productInfo = product
-    ? `Producto a destacar: ${product.name}${product.brand ? ` (marca ${product.brand})` : ''}${product.price ? `, precio $${Number(product.price).toLocaleString('es-AR')}` : ''}${typeof product.stock === 'number' ? `, stock ${product.stock}` : ''}.`
+    ? `Producto a destacar: ${product.name}${product.brand ? ` (marca ${product.brand})` : ''}${productPriceText(product)}${typeof product.stock === 'number' ? `, stock ${product.stock}` : ''}.`
     : 'No hay un producto puntual; el foco es la marca/línea en general.';
   // Descripción real de Tiendanube: características para que el copy sea concreto y fiel.
   if (product && product.description) {
@@ -136,12 +152,18 @@ function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visu
     ? `\n\nPOSTS QUE MEJOR FUNCIONARON EN ESTA CUENTA (imitá su estructura, largo y tono — NO los copies literal ni repitas sus productos):\n${topCaptions.map((c, i) => `${i + 1}. "${String(c).slice(0, 220)}"`).join('\n')}`
     : '';
 
+  // Anti-repetición: lo último que salió de la cuenta. El copy nuevo tiene que
+  // aportar algo distinto — mismo producto puede volver, pero con OTRO ángulo.
+  const noRepeat = (Array.isArray(recentPieces) && recentPieces.length)
+    ? `\n\nCONTENIDO RECIENTE DE LA CUENTA (lo último generado/publicado). PROHIBIDO repetir estos temas, ganchos, ángulos o frases — si el producto o tema coincide, encaralo desde un ángulo CLARAMENTE distinto:\n${recentPieces.map((r) => `- ${r}`).join('\n')}`
+    : '';
+
   return `${formatGuidance(postType, format)}
 
 Pilar de contenido: ${pillar}${OBJECTIVE_GUIDE[objective] ? `\n${OBJECTIVE_GUIDE[objective]}` : ''}
 Ángulo/detalle: ${pillarDetail || 'sin detalle adicional'}
 ${productInfo}${wholesaleInfo}
-Temporada: ${seasonContext()}${commercial}${winners}${interaction}${voice}
+Temporada: ${seasonContext()}${commercial}${winners}${noRepeat}${interaction}${voice}
 
 ${carousel ? (['educativo', 'mayorista'].includes(pillar)
     ? `\nCARRUSEL PASO A PASO: devolvé "slides": un array de ${slideCount} objetos {"title","text"}. Es una GUÍA accionable, no un folleto: (1) portada con gancho que promete el resultado ("Guía de talles sin equivocarte", "Cómo comprar al por mayor"), (2-${slideCount - 1}) PASOS numerados y concretos — "title" tipo "PASO 1 — MEDÍ TU CINTURA" y "text" con la instrucción exacta (qué hacer, con qué, qué número anotar), (${slideCount}) cierre con el beneficio + CTA. Cada paso tiene que poder hacerse EN EL MOMENTO. Nada repetido entre slides.\n`
@@ -508,6 +530,11 @@ DIRECCIÓN DE FOTOGRAFÍA:
 - Color grading sobrio y premium: base negro/gris carbón con UN acento naranja quemado (#C1440C) apareciendo natural en la escena (casco, cinta de peligro, luz cálida, óxido). Grano fílmico sutil.
 ${brandStyle ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
 
+REALISMO ANTI-IA (crítico — la foto tiene que pasar por tomada con cámara real):
+- Imperfecciones del mundo real: polvo en el aire, desgaste en superficies, arrugas reales en telas, rayones en herramientas, suciedad creíble en el piso. NADA impecable ni simétrico.
+- Física de luz real: una sola fuente dominante coherente, sombras que caen todas para el mismo lado, reflejos imperfectos. Evitá la iluminación pareja "de render".
+- Encuadre levemente imperfecto, como de fotógrafo humano (no centrado quirúrgico). Leve viñeteo y grano fílmico. Colores con la saturación contenida de una foto editorial, nunca los tonos vibrantes plásticos típicos de IA.
+
 COMPOSICIÓN PARA DISEÑO:
 - Regla de tercios, con AMPLIO espacio negativo limpio en el centro-abajo para sobreimprimir un titular tipográfico después.
 - LA SALIDA ES SOLO LA FOTOGRAFÍA. El diseño gráfico (títulos, precios, logos, íconos, placas) lo agrega DESPUÉS otro sistema: si la imagen trae CUALQUIER texto, letra, número, ícono o logo, se descarta y se pierde el trabajo.
@@ -595,6 +622,7 @@ DIRECCIÓN DE FOTOGRAFÍA:
 - Escena real y creíble del uso: banco de taller, andamio, pallet de depósito, piso de hormigón, chapa. Utilería mínima y auténtica (guantes, casco, herramientas) SIN robar protagonismo.
 - Luz de estudio dramática tipo campaña (softbox lateral + contraluz sutil) o luz natural motivada de galpón. Sombras suaves con caída real.
 - Color grading premium: fondo neutro oscuro (carbón/grafito) con un acento naranja (#C1440C) discreto en la escena. Nada saturado ni plástico.
+- REALISMO ANTI-IA (crítico): la escena tiene que pasar por foto de cámara real. Superficies con desgaste y polvo creíbles, tela con arrugas y caída natural, una sola fuente de luz dominante con sombras coherentes, leve grano fílmico, encuadre humano (no simetría quirúrgica). Saturación contenida de foto editorial, nunca colores plásticos vibrantes de render.
 ${brandStyle ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
 
 COMPOSICIÓN PARA DISEÑO:
@@ -712,7 +740,8 @@ PRODUCTO (REGLA ESTRICTA): usá EXACTAMENTE el producto de las imágenes de refe
 - Si dudás de un detalle, no lo agregues. El producto del video tiene que ser el mismo que se vende.
 
 ESCENA: mostralo en un entorno real con contexto (${theme || 'obra / taller / depósito / fábrica / calle'}), usado o exhibido de forma creíble. Ambiente real argentino, no set de estudio artificial.
-CÁMARA: movimiento lento y cinematográfico (dolly-in suave u órbita corta), profundidad de campo, partículas de polvo, luz de golden hour o luz industrial cálida.
+CÁMARA: movimiento lento y cinematográfico (dolly-in suave u órbita corta) con micro-vibración de cámara en mano, como filmado por un camarógrafo real. Profundidad de campo, partículas de polvo, luz de golden hour o luz industrial cálida. Motion blur natural de 24fps.
+REALISMO ANTI-IA (crítico — que NO parezca video generado): imperfecciones del mundo real (desgaste, polvo, arrugas de tela con física creíble, piso sucio de obra), una sola fuente de luz coherente con sombras que caen todas para el mismo lado, leve grano fílmico, saturación contenida tipo documental. PROHIBIDO: superficies plásticas perfectas, movimientos flotantes irreales, cámara imposiblemente estable, colores vibrantes de render, transiciones mágicas o morphing.
 ESTÉTICA: robusta, premium, alto contraste, look de aviso moderno. SIN texto en pantalla (el texto/subtítulos los agrego después). Terminá en un plano hero limpio del producto.`;
   const instructions = [
     'Abrí Gemini (Veo/Omni) o tu herramienta de video.',

@@ -87,8 +87,29 @@ button:disabled { opacity: .55; cursor: default; }
 .btn-discard { background: transparent; color: var(--muted); border: 1px solid var(--line); }
 .btn-sm { padding: 8px 12px; font-size: 12px; }
 
+/* ---------- Tira de días (navegación rápida de la lista) ---------- */
+.day-strip {
+  position: sticky; top: 64px; z-index: 40;
+  display: flex; gap: 6px; overflow-x: auto; scrollbar-width: none;
+  padding: 10px 4px; margin-bottom: 6px;
+  background: linear-gradient(var(--bg) 82%, transparent);
+}
+.day-strip::-webkit-scrollbar { display: none; }
+.day-chip {
+  flex: none; display: flex; flex-direction: column; align-items: center; gap: 1px;
+  min-width: 52px; min-height: 0; padding: 7px 8px; border-radius: 10px;
+  background: var(--panel); border: 1px solid var(--line); color: var(--muted);
+}
+.day-chip .dc-dow { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; }
+.day-chip .dc-num { font-size: 17px; font-weight: 800; color: var(--text); line-height: 1.1; }
+.day-chip .dc-mon { font-size: 10px; }
+.day-chip:hover { border-color: var(--orange); }
+.day-chip.today { border-color: var(--orange); background: var(--orange-dim); }
+.day-chip.today .dc-num, .day-chip.active .dc-num { color: var(--orange); }
+.day-chip.active { border-color: var(--orange); }
+
 /* ---------- Day group ---------- */
-.day-group { margin-bottom: 30px; }
+.day-group { margin-bottom: 30px; scroll-margin-top: 132px; }
 .day-head { display: flex; align-items: baseline; gap: 12px; margin: 34px 0 14px; }
 .day-group:first-of-type .day-head { margin-top: 0; }
 .day-head .date { font-size: 16px; font-weight: 800; text-transform: capitalize; letter-spacing: -.2px; }
@@ -377,6 +398,26 @@ button .cost-tag { margin-left: 8px; }
 .ve-w { width: auto; min-width: 54px; max-width: 160px; background: var(--bg); border: 1px solid var(--line);
   color: var(--text); border-radius: 8px; padding: 6px 9px; font-size: 13px; font-family: inherit; }
 .ve-w:focus { outline: none; border-color: var(--orange); }
+
+/* ---------- tareas en segundo plano ---------- */
+.chip-btn { cursor: pointer; background: var(--panel-2); color: var(--orange); border-color: rgba(232, 93, 27, .4); min-height: 0; }
+.chip-btn:hover { filter: brightness(1.15); }
+.chip-btn.warn-chip { color: #f0b429; border-color: rgba(240, 180, 41, .4); }
+
+/* Fila de descarga / detalle de tarea dentro de modales */
+.dl-row { display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 9px 0; border-bottom: 1px solid var(--line); font-size: 13px; }
+.dl-row:last-of-type { border-bottom: none; }
+.dl-row > span:first-child { display: inline-flex; align-items: center; gap: 7px; min-width: 0;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+
+/* Navegación de días dentro del modal de día */
+.day-nav { display: flex; align-items: center; justify-content: space-between; gap: 8px; margin-bottom: 14px; }
+
+/* Aviso en Reels sin video */
+.reel-note { background: var(--panel-2); border: 1px solid var(--line); border-left: 3px solid var(--muted);
+  border-radius: 10px; padding: 10px 12px; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
+.reel-note b { color: var(--text); }
 
 /* ---------- misc polish ---------- */
 .card.regenerating { opacity: .6; pointer-events: none; }

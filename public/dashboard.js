@@ -156,6 +156,68 @@ async function loadConfig() {
   } catch (e) { /* silencioso */ }
 }
 
+/* ============ tareas en segundo plano ============ */
+/**
+ * Indicador en la barra superior: si hay videos de Reels renderizándose, subtítulos
+ * en cola o piezas en la cola de publicación, aparece un chip con el conteo.
+ * Tocándolo se ve el detalle de qué está pasando con cada cosa.
+ */
+let bgTasksData = null;
+async function pollBgTasks() {
+  const btn = document.getElementById('bg-tasks');
+  if (!btn) return;
+  try {
+    bgTasksData = await api('/api/background-tasks');
+    const n = bgTasksData.active || 0;
+    const failed = bgTasksData.failed || 0;
+    btn.classList.toggle('hidden', !n && !failed);
+    if (n) btn.innerHTML = `${icon('refresh', 'spin')} ${n} tarea${n > 1 ? 's' : ''} en segundo plano`;
+    else if (failed) btn.innerHTML = `${icon('alert')} ${failed} con error`;
+    btn.classList.toggle('warn-chip', !n && failed > 0);
+  } catch (_) { /* silencioso: si falla el poll no molestamos */ }
+}
+
+function bgTaskTitle(t) {
+  return t.theme_title || t.pillar_detail || `Pieza #${t.id}`;
+}
+
+function openBgTasks() {
+  const d = bgTasksData;
+  if (!d) return;
+  const fdate = (x) => (x ? String(x).slice(0, 10) : '');
+  const section = (title, rows, emptyMsg) => `
+    <div class="field"><label>${title}</label>
+      ${rows.length ? rows.join('') : `<p class="hint" style="margin:0;">${emptyMsg}</p>`}
+    </div>`;
+
+  const reels = (d.reels || []).map((t) => `<div class="dl-row">
+    <span>${icon('film')} ${esc(bgTaskTitle(t))} <span class="hint" style="margin:0;">· ${fdate(t.scheduled_date)}</span></span>
+    <span class="badge semi">renderizando video</span></div>`);
+  const edits = (d.edits || []).map((t) => `<div class="dl-row">
+    <span>${icon('film')} ${esc(bgTaskTitle(t))}</span>
+    <span class="badge semi">subtítulos en cola</span></div>`);
+  const pubItems = ((d.publish && d.publish.items) || []).filter((q) => ['queued', 'processing', 'failed'].includes(q.status));
+  const pubs = pubItems.map((q) => `<div class="dl-row">
+    <span>${icon('send')} ${esc(q.theme_title || `${q.pillar} · ${q.post_type}`)} <span class="hint" style="margin:0;">· ${fdate(q.scheduled_date)}</span></span>
+    <span class="badge ${q.status === 'failed' ? 'qa-warn' : 'semi'}" ${q.last_error ? `title="${esc(q.last_error)}"` : ''}>
+      ${q.status === 'failed' ? `falló (${q.attempts}/${q.max_attempts})` : q.status === 'processing' ? 'publicando…' : 'en cola'}</span></div>`);
+
+  const body = `
+    <p class="hint" style="margin-top:0;">Los videos de Reels y los subtítulos se procesan en la corrida automática (cada ~30 min). La cola de publicación corre sola en el horario de cada pieza.</p>
+    ${section(`${icon('film')} Videos de Reels pendientes (${(d.reels || []).length})`, reels, 'Ninguno: todos los Reels tienen su video.')}
+    ${section(`${icon('edit')} Subtítulos en proceso (${(d.edits || []).length})`, edits, 'Nada en cola.')}
+    ${section(`${icon('send')} Cola de publicación (${pubItems.length})`, pubs, 'Nada esperando para publicarse.')}
+    <div style="display:flex; justify-content:flex-end;">
+      <button class="btn-ghost btn-sm" id="bg-refresh">${icon('refresh')} Actualizar</button>
+    </div>`;
+  const ov = showInfoModal('Tareas en segundo plano', body);
+  ov.querySelector('#bg-refresh').addEventListener('click', async () => {
+    await pollBgTasks();
+    ov.remove();
+    openBgTasks();
+  });
+}
+
 /* ============ calendario ============ */
 let calItems = [];
 let calView = 'list';
@@ -389,15 +451,44 @@ function renderProfileGrid() {
     t.addEventListener('click', () => openPreview(tiles[Number(t.dataset.idx)])));
 }
 
+/**
+ * Tira de días pegada arriba de la lista: un chip por día con piezas. Tocás un día
+ * y la lista salta ahí (sin scrollear a mano medio mes). Hoy queda resaltado.
+ */
+function buildDayStrip(keys, groups) {
+  const strip = document.createElement('div');
+  strip.className = 'day-strip';
+  const today = todayKey();
+  const MES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic'];
+  const DIA = ['dom', 'lun', 'mar', 'mié', 'jue', 'vie', 'sáb'];
+  strip.innerHTML = keys.map((k) => {
+    const [y, m, d] = k.split('-').map(Number);
+    const date = new Date(y, m - 1, d);
+    const n = (groups[k] || []).length;
+    return `<button class="day-chip ${k === today ? 'today' : ''}" data-goto="${k}" title="${formatDate(k)} · ${n} pieza${n > 1 ? 's' : ''}">
+      <span class="dc-dow">${DIA[date.getDay()]}</span><span class="dc-num">${d}</span><span class="dc-mon">${MES[m - 1]}</span>
+    </button>`;
+  }).join('');
+  strip.querySelectorAll('[data-goto]').forEach((b) => b.addEventListener('click', () => {
+    const el = document.getElementById(`day-${b.dataset.goto}`);
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    strip.querySelectorAll('.day-chip').forEach((c) => c.classList.toggle('active', c === b));
+  }));
+  return strip;
+}
+
 function renderCalList(items) {
   const list = document.getElementById('calendar-list');
   if (!items.length) { list.innerHTML = '<p class="empty">No hay piezas que coincidan con los filtros.</p>'; return; }
   const groups = groupByDate(items);
+  const keys = Object.keys(groups).sort();
   list.innerHTML = '';
-  for (const key of Object.keys(groups).sort()) {
+  list.appendChild(buildDayStrip(keys, groups));
+  for (const key of keys) {
     const group = groups[key];
     const g = document.createElement('div');
     g.className = 'day-group';
+    g.id = `day-${key}`;
     const theme = group.find((x) => x.theme_title)?.theme_title || '';
     g.innerHTML = `<div class="day-head">
       <span class="date">${formatDate(key)}</span>
@@ -442,9 +533,23 @@ function renderCalGrid(items) {
 }
 
 function openDayDetail(key) {
-  const items = groupByDate(calItems)[key] || [];
+  const groups = groupByDate(calItems);
+  const allKeys = Object.keys(groups).sort();
+  const idx = allKeys.indexOf(key);
+  const prev = idx > 0 ? allKeys[idx - 1] : null;
+  const next = idx >= 0 && idx < allKeys.length - 1 ? allKeys[idx + 1] : null;
+  const items = groups[key] || [];
   const theme = items.find((x) => x.theme_title)?.theme_title || '';
-  const overlay = showInfoModal(`${formatDate(key)}${theme ? ' · ' + esc(theme) : ''}`, '<div id="day-detail"></div>');
+  // Flechas para pasar al día anterior/siguiente sin cerrar y volver a abrir.
+  const nav = `<div class="day-nav">
+    <button class="btn-ghost btn-sm" id="dn-prev" ${prev ? '' : 'disabled'}>‹ ${prev ? esc(formatDate(prev)) : 'Anterior'}</button>
+    <span class="hint" style="margin:0;">${items.length} pieza${items.length === 1 ? '' : 's'}</span>
+    <button class="btn-ghost btn-sm" id="dn-next" ${next ? '' : 'disabled'}>${next ? esc(formatDate(next)) : 'Siguiente'} ›</button>
+  </div>`;
+  const overlay = showInfoModal(`${formatDate(key)}${theme ? ' · ' + esc(theme) : ''}`, `${nav}<div id="day-detail"></div>`);
+  const go = (k) => { overlay.remove(); openDayDetail(k); };
+  if (prev) overlay.querySelector('#dn-prev').addEventListener('click', () => go(prev));
+  if (next) overlay.querySelector('#dn-next').addEventListener('click', () => go(next));
   const holder = overlay.querySelector('#day-detail');
   if (!items.length) { holder.innerHTML = '<p class="empty">Sin contenido este día.</p>'; return; }
   for (const it of items) holder.appendChild(renderCard(it));
@@ -592,6 +697,10 @@ function renderCard(item) {
   ).join('');
 
   const regenBtn = `<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Regenerar</button>`;
+  // Siempre disponible si hay imagen/video: para retocar en el celular (stickers,
+  // música) o publicar a mano.
+  const downloadBtn = (aid && (item.image_path || item.video_path))
+    ? `<button class="btn-ghost btn-sm" data-act="download" data-id="${aid}" title="Bajá la imagen o el video para editar en el celular o publicar a mano">${icon('download')} Descargar</button>` : '';
   const videoBtn = (item.post_type === 'reel' && aid)
     ? `<button class="btn-ghost btn-sm" data-act="videoprompt" data-id="${aid}">${icon('film')} Prompt video IA</button>` : '';
   const uploadVideoBtn = (item.post_type === 'reel' && aid)
@@ -610,15 +719,16 @@ function renderCard(item) {
   } else if (status === 'draft') {
     actions = `<button class="btn-approve" data-act="approve" data-id="${aid}">${icon('check')} Aprobar</button>
       <button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Editar</button>
-      ${regenBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}
+      ${regenBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${downloadBtn}
       <button class="btn-discard btn-sm" data-act="discard" data-id="${aid}">${icon('trash')} Descartar</button>${planBtn}`;
   } else if (status === 'approved') {
     actions = (isSemi
       ? `<button class="btn-manual" data-act="publish" data-id="${aid}">${icon('info')} Cómo publicarla</button>`
       : `<button class="btn-publish" data-act="publish" data-id="${aid}">${icon('send')} Publicar ahora</button>`) +
-      `<button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Editar</button>${regenBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${planBtn}`;
+      `<button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Editar</button>${regenBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${downloadBtn}${planBtn}`;
   } else if (status === 'published') {
     actions = `<span class="badge status-published" ${item.meta_post_id ? `title="ID de Instagram: ${esc(item.meta_post_id)}"` : ''}>${icon('check')} Publicada</span>
+      ${downloadBtn}
       <button class="btn-ghost btn-sm" data-act="republish" data-id="${aid}" title="Por si la borraste de Instagram o querés volver a publicarla">${icon('refresh')} Republicar</button>`;
   } else if (status === 'discarded') {
     actions = `<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('refresh')} Regenerar</button>${planBtn}`;
@@ -626,6 +736,11 @@ function renderCard(item) {
 
   const interaction = (isSemi && item.interaction_hint && status !== 'published')
     ? `<div class="interaction-box"><b>${icon('alert')} Acción manual:</b> ${esc(item.interaction_hint)}</div>` : '';
+
+  // Reels: ya no se gasta en imagen IA automática. El video ideal lo generás vos en
+  // Gemini/Veo con el prompt y lo subís; si no, el proceso automático anima la imagen base.
+  const reelNote = (item.post_type === 'reel' && aid && !item.video_path && ['draft', 'approved'].includes(status))
+    ? `<div class="reel-note">${icon('film')} Reel sin video todavía: usá <b>Prompt video IA</b> para generarlo en Gemini/Veo y subilo con <b>Subir video</b>. Si no subís nada, el proceso automático anima la imagen base (gratis, cada ~30 min).</div>` : '';
 
   const caption = item.caption
     ? `<div class="caption">${esc(item.caption)}</div>${item.hashtags ? `<div class="hashtags">${esc(item.hashtags)}</div>` : ''}`
@@ -646,6 +761,7 @@ function renderCard(item) {
       </div>
       ${caption}
       ${interaction}
+      ${reelNote}
       <div class="actions">${actions}</div>
     </div>`;
 
@@ -679,6 +795,8 @@ async function handleAction(act, id, btn, card, item) {
       openVideoEditor(id);
     } else if (act === 'planslot') {
       openPlanSlot(item || calItems.find((x) => String(x.id) === String(id)));
+    } else if (act === 'download') {
+      openDownload(item || calItems.find((x) => String(x.asset_id) === String(id)));
     } else if (act === 'publish') {
       await doPublish(id, btn);
     } else if (act === 'republish') {
@@ -693,6 +811,60 @@ async function handleAction(act, id, btn, card, item) {
     if (btn) btn.disabled = false;
     reloadKeepScroll();
   }
+}
+
+/* ============ descargar pieza ============ */
+/**
+ * Descarga real (no abrir en pestaña): baja el archivo como blob y dispara el
+ * guardado con nombre propio. Si el host no permite CORS, cae a abrirlo aparte.
+ */
+async function saveFile(url, filename) {
+  try {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const blob = await res.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = filename || (url.split('/').pop() || 'pieza').split('?')[0];
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(a.href), 10000);
+  } catch (_) {
+    window.open(url, '_blank'); // último recurso: abrir para guardar a mano
+  }
+}
+
+/** Descarga la pieza (imagen, video o todas las slides del carrusel). */
+function openDownload(item) {
+  if (!item) return;
+  const slides = parseSlides(item.slides);
+  const files = [];
+  if (item.video_path) files.push({ url: item.edited_video_path || item.video_path, label: item.edited_video_path ? 'Video con subtítulos' : 'Video del Reel', ext: 'mp4' });
+  if (slides && slides.length > 1) slides.forEach((u, i) => files.push({ url: u, label: `Slide ${i + 1} de ${slides.length}`, ext: 'jpg' }));
+  else if (item.image_path) files.push({ url: item.image_path, label: item.video_path ? 'Imagen base' : 'Imagen', ext: 'jpg' });
+  if (!files.length) { toast('Esta pieza todavía no tiene imagen ni video.'); return; }
+
+  const date = String(item.scheduled_date).slice(0, 10);
+  const nameOf = (f, i) => `blacks-${date}-${item.post_type}${files.length > 1 ? `-${i + 1}` : ''}.${f.ext}`;
+  if (files.length === 1) { toast('Descargando…'); saveFile(files[0].url, nameOf(files[0], 0)); return; }
+
+  const body = `
+    <p class="hint" style="margin-top:0;">Bajá los archivos para retocarlos en el celular (stickers, música) o publicarlos a mano.</p>
+    ${files.map((f, i) => `<div class="dl-row"><span>${esc(f.label)}</span>
+      <button class="btn-ghost btn-sm" data-dl="${i}">${icon('download')} Descargar</button></div>`).join('')}
+    <div style="display:flex; justify-content:flex-end; margin-top:14px;">
+      <button class="btn-primary btn-sm" id="dl-all">${icon('download')} Descargar todo</button>
+    </div>`;
+  const ov = showInfoModal('Descargar pieza', body);
+  ov.querySelectorAll('[data-dl]').forEach((b) => b.addEventListener('click', () => {
+    const i = Number(b.dataset.dl);
+    saveFile(files[i].url, nameOf(files[i], i));
+  }));
+  ov.querySelector('#dl-all').addEventListener('click', async () => {
+    toast(`Descargando ${files.length} archivos…`);
+    for (let i = 0; i < files.length; i += 1) await saveFile(files[i].url, nameOf(files[i], i));
+  });
 }
 
 /* ============ planificar / editar slots ============ */
@@ -1037,6 +1209,11 @@ async function loadProducts() {
         <button class="btn-primary btn-sm" id="w-save">${icon('check')} Guardar condiciones</button>
       </div>`;
     const money = (n) => n ? `$${Number(n).toLocaleString('es-AR')}` : '—';
+    // Si hay precio promocional (tachado con descuento en Tiendanube), ESE es el que
+    // vale: se muestra la oferta destacada y el regular tachado.
+    const priceHtml = (p) => (p.promo_price && p.price && Number(p.promo_price) < Number(p.price))
+      ? `<s style="opacity:.55">${money(p.price)}</s> <b style="color:var(--green)">${money(p.promo_price)}</b><span class="tag-ok">oferta</span>`
+      : money(p.price);
     // Si el producto no califica para protagonizar contenido (talles incompletos,
     // stock bajo), se muestra el motivo — es la razón por la que el motor no lo elige.
     const contentTag = (p) => {
@@ -1049,7 +1226,7 @@ async function loadProducts() {
       ? arr.map((p) => `<div class="prod-row">
           <img src="${esc(p.image_url || '')}" onerror="this.style.visibility='hidden'"/>
           <div class="prod-info"><div class="prod-name">${esc(p.name)}</div>
-            <div class="prod-sub">${esc(p.brand || '')} · stock ${p.stock ?? '—'}${sizesTxt(p)} · ${money(p.promo_price || p.price)} ${contentTag(p)}</div></div>
+            <div class="prod-sub">${esc(p.brand || '')} · stock ${p.stock ?? '—'}${sizesTxt(p)} · ${priceHtml(p)} ${contentTag(p)}</div></div>
           <div class="prod-metric">${right(p)}</div></div>`).join('')
       : '<p class="hint">Sin datos.</p>';
     body.innerHTML = wholesalePanel + `
@@ -1479,3 +1656,5 @@ hydrateIcons();
 loadConfig();
 loadCalendar();
 setupStyleTab();
+pollBgTasks();
+setInterval(pollBgTasks, 60 * 1000); // tareas en segundo plano: refresco cada minuto

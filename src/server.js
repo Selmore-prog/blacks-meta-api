@@ -190,6 +190,36 @@ app.get('/api/publish-queue', wrap(async (req, res) => {
   res.json(await getPublishQueueStatus({ limit: req.query.limit }));
 }));
 
+// Tareas en segundo plano, para el panel: qué está procesándose ahora mismo
+// (videos de Reels que renderiza GitHub Actions, subtítulos en cola, cola de
+// publicación). El frontend lo pollea y muestra un indicador en la barra superior.
+app.get('/api/background-tasks', wrap(async (req, res) => {
+  const [reels, edits, publish] = await Promise.all([
+    pool.query(
+      `SELECT a.id, c.scheduled_date, c.theme_title, c.pillar_detail
+       FROM generated_assets a JOIN content_calendar c ON c.id = a.calendar_id
+       WHERE c.post_type = 'reel' AND a.video_path IS NULL AND a.status NOT IN ('discarded')
+       ORDER BY c.scheduled_date LIMIT 20`
+    ),
+    pool.query(
+      `SELECT a.id, a.edit_status, c.scheduled_date, c.theme_title, c.pillar_detail
+       FROM generated_assets a JOIN content_calendar c ON c.id = a.calendar_id
+       WHERE a.edit_status IN ('queued', 'processing')
+       ORDER BY a.updated_at DESC LIMIT 20`
+    ),
+    getPublishQueueStatus({ limit: 10 }),
+  ]);
+  const summary = publish.summary || {};
+  const publishActive = (summary.queued || 0) + (summary.processing || 0);
+  res.json({
+    reels: reels.rows,
+    edits: edits.rows,
+    publish,
+    active: reels.rows.length + edits.rows.length + publishActive,
+    failed: summary.failed || 0,
+  });
+}));
+
 // Check liviano para que el cron de GitHub Actions (cada 30 min) no gaste minutos
 // instalando dependencias cuando no hay nada que renderizar.
 app.get('/api/cron/has-pending-renders', authCron, wrap(async (req, res) => {

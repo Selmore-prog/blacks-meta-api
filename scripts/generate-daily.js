@@ -245,6 +245,27 @@ async function pickRelevantVisualProduct(slot) {
 }
 
 /**
+ * Anti-repetición: resumen de las últimas piezas generadas/publicadas (tema + primera
+ * línea del caption). Entra al prompt del copy para que la pieza nueva NO repita
+ * temas, ganchos ni frases de lo que ya salió.
+ */
+async function recentPieceSummaries(limit = 12) {
+  const { rows } = await pool.query(
+    `SELECT c.pillar, c.theme_title, c.pillar_detail, a.caption
+     FROM generated_assets a
+     JOIN content_calendar c ON c.id = a.calendar_id
+     WHERE a.status != 'discarded'
+     ORDER BY a.id DESC LIMIT $1`,
+    [limit]
+  );
+  return rows.map((r) => {
+    const theme = r.theme_title || r.pillar_detail || '';
+    const cap = String(r.caption || '').split('\n')[0].trim().slice(0, 110);
+    return `[${r.pillar}] ${theme}${cap ? ` — "${cap}"` : ''}`.trim();
+  }).filter(Boolean);
+}
+
+/**
  * Feedback loop: captions de los posts publicados con mejor rendimiento real
  * (alcance + engagement ponderado). Vacío hasta que haya métricas — no molesta.
  */
@@ -356,6 +377,7 @@ async function generateForSlot(slot, overrides = {}) {
     slideCount: isCarousel && ['educativo', 'mayorista'].includes(slot.pillar) ? 5 : 3,
     commercialContext,
     topCaptions: await topPerformingCaptions().catch(() => []),
+    recentPieces: await recentPieceSummaries().catch(() => []),
   });
 
   const badgeText = slot.pillar === 'mayorista' ? 'MAYORISTA' : null;
@@ -434,6 +456,10 @@ async function generateForSlot(slot, overrides = {}) {
     imagePath = urls[0];
     slidesJson = JSON.stringify(urls);
   } else {
+    // Reels: NO se gasta en imagen IA automática. La imagen es sólo la base/portada;
+    // el video real conviene generarlo a mano en Gemini/Veo con el botón
+    // "Prompt video IA" (o subir filmación propia), así la imagen IA no se tira.
+    const isReel = slot.post_type === 'reel';
     const { url, costUsd } = await renderPostBuffer({
       format,
       template,
@@ -445,14 +471,14 @@ async function generateForSlot(slot, overrides = {}) {
       productImageUrl: realSizeChart || visualImageUrl,
       logos,
       layoutSeed: Number(slot.id),
-      useAiProductScene: PRODUCT_PILLARS.includes(slot.pillar) && Boolean(product),
+      useAiProductScene: !isReel && PRODUCT_PILLARS.includes(slot.pillar) && Boolean(product),
       // Educativo sin guía real: ilustración didáctica (dibujo del tema) en vez de foto.
       useAiDiagram: isEducativo && !realSizeChart,
       diagramTopic: pillarDetail || slot.theme_title,
       // Piezas SIN foto de catálogo: fondo original generado con IA (sólo si AI_IMAGES=true
       // y hay GEMINI_API_KEY con facturación; si no, queda el diseño tipográfico).
       // Educativo no usa fondo fotográfico: ahí la imagen didáctica es la protagonista.
-      useAiBackground: !visualImageUrl && !isEducativo,
+      useAiBackground: !isReel && !visualImageUrl && !isEducativo,
       // Para escenas de producto el tema es EL PRODUCTO (nunca el texto de venta del slot:
       // el modelo lo "hornea" en la imagen y puede contradecir la foto). Para fondos, el concepto.
       bgTheme: product
