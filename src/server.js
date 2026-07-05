@@ -423,6 +423,104 @@ app.get('/api/insights/report', wrap(async (req, res) => {
   res.json(await analyzePerformance());
 }));
 
+/* ----------------------- Meta Ads (pauta) ----------------------- */
+// Gasto, compras y ROAS de la cuenta publicitaria (últimos 30 días). Cache 1 h.
+// Best-effort: sin META_AD_ACCOUNT_ID o sin permiso ads_read devuelve enabled:false
+// y el panel simplemente no muestra la sección.
+let adsCache = { data: null, at: 0 };
+app.get('/api/metrics/ads', wrap(async (req, res) => {
+  const { adAccountId, adsAccessToken, apiVersion } = config.meta;
+  if (!adAccountId || !adsAccessToken) return res.json({ enabled: false });
+  if (adsCache.data && Date.now() - adsCache.at < 60 * 60 * 1000) return res.json(adsCache.data);
+
+  const url = `https://graph.facebook.com/${apiVersion}/${adAccountId}/insights` +
+    `?fields=spend,impressions,clicks,actions,action_values,account_name,account_currency` +
+    `&date_preset=last_30d&access_token=${encodeURIComponent(adsAccessToken)}`;
+  const r = await fetch(url);
+  const data = await r.json().catch(() => ({}));
+  if (!r.ok || data.error) {
+    console.warn('[server] Meta Ads insights falló:', data.error ? data.error.message : r.status);
+    return res.json({ enabled: false, error: data.error ? data.error.message : `HTTP ${r.status}` });
+  }
+
+  const row = (data.data && data.data[0]) || null;
+  const act = (arr, type) => {
+    const f = (arr || []).find((a) => a.action_type === type);
+    return f ? Number(f.value) : 0;
+  };
+  // omni_purchase agrega todas las compras (pixel + tienda); si no está, caemos al pixel.
+  const purchases = row ? (act(row.actions, 'omni_purchase') || act(row.actions, 'offsite_conversion.fb_pixel_purchase')) : 0;
+  const revenue = row ? (act(row.action_values, 'omni_purchase') || act(row.action_values, 'offsite_conversion.fb_pixel_purchase')) : 0;
+  const spend = row ? Number(row.spend || 0) : 0;
+  const clicks = row ? Number(row.clicks || 0) : 0;
+
+  const out = {
+    enabled: true,
+    days: 30,
+    account: (row && row.account_name) || adAccountId,
+    currency: (row && row.account_currency) || 'ARS',
+    spend,
+    impressions: row ? Number(row.impressions || 0) : 0,
+    clicks,
+    purchases,
+    revenue,
+    roas: spend > 0 && revenue > 0 ? Number((revenue / spend).toFixed(2)) : null,
+    cac: purchases > 0 ? Math.round(spend / purchases) : null, // costo por compra
+    cpc: clicks > 0 ? Math.round(spend / clicks) : null,
+    empty: !row,
+  };
+  adsCache = { data: out, at: Date.now() };
+  res.json(out);
+}));
+
+// Atribución por pieza: sesiones/compras de Google Analytics cuyas campañas empiezan
+// con engine_ (los links con UTM que arma el motor llevan engine_<calendarId>).
+let attributionCache = { data: null, at: 0 };
+app.get('/api/metrics/attribution', wrap(async (req, res) => {
+  const { runReport, isEnabled } = require('./analytics');
+  if (!isEnabled()) return res.json({ enabled: false });
+  if (attributionCache.data && Date.now() - attributionCache.at < 60 * 60 * 1000) {
+    return res.json(attributionCache.data);
+  }
+
+  const report = await runReport({
+    dateRanges: [{ startDate: '28daysAgo', endDate: 'today' }],
+    dimensions: [{ name: 'sessionCampaignName' }],
+    metrics: [{ name: 'sessions' }, { name: 'ecommercePurchases' }, { name: 'purchaseRevenue' }],
+    dimensionFilter: {
+      filter: { fieldName: 'sessionCampaignName', stringFilter: { matchType: 'BEGINS_WITH', value: 'engine_' } },
+    },
+    limit: 50,
+  }).catch((err) => { console.warn('[server] Atribución GA falló:', err.message); return null; });
+
+  const rows = (report && report.rows) || [];
+  const parsed = rows.map((r) => ({
+    campaign: r.dimensionValues[0].value,
+    calendarId: Number((r.dimensionValues[0].value.match(/^engine_(\d+)$/) || [])[1]) || null,
+    sessions: Number(r.metricValues[0].value),
+    purchases: Number(r.metricValues[1].value),
+    revenue: Number(r.metricValues[2].value),
+  }));
+
+  // Cruce con el calendario para mostrar QUÉ pieza era (tema, pilar, fecha).
+  const ids = parsed.map((p) => p.calendarId).filter(Boolean);
+  let slots = new Map();
+  if (ids.length) {
+    const { rows: slotRows } = await pool.query(
+      `SELECT id, theme_title, pillar_detail, pillar, post_type, scheduled_date
+       FROM content_calendar WHERE id = ANY($1)`, [ids]
+    );
+    slots = new Map(slotRows.map((s) => [s.id, s]));
+  }
+  const items = parsed
+    .map((p) => ({ ...p, slot: slots.get(p.calendarId) || null }))
+    .sort((a, b) => b.sessions - a.sessions);
+
+  const out = { enabled: true, days: 28, items };
+  attributionCache = { data: out, at: Date.now() };
+  res.json(out);
+}));
+
 // Serie semanal de alcance (para el gráfico del panel): suma el reach de las piezas
 // publicadas agrupado por semana de publicación programada (últimas 12 semanas).
 app.get('/api/insights/weekly-reach', wrap(async (req, res) => {

@@ -82,6 +82,11 @@ module.exports = {
     igUserId: required('IG_USER_ID'),
     pageId: required('META_PAGE_ID'),
     apiVersion: 'v21.0',
+    // Lectura de la cuenta publicitaria (gasto, ROAS, CAC). Token con scope ads_read;
+    // si no hay uno específico, se intenta con el de página. Sin adAccountId, la
+    // sección de pauta del panel simplemente no aparece (best-effort).
+    adsAccessToken: process.env.META_ADS_ACCESS_TOKEN || process.env.META_PAGE_ACCESS_TOKEN || null,
+    adAccountId: process.env.META_AD_ACCOUNT_ID || null,
     autoPublishPillars: (process.env.AUTO_PUBLISH_PILLARS || 'promo,producto').split(',').map((s) => s.trim()).filter(Boolean),
     // Historia de refuerzo automática cuando se publica un post de feed (STORY_BOOST=false para apagarla).
     storyBoost: bool('STORY_BOOST', true),

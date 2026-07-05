@@ -1301,16 +1301,23 @@ function openManualPublish(data) {
       <li>Descargá la pieza y abrí Instagram.</li>
       <li>Subí la historia con esa imagen/video.</li>
       <li>Agregá el sticker indicado arriba.</li>
+      ${data.link_url ? '<li>Si le ponés sticker de LINK, usá el link con seguimiento de abajo: así después vemos qué pieza trajo visitas y ventas.</li>' : ''}
       <li>Copiá el texto si querés usarlo.</li>
     </ol>
+    ${data.link_url ? `<div class="field" style="margin-top:14px;"><label>Link con seguimiento (para el sticker de link)</label>
+      <input class="input" id="mp-link" readonly value="${esc(data.link_url)}" /></div>` : ''}
     <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:16px;">
       <a class="btn-primary btn-sm" href="${esc(data.video_url || data.image_url)}" target="_blank" download>${icon('download')} Descargar pieza</a>
       <button class="btn-ghost btn-sm" id="copy-caption">${icon('copy')} Copiar texto</button>
+      ${data.link_url ? `<button class="btn-ghost btn-sm" id="copy-link">${icon('copy')} Copiar link</button>` : ''}
     </div>`;
   const overlay = showInfoModal('Publicación semiautomatizada', body);
   const copyBtn = overlay.querySelector('#copy-caption');
   if (copyBtn) copyBtn.addEventListener('click', () =>
     navigator.clipboard.writeText(data.caption || '').then(() => toast('Texto copiado', 'ok')));
+  const linkBtn = overlay.querySelector('#copy-link');
+  if (linkBtn) linkBtn.addEventListener('click', () =>
+    navigator.clipboard.writeText(data.link_url).then(() => toast('Link con seguimiento copiado', 'ok')));
 }
 
 async function generateAllPending() {
@@ -1633,6 +1640,67 @@ async function loadGaSummary() {
   } catch (_) { el.innerHTML = ''; }
 }
 
+/* Meta Ads: gasto, compras, ROAS y CAC de la pauta (últimos 30 días). */
+async function loadAdsSummary() {
+  const el = document.getElementById('ads-summary');
+  if (!el) return;
+  try {
+    const a = await api('/api/metrics/ads');
+    if (!a.enabled || a.empty) { el.innerHTML = ''; return; }
+    const money = (n) => '$' + Math.round(Number(n)).toLocaleString('es-AR');
+    const src = `<span class="src-tag">Meta Ads</span>`;
+
+    // Comparación con el orgánico: GA dice cuánto tráfico es pauta vs. Instagram
+    // orgánico (lo que trae este motor gratis). Best-effort: sin GA no se muestra.
+    let organicNote = '';
+    try {
+      const g = await api('/api/analytics/summary');
+      if (g.enabled) {
+        const organicIg = Math.max(0, (g.igSessions || 0) - ((g.paidTraffic && g.paidTraffic.metaAds.sessions) || 0));
+        organicNote = `<p class="hint" style="margin:12px 0 0;">Comparación: en el mismo período, el contenido <b>orgánico</b> de Instagram (este motor, gratis) trajo <b>${organicIg.toLocaleString('es-AR')}</b> visitas a la tienda vs. <b>${((g.paidTraffic && g.paidTraffic.metaAds.sessions) || 0).toLocaleString('es-AR')}</b> de la pauta.</p>`;
+      }
+    } catch (_) {}
+
+    el.innerHTML = `
+      <div class="panel">
+        <h3>Pauta en Meta Ads · últimos ${a.days} días</h3>
+        <p class="hint">Cuenta: ${esc(a.account)} · lo que gastás en publicidad y qué devuelve, contra el orgánico gratis del motor.</p>
+        <div class="prod-totals">
+          <div class="stat"><b>${money(a.spend)}</b><span>Gasto en pauta ${src}</span></div>
+          <div class="stat"><b>${a.purchases}</b><span>Compras por pauta ${src}</span></div>
+          <div class="stat"><b>${a.revenue ? money(a.revenue) : '—'}</b><span>Ingresos por pauta ${src}</span></div>
+          <div class="stat"><b>${a.roas !== null ? `${String(a.roas).replace('.', ',')}x` : '—'}</b><span>ROAS (ingresos / gasto)</span></div>
+          <div class="stat"><b>${a.cac !== null ? money(a.cac) : '—'}</b><span>Costo por compra (CAC)</span></div>
+        </div>
+        ${organicNote}
+      </div>`;
+  } catch (_) { el.innerHTML = ''; }
+}
+
+/* Atribución por pieza: qué posts del motor trajeron visitas/compras (via UTMs + GA). */
+async function loadAttribution() {
+  const el = document.getElementById('attribution-out');
+  if (!el) return;
+  try {
+    const d = await api('/api/metrics/attribution');
+    if (!d.enabled || !d.items || !d.items.length) { el.innerHTML = ''; return; }
+    const money = (n) => '$' + Math.round(Number(n)).toLocaleString('es-AR');
+    el.innerHTML = `
+      <div class="panel">
+        <h3>Qué piezas trajeron tráfico (links con seguimiento)</h3>
+        <p class="hint">Visitas y compras registradas por Google Analytics para los links con UTM del motor (sticker de historias, bio). Últimos ${d.days} días.</p>
+        ${d.items.slice(0, 10).map((i) => `
+          <div class="prod-row">
+            <div class="prod-info">
+              <div class="prod-name">${esc(i.slot ? (i.slot.theme_title || i.slot.pillar_detail || i.campaign) : i.campaign)}</div>
+              <div class="prod-sub">${i.slot ? `${esc(i.slot.pillar)} · ${esc(String(i.slot.scheduled_date).slice(0, 10))} · ` : ''}${i.purchases ? `<b style="color:var(--green)">${i.purchases} compra(s) · ${money(i.revenue)}</b>` : 'sin compras registradas'}</div>
+            </div>
+            <div class="prod-metric"><b>${i.sessions}</b><span>visitas</span></div>
+          </div>`).join('')}
+      </div>`;
+  } catch (_) { el.innerHTML = ''; }
+}
+
 /* Gráfico de evolución del alcance semanal (Chart.js por CDN, best-effort). */
 let reachChart = null;
 async function loadReachChart() {
@@ -1688,6 +1756,8 @@ async function loadReachChart() {
 
 async function loadMetrics() {
   loadGaSummary();
+  loadAdsSummary();
+  loadAttribution();
   loadAiUsage();
   loadReachChart();
   const body = document.getElementById('metrics-body');

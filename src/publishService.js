@@ -1,14 +1,17 @@
 const pool = require('./db');
 const config = require('./config');
 const { getPublicUrl } = require('./storage');
+const { utmLink, storeUtmLink } = require('./utm');
 const { publishToInstagram, publishToFacebook, publishCarouselToInstagram } = require('./metaPublisher');
 
 async function loadAsset(assetId) {
   const { rows } = await pool.query(
     `SELECT a.*, c.platform, c.post_type, c.pillar, c.format, c.scheduled_date,
-            c.automation_level, c.interaction_hint
+            c.automation_level, c.interaction_hint,
+            p.permalink AS product_permalink
      FROM generated_assets a
      JOIN content_calendar c ON c.id = a.calendar_id
+     LEFT JOIN products_cache p ON p.id = a.product_id
      WHERE a.id = $1`,
     [assetId]
   );
@@ -38,6 +41,11 @@ async function publishAssetById(assetId, { force = false } = {}) {
       image_url: getPublicUrl(asset.image_path),
       video_url: getPublicUrl(asset.video_path),
       caption: [asset.caption, asset.hashtags].filter(Boolean).join('\n\n'),
+      // Link con UTMs para el sticker de link de la historia: al usarlo, Google
+      // Analytics registra la campaña engine_<calendarId> y la pieza queda atribuida.
+      link_url: asset.product_permalink
+        ? utmLink(asset.product_permalink, { calendarId: asset.calendar_id, pillar: asset.pillar })
+        : storeUtmLink({ calendarId: asset.calendar_id, pillar: asset.pillar }),
     };
   }
 
