@@ -212,27 +212,27 @@ app.get('/api/background-tasks', wrap(async (req, res) => {
   const summary = publish.summary || {};
   const publishActive = (summary.queued || 0) + (summary.processing || 0);
   res.json({
+    // Reels sin video: ya no son una tarea automática (esperan que subas el video
+    // generado en Gemini/Veo), así que no cuentan como "en proceso".
     reels: reels.rows,
     edits: edits.rows,
     publish,
-    active: reels.rows.length + edits.rows.length + publishActive,
+    active: edits.rows.length + publishActive,
     failed: summary.failed || 0,
   });
 }));
 
 // Check liviano para que el cron de GitHub Actions (cada 30 min) no gaste minutos
 // instalando dependencias cuando no hay nada que renderizar.
+// OJO: los Reels ya NO se auto-renderizan desde la imagen (el video estático con
+// zoom no se publica más) — sólo cuentan las ediciones de subtítulos encoladas.
 app.get('/api/cron/has-pending-renders', authCron, wrap(async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT
-       (SELECT COUNT(*) FROM generated_assets a
-          JOIN content_calendar c ON c.id = a.calendar_id
-        WHERE c.post_type = 'reel' AND a.video_path IS NULL AND a.status != 'discarded')::int AS reels,
-       (SELECT COUNT(*) FROM generated_assets
-        WHERE edit_status = 'queued' AND video_path IS NOT NULL)::int AS edits`
+    `SELECT (SELECT COUNT(*) FROM generated_assets
+             WHERE edit_status = 'queued' AND video_path IS NOT NULL)::int AS edits`
   );
-  const { reels, edits } = rows[0];
-  res.json({ pending: reels + edits > 0, reels, edits });
+  const { edits } = rows[0];
+  res.json({ pending: edits > 0, reels: 0, edits });
 }));
 
 /* ----------------------- Calendario ----------------------- */
@@ -856,6 +856,110 @@ app.post('/api/assets/:assetId/publish', wrap(async (req, res) => {
   if (!id) return res.status(400).json({ error: 'assetId inválido' });
   const force = Boolean(req.body && req.body.force);
   res.json(await publishAssetById(id, { force }));
+}));
+
+/* ----------------------- Estudio creativo ----------------------- */
+// Imágenes/videos de productos APARTE de las piezas del calendario: elegís un
+// producto o un combo, generás la imagen con IA o te llevás el prompt de video
+// para Gemini/Veo, y todo queda guardado en la biblioteca (studio_assets).
+
+app.get('/api/studio/assets', wrap(async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT * FROM studio_assets ORDER BY id DESC LIMIT 80`
+  );
+  res.json(rows);
+}));
+
+async function studioProducts(ids) {
+  const clean = (ids || []).map(Number).filter(Boolean).slice(0, 4);
+  if (!clean.length) return [];
+  const { rows } = await pool.query(
+    `SELECT id, name, image_url, images FROM products_cache WHERE id = ANY($1)`, [clean]
+  );
+  // Respetar el orden en que se eligieron.
+  return clean.map((id) => rows.find((r) => Number(r.id) === id)).filter(Boolean)
+    .map((r) => ({
+      id: Number(r.id),
+      name: r.name,
+      imageUrl: r.image_url,
+      images: Array.isArray(r.images) ? r.images : [],
+    }));
+}
+
+app.post('/api/studio/image', wrap(async (req, res) => {
+  const { generateStudioScene } = require('./ai');
+  const body = req.body || {};
+  const products = await studioProducts(body.productIds);
+  if (!products.length) return res.status(400).json({ error: 'Elegí al menos un producto.' });
+  const format = body.format === 'story' ? 'story' : 'feed';
+
+  const img = await generateStudioScene({ products, theme: textOrNull(body.theme), format });
+  if (!img) return res.status(502).json({ error: 'No se pudo generar la imagen (cuota de IA agotada o Gemini no disponible). Probá de nuevo en unos minutos.' });
+
+  const url = await uploadAsset({
+    buffer: img.buffer,
+    filename: `studio/img-${Date.now()}.${(img.mimeType || 'image/png').split('/')[1] || 'png'}`,
+    contentType: img.mimeType || 'image/png',
+  });
+  const { rows } = await pool.query(
+    `INSERT INTO studio_assets (kind, path, prompt, product_ids, product_names, format, est_cost_usd)
+     VALUES ('image', $1, $2, $3, $4, $5, $6) RETURNING *`,
+    [url, img.prompt || null, products.map((p) => p.id), products.map((p) => p.name).join(' + '), format, img.costUsd || 0]
+  );
+  res.json(rows[0]);
+}));
+
+app.post('/api/studio/video-prompt', wrap(async (req, res) => {
+  const { buildStudioVideoPrompt } = require('./ai');
+  const body = req.body || {};
+  const products = await studioProducts(body.productIds);
+  if (!products.length) return res.status(400).json({ error: 'Elegí al menos un producto.' });
+  res.json(buildStudioVideoPrompt({
+    products,
+    theme: textOrNull(body.theme),
+    format: body.format === 'feed' ? 'feed' : 'story',
+    duration: Math.min(Math.max(Number(body.duration) || 8, 5), 15),
+  }));
+}));
+
+// Sube a la biblioteca el resultado generado afuera (video de Veo/Gemini o una imagen).
+app.post('/api/studio/upload', uploadVideo.single('file'), wrap(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No se subió ningún archivo.' });
+  const mime = req.file.mimetype || 'application/octet-stream';
+  const kind = mime.startsWith('video/') ? 'video' : 'image';
+  const ext = (mime.split('/')[1] || 'bin').replace(/[^a-z0-9]/gi, '');
+  const url = await uploadAsset({
+    buffer: req.file.buffer,
+    filename: `studio/${kind}-${Date.now()}.${ext}`,
+    contentType: mime,
+  });
+  let productIds = [];
+  try { productIds = JSON.parse(req.body.productIds || '[]').map(Number).filter(Boolean); } catch (_) {}
+  const { rows } = await pool.query(
+    `INSERT INTO studio_assets (kind, path, prompt, product_ids, product_names, format)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING *`,
+    [kind, url, textOrNull(req.body.prompt), productIds, textOrNull(req.body.productNames), textOrNull(req.body.format) || 'story']
+  );
+  res.json(rows[0]);
+}));
+
+app.delete('/api/studio/assets/:id', wrap(async (req, res) => {
+  const id = intParam(req.params.id);
+  if (!id) return res.status(400).json({ error: 'id inválido' });
+  await pool.query(`DELETE FROM studio_assets WHERE id = $1`, [id]);
+  res.json({ ok: true });
+}));
+
+/* ----------------------- Auditoría de conversión ----------------------- */
+// ¿Por qué la gente no compra? Embudo GA + pauta Meta + ventas reales, con IA.
+let convAuditCache = null;
+app.get('/api/metrics/conversion-audit', wrap(async (req, res) => {
+  res.json(convAuditCache || { available: false });
+}));
+app.post('/api/metrics/conversion-audit', wrap(async (req, res) => {
+  const { runConversionAudit } = require('./adsAudit');
+  convAuditCache = { available: true, ...(await runConversionAudit()) };
+  res.json(convAuditCache);
 }));
 
 /* ----------------------- Estilo de marca ----------------------- */

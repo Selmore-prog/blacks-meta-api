@@ -136,6 +136,20 @@ CREATE TABLE IF NOT EXISTS ai_usage (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Estudio creativo: imágenes/videos generados aparte de las piezas del calendario,
+-- con uno o varios productos (combo). path = URL pública en Supabase Storage.
+CREATE TABLE IF NOT EXISTS studio_assets (
+  id              SERIAL PRIMARY KEY,
+  kind            TEXT NOT NULL DEFAULT 'image',  -- 'image' | 'video'
+  path            TEXT NOT NULL,
+  prompt          TEXT,                           -- prompt usado (imagen) o entregado (video)
+  product_ids     BIGINT[],                       -- productos protagonistas
+  product_names   TEXT,                           -- nombres al momento de generar (por si cambian)
+  format          TEXT DEFAULT 'feed',            -- 'feed' 4:5 | 'story' 9:16
+  est_cost_usd    NUMERIC DEFAULT 0,
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_ai_usage_created ON ai_usage (created_at);
 CREATE INDEX IF NOT EXISTS idx_calendar_date ON content_calendar (scheduled_date);
 CREATE INDEX IF NOT EXISTS idx_publish_queue_status ON publish_queue (status, next_attempt_at);

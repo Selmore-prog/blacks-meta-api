@@ -688,6 +688,107 @@ COMPOSICIÓN PARA DISEÑO:
 }
 
 /**
+ * ESTUDIO: escena profesional con UNO O VARIOS productos reales (combo/outfit).
+ * A diferencia de generateProductScene (pieza del calendario, 1 producto), acá se
+ * mandan hasta 4 fotos de referencia y la escena tiene que integrarlos juntos de
+ * forma creíble. Devuelve { buffer, mimeType, costUsd } o null (best-effort).
+ * products: [{ name, imageUrl }]
+ */
+async function generateStudioScene({ products = [], theme, format = 'feed' } = {}) {
+  if (!hasGemini() || isImageQuotaCoolingDown() || !products.length) return null;
+
+  const refs = [];
+  for (const p of products.slice(0, 4)) {
+    if (!p.imageUrl) continue;
+    try {
+      const r = await fetch(p.imageUrl);
+      if (!r.ok) continue;
+      let buf = Buffer.from(await r.arrayBuffer());
+      buf = await resizeImage(buf, 1024).catch(() => buf);
+      refs.push({ data: buf.toString('base64'), mimeType: 'image/jpeg' });
+    } catch (_) { /* seguimos con las que se pudieron bajar */ }
+  }
+  if (!refs.length) return null;
+
+  const isCombo = products.length > 1;
+  const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
+  const brandStyle = await brandStyleForImages();
+  const names = products.map((p, i) => `${i + 1}. ${p.name}`).join('\n');
+
+  const prompt = `Actuás como DIRECTOR DE ARTE SENIOR de una campaña de e-commerce premium. Componé UNA fotografía ${ratio} para BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
+
+PRODUCTOS DE REFERENCIA (${refs.length} foto${refs.length > 1 ? 's' : ''} adjunta${refs.length > 1 ? 's' : ''} — fidelidad TOTAL a cada uno: mismo modelo, color, costuras, etiquetas; no los rediseñes ni les cambies nada):
+${names}
+
+${isCombo
+    ? `ES UN COMBO/CONJUNTO: los productos tienen que aparecer JUNTOS en la misma escena, integrados de forma natural — como un equipo de trabajo completo (ej: un trabajador vistiendo la campera y el pantalón con los botines puestos, o el conjunto armado prolijo sobre un banco de taller). Cada producto reconocible y con protagonismo; ninguno tapado ni cortado.`
+    : `El producto es EL protagonista absoluto: nítido, con textura de tela/cuero visible, ocupando el centro visual.`}
+${theme ? `\nCONTEXTO/IDEA DE LA ESCENA: ${theme}.` : ''}
+
+DIRECCIÓN DE FOTOGRAFÍA:
+- Escena real y creíble del uso: taller, obra, depósito, galpón argentino. Utilería mínima y auténtica SIN robar protagonismo.
+- Luz de estudio dramática tipo campaña (softbox lateral + contraluz sutil) o luz natural motivada de galpón. Sombras suaves con caída real.
+- Color grading premium: fondo neutro oscuro (carbón/grafito) con un acento naranja (#C1440C) discreto. Nada saturado ni plástico.
+- REALISMO ANTI-IA (crítico): tiene que pasar por foto de cámara real. Desgaste y polvo creíbles, tela con arrugas y caída natural, una sola fuente de luz coherente, leve grano fílmico, encuadre humano. Si hay personas: de espaldas o sin cara reconocible, manos perfectas.
+${brandStyle ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
+
+REGLA DURA: LA SALIDA ES SOLO LA FOTOGRAFÍA. Sin texto, letras, números, logos inventados ni placas gráficas (si aparece alguno, la imagen se descarta). Aire limpio en el centro-abajo por si después se sobreimprime un titular.`;
+
+  try {
+    const parts = [{ text: prompt }, ...refs.map((r) => ({ inlineData: r }))];
+    const data = await geminiGenerateContent(config.gemini.imageModel, {
+      contents: [{ role: 'user', parts }],
+      generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+    });
+    const img = inlineImageFromResponse(data);
+    if (img) img.costUsd = await logImageUsage('estudio');
+    if (img) img.prompt = prompt;
+    return img;
+  } catch (err) {
+    if (err.status === 429) { markImageQuotaHit(); console.warn('[ai] Cuota de imágenes agotada (429) en el estudio.'); }
+    else console.warn(`[ai] generateStudioScene falló: ${err.message}`);
+    return null;
+  }
+}
+
+/**
+ * ESTUDIO: súper-prompt de VIDEO para pegar en Gemini/Veo, con uno o varios
+ * productos (combo). No llama a ninguna API: el video lo genera el usuario a mano
+ * y después lo sube a la biblioteca del estudio.
+ */
+function buildStudioVideoPrompt({ products = [], theme, format = 'story', duration = 8 } = {}) {
+  const isCombo = products.length > 1;
+  const ratio = format === 'feed' ? '4:5' : '9:16 vertical';
+  const names = products.map((p, i) => `${i + 1}. ${p.name}`).join('\n');
+  const allImages = products.flatMap((p) => (Array.isArray(p.images) && p.images.length ? p.images : [p.imageUrl]).filter(Boolean));
+
+  const prompt = `Creá un video comercial ${ratio} de ~${duration} segundos para BLACKS, marca argentina de ropa de trabajo y calzado de seguridad.
+
+PRODUCTOS (REGLA ESTRICTA — usá EXACTAMENTE los de las imágenes de referencia adjuntas):
+${names}
+- Fidelidad TOTAL: NO agregues ni inventes marcas, logos, etiquetas, cierres, costuras, texturas, estampados ni colores que NO estén en las fotos. NO cambies el corte ni los materiales. Si dudás de un detalle, no lo agregues.
+${isCombo
+    ? `\nES UN CONJUNTO: los ${products.length} productos aparecen JUNTOS y coordinados en la misma escena — un trabajador real usándolos como equipo completo (la ropa puesta, el calzado puesto), o una progresión que los muestra uno a uno y cierra con el conjunto armado. Cada producto tiene su momento de protagonismo nítido.`
+    : `\nEl producto es EL protagonista: mostralo usado o exhibido de forma creíble, con un plano de detalle de su textura/terminación.`}
+
+ESCENA: entorno real argentino con contexto (${theme || 'obra en construcción / taller metalúrgico / depósito / galpón'}). Nada de set de estudio artificial ni fondos genéricos.
+CÁMARA: movimiento lento y cinematográfico (dolly-in suave u órbita corta) con micro-vibración de cámara en mano, como filmado por un camarógrafo real. Profundidad de campo, partículas de polvo en el aire, luz de golden hour o luz industrial cálida. Motion blur natural de 24fps.
+REALISMO ANTI-IA (crítico — que NO parezca video generado): imperfecciones del mundo real (desgaste, polvo, arrugas de tela con física creíble, piso sucio de obra), una sola fuente de luz coherente con sombras que caen todas para el mismo lado, leve grano fílmico, saturación contenida tipo documental. PROHIBIDO: superficies plásticas perfectas, movimientos flotantes irreales, cámara imposiblemente estable, colores vibrantes de render, transiciones mágicas o morphing. Si hay personas: de espaldas o fuera de foco, manos con anatomía perfecta.
+ESTÉTICA: robusta, premium, alto contraste, look de aviso moderno. SIN texto en pantalla (los textos van después). Cierre: plano hero limpio ${isCombo ? 'del conjunto completo' : 'del producto'}.`;
+
+  return {
+    prompt,
+    instructions: [
+      'Abrí Gemini (Veo/Omni) o tu herramienta de video.',
+      `Subí las fotos de referencia de ${isCombo ? 'TODOS los productos' : 'el producto'} (varias perspectivas de cada uno = más fidelidad).`,
+      `Pegá el prompt. Elegí formato ${ratio} y ~${duration}s.`,
+      'Descargá el .mp4 y subilo acá con "Subir resultado" para guardarlo en la biblioteca.',
+    ],
+    productImages: allImages,
+  };
+}
+
+/**
  * Análisis multimodal de piezas de referencia + captions reales de la cuenta.
  * Devuelve { style_guide (obj), voice_guide (texto) }.
  * images: [{ data (base64), mimeType }]. captions: [string].
@@ -806,6 +907,8 @@ module.exports = {
   generateJson,
   generateBackground,
   generateProductScene,
+  generateStudioScene,
+  buildStudioVideoPrompt,
   generateDiagram,
   analyzeStyle,
   buildVideoPrompt,

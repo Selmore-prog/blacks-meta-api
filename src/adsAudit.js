@@ -256,4 +256,119 @@ async function runAdsAudit() {
   return { generatedAt: new Date().toISOString(), dias: 30, datos, analisis };
 }
 
-module.exports = { runAdsAudit };
+/* ------------------- Auditoría de CONVERSIÓN (embudo) ------------------- */
+
+/**
+ * Junta el embudo completo (Google Analytics: visitas → carrito → checkout →
+ * compra, por dispositivo y por fuente) + el embudo de la pauta de Meta
+ * (click → llegó a la página → carrito → checkout → compra) + ventas reales de
+ * Tiendanube, y Gemini diagnostica DÓNDE está la fricción que frena las compras.
+ */
+async function gatherFunnelData() {
+  const { runReport, isEnabled } = require('./analytics');
+  const pool = require('./db');
+
+  let ga = null;
+  if (isEnabled()) {
+    const dateRanges = [{ startDate: '28daysAgo', endDate: 'today' }];
+    const metrics = [
+      { name: 'sessions' }, { name: 'itemsViewed' }, { name: 'addToCarts' },
+      { name: 'checkouts' }, { name: 'ecommercePurchases' }, { name: 'purchaseRevenue' },
+    ];
+    const [totals, byDevice, bySource] = await Promise.all([
+      runReport({ dateRanges, metrics }),
+      runReport({ dateRanges, metrics, dimensions: [{ name: 'deviceCategory' }] }),
+      runReport({
+        dateRanges,
+        metrics: [{ name: 'sessions' }, { name: 'ecommercePurchases' }],
+        dimensions: [{ name: 'sessionSourceMedium' }],
+        orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+        limit: 8,
+      }),
+    ]);
+    const nums = (row) => (row ? row.metricValues.map((m) => Number(m.value)) : []);
+    const toFunnel = (row) => {
+      const [sessions, itemViews, carts, checkouts, purchases2, revenue2] = nums(row);
+      return { sesiones: sessions, vistas_de_producto: itemViews, agregados_al_carrito: carts, checkouts_iniciados: checkouts, compras: purchases2, ingresos: Math.round(revenue2 || 0) };
+    };
+    ga = {
+      dias: 28,
+      total: toFunnel((totals.rows || [])[0]),
+      por_dispositivo: (byDevice.rows || []).map((r) => ({ dispositivo: r.dimensionValues[0].value, ...toFunnel(r) })),
+      por_fuente: (bySource.rows || []).map((r) => ({
+        fuente: r.dimensionValues[0].value,
+        sesiones: Number(r.metricValues[0].value),
+        compras: Number(r.metricValues[1].value),
+      })),
+      nota: 'El conteo de compras de GA SUBESTIMA (no todas las compras disparan el evento); las ventas reales son las de Tiendanube.',
+    };
+  }
+
+  // Embudo de la PAUTA (Meta, 30d): dónde se caen los que vienen de anuncios.
+  let meta = null;
+  if (config.meta.adAccountId && config.meta.adsAccessToken) {
+    const r = await fbGet(`${config.meta.adAccountId}/insights`, {
+      level: 'account',
+      fields: 'spend,inline_link_clicks,actions',
+      date_preset: 'last_30d',
+    }).catch(() => null);
+    const row = r && r.data && r.data[0];
+    if (row) {
+      meta = {
+        dias: 30,
+        gasto: Math.round(Number(row.spend || 0)),
+        clicks_en_anuncios: Number(row.inline_link_clicks || 0),
+        llegaron_a_la_pagina: actionValue(row.actions, 'landing_page_view'),
+        agregados_al_carrito: actionValue(row.actions, 'omni_add_to_cart') || actionValue(row.actions, 'add_to_cart'),
+        checkouts_iniciados: actionValue(row.actions, 'omni_initiated_checkout') || actionValue(row.actions, 'initiate_checkout'),
+        compras: purchases(row),
+      };
+    }
+  }
+
+  const { rows: tn } = await pool.query(
+    `SELECT COALESCE(SUM(sales_30d), 0)::int AS unidades,
+            COUNT(*) FILTER (WHERE sales_30d > 0)::int AS productos_vendidos
+     FROM products_cache`
+  );
+
+  return { google_analytics: ga, pauta_meta: meta, tiendanube_real_30d: tn[0] };
+}
+
+const FUNNEL_SYSTEM = `Sos un CONSULTOR SENIOR de CRO (optimización de conversión) para e-commerce argentino en Tiendanube. Analizás el embudo de BLACKS Indumentaria (ropa de trabajo, venta minorista y mayorista) para encontrar DÓNDE y POR QUÉ la gente no termina de comprar. Hablás claro, en español argentino profesional, sin jerga innecesaria. Cada hipótesis tiene que estar anclada en los números que te doy; distinguí entre lo que los datos PRUEBAN y lo que es hipótesis a verificar.`;
+
+function buildFunnelPrompt(data) {
+  return `Analizá el embudo de conversión de la tienda con estos datos reales:
+
+${JSON.stringify(data, null, 1)}
+
+Referencias del rubro (e-commerce indumentaria AR): conversión sana 1-2% de las sesiones; carrito→compra sano ~30-40%; si mobile convierte MUCHO peor que desktop suele haber fricción de checkout móvil; si "llegaron_a_la_pagina" es bastante menor que "clicks_en_anuncios" hay problema de velocidad de carga.
+
+Tené en cuenta lo típico de Tiendanube/indumentaria laboral: costo de envío que aparece tarde, dudas de talle (falta guía clara), stock por talle, pago (cuotas/transferencia), desconfianza (reseñas/fotos), checkout con muchos pasos.
+
+Escribí TEXTO PLANO (sin markdown). Devolvé SOLO este JSON:
+{
+ "diagnostico": "2-4 frases: dónde está la fuga principal del embudo, con números",
+ "embudo": [{"etapa": "nombre", "dato": "número o tasa calculada", "estado": "bien|regular|mal"}],
+ "fricciones": [{"titulo": "corto", "evidencia": "el número que lo muestra", "hipotesis": "por qué pasa y cómo frena la compra", "impacto": "alto|medio|bajo"}],
+ "acciones": ["acciones CONCRETAS priorizadas para destrabar compras (qué tocar en la tienda/checkout/fichas)"],
+ "quick_wins": ["cambios de menos de 1 hora que se pueden hacer YA"]
+}`;
+}
+
+async function runConversionAudit() {
+  console.log('[adsAudit] Armando embudo de conversión (GA + Meta + Tiendanube)...');
+  const datos = await gatherFunnelData();
+  if (!datos.google_analytics && !datos.pauta_meta) {
+    throw new Error('No hay Google Analytics ni Meta Ads configurados para analizar el embudo.');
+  }
+  const analisis = await generateJson({
+    system: FUNNEL_SYSTEM,
+    prompt: buildFunnelPrompt(datos),
+    maxTokens: 4000,
+    temperature: 0.4,
+  });
+  return { generatedAt: new Date().toISOString(), datos, analisis };
+}
+
+module.exports = { runAdsAudit, runConversionAudit };

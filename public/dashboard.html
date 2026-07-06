@@ -17,15 +17,18 @@
   <aside class="sidenav">
     <div class="brand-lockup">
       <div class="wordmark">BLA<b>C</b>KS</div>
+      <div class="mini-mark">B<b>.</b></div>
       <div class="tagline">Content Engine</div>
     </div>
     <nav class="side-tabs">
       <button class="tab active" data-view="calendar" onclick="switchTab('calendar')"><span data-ic="calendar"></span><span class="tl">Calendario</span></button>
+      <button class="tab" data-view="studio" onclick="switchTab('studio')"><span data-ic="image"></span><span class="tl">Estudio</span></button>
       <button class="tab" data-view="style" onclick="switchTab('style')"><span data-ic="sparkles"></span><span class="tl">Estilo de marca</span></button>
       <button class="tab" data-view="products" onclick="switchTab('products')"><span data-ic="tag"></span><span class="tl">Productos</span></button>
       <button class="tab" data-view="metrics" onclick="switchTab('metrics')"><span data-ic="chart"></span><span class="tl">Métricas</span></button>
     </nav>
     <div class="side-foot">@blacks.indumentaria</div>
+    <button class="side-collapse" id="side-collapse" onclick="toggleSidenav()" title="Comprimir / desplegar el menú">‹</button>
   </aside>
 
   <div class="shell">
@@ -66,6 +69,45 @@
       <div id="calendar-list"><p class="loading">Cargando calendario...</p></div>
       <div id="calendar-grid" class="hidden"></div>
       <div id="calendar-profile" class="hidden"></div>
+    </section>
+
+    <!-- ===== Estudio creativo ===== -->
+    <section id="view-studio" class="view hidden">
+      <div class="toolbar">
+        <div>
+          <h2>Estudio creativo</h2>
+          <div class="sub">Imágenes y videos de tus productos, aparte del calendario: elegí un producto o armá un combo.</div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom:18px;">
+        <h3>1 · Elegí producto(s)</h3>
+        <p class="hint">Uno solo = pieza de producto. Dos o más (hasta 4) = combo/conjunto: la escena los integra juntos.</p>
+        <input class="input" id="st-search" placeholder="Buscar producto por nombre… (ej: campera, botín, cargo)" autocomplete="off" />
+        <div id="st-results"></div>
+        <div id="st-selected" class="st-selected"></div>
+        <div class="grid-2" style="margin-top:14px;">
+          <div class="field"><label>Idea / contexto de la escena (opcional)</label>
+            <input class="input" id="st-theme" placeholder="Ej: equipo completo para obra en invierno, primer día de trabajo" /></div>
+          <div class="field"><label>Formato</label>
+            <select class="input" id="st-format">
+              <option value="story">Vertical 9:16 (historia / reel)</option>
+              <option value="feed">Vertical 4:5 (feed)</option>
+            </select></div>
+        </div>
+        <div style="display:flex; gap:8px; flex-wrap:wrap;">
+          <button class="btn-primary" id="st-gen-img"><span data-ic="image"></span> Generar imagen con IA</button>
+          <button class="btn-ghost" id="st-video"><span data-ic="film"></span> Prompt de video (Gemini/Veo)</button>
+          <button class="btn-ghost" id="st-upload"><span data-ic="upload"></span> Subir resultado</button>
+        </div>
+        <p class="hint" style="margin:10px 0 0;">El video no se genera acá: te llevás el prompt detallado, lo pegás en Gemini/Veo con las fotos del producto, y el resultado lo subís con "Subir resultado" para que quede en la biblioteca.</p>
+      </div>
+
+      <div class="panel">
+        <h3>Biblioteca</h3>
+        <p class="hint">Todo lo generado o subido en el estudio, listo para descargar y usar donde quieras.</p>
+        <div id="st-gallery"><p class="empty">Todavía no hay nada en la biblioteca.</p></div>
+      </div>
     </section>
 
     <!-- ===== Estilo de marca ===== -->
@@ -145,26 +187,45 @@
         <button class="btn-ghost" onclick="loadMetrics()"><span data-ic="refresh"></span> Refrescar</button>
       </div>
 
-      <div id="ga-summary" style="margin-bottom:20px;"></div>
-      <div id="ads-summary" style="margin-bottom:20px;"></div>
-      <div id="attribution-out" style="margin-bottom:20px;"></div>
-      <div id="ai-usage" class="prod-totals" style="margin-bottom:20px;"></div>
-      <div id="reach-chart-panel"></div>
-
-      <div class="panel" style="margin-bottom:20px;">
-        <h3>Análisis de tu cuenta de Instagram</h3>
-        <p class="hint">Mira tus publicaciones reales y detecta qué horario, día, formato y hashtags rindieron mejor (engagement = likes + comentarios).</p>
-        <button class="btn-primary" id="account-btn" onclick="analyzeAccount()"><span data-ic="chart"></span> Analizar mi cuenta</button>
-        <div id="account-out"></div>
+      <!-- Sub-pestañas para que Métricas no sea un scroll infinito. -->
+      <div class="mt-tabs">
+        <button class="mtab active" data-pane="tienda" onclick="switchMetricsPane('tienda')">Tienda</button>
+        <button class="mtab" data-pane="pauta" onclick="switchMetricsPane('pauta')">Pauta (Meta Ads)</button>
+        <button class="mtab" data-pane="contenido" onclick="switchMetricsPane('contenido')">Contenido</button>
+        <button class="mtab" data-pane="costos" onclick="switchMetricsPane('costos')">Costos IA</button>
       </div>
 
-      <div id="metrics-body"><p class="loading">Cargando métricas por pilar...</p></div>
+      <div id="mt-tienda" class="mt-pane">
+        <div id="ga-summary" style="margin-bottom:20px;"></div>
+        <div id="conversion-out" style="margin-bottom:20px;"></div>
+        <div id="attribution-out" style="margin-bottom:20px;"></div>
+      </div>
+
+      <div id="mt-pauta" class="mt-pane hidden">
+        <div id="ads-summary" style="margin-bottom:20px;"></div>
+      </div>
+
+      <div id="mt-contenido" class="mt-pane hidden">
+        <div id="reach-chart-panel"></div>
+        <div class="panel" style="margin-bottom:20px;">
+          <h3>Análisis de tu cuenta de Instagram</h3>
+          <p class="hint">Mira tus publicaciones reales y detecta qué horario, día, formato y hashtags rindieron mejor (engagement = likes + comentarios).</p>
+          <button class="btn-primary" id="account-btn" onclick="analyzeAccount()"><span data-ic="chart"></span> Analizar mi cuenta</button>
+          <div id="account-out"></div>
+        </div>
+        <div id="metrics-body"><p class="loading">Cargando métricas por pilar...</p></div>
+      </div>
+
+      <div id="mt-costos" class="mt-pane hidden">
+        <div id="ai-usage" class="prod-totals" style="margin-bottom:20px;"></div>
+      </div>
     </section>
   </div>
 
   <!-- ===== Navegación inferior (mobile, tipo app) ===== -->
   <nav class="bottom-nav">
     <button class="tab active" data-view="calendar" onclick="switchTab('calendar')"><span data-ic="calendar"></span><span class="tl">Calendario</span></button>
+    <button class="tab" data-view="studio" onclick="switchTab('studio')"><span data-ic="image"></span><span class="tl">Estudio</span></button>
     <button class="tab" data-view="style" onclick="switchTab('style')"><span data-ic="sparkles"></span><span class="tl">Estilo</span></button>
     <button class="tab" data-view="products" onclick="switchTab('products')"><span data-ic="tag"></span><span class="tl">Productos</span></button>
     <button class="tab" data-view="metrics" onclick="switchTab('metrics')"><span data-ic="chart"></span><span class="tl">Métricas</span></button>

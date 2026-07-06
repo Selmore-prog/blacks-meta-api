@@ -120,6 +120,28 @@ function switchTab(view) {
   if (view === 'style') loadStyle();
   if (view === 'metrics') loadMetrics();
   if (view === 'products') loadProducts();
+  if (view === 'studio') loadStudio();
+}
+
+/* Sub-pestañas de Métricas (para que la vista no sea un scroll infinito). */
+function switchMetricsPane(name) {
+  document.querySelectorAll('.mtab').forEach((t) => t.classList.toggle('active', t.dataset.pane === name));
+  document.querySelectorAll('.mt-pane').forEach((p) => p.classList.toggle('hidden', p.id !== `mt-${name}`));
+}
+
+/* Menú lateral comprimible: sólo íconos para darle más lugar a la app. */
+function toggleSidenav() {
+  const mini = document.body.classList.toggle('nav-mini');
+  localStorage.setItem('navMini', mini ? '1' : '0');
+  const b = document.getElementById('side-collapse');
+  if (b) b.textContent = mini ? '›' : '‹';
+}
+if (localStorage.getItem('navMini') === '1') {
+  document.body.classList.add('nav-mini');
+  document.addEventListener('DOMContentLoaded', () => {
+    const b = document.getElementById('side-collapse');
+    if (b) b.textContent = '›';
+  });
 }
 
 // Recarga el calendario SIN saltar al tope (mantiene el scroll donde estabas).
@@ -211,7 +233,7 @@ function openBgTasks() {
 
   const reels = (d.reels || []).map((t) => `<div class="dl-row">
     <span>${icon('film')} ${esc(bgTaskTitle(t))} <span class="hint" style="margin:0;">· ${fdate(t.scheduled_date)}</span></span>
-    <span class="badge semi">renderizando video</span></div>`);
+    <span class="badge semi">esperando tu video</span></div>`);
   const edits = (d.edits || []).map((t) => `<div class="dl-row">
     <span>${icon('film')} ${esc(bgTaskTitle(t))}</span>
     <span class="badge semi">subtítulos en cola</span></div>`);
@@ -222,8 +244,8 @@ function openBgTasks() {
       ${q.status === 'failed' ? `falló (${q.attempts}/${q.max_attempts})` : q.status === 'processing' ? 'publicando…' : 'en cola'}</span></div>`);
 
   const body = `
-    <p class="hint" style="margin-top:0;">Los videos de Reels y los subtítulos se procesan en la corrida automática (cada ~30 min). La cola de publicación corre sola en el horario de cada pieza.</p>
-    ${section(`${icon('film')} Videos de Reels pendientes (${(d.reels || []).length})`, reels, 'Ninguno: todos los Reels tienen su video.')}
+    <p class="hint" style="margin-top:0;">Los subtítulos se procesan en la corrida automática (cada ~30 min) y la cola de publicación corre sola en el horario de cada pieza. Los Reels sin video esperan que subas el tuyo (generado en Gemini/Veo).</p>
+    ${section(`${icon('film')} Reels esperando tu video (${(d.reels || []).length})`, reels, 'Ninguno: todos los Reels tienen su video.')}
     ${section(`${icon('edit')} Subtítulos en proceso (${(d.edits || []).length})`, edits, 'Nada en cola.')}
     ${section(`${icon('send')} Cola de publicación (${pubItems.length})`, pubs, 'Nada esperando para publicarse.')}
     <div style="display:flex; justify-content:flex-end;">
@@ -667,7 +689,7 @@ function openPreview(item) {
     </div>`;
   }
 
-  const note = (isReel && !vid) ? '<div class="preview-note">El video del Reel se renderiza en el proceso automático (cada 30 min). Por ahora ves la imagen base.</div>' : '';
+  const note = (isReel && !vid) ? '<div class="preview-note">Este Reel todavía no tiene video: generalo en Gemini/Veo con "Prompt video IA" y subilo. Lo que ves es la imagen base (no se publica así).</div>' : '';
   const overlay = document.createElement('div');
   overlay.className = 'modal-overlay preview-overlay';
   overlay.innerHTML = `<div class="preview-box ${isStory ? 'st' : 'fd'}">
@@ -743,8 +765,13 @@ function renderCard(item) {
   if (isRepost) {
     actions = `<span style="color:var(--muted); font-size:13px;">Día de descanso / repost — sin generación automática.</span>${planBtn}`;
   } else if (!aid) {
-    actions = `<button class="btn-primary" data-act="generate" data-id="${item.id}">${icon('bolt')} Generar pieza ${costTag(genCostLabel())}</button>
-      <button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Con otro tema</button>${planBtn}`;
+    // Reels: se genera SOLO el copy + imagen base (el video no se auto-genera nunca;
+    // lo hacés en Gemini/Veo con el prompt y lo subís).
+    actions = item.post_type === 'reel'
+      ? `<button class="btn-primary" data-act="generate" data-id="${item.id}">${icon('bolt')} Generar copy (sin video) ${costTag('Gratis')}</button>
+        <button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Con otro tema</button>${planBtn}`
+      : `<button class="btn-primary" data-act="generate" data-id="${item.id}">${icon('bolt')} Generar pieza ${costTag(genCostLabel())}</button>
+        <button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Con otro tema</button>${planBtn}`;
   } else if (status === 'draft') {
     actions = `<button class="btn-approve" data-act="approve" data-id="${aid}">${icon('check')} Aprobar</button>
       <button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Editar</button>
@@ -766,10 +793,10 @@ function renderCard(item) {
   const interaction = (isSemi && item.interaction_hint && status !== 'published')
     ? `<div class="interaction-box"><b>${icon('alert')} Acción manual:</b> ${esc(item.interaction_hint)}</div>` : '';
 
-  // Reels: ya no se gasta en imagen IA automática. El video ideal lo generás vos en
-  // Gemini/Veo con el prompt y lo subís; si no, el proceso automático anima la imagen base.
+  // Reels: el video NUNCA se auto-genera (nada de imagen estática con zoom).
+  // El copy y la imagen base salen del panel; el video lo generás en Gemini/Veo.
   const reelNote = (item.post_type === 'reel' && aid && !item.video_path && ['draft', 'approved'].includes(status))
-    ? `<div class="reel-note">${icon('film')} Reel sin video todavía: usá <b>Prompt video IA</b> para generarlo en Gemini/Veo y subilo con <b>Subir video</b>. Si no subís nada, el proceso automático anima la imagen base (gratis, cada ~30 min).</div>` : '';
+    ? `<div class="reel-note">${icon('film')} Este Reel tiene el copy listo pero <b>le falta el video</b> (no se publica sin él): generalo en Gemini/Veo con <b>Prompt video IA</b> y subilo con <b>Subir video</b>.</div>` : '';
 
   const caption = item.caption
     ? `<div class="caption">${esc(item.caption)}</div>${item.hashtags ? `<div class="hashtags">${esc(item.hashtags)}</div>` : ''}`
@@ -1426,6 +1453,172 @@ async function updateStaleDrafts() {
   }
 }
 
+/* ============ estudio creativo ============ */
+/**
+ * Imágenes/videos de productos aparte del calendario. Elegís 1 producto (simple)
+ * o hasta 4 (combo); la imagen se genera acá con IA y el video se genera afuera
+ * (Gemini/Veo) con el prompt detallado, y se sube a la biblioteca.
+ */
+let studioSel = [];       // productos elegidos [{id, name, image_url}]
+let studioReady = false;  // listeners ya conectados
+let studioLastPrompt = null; // último prompt de video (se guarda con el upload)
+
+function renderStudioSel() {
+  const holder = document.getElementById('st-selected');
+  if (!holder) return;
+  holder.innerHTML = studioSel.length
+    ? studioSel.map((p) => `<span class="st-chip"><img src="${esc(p.image_url || '')}" onerror="this.style.display='none'"/> ${esc(p.name.slice(0, 38))}
+        <button data-rm="${p.id}" title="Quitar">${icon('x')}</button></span>`).join('')
+      + (studioSel.length > 1 ? `<span class="badge whole">Combo · ${studioSel.length}</span>` : '')
+    : '<span class="hint" style="margin:0;">Ningún producto elegido todavía.</span>';
+  holder.querySelectorAll('[data-rm]').forEach((b) => b.addEventListener('click', () => {
+    studioSel = studioSel.filter((p) => String(p.id) !== String(b.dataset.rm));
+    renderStudioSel();
+  }));
+}
+
+let stSearchTimer;
+async function studioSearch(q) {
+  const out = document.getElementById('st-results');
+  if (!q || q.length < 2) { out.innerHTML = ''; return; }
+  try {
+    const rows = await api(`/api/products?q=${encodeURIComponent(q)}`);
+    out.innerHTML = rows.slice(0, 8).map((p) => `
+      <div class="prod-row st-result" data-id="${p.id}" style="cursor:pointer;">
+        <img src="${esc(p.image_url || '')}" onerror="this.style.visibility='hidden'"/>
+        <div class="prod-info"><div class="prod-name">${esc(p.name)}</div>
+          <div class="prod-sub">${esc(p.brand || '')} · stock ${p.stock ?? '∞'}</div></div>
+        <div class="prod-metric">${icon('plus')}</div>
+      </div>`).join('') || '<p class="hint">Sin resultados.</p>';
+    out.querySelectorAll('.st-result').forEach((r) => r.addEventListener('click', () => {
+      const p = rows.find((x) => String(x.id) === String(r.dataset.id));
+      if (!p || studioSel.some((s) => String(s.id) === String(p.id))) return;
+      if (studioSel.length >= 4) { toast('Máximo 4 productos por combo.'); return; }
+      studioSel.push(p);
+      renderStudioSel();
+      out.innerHTML = '';
+      document.getElementById('st-search').value = '';
+    }));
+  } catch (e) { out.innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
+}
+
+function studioParams() {
+  return {
+    productIds: studioSel.map((p) => p.id),
+    theme: document.getElementById('st-theme').value.trim() || undefined,
+    format: document.getElementById('st-format').value,
+  };
+}
+
+async function studioGenImage(btn) {
+  if (!studioSel.length) { toast('Elegí al menos un producto.'); return; }
+  btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Generando… (~20 s)`;
+  try {
+    await api('/api/studio/image', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(studioParams()) });
+    toast(studioSel.length > 1 ? 'Imagen del combo generada' : 'Imagen generada', 'ok');
+    loadStudioGallery();
+  } catch (e) { toast(e.message, 'err'); }
+  finally { btn.disabled = false; btn.innerHTML = `${icon('image')} Generar imagen con IA ${costTag(genCostLabel())}`; }
+}
+
+async function studioVideoPrompt() {
+  if (!studioSel.length) { toast('Elegí al menos un producto.'); return; }
+  try {
+    const d = await api('/api/studio/video-prompt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(studioParams()) });
+    studioLastPrompt = d.prompt;
+    const body = `
+      <p class="hint" style="margin-top:0;">${studioSel.length > 1 ? `Video del COMBO (${studioSel.length} productos juntos).` : 'Video del producto.'} Generalo en Gemini/Veo y subí el resultado a la biblioteca.</p>
+      <div class="field"><label>Pasos</label>
+        <ol style="line-height:1.8; padding-left:20px; font-size:14px; margin:0;">${d.instructions.map((i) => `<li>${esc(i)}</li>`).join('')}</ol></div>
+      ${(d.productImages && d.productImages.length) ? `<div class="field"><label>Fotos a subir como referencia (${d.productImages.length})</label>
+        <div class="vp-imgs">${d.productImages.slice(0, 12).map((u) => `<a href="${esc(u)}" target="_blank"><img src="${esc(u)}"/></a>`).join('')}</div></div>` : ''}
+      <div class="field"><label>Prompt (copialo y pegalo)</label>
+        <textarea class="input" readonly style="min-height:220px">${esc(d.prompt)}</textarea></div>
+      <div style="display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
+        <button class="btn-ghost btn-sm" id="svp-upload">${icon('upload')} Ya lo generé: subir video</button>
+        <button class="btn-primary" id="svp-copy">${icon('copy')} Copiar prompt</button>
+      </div>`;
+    const ov = showInfoModal('Prompt de video · Estudio', body);
+    ov.querySelector('#svp-copy').addEventListener('click', () =>
+      navigator.clipboard.writeText(d.prompt).then(() => toast('Prompt copiado', 'ok')));
+    ov.querySelector('#svp-upload').addEventListener('click', () => { ov.remove(); studioUpload(); });
+  } catch (e) { toast(e.message, 'err'); }
+}
+
+function studioUpload() {
+  const input = document.createElement('input');
+  input.type = 'file'; input.accept = 'video/*,image/*';
+  input.addEventListener('change', async () => {
+    if (!input.files || !input.files.length) return;
+    const fd = new FormData();
+    fd.append('file', input.files[0]);
+    fd.append('productIds', JSON.stringify(studioSel.map((p) => p.id)));
+    fd.append('productNames', studioSel.map((p) => p.name).join(' + '));
+    if (studioLastPrompt) fd.append('prompt', studioLastPrompt);
+    fd.append('format', document.getElementById('st-format').value);
+    toast('Subiendo a la biblioteca…');
+    try {
+      await api('/api/studio/upload', { method: 'POST', body: fd });
+      toast('Guardado en la biblioteca', 'ok');
+      loadStudioGallery();
+    } catch (e) { toast(e.message, 'err'); }
+  });
+  input.click();
+}
+
+async function loadStudioGallery() {
+  const g = document.getElementById('st-gallery');
+  if (!g) return;
+  try {
+    const rows = await api('/api/studio/assets');
+    if (!rows.length) { g.innerHTML = '<p class="empty">Todavía no hay nada en la biblioteca.</p>'; return; }
+    g.innerHTML = `<div class="st-grid">${rows.map((r) => `
+      <div class="st-item">
+        ${r.kind === 'video'
+          ? `<video src="${esc(r.path)}" muted loop playsinline onmouseover="this.play()" onmouseout="this.pause()"></video><span class="st-kind">${icon('play')}</span>`
+          : `<img src="${esc(r.path)}" loading="lazy"/>`}
+        <div class="st-meta">
+          <div class="st-name" title="${esc(r.product_names || '')}">${esc((r.product_names || 'Sin producto').slice(0, 40))}</div>
+          <div class="st-actions">
+            <button class="btn-ghost btn-sm" data-dl="${esc(r.path)}" data-k="${r.kind}" title="Descargar">${icon('download')}</button>
+            ${r.prompt ? `<button class="btn-ghost btn-sm" data-pr="${r.id}" title="Ver prompt">${icon('eye')}</button>` : ''}
+            <button class="btn-ghost btn-sm" data-del="${r.id}" title="Borrar">${icon('trash')}</button>
+          </div>
+        </div>
+      </div>`).join('')}</div>`;
+    g.querySelectorAll('[data-dl]').forEach((b) => b.addEventListener('click', () =>
+      saveFile(b.dataset.dl, `blacks-estudio-${Date.now()}.${b.dataset.k === 'video' ? 'mp4' : 'jpg'}`)));
+    g.querySelectorAll('[data-pr]').forEach((b) => b.addEventListener('click', () => {
+      const r = rows.find((x) => String(x.id) === String(b.dataset.pr));
+      showInfoModal('Prompt usado', `<textarea class="input" readonly style="min-height:240px">${esc(r.prompt)}</textarea>`);
+    }));
+    g.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', async () => {
+      const ok = await confirmModal('Borrar de la biblioteca', 'Se borra el registro de la biblioteca (el archivo puede seguir en el storage).', 'Borrar');
+      if (!ok) return;
+      try { await api(`/api/studio/assets/${b.dataset.del}`, { method: 'DELETE' }); loadStudioGallery(); }
+      catch (e) { toast(e.message, 'err'); }
+    }));
+  } catch (e) { g.innerHTML = `<p class="empty">Error: ${esc(e.message)}</p>`; }
+}
+
+function loadStudio() {
+  if (!studioReady) {
+    studioReady = true;
+    const search = document.getElementById('st-search');
+    search.addEventListener('input', () => {
+      clearTimeout(stSearchTimer);
+      stSearchTimer = setTimeout(() => studioSearch(search.value.trim()), 300);
+    });
+    const gen = document.getElementById('st-gen-img');
+    gen.innerHTML = `${icon('image')} Generar imagen con IA ${costTag(genCostLabel())}`;
+    gen.addEventListener('click', () => studioGenImage(gen));
+    document.getElementById('st-video').addEventListener('click', studioVideoPrompt);
+    document.getElementById('st-upload').addEventListener('click', studioUpload);
+    renderStudioSel();
+  }
+  loadStudioGallery();
+}
+
 /* ============ edición ============ */
 let editingId = null;
 function openEdit(assetId) {
@@ -1851,6 +2044,71 @@ async function loadAttribution() {
   } catch (_) { el.innerHTML = ''; }
 }
 
+/* ¿Por qué no compran? Auditoría del embudo (GA + Meta + Tiendanube) con IA. */
+async function loadConversionAudit() {
+  const el = document.getElementById('conversion-out');
+  if (!el) return;
+  el.innerHTML = `
+    <div class="panel">
+      <h3>¿Por qué no compran? · Auditoría de conversión</h3>
+      <p class="hint">Cruza el embudo de Google Analytics (visitas → carrito → checkout → compra, por dispositivo), el embudo de la pauta y las ventas reales de Tiendanube, y la IA detecta dónde está la fricción.</p>
+      <button class="btn-primary btn-sm" id="conv-btn">${icon('sparkles')} Analizar el embudo con IA ${costTag('Gratis')}</button>
+      <div id="conv-out"></div>
+    </div>`;
+  const btn = el.querySelector('#conv-btn');
+  btn.addEventListener('click', async () => {
+    btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Analizando… (~30 s)`;
+    try {
+      const audit = await api('/api/metrics/conversion-audit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+      renderConversionAudit(audit);
+      toast('Auditoría de conversión lista', 'ok');
+    } catch (e) { toast(`No pude analizar: ${e.message}`, 'err'); }
+    finally { btn.disabled = false; btn.innerHTML = `${icon('sparkles')} Analizar de nuevo ${costTag('Gratis')}`; }
+  });
+  try {
+    const cached = await api('/api/metrics/conversion-audit');
+    if (cached && cached.available) renderConversionAudit(cached);
+  } catch (_) {}
+}
+
+function renderConversionAudit(audit) {
+  const out = document.getElementById('conv-out');
+  if (!out || !audit || !audit.analisis) return;
+  const clean = (v) => typeof v === 'string' ? v.replace(/\*\*/g, '') : v;
+  const an = JSON.parse(JSON.stringify(audit.analisis), (k, v) => clean(v));
+
+  const stateCls = { bien: 'status-approved', regular: 'semi', mal: 'qa-warn' };
+  const funnel = (an.embudo || []).map((e) => `
+    <div class="dl-row"><span>${esc(e.etapa)}</span>
+      <span style="display:inline-flex; gap:8px; align-items:center;"><b>${esc(String(e.dato))}</b>
+      <span class="badge ${stateCls[e.estado] || 'semi'}">${esc(e.estado || '')}</span></span></div>`).join('');
+
+  const fricciones = (an.fricciones || []).map((f) => `
+    <div class="an-block" style="border-left:3px solid ${f.impacto === 'alto' ? 'var(--orange)' : 'var(--line)'};">
+      <b>${esc(f.titulo)}</b> <span class="badge ${f.impacto === 'alto' ? 'qa-warn' : 'semi'}">${esc(f.impacto || '')}</span>
+      <div style="margin-top:6px; font-size:13px; line-height:1.55; color:var(--muted);">
+        <b style="color:var(--text)">Evidencia:</b> ${esc(f.evidencia || '')}<br/>
+        <b style="color:var(--text)">Hipótesis:</b> ${esc(f.hipotesis || '')}
+      </div>
+    </div>`).join('');
+
+  const list = (title, arr, ic) => (Array.isArray(arr) && arr.length)
+    ? `<div class="an-block"><span class="fmt-label">${icon(ic)} ${title}</span>
+        <ul style="margin:8px 0 0; padding-left:18px; line-height:1.65; font-size:13px;">${arr.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : '';
+
+  out.innerHTML = `
+    <div style="margin-top:16px;">
+      <div class="recommendation"><b>Diagnóstico:</b> ${esc(an.diagnostico || '')}</div>
+      <div class="analysis">
+        ${funnel ? `<div class="an-block"><span class="fmt-label">${icon('chart')} Embudo</span><div style="margin-top:6px;">${funnel}</div></div>` : ''}
+        ${fricciones}
+        ${list('Quick wins (menos de 1 hora)', an.quick_wins, 'bolt')}
+        ${list('Acciones priorizadas', an.acciones, 'send')}
+      </div>
+      <p class="hint" style="margin:10px 0 0;">Auditoría del ${esc(String(audit.generatedAt).slice(0, 16).replace('T', ' '))} · GA (28d) + Meta Ads (30d) + ventas reales Tiendanube.</p>
+    </div>`;
+}
+
 /* Gráfico de evolución del alcance semanal (Chart.js por CDN, best-effort). */
 let reachChart = null;
 async function loadReachChart() {
@@ -1907,6 +2165,7 @@ async function loadReachChart() {
 async function loadMetrics() {
   loadGaSummary();
   loadAdsSummary();
+  loadConversionAudit();
   loadAttribution();
   loadAiUsage();
   loadReachChart();

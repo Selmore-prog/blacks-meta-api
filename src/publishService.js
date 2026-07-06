@@ -58,7 +58,7 @@ async function publishAssetById(assetId, { force = false } = {}) {
   if (asset.post_type === 'reel') mediaType = 'REELS';
 
   if (mediaType === 'REELS' && !videoUrl) {
-    throw new Error('El video del Reel todavía no se renderizó. Esperá al proceso de render (corre cada 30 min en GitHub Actions) e intentá de nuevo.');
+    throw new Error('Este Reel no tiene video: generalo en Gemini/Veo con el botón "Prompt video IA" y subilo con "Subir video". (Ya no se auto-genera el video estático de la imagen.)');
   }
 
   const fullCaption = [asset.caption, asset.hashtags].filter(Boolean).join('\n\n');
