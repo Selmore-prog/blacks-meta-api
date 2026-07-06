@@ -22,6 +22,7 @@ ESCRIBÍS EN ESPAÑOL ARGENTINO PROFESIONAL (formal pero cercano):
 - Sos la voz de una MARCA SERIA del rubro: profesional, clara y confiable. Argentino sí, pero SIN lunfardo ni jerga excesiva.
 - PROHIBIDO el lunfardo: "laburo", "laburante", "laburás", "pifiarla", "la banca", "canchero", "aguanta los trapos", "posta", "una masa", "de una". En su lugar: "trabajo", "quienes trabajan", "equivocarte", "resiste", "rinde".
 - Vocabulario correcto del rubro: "ropa de trabajo", "indumentaria laboral", "calzado de seguridad", "puntera de acero", "en cuotas", "por transferencia", "envío a todo el país", "retiro por el local", "presupuesto para tu empresa".
+- PLURALES DE MARCA: el tejido/tecnología NO se pluraliza. Correcto: "buzos polar", "camperas softshell". INCORRECTO: "buzos polares", "camperas softshells".
 - Tono: directo y concreto, sin vueltas. Le hablás a alguien que trabaja con las manos y valora la durabilidad y el rendimiento de su inversión. Nunca grandilocuente ni motivacional vacío. Profesional no significa acartonado: frases simples, cero solemnidad.
 
 REGLAS DURAS PARA QUE NO SUENE A IA (si rompés esto, está mal):
@@ -116,8 +117,26 @@ function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visu
   // Ancla visual: la pieza no vende este producto, pero SU FOTO es la imagen de fondo.
   // El copy tiene que poder convivir con esa foto (mismo rubro/tipo de prenda), sin venderla.
   if (!product && visualProduct) {
-    productInfo += `\nIMAGEN DE LA PIEZA: la foto de fondo es "${visualProduct.name}"${visualProduct.brand ? ` (marca ${visualProduct.brand})` : ''}. NO estás vendiendo ese producto puntual: usalo como ejemplo/ilustración del tema. El copy y el overlay tienen que tener sentido con esa foto (mismo tipo de prenda/calzado); si das ejemplos, que sean de ese tipo de producto.`;
+    if (pillar === 'educativo') {
+      // En educativo la foto es SOLO ilustración: si el texto además nombra prendas
+      // del catálogo como "solución", el posteo queda como venta encubierta (feedback
+      // real del usuario: "queda muy obvio que quiere vender").
+      productInfo += `\nIMAGEN DE LA PIEZA: la foto de fondo es "${visualProduct.name}". Es SOLO decoración/ilustración: NO la menciones, NO la uses de ejemplo y NO nombres prendas o productos a raíz de ella.`;
+    } else {
+      productInfo += `\nIMAGEN DE LA PIEZA: la foto de fondo es "${visualProduct.name}"${visualProduct.brand ? ` (marca ${visualProduct.brand})` : ''}. NO estás vendiendo ese producto puntual: usalo como ejemplo/ilustración del tema. El copy y el overlay tienen que tener sentido con esa foto (mismo tipo de prenda/calzado); si das ejemplos, que sean de ese tipo de producto.`;
+    }
   }
+
+  // Pieza EDUCATIVA = 100% educativa. El valor es el consejo, no el catálogo.
+  // Prohibido convertir un tip en lista de productos propios ("buzos polar, camperas
+  // softshell o ropa térmica te mantienen...") — eso es venta encubierta y se nota.
+  const educationalGuard = pillar === 'educativo'
+    ? `\n\nREGLA DE ORO DEL PILAR EDUCATIVO (romperla arruina la pieza):
+- La pieza enseña algo útil y se sostiene SOLA, sin vender. PROHIBIDO nombrar productos, modelos, marcas propias o tipos de prenda del catálogo como "la solución" ("buzos polar", "camperas softshell", "nuestros botines", etc.).
+- Si el consejo pide hablar de equipamiento, hablá en GENÉRICO y desde el criterio: "ropa de abrigo adecuada", "calzado certificado", "capas que aíslen la humedad" — el QUÉ MIRAR/CÓMO ELEGIR, nunca el QUÉ COMPRAR.
+- PROHIBIDO todo CTA de compra ("comprá", "conseguilo", "visitá la tienda", "mirá el catálogo"). El CTA educativo es: guardá el post, compartilo con tu equipo, contanos tu experiencia.
+- La marca gana AUTORIDAD siendo la que sabe, no la que aprovecha para vender. Un solo posteo educativo que vende quema la serie entera.`
+    : '';
   const wholesaleInfo = (pillar === 'mayorista' && wholesale)
     ? `\nCONDICIONES MAYORISTAS (metelas en el copy, tono B2B, sin precio unitario, cerrá con "pedí tu presupuesto"): ${wholesale}`
     : '';
@@ -158,15 +177,21 @@ function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visu
     ? `\n\nCONTENIDO RECIENTE DE LA CUENTA (lo último generado/publicado). PROHIBIDO repetir estos temas, ganchos, ángulos o frases — si el producto o tema coincide, encaralo desde un ángulo CLARAMENTE distinto:\n${recentPieces.map((r) => `- ${r}`).join('\n')}`
     : '';
 
+  // En educativo, la nota de temporada NO lista prendas (era otra puerta por la que
+  // se colaban "buzos, camperas, softshell" en piezas que no deben vender).
+  const seasonLine = pillar === 'educativo'
+    ? `${seasonContext().split('—')[0].trim()} — podés usar el clima como contexto del consejo, sin listar prendas del catálogo.`
+    : seasonContext();
+
   return `${formatGuidance(postType, format)}
 
 Pilar de contenido: ${pillar}${OBJECTIVE_GUIDE[objective] ? `\n${OBJECTIVE_GUIDE[objective]}` : ''}
 Ángulo/detalle: ${pillarDetail || 'sin detalle adicional'}
-${productInfo}${wholesaleInfo}
-Temporada: ${seasonContext()}${commercial}${winners}${noRepeat}${interaction}${voice}
+${productInfo}${wholesaleInfo}${educationalGuard}
+Temporada: ${seasonLine}${commercial}${winners}${noRepeat}${interaction}${voice}
 
 ${carousel ? (['educativo', 'mayorista'].includes(pillar)
-    ? `\nCARRUSEL PASO A PASO: devolvé "slides": un array de ${slideCount} objetos {"title","text"}. Es una GUÍA accionable, no un folleto: (1) portada con gancho que promete el resultado ("Guía de talles sin equivocarte", "Cómo comprar al por mayor"), (2-${slideCount - 1}) PASOS numerados y concretos — "title" tipo "PASO 1 — MEDÍ TU CINTURA" y "text" con la instrucción exacta (qué hacer, con qué, qué número anotar), (${slideCount}) cierre con el beneficio + CTA. Cada paso tiene que poder hacerse EN EL MOMENTO. Nada repetido entre slides.\n`
+    ? `\nCARRUSEL PASO A PASO: devolvé "slides": un array de ${slideCount} objetos {"title","text"}. Es una GUÍA accionable, no un folleto: (1) portada con gancho que promete el resultado ("Guía de talles sin equivocarte", "Cómo comprar al por mayor"), (2-${slideCount - 1}) PASOS numerados y concretos — "title" tipo "PASO 1 — MEDÍ TU CINTURA" y "text" con la instrucción exacta (qué hacer, con qué, qué número anotar), (${slideCount}) cierre con el beneficio + CTA${pillar === 'educativo' ? ' (CTA educativo: guardar/compartir/comentar — nunca comprar)' : ''}. Cada paso tiene que poder hacerse EN EL MOMENTO. Nada repetido entre slides.${pillar === 'educativo' ? ' NINGÚN slide nombra productos/prendas propias como solución.' : ''}\n`
     : `\nCARRUSEL: además, devolvé "slides": un array de ${slideCount} objetos {"title","text"} para un carrusel deslizable. Cada slide UN punto distinto, con progresión: (1) gancho, (2-${slideCount - 1}) beneficios/datos concretos, (${slideCount}) cierre + CTA. "title" cortísimo (2-4 palabras, va grande en pantalla), "text" 1 línea corta. Nada repetido entre slides.\n`) : ''}
 Escribí el copy siguiendo la voz de marca y las reglas. Devolvé SOLO un JSON válido con esta forma exacta:
 {"overlay": "...", "caption": "...", "hashtags": "...", "cta": "..."${carousel ? ', "slides": [{"title":"...","text":"..."}]' : ''}}`;
@@ -195,16 +220,33 @@ const BANNED_PATTERNS = [
   { re: /\bcanchero/i, label: 'lunfardo ("canchero")' },
   { re: /\bpifi/i, label: 'lunfardo ("pifiar")' },
   { re: /aguanta los trapos/i, label: 'lunfardo ("aguanta los trapos")' },
+  { re: /buzos?\s+polares/i, label: 'plural incorrecto: es "buzos polar" (regla de marca: el tejido no se pluraliza)' },
+  { re: /camperas?\s+softshells/i, label: 'plural incorrecto: es "camperas softshell"' },
+];
+
+// Venta encubierta en piezas EDUCATIVAS: lo educativo no vende ni nombra el catálogo
+// propio como solución (feedback real del usuario, jul-2026).
+const EDU_SELLING_PATTERNS = [
+  { re: /\b(compr[aá]|conseguil[oa]s?|llevate|adquir[ií])\b/i, label: 'pieza educativa con CTA/verbo de compra (prohibido en educativo)' },
+  { re: /nuestr[oa]s?\s+(buzos?|camperas?|remeras?|chombas?|pantalones?|camisas?|mamelucos?|chalecos?|botines?|zapatos?|calzados?|productos?|l[ií]nea|tienda|cat[aá]logo|modelos?)/i, label: 'pieza educativa nombra productos propios ("nuestros X") — debe ser genérica' },
+  { re: /(visit[aá]|mir[aá]|entr[aá] a|pas[aá] por)\s+(la |nuestra |el |nuestro )?(tienda|web|cat[aá]logo|local)/i, label: 'pieza educativa manda a la tienda/catálogo (el CTA educativo es guardar/compartir/comentar)' },
+  { re: /(buzos?|camperas?|ropa)\s+(polar(es)?|softshell|t[eé]rmica)[^.]{0,80}\b(te|los?|las?)\s+(mantien|proteg|abriga|cuida)/i, label: 'pieza educativa recomienda prendas del catálogo como solución (venta encubierta) — reformular en genérico ("ropa de abrigo adecuada")' },
 ];
 
 /** Revisa un copy generado y devuelve la lista de problemas (vacía = pasa). */
-function lintCopy(copy, { format = 'feed', postType = 'feed' } = {}) {
+function lintCopy(copy, { format = 'feed', postType = 'feed', pillar = null } = {}) {
   const problems = [];
   const all = [copy.overlay, copy.caption, copy.cta, ...(copy.slides || []).map((s) => `${s.title} ${s.text}`)]
     .filter(Boolean).join('\n');
 
   for (const { re, label } of BANNED_PATTERNS) {
     if (re.test(all)) problems.push(label);
+  }
+
+  if (pillar === 'educativo') {
+    for (const { re, label } of EDU_SELLING_PATTERNS) {
+      if (re.test(all)) problems.push(label);
+    }
   }
 
   const overlayWords = String(copy.overlay || '').trim().split(/\s+/).filter(Boolean).length;
