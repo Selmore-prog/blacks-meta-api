@@ -487,6 +487,20 @@ app.post('/api/ads/audit', wrap(async (req, res) => {
   res.json(adsAuditCache);
 }));
 
+// Sincroniza la disponibilidad del catálogo de Meta con el stock real de Tiendanube.
+// apply=false (default): dry-run, sólo informa. apply=true: corrige por API.
+app.post('/api/catalog/sync', wrap(async (req, res) => {
+  const { syncCatalogAvailability } = require('./catalogSync');
+  res.json(await syncCatalogAvailability({ apply: Boolean(req.body && req.body.apply) }));
+}));
+
+// Versión cron: corre todos los días después del sync de productos (06:45 ARG),
+// así el catálogo de anuncios amanece alineado con el stock del día.
+app.post('/api/cron/sync-catalog', authCron, wrap(async (req, res) => {
+  const { syncCatalogAvailability } = require('./catalogSync');
+  res.json({ ok: true, ...(await syncCatalogAvailability({ apply: true })) });
+}));
+
 // Atribución por pieza: sesiones/compras de Google Analytics cuyas campañas empiezan
 // con engine_ (los links con UTM que arma el motor llevan engine_<calendarId>).
 let attributionCache = { data: null, at: 0 };

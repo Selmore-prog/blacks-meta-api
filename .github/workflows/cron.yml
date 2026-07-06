@@ -53,6 +53,17 @@ jobs:
       - run: npm ci
       - run: npm run sync
       - run: npm run sync:sales
+      # Con el stock fresco en el cache, corrige la disponibilidad del catálogo de
+      # Meta (variantes que figuran sin stock pero tienen, y al revés) para que los
+      # anuncios dinámicos muestren los productos correctos. Best-effort: si falla,
+      # no bloquea el sync (queda para la próxima corrida).
+      - name: Sincronizar catálogo de Meta con el stock real
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            "${{ secrets.PUBLIC_BASE_URL }}/api/cron/sync-catalog" \
+            || echo "sync-catalog falló (no bloquea el sync de productos)"
 
   # Genera copy + imagen (Puppeteer/Gemini) en el runner de GitHub (no en Render)
   # para no competir por la RAM del free tier.

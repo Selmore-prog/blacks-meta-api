@@ -1675,18 +1675,72 @@ async function loadAdsSummary() {
         ${organicNote}
         <div style="margin-top:16px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           <button class="btn-primary btn-sm" id="ads-audit-btn">${icon('sparkles')} Auditar campañas con IA ${costTag('Gratis')}</button>
+          <button class="btn-ghost btn-sm" id="cat-sync-btn">${icon('refresh')} Revisar catálogo vs stock</button>
           <span class="hint" style="margin:0;">Analiza campañas, anuncios y catálogos (cruzado con tu stock real) y detecta lo que la agencia no ve.</span>
         </div>
         <div id="ads-audit-out"></div>
       </div>`;
     const btn = el.querySelector('#ads-audit-btn');
     btn.addEventListener('click', () => runAdsAudit(btn));
+    el.querySelector('#cat-sync-btn').addEventListener('click', (e) => openCatalogSync(e.currentTarget));
     // Si ya hay una auditoría hecha en esta sesión del server, mostrarla al entrar.
     try {
       const cached = await api('/api/ads/audit');
       if (cached && cached.available) renderAdsAudit(cached);
     } catch (_) {}
   } catch (_) { el.innerHTML = ''; }
+}
+
+/**
+ * Catálogo vs stock real: primero un DRY-RUN (no toca nada) que muestra qué talles
+ * están mal en Meta; después, con confirmación, aplica las correcciones por API.
+ * Esto arregla el caso "tengo stock del pantalón pero Meta lo muestra agotado".
+ */
+async function openCatalogSync(btn) {
+  btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Revisando catálogo…`;
+  let d;
+  try {
+    d = await api('/api/catalog/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apply: false }) });
+  } catch (e) {
+    toast(`No pude revisar el catálogo: ${e.message}`, 'err');
+    btn.disabled = false; btn.innerHTML = `${icon('refresh')} Revisar catálogo vs stock`;
+    return;
+  }
+  btn.disabled = false; btn.innerHTML = `${icon('refresh')} Revisar catálogo vs stock`;
+
+  if (!d.correcciones_necesarias) {
+    toast(`Catálogo al día: ${d.matchean_con_tiendanube} variantes revisadas, ninguna desincronizada.`, 'ok');
+    return;
+  }
+  const body = `
+    <p class="hint" style="margin-top:0;">Se revisaron <b>${d.items_revisados}</b> items del catálogo (${d.matchean_con_tiendanube} matchean con Tiendanube). Hay <b>${d.correcciones_necesarias}</b> talles con la disponibilidad MAL en Meta:</p>
+    <div class="prod-totals" style="margin-bottom:14px;">
+      <div class="stat"><b style="color:var(--orange)">${d.a_poner_en_stock}</b><span>Talles CON stock real que Meta esconde (no salen en anuncios)</span></div>
+      <div class="stat"><b>${d.a_poner_sin_stock}</b><span>Talles agotados que Meta muestra como disponibles</span></div>
+    </div>
+    ${(d.ejemplos || []).map((f) => `<div class="dl-row">
+      <span title="${esc(f.producto)}">${esc(String(f.producto).slice(0, 46))}</span>
+      <span class="hint" style="margin:0; white-space:nowrap;">Meta: ${esc(f.en_meta)} · real: ${esc(String(f.stock_real))} → <b style="color:var(--text)">${esc(f.corregir_a)}</b></span>
+    </div>`).join('')}
+    ${d.correcciones_necesarias > (d.ejemplos || []).length ? `<p class="hint">…y ${d.correcciones_necesarias - d.ejemplos.length} más.</p>` : ''}
+    <p class="hint">La corrección se manda por API al catálogo (sólo el campo disponibilidad). Meta tarda unos minutos en procesarla. El cron la repite solo todos los días a la mañana, después de refrescar el stock.</p>
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:6px;">
+      <button class="btn-discard" id="cs-cancel">Ahora no</button>
+      <button class="btn-primary" id="cs-apply">${icon('check')} Corregir ${d.correcciones_necesarias} en Meta</button>
+    </div>`;
+  const ov = showInfoModal('Catálogo de Meta vs stock real', body);
+  ov.querySelector('#cs-cancel').addEventListener('click', () => ov.remove());
+  ov.querySelector('#cs-apply').addEventListener('click', async (e) => {
+    const b = e.currentTarget; b.disabled = true; b.innerHTML = `${icon('refresh', 'spin')} Corrigiendo…`;
+    try {
+      const r = await api('/api/catalog/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apply: true }) });
+      ov.remove();
+      toast(`Listo: ${r.correcciones_necesarias} correcciones enviadas a Meta (se aplican en unos minutos).`, 'ok');
+    } catch (err) {
+      toast(`No se pudo corregir: ${err.message}`, 'err');
+      b.disabled = false; b.innerHTML = `${icon('check')} Reintentar`;
+    }
+  });
 }
 
 /* Corre la auditoría (30-60 s: Meta + catálogos + Gemini) y la muestra. */

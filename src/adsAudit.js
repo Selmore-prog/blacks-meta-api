@@ -1,6 +1,6 @@
-const pool = require('./db');
 const config = require('./config');
 const { generateJson } = require('./ai');
+const { tiendanubeVariantMap: tnVariantMap } = require('./catalogSync');
 
 /**
  * Auditoría de Meta Ads: junta datos duros de la cuenta publicitaria (campañas,
@@ -104,23 +104,9 @@ async function gatherPerformance() {
 
 /* --------------------- Salud de catálogos vs Tiendanube --------------------- */
 
-/** Mapa variante Tiendanube -> stock (para cruzar con los retailer_id del catálogo). */
-async function tiendanubeVariantMap() {
-  const { rows } = await pool.query('SELECT id, name, stock, raw FROM products_cache');
-  const byVariant = new Map();
-  for (const p of rows) {
-    let raw = p.raw;
-    if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch (_) { continue; } }
-    for (const v of (raw && raw.variants) || []) {
-      byVariant.set(String(v.id), {
-        producto: p.name,
-        stockVariante: v.stock === null || v.stock === undefined ? null : Number(v.stock),
-        stockProducto: p.stock === null ? null : Number(p.stock),
-      });
-    }
-  }
-  return byVariant;
-}
+// El mapa variante Tiendanube -> stock vive en catalogSync (es el mismo cruce
+// que usa el sincronizador de disponibilidad).
+const tiendanubeVariantMap = tnVariantMap;
 
 /** Analiza UN catálogo: disponibilidad, cruce con stock TN y productos invisibles. */
 async function analyzeCatalog(cat, byVariant) {

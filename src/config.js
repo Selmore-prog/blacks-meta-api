@@ -87,6 +87,9 @@ module.exports = {
     // sección de pauta del panel simplemente no aparece (best-effort).
     adsAccessToken: process.env.META_ADS_ACCESS_TOKEN || process.env.META_PAGE_ACCESS_TOKEN || null,
     adAccountId: process.env.META_AD_ACCOUNT_ID || null,
+    // Catálogo de Meta a mantener sincronizado con el stock real de Tiendanube
+    // (el que usan los anuncios dinámicos). Sin esto, el sincronizador no corre.
+    catalogId: process.env.META_CATALOG_ID || null,
     autoPublishPillars: (process.env.AUTO_PUBLISH_PILLARS || 'promo,producto').split(',').map((s) => s.trim()).filter(Boolean),
     // Historia de refuerzo automática cuando se publica un post de feed (STORY_BOOST=false para apagarla).
     storyBoost: bool('STORY_BOOST', true),
