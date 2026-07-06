@@ -1673,8 +1673,104 @@ async function loadAdsSummary() {
           <div class="stat"><b>${a.cac !== null ? money(a.cac) : '—'}</b><span>Costo por compra (CAC)</span></div>
         </div>
         ${organicNote}
+        <div style="margin-top:16px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <button class="btn-primary btn-sm" id="ads-audit-btn">${icon('sparkles')} Auditar campañas con IA ${costTag('Gratis')}</button>
+          <span class="hint" style="margin:0;">Analiza campañas, anuncios y catálogos (cruzado con tu stock real) y detecta lo que la agencia no ve.</span>
+        </div>
+        <div id="ads-audit-out"></div>
       </div>`;
+    const btn = el.querySelector('#ads-audit-btn');
+    btn.addEventListener('click', () => runAdsAudit(btn));
+    // Si ya hay una auditoría hecha en esta sesión del server, mostrarla al entrar.
+    try {
+      const cached = await api('/api/ads/audit');
+      if (cached && cached.available) renderAdsAudit(cached);
+    } catch (_) {}
   } catch (_) { el.innerHTML = ''; }
+}
+
+/* Corre la auditoría (30-60 s: Meta + catálogos + Gemini) y la muestra. */
+async function runAdsAudit(btn) {
+  btn.disabled = true;
+  btn.innerHTML = `${icon('refresh', 'spin')} Auditando… (30-60 s)`;
+  try {
+    const audit = await api('/api/ads/audit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    renderAdsAudit(audit);
+    toast('Auditoría lista', 'ok');
+  } catch (e) {
+    toast(`No pude auditar: ${e.message}`, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = `${icon('sparkles')} Auditar de nuevo ${costTag('Gratis')}`;
+  }
+}
+
+function renderAdsAudit(audit) {
+  const out = document.getElementById('ads-audit-out');
+  if (!out || !audit || !audit.analisis) return;
+  // La IA a veces mete **markdown** en los strings; acá va texto plano.
+  const clean = (v) => typeof v === 'string' ? v.replace(/\*\*/g, '') : v;
+  const an = JSON.parse(JSON.stringify(audit.analisis), (k, v) => clean(v));
+  const d = audit.datos || {};
+  const money = (n) => '$' + Math.round(Number(n)).toLocaleString('es-AR');
+  const list = (title, arr, iconName) => (Array.isArray(arr) && arr.length)
+    ? `<div class="an-block"><span class="fmt-label">${icon(iconName)} ${title}</span>
+        <ul style="margin:8px 0 0; padding-left:18px; line-height:1.65; font-size:13px;">${arr.map((x) => `<li>${esc(x)}</li>`).join('')}</ul></div>` : '';
+
+  const impact = { alto: 'qa-warn', medio: 'semi', bajo: 'semi' };
+  const problems = (an.problemas || []).map((p) => `
+    <div class="an-block" style="border-left:3px solid ${p.impacto === 'alto' ? 'var(--orange)' : 'var(--line)'};">
+      <b>${esc(p.titulo)}</b> <span class="badge ${impact[p.impacto] || 'semi'}">${esc(p.impacto || '')}</span>
+      <div style="margin-top:6px; font-size:13px; line-height:1.55; color:var(--muted);">${esc(p.detalle)}</div>
+    </div>`).join('');
+
+  // Datos duros que respaldan el análisis: campañas y hallazgos de catálogo.
+  const campRows = (d.campanias || []).map((c) => `<tr>
+    <td>${esc(c.nombre)}</td><td>${money(c.gasto)}</td><td>${c.compras}</td>
+    <td>${c.roas ? `<b>${String(c.roas).replace('.', ',')}x</b>` : '<span style="color:var(--muted)">0</span>'}</td>
+    <td>${c.frecuencia ?? '—'}</td></tr>`).join('');
+
+  const invisibles = (d.catalogos || []).flatMap((c) => c.productos_invisibles_con_stock || []);
+  const invisiblesHtml = invisibles.length ? `
+    <div class="an-block">
+      <span class="fmt-label">${icon('alert')} Productos con stock real INVISIBLES en los anuncios de catálogo</span>
+      ${invisibles.slice(0, 10).map((p) => `<div class="prod-row"><div class="prod-info">
+        <div class="prod-name">${esc(p.producto)}</div>
+        <div class="prod-sub">Meta lo muestra sin stock en todos los talles · stock real en Tiendanube: <b>${p.stock_real_tiendanube}</b></div>
+      </div></div>`).join('')}
+    </div>` : '';
+
+  const emptySets = (d.conjuntos_usados_por_anuncios || []).filter((s) => !s.productos_en_conjunto);
+  const setsHtml = emptySets.length ? `
+    <div class="an-block" style="border-left:3px solid var(--orange);">
+      <span class="fmt-label">${icon('alert')} Anuncios apuntando a conjuntos de productos VACÍOS</span>
+      <div style="margin-top:6px; font-size:13px; color:var(--muted); line-height:1.55;">
+        ${emptySets.map((s) => `“${esc(s.conjunto)}”${s.catalogo ? ` (catálogo ${esc(s.catalogo)})` : ''}`).join(' · ')} — esos anuncios no tienen productos para mostrar.
+      </div>
+    </div>` : '';
+
+  const adIssues = (d.anuncios_con_problemas || []);
+  const issuesHtml = adIssues.length ? list(`Anuncios con problemas (${adIssues.length})`, adIssues.map((i) => `${i.anuncio}: ${i.problema}`), 'alert') : '';
+
+  out.innerHTML = `
+    <div style="margin-top:18px;">
+      <div class="recommendation"><b>Diagnóstico:</b> ${esc(an.diagnostico || '')}</div>
+      <div class="analysis">
+        ${problems}
+        ${setsHtml}
+        ${invisiblesHtml}
+        ${list('Qué está funcionando', an.funciona, 'check')}
+        ${list('Qué está rindiendo mal', an.no_funciona, 'trash')}
+        ${list('Acciones para pasarle a la agencia (en orden)', an.acciones, 'send')}
+        ${list('Preguntas para hacerle a la agencia', an.preguntas_agencia, 'comment')}
+        ${issuesHtml}
+        ${campRows ? `<div class="an-block"><span class="fmt-label">${icon('chart')} Campañas (30 días)</span>
+          <table class="insights" style="margin-top:8px;"><thead><tr><th>Campaña</th><th>Gasto</th><th>Compras</th><th>ROAS</th><th>Frec.</th></tr></thead>
+          <tbody>${campRows}</tbody></table></div>` : ''}
+      </div>
+      <p class="hint" style="margin:10px 0 0;">Auditoría del ${esc(String(audit.generatedAt).slice(0, 16).replace('T', ' '))} · datos de Meta Ads + catálogos cruzados con stock de Tiendanube · análisis con IA (gratis). Sólo lectura: no toca tus campañas.</p>
+    </div>`;
+  out.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
 /* Atribución por pieza: qué posts del motor trajeron visitas/compras (via UTMs + GA). */

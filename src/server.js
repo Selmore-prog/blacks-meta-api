@@ -473,6 +473,20 @@ app.get('/api/metrics/ads', wrap(async (req, res) => {
   res.json(out);
 }));
 
+// Auditoría de la pauta con IA: datos duros de campañas/anuncios/catálogos (cruzados
+// con el stock real de Tiendanube) + diagnóstico de Gemini. Tarda ~30-60 s, así que
+// se corre a demanda (POST) y el resultado queda cacheado en memoria (GET).
+let adsAuditCache = null;
+app.get('/api/ads/audit', wrap(async (req, res) => {
+  res.json(adsAuditCache || { available: false });
+}));
+
+app.post('/api/ads/audit', wrap(async (req, res) => {
+  const { runAdsAudit } = require('./adsAudit');
+  adsAuditCache = { available: true, ...(await runAdsAudit()) };
+  res.json(adsAuditCache);
+}));
+
 // Atribución por pieza: sesiones/compras de Google Analytics cuyas campañas empiezan
 // con engine_ (los links con UTM que arma el motor llevan engine_<calendarId>).
 let attributionCache = { data: null, at: 0 };
