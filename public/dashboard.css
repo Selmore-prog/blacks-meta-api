@@ -574,6 +574,13 @@ button .cost-tag { margin-left: 8px; }
   border-radius: 10px; padding: 10px 12px; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
 .reel-note b { color: var(--text); }
 
+/* Cuenta regresiva de auto-publicación */
+.pub-timer { display: inline-flex; align-items: center; gap: 7px; align-self: flex-start;
+  background: rgba(34, 197, 94, .08); border: 1px solid rgba(34, 197, 94, .3); color: var(--green);
+  border-radius: 100px; padding: 6px 13px; font-size: 12.5px; font-weight: 700; }
+.pub-timer .ic { width: 14px; height: 14px; }
+.pub-timer.imminent { background: var(--orange-dim); border-color: rgba(232, 93, 27, .4); color: var(--orange); }
+
 /* ---------- misc polish ---------- */
 .card.regenerating { opacity: .6; pointer-events: none; }
 .spin { animation: spin 1s linear infinite; }

@@ -333,6 +333,27 @@ function interactionChip(slot) {
   return '👆 Respondé la historia';
 }
 
+/**
+ * Extrae un código de cupón del texto (brief o copy): ej "cupón ARGENTINA10".
+ * Se renderiza como TEXTO en la plantilla (la IA de imagen no escribe texto).
+ * Conservador para no confundir marcas (Grafa 70) con cupones.
+ */
+function extractCoupon(text) {
+  if (!text) return null;
+  const s = String(text);
+  const labelled = s.match(/(?:cup[oó]n|c[oó]digo|promo\s*code|voucher)\s*[:.]?\s*["']?([A-Z0-9]{4,20})["']?/i);
+  if (labelled) {
+    const c = labelled[1].toUpperCase();
+    if (/[A-Z]/.test(c) && /\d/.test(c)) return c;
+  }
+  // Fallback: token MAYÚSCULAS+dígitos, sólo si el texto habla de cupón/código.
+  if (/cup[oó]n|c[oó]digo/i.test(s)) {
+    const token = s.match(/\b([A-ZÁÉÍÓÚÑ]{3,}\d{1,3})\b/);
+    if (token) return token[1].toUpperCase();
+  }
+  return null;
+}
+
 async function generateForSlot(slot, overrides = {}) {
   const brandProfile = await getBrandProfile();
   // Permite regenerar cambiando el tema/ángulo del contenido sin cambiar el pilar.
@@ -345,14 +366,24 @@ async function generateForSlot(slot, overrides = {}) {
   const { defaultObjective } = require('../src/planner');
   const objective = slot.objective || defaultObjective(slot.pillar);
 
+  // El brief puede pedir EXPLÍCITAMENTE no mostrar un producto (ej: promo de cupón
+  // para toda la tienda). En ese caso no elegimos producto y la imagen sale como
+  // fondo temático generado con IA, no como escena de un producto puntual.
+  const noProductBrief = /\b(no mostrar|sin)\s+produc|toda la (tienda|web|p[aá]gina|compra)|todo el (catalogo|catálogo|sitio)|cat[aá]logo general|general de la (tienda|marca)/i
+    .test(pillarDetail || '');
+
   const isMayorista = slot.pillar === 'mayorista';
-  const product = isMayorista
-    ? await pickMayoristaProduct(effectiveSlot, await recentlyFeaturedIds().catch(() => []))
-    : (PRODUCT_PILLARS.includes(slot.pillar) ? await pickProductForSlot(effectiveSlot) : null);
-  const visualProduct = product || await pickRelevantVisualProduct(effectiveSlot);
+  const product = noProductBrief ? null
+    : isMayorista
+      ? await pickMayoristaProduct(effectiveSlot, await recentlyFeaturedIds().catch(() => []))
+      : (PRODUCT_PILLARS.includes(slot.pillar) ? await pickProductForSlot(effectiveSlot) : null);
+  const visualProduct = noProductBrief ? null : (product || await pickRelevantVisualProduct(effectiveSlot));
   const wholesale = isMayorista ? wholesaleContext(await getWholesaleSettings()) : null;
   const format = slot.format === 'story' ? 'story' : 'feed';
   const commercialContext = await getCommercialContextForDate(slot.scheduled_date).catch(() => null);
+  // Ocasión = fechas comerciales de ESE día puntual (ej: Día de la Independencia),
+  // para que la imagen refleje el festivo (bandera, colores) — no todo el rango.
+  const occasion = await getCommercialContextForDate(slot.scheduled_date, { daysAhead: 0 }).catch(() => null);
 
   // Foto REAL y coherente: producto principal o producto visual con match fuerte.
   // No usamos fallback estacional/random porque puede contradecir el copy.
@@ -382,6 +413,11 @@ async function generateForSlot(slot, overrides = {}) {
 
   const badgeText = slot.pillar === 'mayorista' ? 'MAYORISTA' : null;
   const overlayTitle = copy.overlay || (product ? product.name : pillarDetail || slot.theme_title || slot.pillar);
+  // Cupón detectado en el brief o el copy (ej: ARGENTINA10) -> va como texto en la plantilla.
+  const couponCode = extractCoupon(`${pillarDetail || ''} \n ${copy.caption || ''} \n ${copy.cta || ''}`);
+  // Brief para la imagen IA: indicaciones del plan + gancho del copy, para que la
+  // escena tenga sentido con el mensaje (y no sea una foto genérica).
+  const imageBrief = [pillarDetail, copy.overlay].filter(Boolean).join(' — ').slice(0, 500);
   // REGLA: el precio va sólo en HISTORIAS (efímeras). El feed queda evergreen (sin precio
   // que envejezca). Reels tampoco llevan precio en el copy visual.
   const showPrice = format === 'story' && slot.post_type !== 'reel';
@@ -484,6 +520,10 @@ async function generateForSlot(slot, overrides = {}) {
       bgTheme: product
         ? `${product.name}${product.category ? ` (${product.category})` : ''}`
         : [pillarDetail || slot.theme_title, copy.overlay].filter(Boolean).join(' — '),
+      // Brief + ocasión festiva para que la imagen IA sea coherente con el mensaje y la fecha.
+      bgBrief: imageBrief,
+      bgOccasion: occasion,
+      couponCode,
       interactionLabel: interactionChip(slot),
     });
     imagePath = url;
@@ -506,6 +546,8 @@ async function generateForSlot(slot, overrides = {}) {
         logos,
         layoutSeed: Number(slot.id) + 7,
         bgTheme: pillarDetail || slot.theme_title,
+        bgBrief: imageBrief,
+        bgOccasion: occasion,
       });
       storyTeaserPath = url;
       pieceCostUsd += costUsd || 0;

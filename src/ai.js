@@ -556,14 +556,34 @@ async function generateJson({ system, prompt, schema, maxTokens = 4000, temperat
  * Best-effort: si no hay Gemini o falla, devuelve null y se usa el diseño plano.
  * Devuelve { buffer, mimeType } o null.
  */
-async function generateBackground({ theme, format = 'feed', referenceImages = [] } = {}) {
+/**
+ * Guía de OCASIÓN: cómo la escena tiene que reflejar la fecha/festividad SIN texto.
+ * Detecta fechas patrias argentinas para meter identidad nacional creíble (bandera
+ * real en el fondo, luz celeste), no como sticker plano.
+ */
+function occasionGuidance(occasion) {
+  if (!occasion) return '';
+  const isPatria = /independencia|25 de mayo|revoluci[oó]n de mayo|d[ií]a de la bandera|g[üu]emes|belgrano|san mart[ií]n/i.test(occasion);
+  const patria = isPatria
+    ? `\n- ES UNA FECHA PATRIA ARGENTINA: incorporá la identidad nacional de forma CREÍBLE y parte de la foto — una bandera argentina real colgada o flameando al fondo del galpón/taller, luz celeste natural entrando, o el celeste y blanco integrados en objetos reales de la escena. NUNCA como sticker, filtro, guirnalda de dibujito ni gráfico plano. Sobria y de marca, con orgullo de trabajo nacional, sin sobreactuar.`
+    : `\n- Reflejá el clima de la fecha con la luz, la escena y el ambiente (energía comercial si es promo/oferta; calidez si es una fecha de comunidad), nunca con texto ni carteles.`;
+  return `\nOCASIÓN / FECHA DE LA PIEZA: ${occasion}${patria}`;
+}
+
+/** Bloque de BRIEF: las indicaciones explícitas del usuario/plan para esta pieza. */
+function briefBlock(brief) {
+  if (!brief) return '';
+  return `\nBRIEF DE LA PIEZA (respetá estas indicaciones al pie de la letra; las que pidan texto/cupón/precio se resuelven después con tipografía, vos NO escribas texto): "${brief}"`;
+}
+
+async function generateBackground({ theme, brief, occasion, format = 'feed', referenceImages = [] } = {}) {
   if (!config.ai.useAiImages || !hasGemini() || isImageQuotaCoolingDown()) return null;
 
   const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
   const brandStyle = await brandStyleForImages();
   const prompt = `Actuás como DIRECTOR DE ARTE SENIOR de una agencia creativa premium. Generá la imagen de fondo ${ratio} para una pieza de Instagram de BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
 
-CONCEPTO (la imagen tiene que contarlo, no ser decorativa): "${theme || 'ropa de trabajo e industria'}".
+CONCEPTO (la imagen tiene que contarlo, no ser decorativa): "${theme || 'ropa de trabajo e industria'}".${briefBlock(brief)}${occasionGuidance(occasion)}
 
 DIRECCIÓN DE FOTOGRAFÍA:
 - Fotografía editorial hiperrealista, calidad de campaña publicitaria impresa. Lente 35-50mm, apertura amplia, profundidad de campo real, enfoque selectivo.
@@ -641,7 +661,7 @@ REGLA DURA: la salida es SOLO el dibujo. PROHIBIDO cualquier texto, letra, núme
  * Genera una ESCENA PROFESIONAL con el producto real adentro (foto de producto como
  * referencia). Devuelve { buffer, mimeType } o null (best-effort, con fallback).
  */
-async function generateProductScene({ productImageUrl, productName, theme, format = 'feed' } = {}) {
+async function generateProductScene({ productImageUrl, productName, theme, brief, occasion, format = 'feed' } = {}) {
   if (!config.ai.useAiImages || !hasGemini() || isImageQuotaCoolingDown() || !productImageUrl) return null;
 
   let ref;
@@ -657,7 +677,7 @@ async function generateProductScene({ productImageUrl, productName, theme, forma
   const brandStyle = await brandStyleForImages();
   const prompt = `Actuás como DIRECTOR DE ARTE SENIOR de una campaña de e-commerce premium. Tomá EXACTAMENTE el producto de la imagen de referencia (fidelidad total: mismo modelo, color, costuras, etiquetas — no lo rediseñes) y componé una escena de catálogo profesional ${ratio} para BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
 
-CONTEXTO DE LA PIEZA: ${theme || productName || 'ropa de trabajo'}.
+CONTEXTO DE LA PIEZA: ${theme || productName || 'ropa de trabajo'}.${briefBlock(brief)}${occasionGuidance(occasion)}
 
 DIRECCIÓN DE FOTOGRAFÍA:
 - El producto es EL protagonista absoluto: nítido, con textura de tela/cuero visible, ocupando el centro visual.
@@ -751,6 +771,37 @@ REGLA DURA: LA SALIDA ES SOLO LA FOTOGRAFÍA. Sin texto, letras, números, logos
   }
 }
 
+/* =========================================================================
+ * PROMPTS DE VIDEO (Veo/Gemini) — bloques compartidos.
+ * El problema #1 con estos modelos es que "re-imaginan" el producto entre frames.
+ * Estas reglas atacan eso: ancla textual del producto + fidelidad dura + cámara
+ * quieta (las órbitas son lo que más rompe la fidelidad).
+ * ========================================================================= */
+
+/** Ancla textual: nombre + descripción real acota lo que el modelo puede inventar. */
+function productAnchorLines(products) {
+  return products.map((p, i) => {
+    const desc = p.description ? ` — ${String(p.description).replace(/\s+/g, ' ').slice(0, 200)}` : '';
+    return `${products.length > 1 ? `${i + 1}. ` : ''}${p.name}${desc}`;
+  }).join('\n');
+}
+
+function videoFidelityRules(isCombo) {
+  return `FIDELIDAD DEL PRODUCTO (lo MÁS importante — si esto se rompe, el video no sirve):
+- ${isCombo ? 'Cada producto' : 'El producto'} tiene que quedar IDÉNTICO en TODOS los frames: mismo color exacto, mismo corte, mismos bolsillos, cierres, costuras, etiquetas y logo que en las fotos de referencia. No cambia nada de un frame a otro.
+- PROHIBIDO: rediseñar, recolorear o "mejorar" el producto; agregarle estampados, texturas, logos o marcas que no estén en las fotos; deformarlo, estirarlo o cambiarle la silueta; que "mute" (morphing) entre frames.
+- El producto queda SIEMPRE dentro del cuadro, sin cortes de plano que lo obliguen a re-generarse. Un solo plano continuo es mejor que varios cortes.
+- Si tenés que elegir entre un movimiento de cámara vistoso y mantener el producto idéntico, ELEGÍ mantenerlo idéntico.`;
+}
+
+function videoCameraRules() {
+  return `CÁMARA (elegida para que el producto NO se deforme): plano casi fijo o push-in MUY lento y recto, con micro-vibración de cámara en mano. EVITÁ órbitas completas o giros de 360° alrededor del producto (obligan a inventar los lados que la foto no muestra y ahí se arruina la fidelidad). Profundidad de campo, partículas de polvo, luz de golden hour o luz industrial cálida, motion blur natural de 24fps.`;
+}
+
+function videoRealismRules() {
+  return `REALISMO ANTI-IA (que NO parezca video generado): imperfecciones reales (desgaste, polvo, arrugas de tela con física creíble, piso sucio de obra), una sola fuente de luz coherente con sombras hacia el mismo lado, leve grano fílmico, saturación contenida tipo documental. PROHIBIDO: superficies plásticas perfectas, movimientos flotantes irreales, cámara imposiblemente estable, colores vibrantes de render, transiciones mágicas. Si hay personas: de espaldas o fuera de foco, manos con anatomía perfecta.`;
+}
+
 /**
  * ESTUDIO: súper-prompt de VIDEO para pegar en Gemini/Veo, con uno o varios
  * productos (combo). No llama a ninguna API: el video lo genera el usuario a mano
@@ -759,28 +810,28 @@ REGLA DURA: LA SALIDA ES SOLO LA FOTOGRAFÍA. Sin texto, letras, números, logos
 function buildStudioVideoPrompt({ products = [], theme, format = 'story', duration = 8 } = {}) {
   const isCombo = products.length > 1;
   const ratio = format === 'feed' ? '4:5' : '9:16 vertical';
-  const names = products.map((p, i) => `${i + 1}. ${p.name}`).join('\n');
   const allImages = products.flatMap((p) => (Array.isArray(p.images) && p.images.length ? p.images : [p.imageUrl]).filter(Boolean));
 
   const prompt = `Creá un video comercial ${ratio} de ~${duration} segundos para BLACKS, marca argentina de ropa de trabajo y calzado de seguridad.
 
-PRODUCTOS (REGLA ESTRICTA — usá EXACTAMENTE los de las imágenes de referencia adjuntas):
-${names}
-- Fidelidad TOTAL: NO agregues ni inventes marcas, logos, etiquetas, cierres, costuras, texturas, estampados ni colores que NO estén en las fotos. NO cambies el corte ni los materiales. Si dudás de un detalle, no lo agregues.
+PRODUCTO${isCombo ? 'S' : ''} (usá EXACTAMENTE ${isCombo ? 'los' : 'el'} de las imágenes de referencia adjuntas):
+${productAnchorLines(products)}
+
+${videoFidelityRules(isCombo)}
 ${isCombo
-    ? `\nES UN CONJUNTO: los ${products.length} productos aparecen JUNTOS y coordinados en la misma escena — un trabajador real usándolos como equipo completo (la ropa puesta, el calzado puesto), o una progresión que los muestra uno a uno y cierra con el conjunto armado. Cada producto tiene su momento de protagonismo nítido.`
-    : `\nEl producto es EL protagonista: mostralo usado o exhibido de forma creíble, con un plano de detalle de su textura/terminación.`}
+    ? `\nES UN CONJUNTO: los ${products.length} productos aparecen JUNTOS y coordinados en la misma escena — un trabajador real usándolos como equipo completo (la ropa puesta, el calzado puesto), o una progresión corta que los muestra y cierra con el conjunto armado. Cada uno con su momento de protagonismo nítido, siempre fiel a su foto.`
+    : `\nEl producto es EL protagonista: mostralo usado o exhibido de forma creíble, con un plano de detalle de su textura/terminación real.`}
 
 ESCENA: entorno real argentino con contexto (${theme || 'obra en construcción / taller metalúrgico / depósito / galpón'}). Nada de set de estudio artificial ni fondos genéricos.
-CÁMARA: movimiento lento y cinematográfico (dolly-in suave u órbita corta) con micro-vibración de cámara en mano, como filmado por un camarógrafo real. Profundidad de campo, partículas de polvo en el aire, luz de golden hour o luz industrial cálida. Motion blur natural de 24fps.
-REALISMO ANTI-IA (crítico — que NO parezca video generado): imperfecciones del mundo real (desgaste, polvo, arrugas de tela con física creíble, piso sucio de obra), una sola fuente de luz coherente con sombras que caen todas para el mismo lado, leve grano fílmico, saturación contenida tipo documental. PROHIBIDO: superficies plásticas perfectas, movimientos flotantes irreales, cámara imposiblemente estable, colores vibrantes de render, transiciones mágicas o morphing. Si hay personas: de espaldas o fuera de foco, manos con anatomía perfecta.
+${videoCameraRules()}
+${videoRealismRules()}
 ESTÉTICA: robusta, premium, alto contraste, look de aviso moderno. SIN texto en pantalla (los textos van después). Cierre: plano hero limpio ${isCombo ? 'del conjunto completo' : 'del producto'}.`;
 
   return {
     prompt,
     instructions: [
       'Abrí Gemini (Veo/Omni) o tu herramienta de video.',
-      `Subí las fotos de referencia de ${isCombo ? 'TODOS los productos' : 'el producto'} (varias perspectivas de cada uno = más fidelidad).`,
+      `Subí las fotos de referencia de ${isCombo ? 'TODOS los productos' : 'el producto'} (varias perspectivas de cada uno = más fidelidad; frente, espalda y detalle).`,
       `Pegá el prompt. Elegí formato ${ratio} y ~${duration}s.`,
       'Descargá el .mp4 y subilo acá con "Subir resultado" para guardarlo en la biblioteca.',
     ],
@@ -872,19 +923,20 @@ Devolvé SOLO un JSON válido con esta forma:
  * Arma un súper-prompt listo para pegar en Gemini/Veo (Omni) y generar una escena
  * de video a medida. No llama a la API (es texto): la generación la hace el usuario a mano.
  */
-function buildVideoPrompt({ productName, productImages = [], productImageUrl, theme, format = 'story', caption } = {}) {
+function buildVideoPrompt({ productName, productDescription, productImages = [], productImageUrl, theme, format = 'story', caption } = {}) {
   const imgs = (productImages && productImages.length ? productImages : [productImageUrl]).filter(Boolean);
   const ratio = format === 'feed' ? '4:5' : '9:16 vertical';
+  const anchor = productAnchorLines([{ name: productName || 'producto de trabajo', description: productDescription }]);
   const prompt = `Creá un video comercial ${ratio} de ~8 segundos para BLACKS, una marca argentina de ropa de trabajo y calzado de seguridad.
 
-PRODUCTO (REGLA ESTRICTA): usá EXACTAMENTE el producto de las imágenes de referencia adjuntas (${productName || 'producto de trabajo'}). Es imprescindible que sea IDÉNTICO:
-- NO agregues ni inventes marcas, logos, etiquetas, parches, cierres, costuras, texturas, estampados, colores ni detalles que NO estén en las fotos.
-- NO cambies el color, el corte ni los materiales.
-- Si dudás de un detalle, no lo agregues. El producto del video tiene que ser el mismo que se vende.
+PRODUCTO (usá EXACTAMENTE el de las imágenes de referencia adjuntas):
+${anchor}
+
+${videoFidelityRules(false)}
 
 ESCENA: mostralo en un entorno real con contexto (${theme || 'obra / taller / depósito / fábrica / calle'}), usado o exhibido de forma creíble. Ambiente real argentino, no set de estudio artificial.
-CÁMARA: movimiento lento y cinematográfico (dolly-in suave u órbita corta) con micro-vibración de cámara en mano, como filmado por un camarógrafo real. Profundidad de campo, partículas de polvo, luz de golden hour o luz industrial cálida. Motion blur natural de 24fps.
-REALISMO ANTI-IA (crítico — que NO parezca video generado): imperfecciones del mundo real (desgaste, polvo, arrugas de tela con física creíble, piso sucio de obra), una sola fuente de luz coherente con sombras que caen todas para el mismo lado, leve grano fílmico, saturación contenida tipo documental. PROHIBIDO: superficies plásticas perfectas, movimientos flotantes irreales, cámara imposiblemente estable, colores vibrantes de render, transiciones mágicas o morphing.
+${videoCameraRules()}
+${videoRealismRules()}
 ESTÉTICA: robusta, premium, alto contraste, look de aviso moderno. SIN texto en pantalla (el texto/subtítulos los agrego después). Terminá en un plano hero limpio del producto.`;
   const instructions = [
     'Abrí Gemini (Veo/Omni) o tu herramienta de video.',
@@ -892,7 +944,7 @@ ESTÉTICA: robusta, premium, alto contraste, look de aviso moderno. SIN texto en
     `Pegá el prompt. Elegí formato ${ratio} y ~8s.`,
     'Descargá el .mp4 y subilo al panel (botón "Subir video") para publicarlo como Reel.',
   ];
-  const platformNote = 'Gemini Veo/Omni (lo tuyo) es muy bueno. Para máxima fidelidad, mandá varias fotos del producto. Alternativas con tier gratuito (más limitadas/con marca de agua): Kling, Runway, Pika. Lo más fiel siempre es tu propia filmación + edición.';
+  const platformNote = 'Gemini Veo/Omni (lo tuyo) es muy bueno. Para máxima fidelidad, mandá varias fotos del producto y evitá pedir giros de cámara. Alternativas con tier gratuito (más limitadas/con marca de agua): Kling, Runway, Pika. Lo más fiel siempre es tu propia filmación + edición.';
   return {
     prompt: caption ? `${prompt}\n\nCONTEXTO DEL POSTEO (para el tono, NO para poner texto): ${caption}` : prompt,
     instructions,

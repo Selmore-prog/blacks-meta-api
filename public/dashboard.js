@@ -375,7 +375,7 @@ async function loadCalendar() {
   try {
     calItems = await api(`/api/calendar?days=${calendarViewDays}`);
     document.getElementById('next-plan').innerHTML =
-      `${icon('bot')} <b>Automático:</b> genera piezas todos los días a las <b>07:00 ARG</b> y publica lo aprobado <b>en el horario programado de cada pieza</b>. Los posts de feed salen con su historia de refuerzo. El resto lo revisás y publicás vos desde acá.`;
+      `${icon('bot')} <b>Automático:</b> genera piezas todos los días a las <b>07:00 ARG</b>. Todo lo que apruebes y sea automático se publica solo <b>en su horario</b> (los posts de feed salen con su historia de refuerzo). Sólo las piezas <b>Semi</b> las publicás vos a mano (para sumarles el sticker/encuesta).`;
     renderFilters();
     renderCalView();
     refreshStaleDraftsButton();
@@ -440,6 +440,7 @@ function renderCalView() {
   else if (calView === 'grid') renderCalGrid(items);
   else renderProfileGrid();
   renderCalMore();
+  refreshPubTimers();
 }
 
 /**
@@ -716,6 +717,51 @@ function openPreview(item) {
   }
 }
 
+/* ============ timer de auto-publicación ============ */
+// Instante exacto de publicación (hora ARG = GMT-3, sin horario de verano).
+function scheduledInstant(item) {
+  const date = String(item.scheduled_date).slice(0, 10);
+  const time = /^\d{2}:\d{2}$/.test(item.scheduled_time || '') ? item.scheduled_time : '12:00';
+  const t = new Date(`${date}T${time}:00-03:00`);
+  return Number.isNaN(t.getTime()) ? null : t;
+}
+
+/**
+ * Chip con la cuenta regresiva de auto-publicación. Sólo para piezas APROBADAS,
+ * automáticas (no semi) y que se puedan publicar (los reels necesitan su video).
+ */
+function pubTimerHtml(item, status) {
+  if (status !== 'approved' || item.automation_level === 'semi') return '';
+  if (item.post_type === 'reel' && !item.video_path) return '';
+  const t = scheduledInstant(item);
+  if (!t) return '';
+  return `<div class="pub-timer" data-when="${t.toISOString()}">${icon('clock')} <span class="pt-text">Calculando…</span></div>`;
+}
+
+function pubCountdownParts(target) {
+  const ms = target.getTime() - Date.now();
+  const mins = Math.floor(Math.abs(ms) / 60000);
+  const d = Math.floor(mins / 1440);
+  const h = Math.floor((mins % 1440) / 60);
+  const m = mins % 60;
+  const rel = d > 0 ? `${d}d ${h}h` : (h > 0 ? `${h}h ${m}m` : `${m} min`);
+  return { past: ms <= 0, rel };
+}
+
+// Refresca todos los timers de la página (corre en un intervalo global).
+function refreshPubTimers() {
+  document.querySelectorAll('.pub-timer').forEach((el) => {
+    const target = new Date(el.dataset.when);
+    const txt = el.querySelector('.pt-text');
+    if (!txt || Number.isNaN(target.getTime())) return;
+    const { past, rel } = pubCountdownParts(target);
+    el.classList.toggle('imminent', past);
+    // La cola corre cada hora en punto: una pieza a las 17:30 sale en la corrida de
+    // las 18:00. Por eso, una vez pasado el horario, avisamos "próxima corrida".
+    txt.textContent = past ? 'Se publica en la próxima corrida (cada hora)' : `Se publica sola en ${rel}`;
+  });
+}
+
 function renderCard(item) {
   const card = document.createElement('div');
   card.className = 'card';
@@ -818,6 +864,7 @@ function renderCard(item) {
       ${caption}
       ${interaction}
       ${reelNote}
+      ${pubTimerHtml(item, status)}
       <div class="actions">${actions}</div>
     </div>`;
 
@@ -1017,23 +1064,60 @@ function openPlanSlot(item = null) {
 }
 
 /* ============ regenerar con otro tema ============ */
+const REGEN_FALLBACK = {
+  educativo: ['Cómo elegir el talle correcto', 'Cuidados para que la ropa dure más', 'Diferencia entre telas de trabajo'],
+  producto: ['Lo más vendido de la semana', 'Ideal para el frío', 'Novedad recién llegada'],
+  promo: ['Ofertas de temporada', '3 cuotas sin interés', 'Envío gratis desde cierto monto'],
+  marca: ['Por qué elegir esta marca', 'Historia de la marca'],
+  engagement: ['¿Qué preferís vos?', 'Contanos en qué rubro trabajás'],
+};
+
+/**
+ * Sugerencias INTELIGENTES para regenerar: se arman con la fecha comercial de ese
+ * día (festivo/ángulo), los productos reales que conviene mostrar (ventas/stock) y
+ * el tema que el plan del mes tenía para ese día. Fallback fijo si no hay datos.
+ */
+async function regenSuggestions(item) {
+  const out = [];
+  // 1) Fecha comercial de ESE día (ej: Día de la Independencia -> su ángulo).
+  for (const d of commercialDatesOf(item)) {
+    if (d.angle) out.push(String(d.angle).slice(0, 90));
+    else if (d.title) out.push(`Aprovechá: ${d.title}`);
+  }
+  // 2) Productos reales según el pilar (los que el motor puede protagonizar).
+  if (['producto', 'promo', 'marca'].includes(item.pillar)) {
+    try {
+      const d = await api('/api/products/analytics');
+      (d.winners || []).slice(0, 2).forEach((p) => out.push(`Destacá ${p.name}`));
+      (d.needVisibility || []).slice(0, 1).forEach((p) => out.push(`Dale salida a ${p.name} (mucho stock, pocas ventas)`));
+    } catch (_) {}
+  }
+  // 3) Lo que el plan del mes tenía pensado para ese día.
+  try {
+    const month = String(item.scheduled_date).slice(0, 7);
+    const plan = await api(`/api/plan?month=${month}`);
+    const planArr = Array.isArray(plan.plan) ? plan.plan : [];
+    const day = String(item.scheduled_date).slice(0, 10);
+    const slot = planArr.find((s) => s.date === day);
+    if (slot && slot.pillar_detail && slot.pillar_detail !== item.pillar_detail) out.push(String(slot.pillar_detail).slice(0, 90));
+  } catch (_) {}
+  // 4) Fallback por pilar si quedó corto.
+  if (out.length < 3) out.push(...(REGEN_FALLBACK[item.pillar] || ['Enfoque en beneficios', 'Enfoque en temporada', 'Enfoque en precio']));
+  return [...new Set(out.filter(Boolean))].slice(0, 6);
+}
+
 function openRegen(item) {
   if (!item) return;
   const current = item.pillar_detail || item.theme_title || '';
-  const suggestions = {
-    educativo: ['Cómo elegir el talle correcto', 'Cuidados para que la ropa dure más', 'Diferencia entre telas de trabajo'],
-    producto: ['Lo más vendido de la semana', 'Ideal para el frío', 'Novedad recién llegada'],
-    promo: ['Ofertas de temporada', '3 cuotas sin interés', 'Envío gratis desde cierto monto'],
-    marca: ['Por qué elegir esta marca', 'Historia de la marca'],
-    engagement: ['¿Qué preferís vos?', 'Contanos en qué rubro trabajás'],
-  };
-  const sugg = (suggestions[item.pillar] || ['Enfoque en beneficios', 'Enfoque en temporada', 'Enfoque en precio']);
+  // Chips iniciales: el fallback instantáneo; después se reemplazan por los inteligentes.
+  const initial = REGEN_FALLBACK[item.pillar] || ['Enfoque en beneficios', 'Enfoque en temporada'];
   const body = `
     <p class="hint" style="margin-top:0;">Pilar: <b>${esc(item.pillar)}</b> · ${typeLabel(item)}. Cambiá el tema/ángulo y la IA vuelve a generar el texto y la imagen.</p>
     <div class="field">
       <label>Tema / ángulo de esta pieza</label>
       <textarea class="input" id="regen-detail" placeholder="Ej: Botines con puntera para la construcción">${esc(current)}</textarea>
-      <div class="chips-suggest">${sugg.map((s) => `<span class="chip-suggest" data-s="${esc(s)}">${esc(s)}</span>`).join('')}</div>
+      <div class="chips-suggest" id="regen-chips">${initial.map((s) => `<span class="chip-suggest" data-s="${esc(s)}">${esc(s)}</span>`).join('')}
+        <span class="chip-suggest loading" style="pointer-events:none; opacity:.6;">${icon('refresh', 'spin')} recomendaciones…</span></div>
     </div>
     <div class="field">
       <label>Plantilla visual</label>
@@ -1051,8 +1135,16 @@ function openRegen(item) {
       <button class="btn-primary" id="regen-go">${icon('wand')} Regenerar con IA ${costTag(genCostLabel())}</button>
     </div>`;
   const overlay = showInfoModal('Regenerar pieza', body);
-  overlay.querySelectorAll('.chip-suggest').forEach((c) =>
+  const wireChips = () => overlay.querySelectorAll('.chip-suggest:not(.loading)').forEach((c) =>
     c.addEventListener('click', () => { overlay.querySelector('#regen-detail').value = c.dataset.s; }));
+  wireChips();
+  // Reemplazar por las sugerencias inteligentes cuando lleguen.
+  regenSuggestions(item).then((sugg) => {
+    const box = overlay.querySelector('#regen-chips');
+    if (!box || !sugg.length) { const l = box && box.querySelector('.loading'); if (l) l.remove(); return; }
+    box.innerHTML = sugg.map((s) => `<span class="chip-suggest" data-s="${esc(s)}" title="${esc(s)}">${esc(s.length > 42 ? s.slice(0, 40) + '…' : s)}</span>`).join('');
+    wireChips();
+  }).catch(() => { const l = overlay.querySelector('#regen-chips .loading'); if (l) l.remove(); });
   overlay.querySelector('#regen-cancel').addEventListener('click', () => overlay.remove());
   overlay.querySelector('#regen-go').addEventListener('click', async () => {
     const detail = overlay.querySelector('#regen-detail').value.trim();
@@ -2220,3 +2312,4 @@ loadCalendar();
 setupStyleTab();
 pollBgTasks();
 setInterval(pollBgTasks, 60 * 1000); // tareas en segundo plano: refresco cada minuto
+setInterval(refreshPubTimers, 30 * 1000); // cuenta regresiva de auto-publicación

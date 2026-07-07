@@ -78,6 +78,30 @@ function domainHtml(g, { dark = false, accent }) {
   </div>`;
 }
 
+/** Badge tipo "sello" (esquina recta + acento sólido, bien espaciado). */
+function badgeTag(text, { accent, top, right }) {
+  return `<div style="position:absolute; top:${top}px; right:${right}px; background:${accent}; color:#fff;
+    font-weight:800; font-size:19px; padding:9px 17px; border-radius:5px; text-transform:uppercase;
+    letter-spacing:3px; box-shadow:0 6px 18px rgba(0,0,0,.4); z-index:4;">${esc(text)}</div>`;
+}
+
+/** Cupón como ticket claro con el código destacado (la IA no escribe texto). */
+function couponTag(code, { isStory, marginTop = 22 } = {}) {
+  if (!code) return '';
+  return `<div style="display:inline-flex; align-items:center; gap:12px; margin-top:${marginTop}px; padding:12px 20px;
+    background:rgba(255,255,255,.95); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.4);">
+    <span style="font-size:${isStory ? 22 : 19}px; font-weight:800; letter-spacing:3px; color:#6b6b70; text-transform:uppercase; padding-right:12px; border-right:2px dashed #c9c9cf;">CUPÓN</span>
+    <span style="font-family:'Anton',sans-serif; font-size:${isStory ? 46 : 40}px; letter-spacing:2px; color:#141416;">${esc(code)}</span>
+  </div>`;
+}
+
+/** Logo/wordmark esquinado arriba-izquierda (posición común entre plantillas). */
+function cornerBrand(logos, { showBrand, dark, heightPx, top, left }) {
+  if (showBrand === false) return '';
+  return `<div style="position:absolute; top:${top}px; left:${left}px; display:flex; align-items:center; z-index:4;">
+    ${brandMarkHtml(logos, { dark, heightPx })}</div>`;
+}
+
 function priceParts(price, promoPrice) {
   const hasPromo = price && promoPrice && Number(promoPrice) < Number(price);
   return {
@@ -158,8 +182,8 @@ function buildFullbleedHtml(opts) {
   const footBottom = isStory ? 360 : 140; // el texto abajo queda por ENCIMA de la barra de mensaje
   const footTop = isStory ? 330 : 175;    // para el layout con texto arriba
   const domainBottom = isStory ? 250 : 54;
-  // El hero arranca más abajo para dejarle lugar al logo grande de arriba.
-  const heroTop = isStory ? 320 : 195;
+  // El logo ahora va esquinado (arriba-izq), así que el hero puede usar más alto.
+  const heroTop = isStory ? 270 : 165;
   const heroBottom = isStory ? 480 : 300;
 
   // Posiciones dinámicas del texto (varía entre piezas). Con precio: siempre abajo-izquierda.
@@ -171,6 +195,11 @@ function buildFullbleedHtml(opts) {
   const off = hasPromo ? Math.round((1 - Number(promoPrice) / Number(price)) * 100) : 0;
   const now = hasPromo ? promoPrice : price;
 
+  // Cupón como "ticket": la IA no escribe texto, así que el código va tipografiado.
+  const couponHtml = opts.couponCode
+    ? `<div class="coupon"><span class="cpn-lbl">CUPÓN</span><span class="cpn-code">${esc(opts.couponCode)}</span></div>`
+    : '';
+
   let content = '';
   if (price) {
     content = `<div class="pblock">
@@ -179,9 +208,9 @@ function buildFullbleedHtml(opts) {
       <div class="lbl">${hasPromo ? 'AHORA' : 'PRECIO'}</div>
       <div class="now">$${formatPrice(now)}</div>
       ${transfer ? `<div class="transfer">${esc(transfer)}</div>` : ''}
-    </div>`;
+    </div>${couponHtml}`;
   } else if (overlayTitle) {
-    content = `<div class="headline">${esc(overlayTitle)}</div>`;
+    content = `<div class="headline">${esc(overlayTitle)}</div>${couponHtml}`;
   }
 
   // El logo va SIN fondo (PNG transparente), sólo con una sombra sutil para legibilidad.
@@ -212,14 +241,22 @@ function buildFullbleedHtml(opts) {
     .hero img { max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 26px 44px rgba(0,0,0,.45)); }
     .scrim { position:absolute; inset:0; z-index:2; background:
       linear-gradient(to bottom, rgba(0,0,0,.5) 0%, rgba(0,0,0,0) 22%, rgba(0,0,0,0) 60%, rgba(0,0,0,.72) 100%); }
-    .wm { position:absolute; top:${wmTop}px; left:0; right:0; display:flex; justify-content:center; z-index:4; }
-    .wordmark { font-family:'Anton',sans-serif; font-size:${isStory ? 62 : 54}px; letter-spacing:8px;
+    /* Logo esquinado (arriba-izquierda), como lockup de marca — no centrado. */
+    .wm { position:absolute; top:${wmTop}px; left:${padX}px; display:flex; justify-content:flex-start; z-index:4; }
+    .wordmark { font-family:'Anton',sans-serif; font-size:${isStory ? 46 : 40}px; letter-spacing:7px;
       color:#fff; text-shadow:0 2px 18px rgba(0,0,0,.7); }
-    /* Logo GRANDE y protagonista: antes quedaba en ~5% del alto y casi no se veía. */
-    .logo { height:${isStory ? 130 : 104}px; max-width:68%; object-fit:contain;
-      filter:drop-shadow(0 1px 2px rgba(255,255,255,.35)) drop-shadow(0 4px 14px rgba(0,0,0,.6)); }
-    .badge { position:absolute; top:${wmTop - 6}px; right:${padX}px; background:${accent}; color:#fff;
-      font-weight:800; font-size:22px; padding:11px 22px; border-radius:100px; text-transform:uppercase; letter-spacing:2px; z-index:4; }
+    .logo { height:${isStory ? 92 : 76}px; max-width:56%; object-fit:contain;
+      filter:drop-shadow(0 1px 2px rgba(255,255,255,.3)) drop-shadow(0 4px 14px rgba(0,0,0,.6)); }
+    /* Badge tipo "sello": esquina recta, acento sólido, bien espaciado (menos "sticker"). */
+    .badge { position:absolute; top:${wmTop}px; right:${padX}px; background:${accent}; color:#fff;
+      font-weight:800; font-size:19px; padding:9px 17px; border-radius:5px; text-transform:uppercase;
+      letter-spacing:3px; box-shadow:0 6px 18px rgba(0,0,0,.4); z-index:4; }
+    /* Cupón: ticket claro con borde dashed y el código destacado. */
+    .coupon { display:inline-flex; align-items:center; gap:12px; margin-top:22px; padding:12px 20px;
+      background:rgba(255,255,255,.95); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.4); }
+    .cpn-lbl { font-size:${isStory ? 22 : 19}px; font-weight:800; letter-spacing:3px; color:#6b6b70;
+      text-transform:uppercase; padding-right:12px; border-right:2px dashed #c9c9cf; }
+    .cpn-code { font-family:'Anton',sans-serif; font-size:${isStory ? 46 : 40}px; letter-spacing:2px; color:#141416; }
     .foot { position:absolute; left:${padX}px; right:${padX}px; ${footPos}; text-align:${L.a}; z-index:4; }
     .headline { display:inline-block; font-family:'Anton',sans-serif; font-size:${isStory ? 76 : 64}px; line-height:.98;
       letter-spacing:.5px; text-transform:uppercase; color:#fff; max-width:92%; text-shadow:0 2px 16px rgba(0,0,0,.6); }
@@ -275,13 +312,12 @@ function buildMinimalHtml(opts) {
       background:radial-gradient(130% 100% at 50% 0%, #ffffff 0%, #f0f0f2 55%, #e0e0e4 100%);">
       ${hero.html}
       ${hero.fullBleed ? scrimHtml({ dark: true }) : ''}
-      <div style="position:absolute; top:${g.wmTop}px; left:0; right:0; display:flex; justify-content:center; z-index:4;">
-        ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: !hero.fullBleed, heightPx: g.isStory ? 120 : 100 }) : ''}
-      </div>
-      ${opts.badgeText ? `<div style="position:absolute; top:${g.wmTop - 6}px; right:${g.padX}px; background:${accent}; color:#fff; font-weight:800; font-size:22px; padding:11px 22px; border-radius:100px; text-transform:uppercase; letter-spacing:2px; z-index:4;">${esc(opts.badgeText)}</div>` : ''}
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: !hero.fullBleed, heightPx: g.isStory ? 88 : 72, top: g.wmTop, left: g.padX })}
+      ${opts.badgeText ? badgeTag(opts.badgeText, { accent, top: g.wmTop, right: g.padX }) : ''}
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
         ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 72 : 60}px; line-height:.98; text-transform:uppercase; color:${hero.fullBleed ? '#fff' : '#111'}; max-width:94%; ${hero.fullBleed ? 'text-shadow:0 2px 16px rgba(0,0,0,.6);' : ''}">${esc(opts.overlayTitle)}</div>` : ''}
         ${price}
+        ${couponTag(opts.couponCode, { isStory: g.isStory })}
       </div>
       ${domainHtml(g, { dark: !hero.fullBleed, accent })}
     </div>
@@ -319,13 +355,12 @@ function buildPromoHtml(opts) {
         radial-gradient(90% 60% at 78% 18%, rgba(232,93,27,.32) 0%, rgba(232,93,27,0) 60%),
         radial-gradient(120% 80% at 20% 100%, rgba(232,93,27,.14) 0%, rgba(0,0,0,0) 55%);"></div>`}
       <div style="position:absolute; top:0; left:0; right:0; height:14px; background:${accent}; z-index:4;"></div>
-      <div style="position:absolute; top:${g.wmTop}px; left:0; right:0; display:flex; justify-content:center; z-index:4;">
-        ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: false, heightPx: g.isStory ? 120 : 100 }) : ''}
-      </div>
-      <div style="position:absolute; top:${g.wmTop - 6}px; right:${g.padX}px; background:#fff; color:#111; font-weight:800; font-size:22px; padding:11px 22px; border-radius:100px; text-transform:uppercase; letter-spacing:2px; z-index:4;">${esc(opts.badgeText || 'OFERTA')}</div>
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: false, heightPx: g.isStory ? 88 : 72, top: g.wmTop, left: g.padX })}
+      ${badgeTag(opts.badgeText || 'OFERTA', { accent, top: g.wmTop, right: g.padX })}
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
         ${opts.overlayTitle && opts.price ? `<div style="font-size:${g.isStory ? 34 : 30}px; font-weight:800; letter-spacing:2px; text-transform:uppercase; color:rgba(255,255,255,.9); margin-bottom:14px;">${esc(opts.overlayTitle)}</div>` : ''}
         ${priceBlock}
+        ${couponTag(opts.couponCode, { isStory: g.isStory })}
       </div>
       ${domainHtml(g, { accent })}
     </div>
@@ -376,10 +411,8 @@ function buildMayoristaHtml(opts) {
       ${hero.html}
       ${hero.fullBleed ? scrimHtml({ dark: true }) : ''}
       <div style="position:absolute; top:0; left:0; right:0; height:12px; background:${accent}; z-index:4;"></div>
-      <div style="position:absolute; top:${g.wmTop}px; left:${g.padX}px; z-index:4;">
-        ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: false, heightPx: g.isStory ? 115 : 95 }) : ''}
-      </div>
-      <div style="position:absolute; top:${g.wmTop - 4}px; right:${g.padX}px; border:2px solid ${accent}; color:${accent}; font-weight:800; font-size:24px; padding:10px 22px; border-radius:8px; text-transform:uppercase; letter-spacing:3px; z-index:4;">MAYORISTA</div>
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: false, heightPx: g.isStory ? 88 : 72, top: g.wmTop, left: g.padX })}
+      <div style="position:absolute; top:${g.wmTop}px; right:${g.padX}px; border:2px solid ${accent}; color:${accent}; font-weight:800; font-size:19px; padding:9px 17px; border-radius:5px; text-transform:uppercase; letter-spacing:3px; z-index:4;">MAYORISTA</div>
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
         ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 74 : 62}px; line-height:.98; text-transform:uppercase; color:#fff; max-width:94%;">${esc(opts.overlayTitle)}</div>` : ''}
         <div style="display:inline-flex; align-items:center; gap:12px; background:${accent}; color:#fff; font-weight:800; font-size:${g.isStory ? 32 : 28}px; letter-spacing:1px; padding:16px 34px; border-radius:100px; margin-top:28px; text-transform:uppercase;">Pedí tu presupuesto</div>
@@ -417,7 +450,8 @@ async function renderPostBuffer(options) {
   // 1) Si hay producto, intentamos meterlo en una escena profesional generada con IA.
   if (!bgImageUrl && options.useAiProductScene && productImageUrl) {
     const scene = await generateProductScene({
-      productImageUrl, productName: options.overlayTitle, theme: options.bgTheme, format,
+      productImageUrl, productName: options.overlayTitle, theme: options.bgTheme,
+      brief: options.bgBrief, occasion: options.bgOccasion, format,
     });
     if (scene) {
       bgImageUrl = `data:${scene.mimeType};base64,${scene.buffer.toString('base64')}`;
@@ -437,7 +471,10 @@ async function renderPostBuffer(options) {
   }
   // 2) Si no hay producto (marca/lifestyle), generamos un fondo temático.
   if (!bgImageUrl && options.useAiBackground) {
-    const bg = await generateBackground({ theme: options.bgTheme || options.overlayTitle, format });
+    const bg = await generateBackground({
+      theme: options.bgTheme || options.overlayTitle,
+      brief: options.bgBrief, occasion: options.bgOccasion, format,
+    });
     if (bg) {
       bgImageUrl = `data:${bg.mimeType};base64,${bg.buffer.toString('base64')}`;
       costUsd += bg.costUsd || 0;

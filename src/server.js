@@ -751,7 +751,8 @@ app.get('/api/assets/:assetId/video-prompt', wrap(async (req, res) => {
   if (!id) return res.status(400).json({ error: 'assetId inválido' });
   const { rows } = await pool.query(
     `SELECT a.caption, a.image_path, c.pillar_detail, c.theme_title, c.format,
-            p.name as product_name, p.image_url as product_image_url, p.images as product_images
+            p.name as product_name, p.description as product_description,
+            p.image_url as product_image_url, p.images as product_images
      FROM generated_assets a JOIN content_calendar c ON c.id = a.calendar_id
      LEFT JOIN products_cache p ON p.id = a.product_id WHERE a.id = $1`,
     [id]
@@ -762,6 +763,7 @@ app.get('/api/assets/:assetId/video-prompt', wrap(async (req, res) => {
     ? r.product_images : [r.product_image_url || r.image_path].filter(Boolean);
   res.json(buildVideoPrompt({
     productName: r.product_name,
+    productDescription: r.product_description,
     productImages,
     theme: r.pillar_detail || r.theme_title,
     format: r.format,
@@ -874,13 +876,14 @@ async function studioProducts(ids) {
   const clean = (ids || []).map(Number).filter(Boolean).slice(0, 4);
   if (!clean.length) return [];
   const { rows } = await pool.query(
-    `SELECT id, name, image_url, images FROM products_cache WHERE id = ANY($1)`, [clean]
+    `SELECT id, name, description, image_url, images FROM products_cache WHERE id = ANY($1)`, [clean]
   );
   // Respetar el orden en que se eligieron.
   return clean.map((id) => rows.find((r) => Number(r.id) === id)).filter(Boolean)
     .map((r) => ({
       id: Number(r.id),
       name: r.name,
+      description: r.description,
       imageUrl: r.image_url,
       images: Array.isArray(r.images) ? r.images : [],
     }));
