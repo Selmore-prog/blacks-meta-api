@@ -324,10 +324,16 @@ function markImageQuotaHit() {
 // ajustar si Google cambia tarifas). Sólo para MOSTRAR consumo, no factura nada.
 const IMAGE_PRICE_USD = {
   'gemini-2.5-flash-image': 0.039,
-  'gemini-3.1-flash-image': 0.039,
+  'gemini-3.1-flash-image': 0.0672,
   'gemini-3.1-flash-lite-image': 0.02,
   'gemini-3-pro-image': 0.139,
   'gemini-3-pro-image-preview': 0.139,
+  'imagen-4.0-generate-001': 0.04,
+  'imagen-4.0-ultra-generate-001': 0.06,
+  'imagen-3.0-generate-002': 0.03,
+  'imagen-3.0-fast-generate-001': 0.015,
+  'imagen-3.0-generate-001': 0.03,
+  'flux-schnell': 0.003,
 };
 
 // Guía de estilo APRENDIDA de la marca (brand_profile) resumida para prompts de imagen.
@@ -581,26 +587,26 @@ async function generateBackground({ theme, brief, occasion, format = 'feed', ref
 
   const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
   const brandStyle = await brandStyleForImages();
-  const prompt = `Actuás como DIRECTOR DE ARTE SENIOR de una agencia creativa premium. Generá la imagen de fondo ${ratio} para una pieza de Instagram de BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
+  const prompt = `Actuás como DIRECTOR DE ARTE SENIOR y ESPECIALISTA EN PROMPT ENGINEERING de una agencia creativa premium. Generá la fotografía de fondo ${ratio} para una pieza comercial de BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
 
-CONCEPTO (la imagen tiene que contarlo, no ser decorativa): "${theme || 'ropa de trabajo e industria'}".${briefBlock(brief)}${occasionGuidance(occasion)}
+CONCEPTO GENERAL (la imagen tiene que contarlo con autoridad visual, no ser decorativa): "${theme || 'ropa de trabajo e industria'}".${briefBlock(brief)}${occasionGuidance(occasion)}
 
-DIRECCIÓN DE FOTOGRAFÍA:
-- Fotografía editorial hiperrealista, calidad de campaña publicitaria impresa. Lente 35-50mm, apertura amplia, profundidad de campo real, enfoque selectivo.
-- Iluminación cinematográfica motivada (luz de galpón, sol bajo entrando por un portón, tubo fluorescente industrial): contraste alto, sombras con detalle.
-- Escenario auténtico argentino del rubro: obra en construcción, taller metalúrgico, depósito logístico, galpón, manos trabajando con herramientas reales. NADA de estudios genéricos ni escenarios "de stock".
-- Color grading sobrio y premium: base negro/gris carbón con UN acento naranja quemado (#C1440C) apareciendo natural en la escena (casco, cinta de peligro, luz cálida, óxido). Grano fílmico sutil.
+DIRECCIÓN DE FOTOGRAFÍA Y ÓPTICA COMERCIAL:
+- Fotografía editorial hiperrealista, calidad de campaña publicitaria impresa de alta gama. Lente Hasselblad H6D-100c, óptica 50mm/85mm f/1.8 prime lens, apertura amplia, profundidad de campo real y micro-texturas ultra nítidas.
+- Iluminación comercial motivada (softbox de estudio cenital difuso + luz natural de galpón o sol bajo entrando por portón industrial): contraste dramático chiaroscuro con reflejos especulares limpios y sombras con caída real.
+- Escenario auténtico argentino del rubro: obra en construcción, taller metalúrgico, depósito logístico, galpón, superficies con desgaste creíble. NADA de estudios genéricos ni escenarios plásticos "de stock".
+- Color grading sobrio y premium: ciencia de color Kodak Portra 400, base negro/gris carbón con UN acento naranja quemado (#C1440C) apareciendo de forma orgánica en la escena. Grano fílmico sutil.
 ${brandStyle ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
 
 REALISMO ANTI-IA (crítico — la foto tiene que pasar por tomada con cámara real):
-- Imperfecciones del mundo real: polvo en el aire, desgaste en superficies, arrugas reales en telas, rayones en herramientas, suciedad creíble en el piso. NADA impecable ni simétrico.
-- Física de luz real: una sola fuente dominante coherente, sombras que caen todas para el mismo lado, reflejos imperfectos. Evitá la iluminación pareja "de render".
-- Encuadre levemente imperfecto, como de fotógrafo humano (no centrado quirúrgico). Leve viñeteo y grano fílmico. Colores con la saturación contenida de una foto editorial, nunca los tonos vibrantes plásticos típicos de IA.
+- PROHIBIDO usar palabras genéricas en la interpretación mental como: hermoso, fotorrealista, 4k, 8k, render, unreal engine, masterpiece.
+- Imperfecciones del mundo real: polvo flotando en el aire capturado por la luz volumétrica, arrugas naturales en telas, rayones en herramientas, suciedad creíble en el piso. NADA impecable ni simetría artificial.
+- Física de luz real: una sola fuente dominante coherente, sombras que caen exactamente hacia el mismo ángulo, reflejos ópticos imperfectos.
 
-COMPOSICIÓN PARA DISEÑO:
-- Regla de tercios, con AMPLIO espacio negativo limpio en el centro-abajo para sobreimprimir un titular tipográfico después.
+ARQUITECTURA DE NEGATIVE SPACE Y ZONAS SEGURAS (TEXT SAFE AREAS):
+- Composición por regla de los tercios con AMPLIO espacio negativo limpio y desenfocado (bokeh/depth of field) en el tercio superior e inferior para permitir la legibilidad absoluta del copy/titular tipográfico que se superpondrá después.
 - LA SALIDA ES SOLO LA FOTOGRAFÍA. El diseño gráfico (títulos, precios, logos, íconos, placas) lo agrega DESPUÉS otro sistema: si la imagen trae CUALQUIER texto, letra, número, ícono o logo, se descarta y se pierde el trabajo.
-- PROHIBIDO además: marcas visibles, caras reconocibles en primer plano, manos deformes, objetos flotando, aspecto "render 3D" o "imagen de IA" evidente. Si hay personas, de espaldas o fuera de foco.`;
+- PROHIBIDO además: marcas visibles, caras reconocibles en primer plano, manos deformes, objetos flotando, aspecto render 3D o IA evidente. Si hay personas, de espaldas o con desenfoque suave.`;
 
   try {
     const parts = [{ text: prompt }];
@@ -675,22 +681,26 @@ async function generateProductScene({ productImageUrl, productName, theme, brief
 
   const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
   const brandStyle = await brandStyleForImages();
-  const prompt = `Actuás como DIRECTOR DE ARTE SENIOR de una campaña de e-commerce premium. Tomá EXACTAMENTE el producto de la imagen de referencia (fidelidad total: mismo modelo, color, costuras, etiquetas — no lo rediseñes) y componé una escena de catálogo profesional ${ratio} para BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
+  const prompt = `Actuás como DIRECTOR DE ARTE SENIOR de una campaña publicitaria high-end. Tomá EXACTAMENTE el producto adjunto de la imagen de referencia (fidelidad absoluta de marca: mismo modelo, geometría, color, costuras, etiquetas — queda terminantemente prohibido rediseñarlo o alterar sus proporciones) y componé una escena comercial de catálogo ${ratio} para BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
 
-CONTEXTO DE LA PIEZA: ${theme || productName || 'ropa de trabajo'}.${briefBlock(brief)}${occasionGuidance(occasion)}
+CONTEXTO DE LA PIEZA: ${theme || productName || 'indumentaria laboral y seguridad industrial'}.${briefBlock(brief)}${occasionGuidance(occasion)}
 
-DIRECCIÓN DE FOTOGRAFÍA:
-- El producto es EL protagonista absoluto: nítido, con textura de tela/cuero visible, ocupando el centro visual.
-- Escena real y creíble del uso: banco de taller, andamio, pallet de depósito, piso de hormigón, chapa. Utilería mínima y auténtica (guantes, casco, herramientas) SIN robar protagonismo.
-- Luz de estudio dramática tipo campaña (softbox lateral + contraluz sutil) o luz natural motivada de galpón. Sombras suaves con caída real.
-- Color grading premium: fondo neutro oscuro (carbón/grafito) con un acento naranja (#C1440C) discreto en la escena. Nada saturado ni plástico.
-- REALISMO ANTI-IA (crítico): la escena tiene que pasar por foto de cámara real. Superficies con desgaste y polvo creíbles, tela con arrugas y caída natural, una sola fuente de luz dominante con sombras coherentes, leve grano fílmico, encuadre humano (no simetría quirúrgica). Saturación contenida de foto editorial, nunca colores plásticos vibrantes de render.
+DIRECCIÓN DE FOTOGRAFÍA Y ÓPTICA COMERCIAL:
+- El producto es EL héroe y punto focal absoluto de la composición: nítido, con micro-texturas de tela/cuero ultradetalladas, ocupando la posición de máximo impacto visual en la regla de los tercios.
+- Lente Hasselblad 85mm f/1.8 prime lens, macro commercial product photography, enfoque selectivo milimétrico en los detalles y terminaciones del producto.
+- Escena creíble y auténtica de uso industrial: banco de taller metalúrgico, andamio, pallet de depósito logístico, hormigón pulido, chapa o madera tratada. Utilería mínima y realista SIN competir con el producto.
+- Iluminación de estudio dramática (softbox lateral + contraluz rim lighting para recortar el contorno del producto) o luz natural volumétrica de galpón. Sombras suaves con caída y física real.
+- Color grading premium: ciencia de color Kodak Portra 400, fondo neutro oscuro (carbón/grafito #1c1c1e) con acentos naranja quemado (#C1440C) sutiles.
 ${brandStyle ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
 
-COMPOSICIÓN PARA DISEÑO:
-- Aire limpio en el centro-abajo para sobreimprimir titular y precio después.
+REALISMO Y PRESERVACIÓN ESTRUCTURAL (PRODUCT-IN-CONTEXT):
+- PROHIBIDO generar alucinaciones visuales, deformaciones de la puntera/suela, o cambios en las letras y etiquetas del packaging/producto original.
+- Imperfecciones creíbles en el entorno (no en el producto): superficies con polvo o micro-rayas realistas, profundidad de campo suave con fondo desenfocado (bokeh) para resaltar la figura del producto.
+
+ARQUITECTURA DE ZONAS SEGURAS (NEGATIVE SPACE):
+- Aire limpio y desenfocado en los tercios superior e inferior para garantizar contraste absoluto al superponer titulares y precios.
 - LA SALIDA ES SOLO LA FOTOGRAFÍA. El diseño gráfico (títulos, precios, logos, íconos, placas, badges) lo agrega DESPUÉS otro sistema: si la imagen trae CUALQUIER texto, letra, número, ícono o placa gráfica, se descarta y se pierde el trabajo.
-- PROHIBIDO además: logos inventados, manos/pies deformes, duplicar el producto, cambiarle color o forma, aspecto "render 3D" o IA evidente.`;
+- PROHIBIDO además: logos inventados, manos/pies deformes, duplicar el producto, cambiarle color o forma, o aspecto de render 3D artificial.`;
 
   try {
     const data = await geminiGenerateContent(config.gemini.imageModel, {
@@ -745,14 +755,15 @@ ${isCombo
     : `El producto es EL protagonista absoluto: nítido, con textura de tela/cuero visible, ocupando el centro visual.`}
 ${theme ? `\nCONTEXTO/IDEA DE LA ESCENA: ${theme}.` : ''}
 
-DIRECCIÓN DE FOTOGRAFÍA:
+DIRECCIÓN DE FOTOGRAFÍA Y ÓPTICA:
 - Escena real y creíble del uso: taller, obra, depósito, galpón argentino. Utilería mínima y auténtica SIN robar protagonismo.
-- Luz de estudio dramática tipo campaña (softbox lateral + contraluz sutil) o luz natural motivada de galpón. Sombras suaves con caída real.
-- Color grading premium: fondo neutro oscuro (carbón/grafito) con un acento naranja (#C1440C) discreto. Nada saturado ni plástico.
-- REALISMO ANTI-IA (crítico): tiene que pasar por foto de cámara real. Desgaste y polvo creíbles, tela con arrugas y caída natural, una sola fuente de luz coherente, leve grano fílmico, encuadre humano. Si hay personas: de espaldas o sin cara reconocible, manos perfectas.
+- Lente Hasselblad 85mm prime lens f/1.8, enfoque selectivo en micro-texturas del tejido y cuero, profundidad de campo con bokeh arquitectónico de fondo.
+- Luz de estudio dramática tipo campaña (softbox lateral + contraluz rim lighting) o luz natural motivada de galpón con rayos volumétricos suaves. Sombras coherentes con caída física real.
+- Color grading premium: Kodak Portra 400, fondo neutro oscuro (carbón/grafito #1c1c1e) con un acento naranja (#C1440C) discreto. Nada saturado ni plástico.
+- REALISMO ANTI-IA (crítico): tiene que pasar por foto de cámara real. Desgaste y polvo creíbles en superficies (nunca en el producto), una sola fuente de luz coherente, encuadre humano. Si hay personas: de espaldas o sin cara reconocible en primer plano, manos anatómicamente perfectas.
 ${brandStyle ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
 
-REGLA DURA: LA SALIDA ES SOLO LA FOTOGRAFÍA. Sin texto, letras, números, logos inventados ni placas gráficas (si aparece alguno, la imagen se descarta). Aire limpio en el centro-abajo por si después se sobreimprime un titular.`;
+REGLA DURA Y NEGATIVE SPACE: LA SALIDA ES SOLO LA FOTOGRAFÍA. Sin texto, letras, números, logos inventados ni placas gráficas (si aparece alguno, la imagen se descarta). Aire limpio y desenfocado en el centro-abajo y tercio superior por si después se sobreimprime un titular o precio.`;
 
   try {
     const parts = [{ text: prompt }, ...refs.map((r) => ({ inlineData: r }))];
@@ -795,7 +806,7 @@ function videoFidelityRules(isCombo) {
 }
 
 function videoCameraRules() {
-  return `CÁMARA (elegida para que el producto NO se deforme): plano casi fijo o push-in MUY lento y recto, con micro-vibración de cámara en mano. EVITÁ órbitas completas o giros de 360° alrededor del producto (obligan a inventar los lados que la foto no muestra y ahí se arruina la fidelidad). Profundidad de campo, partículas de polvo, luz de golden hour o luz industrial cálida, motion blur natural de 24fps.`;
+  return `CÁMARA CINEMATOGRÁFICA (diseñada milimétricamente para que el producto NO mute ni se deforme): plano fijo estable o push-in cinemático MUY lento y suave hacia el producto hero (dolly track), con micro-animación ambiental elegante (polvo flotando en luz volumétrica, destellos especulares). PROHIBIDO: órbitas de 360°, giros bruscos o paneos laterales rápidos (obligan al modelo a inventar ángulos y destruyen la fidelidad del producto). Física de luz coherente, motion blur natural de 24fps film look.`;
 }
 
 function videoRealismRules() {
@@ -830,12 +841,13 @@ ESTÉTICA: robusta, premium, alto contraste, look de aviso moderno. SIN texto en
   return {
     prompt,
     instructions: [
-      'Abrí Gemini (Veo/Omni) o tu herramienta de video.',
-      `Subí las fotos de referencia de ${isCombo ? 'TODOS los productos' : 'el producto'} (varias perspectivas de cada uno = más fidelidad; frente, espalda y detalle).`,
-      `Pegá el prompt. Elegí formato ${ratio} y ~${duration}s.`,
-      'Descargá el .mp4 y subilo acá con "Subir resultado" para guardarlo en la biblioteca.',
+      'RECOMENDADO (Estándar Oro Image-to-Video / i2v en Runway Gen-3 / Kling / Veo): Subí como "Primer Fotograma" (Frame 0) la imagen perfecta ya renderizada en estudio. Así el video anima solo la luz y la cámara sin deformar la ropa/calzado.',
+      `OPCIÓN GEMINI VEO (Reference-to-Video): Subí las fotos de referencia de ${isCombo ? 'TODOS los productos' : 'el producto'} (frente, espalda y detalle para máxima fidelidad).`,
+      `Pegá el prompt cinematográfico. Elegí formato ${ratio} y ~${duration}s.`,
+      'Descargá el .mp4 e ingrésalo acá con "Subir resultado" para guardarlo en la biblioteca del estudio.',
     ],
     productImages: allImages,
+    platformNote: 'Para máxima calidad sin alucinaciones, el flujo top agencia es Image-to-Video (i2v): toma la imagen fotográfica generada (donde el producto ya quedó 100% idéntico) y súbela a Runway Gen-3, Kling AI o Gemini Veo i2v junto con este prompt cinemático.',
   };
 }
 
@@ -939,12 +951,12 @@ ${videoCameraRules()}
 ${videoRealismRules()}
 ESTÉTICA: robusta, premium, alto contraste, look de aviso moderno. SIN texto en pantalla (el texto/subtítulos los agrego después). Terminá en un plano hero limpio del producto.`;
   const instructions = [
-    'Abrí Gemini (Veo/Omni) o tu herramienta de video.',
-    'Subí VARIAS fotos del producto desde distintos ángulos (frente, espalda, detalle) — mientras más perspectivas, más fiel queda.',
-    `Pegá el prompt. Elegí formato ${ratio} y ~8s.`,
-    'Descargá el .mp4 y subilo al panel (botón "Subir video") para publicarlo como Reel.',
+    'RECOMENDADO (Estándar Oro Image-to-Video / i2v en Runway Gen-3 / Kling / Luma / Veo): Subí como "Primer Fotograma" (Frame 0 / Input Image) la foto estática generada por el sistema. Eso garantiza 100% cero deformación del producto.',
+    'OPCIÓN GEMINI VEO (Reference-to-Video): Subí VARIAS fotos del producto desde distintos ángulos (frente, espalda, detalle) y pegá el prompt.',
+    `Elegí formato ${ratio} y duración ~8s.`,
+    'Descargá el video .mp4 y subilo al panel (botón "Subir video") para publicarlo en Instagram.',
   ];
-  const platformNote = 'Gemini Veo/Omni (lo tuyo) es muy bueno. Para máxima fidelidad, mandá varias fotos del producto y evitá pedir giros de cámara. Alternativas con tier gratuito (más limitadas/con marca de agua): Kling, Runway, Pika. Lo más fiel siempre es tu propia filmación + edición.';
+  const platformNote = 'ESTRATEGIA DE VIDEO PUBLICITARIO: Si generas video desde texto puro o solo con fotos sueltas, los modelos suelen alucinar o alterar costuras y logos. El método profesional es Image-to-Video (i2v): toma el PNG final de alta calidad logrado en la pieza estática (donde el calzado/indumentaria ya está en contexto) y anímalo en Runway Gen-3 Alpha, Kling AI o Gemini Veo i2v usando las directrices cinemáticas de este prompt.';
   return {
     prompt: caption ? `${prompt}\n\nCONTEXTO DEL POSTEO (para el tono, NO para poner texto): ${caption}` : prompt,
     instructions,
