@@ -119,7 +119,7 @@ function priceParts(price, promoPrice) {
  *    caja del layout — ahí sí queda bien porque el fondo del recorte ya es liso.
  * Devuelve { html, fullBleed } para que el template sepa si necesita un scrim.
  */
-function heroPhotoHtml({ bgImageUrl, productImageUrl, box, shadow = 'rgba(0,0,0,.5)' }) {
+function heroPhotoHtml({ bgImageUrl, productImageUrl, box, shadow = 'rgba(0,0,0,.5)', darkBg = false }) {
   if (bgImageUrl) {
     return {
       fullBleed: true,
@@ -127,6 +127,19 @@ function heroPhotoHtml({ bgImageUrl, productImageUrl, box, shadow = 'rgba(0,0,0,
     };
   }
   if (productImageUrl) {
+    if (darkBg) {
+      return {
+        fullBleed: false,
+        html: `<div style="position:absolute; top:${box.top}px; bottom:${box.bottom}px; left:${box.left}px; right:${box.right}px;
+          display:flex; align-items:center; justify-content:center; z-index:1;
+          background:radial-gradient(circle at 50% 0%, #ffffff 0%, #f4f4f7 100%);
+          border:1px solid rgba(255,255,255,.35); border-radius:36px;
+          box-shadow:0 35px 80px rgba(0,0,0,.65), inset 0 2px 6px rgba(255,255,255,.9); padding:32px; overflow:hidden;">
+          <div style="position:absolute; top:0; left:15%; right:15%; height:4px; background:linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,.8) 50%, rgba(255,255,255,0) 100%);"></div>
+          <img src="${esc(productImageUrl)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 25px 40px rgba(0,0,0,.18)); mix-blend-mode:multiply; -webkit-mask-image:radial-gradient(circle at center, black 65%, transparent 98%); mask-image:radial-gradient(circle at center, black 65%, transparent 98%);"/>
+        </div>`,
+      };
+    }
     return {
       fullBleed: false,
       html: `<div style="position:absolute; top:${box.top}px; bottom:${box.bottom}px; left:${box.left}px; right:${box.right}px;
@@ -272,7 +285,7 @@ function buildFullbleedHtml(opts) {
     .site { font-size:${isStory ? 24 : 22}px; font-weight:700; letter-spacing:3px; color:#fff; text-shadow:0 1px 6px rgba(0,0,0,.6); }
   </style></head><body>
     <div class="canvas">
-      ${hasCover ? `<div class="glow"></div><img class="bg" src="${esc(cover)}" alt=""/><div class="hero"><img src="${esc(cover)}" alt=""/></div><div class="scrim"></div>` : ''}
+      ${hasCover ? (bgImageUrl ? `<div class="glow"></div><img class="bg" src="${esc(bgImageUrl)}" alt=""/><div class="hero"><img src="${esc(bgImageUrl)}" alt=""/></div><div class="scrim"></div>` : `<img class="bg" src="${esc(productImageUrl)}" alt=""/>${heroPhotoHtml({ bgImageUrl: null, productImageUrl, box: { top: heroTop, bottom: heroBottom, left: padX, right: padX }, shadow: 'rgba(0,0,0,.6)', darkBg: true }).html}`) : ''}
       ${showBrand ? `<div class="wm">${brandMark}</div>` : ''}
       ${badgeHtml}
       ${interactionHtml}
@@ -430,6 +443,7 @@ function buildMayoristaHtml(opts) {
     productImageUrl: opts.productImageUrl,
     box: { top: g.isStory ? 350 : 230, bottom: g.isStory ? 660 : 440, left: g.padX, right: g.padX },
     shadow: 'rgba(0,0,0,.65)',
+    darkBg: true,
   });
 
   return `${headHtml(g.w, g.h)}</head><body>

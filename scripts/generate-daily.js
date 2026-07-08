@@ -506,14 +506,12 @@ async function generateForSlot(slot, overrides = {}) {
       productImageUrl: realSizeChart || visualImageUrl,
       logos,
       layoutSeed: Number(slot.id),
-      useAiProductScene: !isReel && Boolean(visualImageUrl) && (PRODUCT_PILLARS.includes(slot.pillar) || slot.pillar === 'educativo' || slot.pillar === 'confianza'),
-      // Educativo sin guía real: ilustración didáctica (dibujo del tema) en vez de foto.
-      useAiDiagram: isEducativo && !realSizeChart,
+      useAiProductScene: !isReel && Boolean(visualImageUrl) && slot.pillar !== 'repost',
+      // Educativo sin guía real ni foto visual: ilustración didáctica en vez de foto de catálogo.
+      useAiDiagram: isEducativo && !realSizeChart && !visualImageUrl,
       diagramTopic: pillarDetail || slot.theme_title,
-      // Piezas SIN foto de catálogo: fondo original generado con IA (sólo si AI_IMAGES=true
-      // y hay GEMINI_API_KEY con facturación; si no, queda el diseño tipográfico).
-      // Educativo no usa fondo fotográfico: ahí la imagen didáctica es la protagonista.
-      useAiBackground: !isReel && !visualImageUrl && !isEducativo,
+      // Piezas SIN foto de catálogo: fondo original generado con IA (para marca, engagement, confianza, etc.).
+      useAiBackground: !isReel && !visualImageUrl && !isEducativo && slot.pillar !== 'repost',
       // Para escenas de producto el tema es EL PRODUCTO (nunca el texto de venta del slot:
       // el modelo lo "hornea" en la imagen y puede contradecir la foto). Para fondos, el concepto.
       bgTheme: product

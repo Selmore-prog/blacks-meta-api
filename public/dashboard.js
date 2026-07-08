@@ -835,7 +835,13 @@ function renderCard(item) {
   }
 
   const interaction = (isSemi && item.interaction_hint && status !== 'published')
-    ? `<div class="interaction-box"><b>${icon('alert')} Acción manual:</b> ${esc(item.interaction_hint)}</div>` : '';
+    ? `<div class="interaction-box" style="background: linear-gradient(135deg, rgba(232,93,27,.14) 0%, rgba(255,139,77,.06) 100%); border: 1.5px solid #FF6B1A; border-radius: 14px; padding: 16px 20px; margin: 16px 0; color: #fff;">
+        <div style="display:flex; align-items:center; gap:8px; font-weight:800; color:#FF8B4D; font-size:15px; margin-bottom:6px;">
+          ${icon('alert')} PASO A PASO PARA INSTAGRAM (INTERACCIÓN MANUAL)
+        </div>
+        <div style="font-size:14px; line-height:1.5; color:rgba(255,255,255,.92); font-weight:500;">${esc(item.interaction_hint)}</div>
+        <div style="font-size:12px; color:rgba(255,255,255,.6); margin-top:8px; font-style:italic;">💡 Nota: Al subir esta imagen a tus Historias de Instagram, tocá el ícono de sticker de arriba y pegá el widget interactivo (Quiz/Encuesta/Pregunta) tal como se indica.</div>
+      </div>` : '';
 
   // Reels: el video NUNCA se auto-genera (nada de imagen estática con zoom).
   // El copy y la imagen base salen del panel; el video lo generás en Gemini/Veo.
