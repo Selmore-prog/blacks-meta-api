@@ -291,7 +291,47 @@ function parseCopyJson(text) {
 // Las keys nuevas (AQ.) y las viejas (AIza) funcionan igual con este header en el
 // endpoint nativo. Usamos x-goog-api-key (recomendado) en vez de ?key=.
 async function geminiGenerateContent(model, body) {
-  let targetModel = (model && typeof model === 'string' && model.startsWith('imagen-')) ? 'gemini-2.5-flash-image' : model;
+  let targetModel = model || 'gemini-2.5-flash-image';
+  const hasInlineData = body?.contents?.some(c => c?.parts?.some(p => p.inlineData));
+
+  // Si el modelo es Imagen 4/3 y NO hay foto de referencia adjunta (ej. generateBackground o generateDiagram),
+  // usamos directamente el endpoint nativo :predict de Imagen con soporte de relación de aspecto.
+  if (targetModel && typeof targetModel === 'string' && targetModel.startsWith('imagen-')) {
+    if (hasInlineData) {
+      // Imagen 4 no admite entrada de imágenes (da error 400: Image in input is not supported for this model).
+      // Para escenas que toman el producto del catálogo como referencia, usamos gemini-2.5-flash-image.
+      targetModel = 'gemini-2.5-flash-image';
+    } else {
+      const promptText = body?.contents?.map(c => c?.parts?.filter(p => p.text)?.map(p => p.text)?.join('\n'))?.join('\n') || '';
+      const aspectRatio = body?.aspectRatio || '1:1';
+      const predictRes = await fetch(`${GEMINI_BASE}/models/${targetModel}:predict`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.gemini.apiKey },
+        body: JSON.stringify({
+          instances: [{ prompt: promptText }],
+          parameters: { sampleCount: 1, aspectRatio },
+        }),
+      });
+      if (predictRes.ok) {
+        const predJson = await predictRes.json();
+        const firstPred = predJson.predictions && predJson.predictions[0];
+        if (firstPred && firstPred.bytesBase64Encoded) {
+          return {
+            predictions: predJson.predictions,
+            candidates: [{
+              content: {
+                parts: [{ inlineData: { data: firstPred.bytesBase64Encoded, mimeType: firstPred.mimeType || 'image/png' } }],
+              },
+            }],
+          };
+        }
+      }
+      const t = await predictRes.text().catch(() => '');
+      console.warn(`[ai] ${targetModel}:predict falló (${predictRes.status}: ${t.slice(0, 150)}), cayendo a gemini-2.5-flash-image...`);
+      targetModel = 'gemini-2.5-flash-image';
+    }
+  }
+
   let res = await fetch(`${GEMINI_BASE}/models/${targetModel}:generateContent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.gemini.apiKey },
