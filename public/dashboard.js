@@ -685,8 +685,6 @@ function openPreview(item) {
       <div class="ig-story-bottom">
         ${isReel ? `<div class="ig-reel-cap"><b>blacks.indumentaria</b> ${esc((item.caption || '').slice(0, 110))}</div>`
                  : `<div class="ig-reply">Enviá un mensaje…</div>`}
-      </div>
-      ${(item.automation_level === 'semi' && item.interaction_hint) ? `<div class="ig-sticker">${esc(interactionShort(item))}</div>` : ''}
     </div>`;
   }
 

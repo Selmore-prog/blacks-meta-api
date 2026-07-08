@@ -131,7 +131,7 @@ function heroPhotoHtml({ bgImageUrl, productImageUrl, box, shadow = 'rgba(0,0,0,
       fullBleed: false,
       html: `<div style="position:absolute; top:${box.top}px; bottom:${box.bottom}px; left:${box.left}px; right:${box.right}px;
         display:flex; align-items:center; justify-content:center; z-index:1;">
-        <img src="${esc(productImageUrl)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 30px 50px ${shadow}); mix-blend-mode:multiply;"/>
+        <img src="${esc(productImageUrl)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 30px 50px ${shadow}); mix-blend-mode:multiply; -webkit-mask-image:radial-gradient(circle at center, black 65%, transparent 98%); mask-image:radial-gradient(circle at center, black 65%, transparent 98%);"/>
       </div>`,
     };
   }
@@ -392,7 +392,6 @@ function buildEducativoHtml(opts) {
           <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 88 : 72}px; line-height:.96; letter-spacing:.5px; text-transform:uppercase; color:#fff; text-shadow:0 6px 30px rgba(0,0,0,.8); max-width:96%;">${esc(opts.overlayTitle || '')}</div>
           ${opts.bodyText ? `<div style="font-size:${g.isStory ? 34 : 30}px; font-weight:500; line-height:1.4; color:rgba(255,255,255,.92); margin-top:26px; max-width:88%; text-shadow:0 2px 14px rgba(0,0,0,.7);">${esc(opts.bodyText)}</div>` : ''}
         </div>
-        ${g.isStory ? `<div style="position:absolute; bottom:${g.domainBottom + 50}px; left:0; right:0; display:flex; justify-content:center; z-index:4;"><div style="background:rgba(255,255,255,.16); backdrop-filter:blur(10px); border:1px solid rgba(255,255,255,.3); padding:12px 28px; border-radius:100px; font-size:22px; font-weight:700; color:#fff; letter-spacing:1px; display:flex; align-items:center; gap:10px;">⚡ TIP DE EXPERTO: Respondé en historias</div></div>` : ''}
         ${domainHtml(g, { dark: false, accent })}
       </div>
     </body></html>`;
@@ -415,9 +414,8 @@ function buildEducativoHtml(opts) {
         ${opts.bodyText ? `<div style="font-size:${g.isStory ? 32 : 28}px; font-weight:500; line-height:1.4; color:#3c3c42; margin-top:20px; max-width:88%;">${esc(opts.bodyText)}</div>` : ''}
       </div>
       ${img ? `<div style="position:absolute; top:${g.isStory ? 730 : 500}px; bottom:${g.footBottom + 35}px; left:${g.padX + 24}px; right:${g.padX + 24}px; background:linear-gradient(180deg, #ffffff 0%, #f7f7fc 100%); border-radius:36px; border:1px solid rgba(0,0,0,.07); box-shadow:0 40px 80px -15px rgba(0,0,0,.16), 0 12px 25px -5px rgba(0,0,0,.05); display:flex; align-items:center; justify-content:center; padding:44px; z-index:2;">
-        <img src="${esc(img)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 25px 45px rgba(0,0,0,.22)); mix-blend-mode:multiply;"/>
+        <img src="${esc(img)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 25px 45px rgba(0,0,0,.22)); mix-blend-mode:multiply; -webkit-mask-image:radial-gradient(circle at center, black 65%, transparent 98%); mask-image:radial-gradient(circle at center, black 65%, transparent 98%);"/>
       </div>` : ''}
-      ${g.isStory ? `<div style="position:absolute; bottom:${g.domainBottom + 45}px; left:0; right:0; display:flex; justify-content:center; z-index:4;"><div style="background:#111113; padding:12px 28px; border-radius:100px; font-size:20px; font-weight:700; color:#fff; letter-spacing:1px; box-shadow:0 10px 25px rgba(0,0,0,.2); display:flex; align-items:center; gap:10px;"><span style="color:#FF8B4D;">⚡</span> TIP DE EXPERTO: Deslizá o respondé en historias</div></div>` : ''}
       ${domainHtml(g, { dark: true, accent })}
     </div>
   </body></html>`;
