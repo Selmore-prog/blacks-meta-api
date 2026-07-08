@@ -291,14 +291,24 @@ function parseCopyJson(text) {
 // Las keys nuevas (AQ.) y las viejas (AIza) funcionan igual con este header en el
 // endpoint nativo. Usamos x-goog-api-key (recomendado) en vez de ?key=.
 async function geminiGenerateContent(model, body) {
-  const res = await fetch(`${GEMINI_BASE}/models/${model}:generateContent`, {
+  let targetModel = (model && typeof model === 'string' && model.startsWith('imagen-')) ? 'gemini-2.5-flash-image' : model;
+  let res = await fetch(`${GEMINI_BASE}/models/${targetModel}:generateContent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.gemini.apiKey },
     body: JSON.stringify(body),
   });
+  if (res.status === 404 && targetModel !== 'gemini-2.5-flash-image') {
+    console.warn(`[ai] Modelo ${targetModel} dio 404 en v1beta generateContent, reintentando con gemini-2.5-flash-image...`);
+    targetModel = 'gemini-2.5-flash-image';
+    res = await fetch(`${GEMINI_BASE}/models/${targetModel}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.gemini.apiKey },
+      body: JSON.stringify(body),
+    });
+  }
   if (!res.ok) {
     const t = await res.text().catch(() => '');
-    const err = new Error(`Gemini ${model} ${res.status}: ${t.slice(0, 300)}`);
+    const err = new Error(`Gemini ${targetModel} ${res.status}: ${t.slice(0, 300)}`);
     err.status = res.status;
     throw err;
   }
