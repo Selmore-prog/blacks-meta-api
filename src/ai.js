@@ -795,25 +795,24 @@ async function generateStudioScene({ products = [], theme, format = 'feed' } = {
   const brandStyle = await brandStyleForImages();
   const names = products.map((p, i) => `${i + 1}. ${p.name}`).join('\n');
 
-  const prompt = `Actuás como DIRECTOR DE ARTE SENIOR de una campaña de e-commerce premium. Componé UNA fotografía ${ratio} para BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
+  const prompt = `Actuás como DIRECTOR DE ARTE SENIOR y FOTÓGRAFO COMERCIAL DE ALTA GAMA. Componé UNA fotografía publicitaria ${ratio} para BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
 
-PRODUCTOS DE REFERENCIA (${refs.length} foto${refs.length > 1 ? 's' : ''} adjunta${refs.length > 1 ? 's' : ''} — fidelidad TOTAL a cada uno: mismo modelo, color, costuras, etiquetas; no los rediseñes ni les cambies nada):
+PRODUCTOS DE REFERENCIA (${refs.length} foto${refs.length > 1 ? 's' : ''} adjunta${refs.length > 1 ? 's' : ''} — FIDELIDAD ABSOLUTA a cada uno: conserva geometría, color exacto, costuras, ojales, suelas, logotipos y terminaciones; prohibido rediseñarlos ni alterar sus proporciones):
 ${names}
 
 ${isCombo
-    ? `ES UN COMBO/CONJUNTO: los productos tienen que aparecer JUNTOS en la misma escena, integrados de forma natural — como un equipo de trabajo completo (ej: un trabajador vistiendo la campera y el pantalón con los botines puestos, o el conjunto armado prolijo sobre un banco de taller). Cada producto reconocible y con protagonismo; ninguno tapado ni cortado.`
-    : `El producto es EL protagonista absoluto: nítido, con textura de tela/cuero visible, ocupando el centro visual.`}
+    ? `CONFIGURACIÓN DE COMBO/CONJUNTO COMERCIAL: Los ${products.length} productos deben presentarse integrados y coordinados como un equipo de trabajo de alta gama. Puedes elegir una de estas dos puestas en escena: (A) Modelo/Trabajador en acción creíble vistiendo el conjunto completo (prendas puestas con caída real de tejido grafa/trucker pesado y botines calzados, rostro de espaldas o en sombra parcial para no distraer del producto); o (B) Bodegón arquitectónico / Flat-lay sobre superficie industrial (mesa de trabajo de acero cepillado, hormigón pulido o madera tratada) donde cada prenda y calzado tiene su propio espacio focal, iluminación dramática y textura nítida. Ningún producto debe quedar tapado por otro.`
+    : `El producto es EL héroe y punto focal absoluto: nítido, con micro-texturas de tela/cuero ultradetalladas, ocupando la posición de máximo impacto visual.`}
 ${theme ? `\nCONTEXTO/IDEA DE LA ESCENA: ${theme}.` : ''}
 
-DIRECCIÓN DE FOTOGRAFÍA Y ÓPTICA:
-- Escena real y creíble del uso: taller, obra, depósito, galpón argentino. Utilería mínima y auténtica SIN robar protagonismo.
-- Lente Hasselblad 85mm prime lens f/1.8, enfoque selectivo en micro-texturas del tejido y cuero, profundidad de campo con bokeh arquitectónico de fondo.
-- Luz de estudio dramática tipo campaña (softbox lateral + contraluz rim lighting) o luz natural motivada de galpón con rayos volumétricos suaves. Sombras coherentes con caída física real.
-- Color grading premium: Kodak Portra 400, fondo neutro oscuro (carbón/grafito #1c1c1e) con un acento naranja (#C1440C) discreto. Nada saturado ni plástico.
-- REALISMO ANTI-IA (crítico): tiene que pasar por foto de cámara real. Desgaste y polvo creíbles en superficies (nunca en el producto), una sola fuente de luz coherente, encuadre humano. Si hay personas: de espaldas o sin cara reconocible en primer plano, manos anatómicamente perfectas.
-${brandStyle ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
+DIRECCIÓN DE FOTOGRAFÍA Y ÓPTICA COMERCIAL:
+- Escena auténtica del rubro laboral/industrial argentino: taller metalúrgico, obra en construcción, depósito logístico o galpón con textura real. Utilería mínima y realista SIN robar protagonismo.
+- Lente Hasselblad 85mm prime lens f/1.8, enfoque selectivo milimétrico en las texturas del tejido y cuero, profundidad de campo con bokeh arquitectónico en el fondo.
+- Iluminación motivada de estudio chiaroscuro (softbox lateral + contraluz rim lighting para recortar el contorno) o luz natural rasante de galpón. Sombras volumétricas con física real.
+- Color grading premium: Kodak Portra 400, base oscuro/carbón (#1c1c1e) con acentos naranja quemado (#C1440C) sutiles.
+- REALISMO ANTI-IA: Imperfecciones creíbles en el entorno (desgaste en piso o herramientas), una sola fuente de luz coherente. Manos anatómicamente perfectas si aparecen.
 
-REGLA DURA Y NEGATIVE SPACE: LA SALIDA ES SOLO LA FOTOGRAFÍA. Sin texto, letras, números, logos inventados ni placas gráficas (si aparece alguno, la imagen se descarta). Aire limpio y desenfocado en el centro-abajo y tercio superior por si después se sobreimprime un titular o precio.`;
+REGLA DURA DE NEGATIVE SPACE: LA SALIDA ES SOLO LA FOTOGRAFÍA. Prohibido incluir texto, letras, números, logos inventados o placas gráficas superpuestas. Aire limpio y desenfocado arriba y abajo para futura superposición tipográfica.`;
 
   try {
     const parts = [{ text: prompt }, ...refs.map((r) => ({ inlineData: r }))];
@@ -873,20 +872,20 @@ function buildStudioVideoPrompt({ products = [], theme, format = 'story', durati
   const ratio = format === 'feed' ? '4:5' : '9:16 vertical';
   const allImages = products.flatMap((p) => (Array.isArray(p.images) && p.images.length ? p.images : [p.imageUrl]).filter(Boolean));
 
-  const prompt = `Creá un video comercial ${ratio} de ~${duration} segundos para BLACKS, marca argentina de ropa de trabajo y calzado de seguridad.
-
-PRODUCTO${isCombo ? 'S' : ''} (usá EXACTAMENTE ${isCombo ? 'los' : 'el'} de las imágenes de referencia adjuntas):
+  const prompt = `[SUBJECT & ACTION]: ${isCombo
+    ? `Un trabajador profesional en un entorno industrial auténtico vistiendo un conjunto de trabajo BLACKS (${products.map(p => p.name).join(' + ')}). Los productos se muestran en uso real con una progresión natural de movimiento, donde la tela pesada y el calzado de seguridad lucen firmes, cómodos y ultra resistentes.`
+    : `El producto hero (${products[0]?.name || 'calzado/indumentaria BLACKS'}) presentado en su entorno natural de trabajo industrial, mostrando su firmeza, costuras reforzadas y terminación premium en acción.`}
 ${productAnchorLines(products)}
 
-${videoFidelityRules(isCombo)}
-${isCombo
-    ? `\nES UN CONJUNTO: los ${products.length} productos aparecen JUNTOS y coordinados en la misma escena — un trabajador real usándolos como equipo completo (la ropa puesta, el calzado puesto), o una progresión corta que los muestra y cierra con el conjunto armado. Cada uno con su momento de protagonismo nítido, siempre fiel a su foto.`
-    : `\nEl producto es EL protagonista: mostralo usado o exhibido de forma creíble, con un plano de detalle de su textura/terminación real.`}
+[CAMERA MOVEMENT]: Plano fijo estable de alta calidad de cine 35mm o push-in cinemático MUY lento y suave hacia el producto (dolly track frontal/lateral a velocidad constante). Cámara montada en grúa o estabilizador pesado. PROHIBIDO: órbitas de 360°, giros bruscos, paneos rápidos o zoom digital irreal.
 
-ESCENA: entorno real argentino con contexto (${theme || 'obra en construcción / taller metalúrgico / depósito / galpón'}). Nada de set de estudio artificial ni fondos genéricos.
-${videoCameraRules()}
-${videoRealismRules()}
-ESTÉTICA: robusta, premium, alto contraste, look de aviso moderno. SIN texto en pantalla (los textos van después). Cierre: plano hero limpio ${isCombo ? 'del conjunto completo' : 'del producto'}.`;
+[LIGHTING & ATMOSPHERE]: Iluminación dramática motivada de galpón industrial (haces de luz solar baja o lámparas halógenas de taller entrando por portón alto, cruzando el aire con polvo en suspensión volumétrico). Contraluz (rim lighting) para separar el contorno del calzado/indumentaria del fondo oscuro. Color grading Kodak Portra 400, tonos carbón con acentos naranja quemado.
+
+[FIDELITY & REALISM CONSTRAINTS]:
+- ${isCombo ? 'Cada producto del combo' : 'El producto'} se mantiene 100% IDÉNTICO y consistente en todos los fotogramas (cero morphing, cero mutaciones en logos, costuras o suelas).
+- Física de tela y movimiento corporal anatómicamente perfectos. Sombras con caída real.
+- SIN TEXTO en pantalla, sin placas, sin números ni marcas de agua.
+- Duración: ~${duration} segundos a 24fps motion blur natural.`;
 
   return {
     prompt,
