@@ -375,7 +375,7 @@ async function loadCalendar() {
   try {
     calItems = await api(`/api/calendar?days=${calendarViewDays}`);
     document.getElementById('next-plan').innerHTML =
-      `${icon('bot')} <b>Automático:</b> genera piezas todos los días a las <b>07:00 ARG</b>. Todo lo que apruebes y sea automático se publica solo <b>en su horario</b> (los posts de feed salen con su historia de refuerzo). Sólo las piezas <b>Semi</b> las publicás vos a mano (para sumarles el sticker/encuesta).`;
+      `${icon('bot')} <b>Automático:</b> genera piezas todos los días a las <b>07:00 ARG</b>. Todo lo que apruebes y sea automático se publica solo <b>en su horario</b> (si se pasa la ventana por algún error, queda para republicar a mano, no sale a cualquier hora). Sólo las piezas <b>Semi</b> las publicás vos a mano (para sumarles el sticker/encuesta).`;
     renderFilters();
     renderCalView();
     refreshStaleDraftsButton();

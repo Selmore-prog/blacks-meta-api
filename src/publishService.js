@@ -86,16 +86,11 @@ async function publishAssetById(assetId, { force = false } = {}) {
     }
   }
 
-  // Historia de refuerzo: al publicar un post de FEED, sale sola la historia 9:16
-  // pre-renderizada que lo levanta (best-effort: si falla, el post ya está publicado).
-  if (config.meta.storyBoost && asset.post_type === 'feed' && asset.story_teaser_path) {
-    try {
-      await publishToInstagram({ imageUrl: getPublicUrl(asset.story_teaser_path), mediaType: 'STORIES' });
-      console.log(`[publishService] Historia de refuerzo publicada para asset #${assetId}.`);
-    } catch (stErr) {
-      console.warn(`[publishService] Historia de refuerzo falló para #${assetId} (el post igual salió): ${stErr.message}`);
-    }
-  }
+  // Historia de refuerzo DESACTIVADA: la API de Instagram no permite LINKEAR una
+  // historia al post del feed (el sticker "Ver publicación" es sólo de la app), y una
+  // historia suelta con la misma imagen no aporta como refuerzo. Si en algún momento
+  // se quiere levantar el post en historias, se hace a mano desde el celular (compartir
+  // el post a tu historia). Por eso acá no se publica ninguna historia automática.
 
   await pool.query(
     `UPDATE generated_assets SET status = 'published', meta_post_id = $2, updated_at = now() WHERE id = $1`,
@@ -141,15 +136,33 @@ async function enqueueDailyAuto() {
 }
 
 /**
+ * Instante EXACTO de publicación de una pieza (hora ARG = GMT-3, sin horario de verano).
+ * Devuelve null si no hay un horario válido (esas piezas no tienen ventana: salen cuando toca).
+ */
+function scheduledInstant(scheduledDate, scheduledTime) {
+  if (!/^([01]\d|2[0-3]):[0-5]\d$/.test(scheduledTime || '')) return null;
+  const day = (scheduledDate instanceof Date ? scheduledDate.toISOString() : String(scheduledDate)).slice(0, 10);
+  const t = new Date(`${day}T${scheduledTime}:00-03:00`);
+  return Number.isNaN(t.getTime()) ? null : t;
+}
+
+/**
  * Procesa la cola: publica lo que esté 'queued' y vencido (next_attempt_at <= now).
  * Si Meta falla, agenda un reintento con backoff (30 min * 2^intentos) hasta max_attempts;
  * después queda 'failed' con el último error a la vista.
+ *
+ * VENTANA HORARIA: si una pieza quedó atrasada más de config.meta.maxPublishDelayMin
+ * respecto de su horario (por un error o un cron que se demoró), NO se publica tarde
+ * (no sirve postear a las 21hs una pieza de las 17:30): queda 'failed' para republicar
+ * a mano. La publicación MANUAL desde el panel no pasa por acá, así que no tiene ese límite.
  */
 async function processPublishQueue() {
   const { rows } = await pool.query(
-    `SELECT q.id AS queue_id, q.asset_id, q.attempts, q.max_attempts
+    `SELECT q.id AS queue_id, q.asset_id, q.attempts, q.max_attempts,
+            c.scheduled_date, c.scheduled_time
      FROM publish_queue q
      JOIN generated_assets a ON a.id = q.asset_id
+     JOIN content_calendar c ON c.id = a.calendar_id
      WHERE q.status = 'queued' AND q.next_attempt_at <= now()
      ORDER BY q.id`
   );
@@ -157,8 +170,21 @@ async function processPublishQueue() {
   console.log(`[publishService] ${rows.length} item(s) en cola listos para publicar.`);
   let publishedCount = 0;
   const errors = [];
+  const maxDelayMs = config.meta.maxPublishDelayMin * 60 * 1000;
 
   for (const item of rows) {
+    // Guard de ventana: si ya pasó la ventana horaria, no publicar tarde.
+    const inst = scheduledInstant(item.scheduled_date, item.scheduled_time);
+    if (inst && Date.now() - inst.getTime() > maxDelayMs) {
+      const msg = `No se publicó: pasó la ventana horaria (más de ${config.meta.maxPublishDelayMin} min del horario ${item.scheduled_time}). Republicá a mano si todavía sirve.`;
+      await pool.query(
+        `UPDATE publish_queue SET status = 'failed', last_error = $2, updated_at = now() WHERE id = $1`,
+        [item.queue_id, msg]
+      );
+      console.warn(`[publishService] Asset #${item.asset_id} fuera de ventana (horario ${item.scheduled_time}): no se publica tarde.`);
+      errors.push({ assetId: item.asset_id, error: msg, willRetry: false });
+      continue;
+    }
     await pool.query(`UPDATE publish_queue SET status = 'processing', updated_at = now() WHERE id = $1`, [item.queue_id]);
     try {
       const result = await publishAssetById(item.asset_id);

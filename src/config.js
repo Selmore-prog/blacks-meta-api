@@ -92,7 +92,13 @@ module.exports = {
     catalogId: process.env.META_CATALOG_ID || null,
     autoPublishPillars: (process.env.AUTO_PUBLISH_PILLARS || 'promo,producto').split(',').map((s) => s.trim()).filter(Boolean),
     // Historia de refuerzo automática cuando se publica un post de feed (STORY_BOOST=false para apagarla).
-    storyBoost: bool('STORY_BOOST', true),
+    // Nota: hoy queda apagada de fábrica porque la API no permite LINKEAR la historia al
+    // post del feed (eso es sólo en la app), y una historia suelta no sirve de refuerzo.
+    storyBoost: bool('STORY_BOOST', false),
+    // Ventana de auto-publicación: si una pieza no se publicó dentro de X minutos de su
+    // horario (por un error/retraso), NO se publica tarde (no sirve postear a las 21hs una
+    // pieza de las 17:30). Queda 'failed' para republicar a mano. Manual no tiene este límite.
+    maxPublishDelayMin: Number(process.env.PUBLISH_MAX_DELAY_MIN) || 120,
   },
 
   publicBaseUrl: required('PUBLIC_BASE_URL', 'http://localhost:8080'),

@@ -380,7 +380,6 @@ function buildEducativoHtml(opts) {
       <div style="position:absolute; top:${g.wmTop}px; left:${g.padX + 20}px; display:flex; align-items:center; gap:16px; z-index:4;">
         ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: true, heightPx: g.isStory ? 100 : 85 }) : ''}
       </div>
-      ${opts.slideChip ? `<div style="position:absolute; top:${g.wmTop}px; right:${g.padX}px; background:#141416; color:#fff; font-weight:800; font-size:24px; padding:9px 18px; border-radius:100px; z-index:4;">${esc(opts.slideChip)}</div>` : ''}
       <div style="position:absolute; top:${g.isStory ? 340 : 220}px; left:${g.padX + 20}px; right:${g.padX}px; z-index:3;">
         <div style="display:inline-block; background:${accent}; color:#fff; font-weight:800; font-size:${g.isStory ? 26 : 24}px; letter-spacing:3px; text-transform:uppercase; padding:8px 18px; border-radius:6px; margin-bottom:26px;">${esc(opts.kicker || 'PARA SABER')}</div>
         <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 88 : 72}px; line-height:1; text-transform:uppercase; color:#141416; max-width:96%;">${esc(opts.overlayTitle || '')}</div>

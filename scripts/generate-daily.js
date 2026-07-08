@@ -449,7 +449,6 @@ async function generateForSlot(slot, overrides = {}) {
     const topicText = `${pillarDetail || ''} ${slot.theme_title || ''} ${slides.map((s) => s.title).join(' ')}`;
     const sizeChart = isStepCarousel && /talle|medida|calce|guia|guía/i.test(topicText)
       ? descriptionImages(visualProduct)[0] || null : null;
-    const total = slides.length + (sizeChart ? 1 : 0);
 
     const urls = [];
     for (let i = 0; i < slides.length; i += 1) {
@@ -461,7 +460,7 @@ async function generateForSlot(slot, overrides = {}) {
         template: 'educativo',
         overlayTitle: slides[i].title || overlayTitle,
         bodyText: slides[i].text || null,
-        slideChip: `${i + 1}/${total}`,
+        // Sin contador N/total en la imagen: Instagram ya muestra los puntitos del carrusel.
         kicker: slot.pillar === 'mayorista' ? 'PARA EMPRESAS' : 'PARA SABER',
         badgeText: i === 0 ? badgeText : null,
         productImageUrl: img,
