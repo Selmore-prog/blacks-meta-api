@@ -131,7 +131,7 @@ function heroPhotoHtml({ bgImageUrl, productImageUrl, box, shadow = 'rgba(0,0,0,
       fullBleed: false,
       html: `<div style="position:absolute; top:${box.top}px; bottom:${box.bottom}px; left:${box.left}px; right:${box.right}px;
         display:flex; align-items:center; justify-content:center; z-index:1;">
-        <img src="${esc(productImageUrl)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 30px 50px ${shadow});"/>
+        <img src="${esc(productImageUrl)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 30px 50px ${shadow}); mix-blend-mode:multiply;"/>
       </div>`,
     };
   }
@@ -367,26 +367,50 @@ function buildPromoHtml(opts) {
   </body></html>`;
 }
 
-/** EDUCATIVO: tipográfica clara, titular primero, foto de apoyo abajo. Tips/carruseles. */
+/** EDUCATIVO: diseño editorial high-end. Modo A (con bgImageUrl de IA): foto a sangre. Modo B (con productImageUrl de catálogo): Showcase Card estilo Apple/SaaS con mix-blend-mode para eliminar fondo blanco del recorte. */
 function buildEducativoHtml(opts) {
   const g = sharedGeometry(opts.format);
   const accent = opts.accent || config.brand.colors.darkOrange;
+  const hasBg = Boolean(opts.bgImageUrl);
   const img = opts.bgImageUrl || opts.productImageUrl;
 
+  // Si hay escena generada con IA (bgImageUrl), va a sangre (full-bleed) con scrim oscuro y texto blanco.
+  if (hasBg) {
+    return `${headHtml(g.w, g.h)}</head><body>
+      <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#fff; overflow:hidden; background:#101012;">
+        <img src="${esc(opts.bgImageUrl)}" alt="" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:0;"/>
+        <div style="position:absolute; inset:0; z-index:1; background:linear-gradient(180deg, rgba(14,14,16,.85) 0%, rgba(14,14,16,.40) 45%, rgba(14,14,16,.92) 100%);"></div>
+        <div style="position:absolute; top:0; left:0; bottom:0; width:14px; background:${accent}; z-index:4;"></div>
+        <div style="position:absolute; top:${g.wmTop}px; left:${g.padX + 20}px; display:flex; align-items:center; gap:16px; z-index:4;">
+          ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: false, heightPx: g.isStory ? 100 : 85 }) : ''}
+        </div>
+        <div style="position:absolute; top:${g.isStory ? 340 : 220}px; left:${g.padX + 20}px; right:${g.padX}px; z-index:3;">
+          <div style="display:inline-block; background:${accent}; color:#fff; font-weight:800; font-size:${g.isStory ? 26 : 24}px; letter-spacing:3px; text-transform:uppercase; padding:8px 18px; border-radius:6px; margin-bottom:26px;">${esc(opts.kicker || 'PARA SABER')}</div>
+          <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 88 : 72}px; line-height:1; text-transform:uppercase; color:#fff; text-shadow:0 3px 20px rgba(0,0,0,.7); max-width:96%;">${esc(opts.overlayTitle || '')}</div>
+          ${opts.bodyText ? `<div style="font-size:${g.isStory ? 34 : 30}px; font-weight:500; line-height:1.4; color:rgba(255,255,255,.9); margin-top:26px; max-width:88%; text-shadow:0 2px 10px rgba(0,0,0,.6);">${esc(opts.bodyText)}</div>` : ''}
+        </div>
+        ${domainHtml(g, { dark: false, accent })}
+      </div>
+    </body></html>`;
+  }
+
+  // Modo B: Si es foto de catálogo (productImageUrl o diagrama), en vez de flotar chica en la esquina,
+  // la enmarcamos en una tarjeta editorial de exhibición ("Showcase Card") blanca.
+  // El mix-blend-mode:multiply hace que si el JPG de Tiendanube tiene fondo blanco, desaparezca mágicamente en la tarjeta.
   return `${headHtml(g.w, g.h)}</head><body>
-    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#141416;
-      background:linear-gradient(170deg, #fafafa 0%, #ededf0 70%, #e3e3e7 100%);">
-      <div style="position:absolute; top:0; left:0; bottom:0; width:14px; background:${accent};"></div>
+    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#141416; overflow:hidden;
+      background:radial-gradient(130% 100% at 50% 0%, #ffffff 0%, #f0f0f4 55%, #e2e2e8 100%);">
+      <div style="position:absolute; top:0; left:0; bottom:0; width:14px; background:${accent}; z-index:4;"></div>
       <div style="position:absolute; top:${g.wmTop}px; left:${g.padX + 20}px; display:flex; align-items:center; gap:16px; z-index:4;">
         ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: true, heightPx: g.isStory ? 100 : 85 }) : ''}
       </div>
-      <div style="position:absolute; top:${g.isStory ? 340 : 220}px; left:${g.padX + 20}px; right:${g.padX}px; z-index:3;">
-        <div style="display:inline-block; background:${accent}; color:#fff; font-weight:800; font-size:${g.isStory ? 26 : 24}px; letter-spacing:3px; text-transform:uppercase; padding:8px 18px; border-radius:6px; margin-bottom:26px;">${esc(opts.kicker || 'PARA SABER')}</div>
-        <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 88 : 72}px; line-height:1; text-transform:uppercase; color:#141416; max-width:96%;">${esc(opts.overlayTitle || '')}</div>
-        ${opts.bodyText ? `<div style="font-size:${g.isStory ? 34 : 30}px; font-weight:500; line-height:1.4; color:#3c3c42; margin-top:26px; max-width:88%;">${esc(opts.bodyText)}</div>` : ''}
+      <div style="position:absolute; top:${g.isStory ? 290 : 190}px; left:${g.padX + 20}px; right:${g.padX}px; z-index:3;">
+        <div style="display:inline-block; background:${accent}; color:#fff; font-weight:800; font-size:${g.isStory ? 26 : 24}px; letter-spacing:3px; text-transform:uppercase; padding:8px 18px; border-radius:6px; margin-bottom:22px;">${esc(opts.kicker || 'PARA SABER')}</div>
+        <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 80 : 66}px; line-height:1.02; text-transform:uppercase; color:#141416; max-width:96%;">${esc(opts.overlayTitle || '')}</div>
+        ${opts.bodyText ? `<div style="font-size:${g.isStory ? 32 : 28}px; font-weight:500; line-height:1.4; color:#3c3c42; margin-top:20px; max-width:88%;">${esc(opts.bodyText)}</div>` : ''}
       </div>
-      ${img ? `<div style="position:absolute; bottom:${g.footBottom - 30}px; right:${g.padX}px; width:${Math.round(g.w * 0.42)}px; height:${Math.round(g.h * (g.isStory ? 0.26 : 0.3))}px; display:flex; align-items:flex-end; justify-content:flex-end; z-index:2;">
-        <img src="${esc(img)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 24px 40px rgba(0,0,0,.25));"/>
+      ${img ? `<div style="position:absolute; top:${g.isStory ? 740 : 510}px; bottom:${g.footBottom + 20}px; left:${g.padX + 20}px; right:${g.padX + 20}px; background:#ffffff; border-radius:32px; border:1px solid rgba(0,0,0,.06); box-shadow:0 30px 60px rgba(0,0,0,.12); display:flex; align-items:center; justify-content:center; padding:40px; z-index:2;">
+        <img src="${esc(img)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 20px 35px rgba(0,0,0,.18)); mix-blend-mode:multiply;"/>
       </div>` : ''}
       ${domainHtml(g, { dark: true, accent })}
     </div>
