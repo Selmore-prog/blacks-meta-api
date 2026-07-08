@@ -506,7 +506,7 @@ async function generateForSlot(slot, overrides = {}) {
       productImageUrl: realSizeChart || visualImageUrl,
       logos,
       layoutSeed: Number(slot.id),
-      useAiProductScene: !isReel && Boolean(product) && Boolean(visualImageUrl) && (PRODUCT_PILLARS.includes(slot.pillar) || slot.pillar === 'educativo' || slot.pillar === 'confianza'),
+      useAiProductScene: !isReel && Boolean(visualImageUrl) && (PRODUCT_PILLARS.includes(slot.pillar) || slot.pillar === 'educativo' || slot.pillar === 'confianza'),
       // Educativo sin guía real: ilustración didáctica (dibujo del tema) en vez de foto.
       useAiDiagram: isEducativo && !realSizeChart,
       diagramTopic: pillarDetail || slot.theme_title,

@@ -175,18 +175,14 @@ function buildFullbleedHtml(opts) {
   const hasCover = Boolean(cover);
   const showBrand = opts.showBrand !== false;
 
-  // Zonas seguras GENEROSAS: en historias IG tapa arriba (usuario/hora) y abajo
-  // (barra "Enviá un mensaje" + reacciones). Dejamos todo el texto adentro del área visible.
   const padX = isStory ? 84 : 60;
   const wmTop = isStory ? 170 : 54;
-  const footBottom = isStory ? 360 : 140; // el texto abajo queda por ENCIMA de la barra de mensaje
-  const footTop = isStory ? 330 : 175;    // para el layout con texto arriba
+  const footBottom = isStory ? 360 : 140;
+  const footTop = isStory ? 330 : 175;
   const domainBottom = isStory ? 250 : 54;
-  // El logo ahora va esquinado (arriba-izq), así que el hero puede usar más alto.
   const heroTop = isStory ? 270 : 165;
   const heroBottom = isStory ? 480 : 300;
 
-  // Posiciones dinámicas del texto (varía entre piezas). Con precio: siempre abajo-izquierda.
   const LAYOUTS = [{ a: 'left', v: 'bottom' }, { a: 'center', v: 'bottom' }, { a: 'left', v: 'top' }];
   const L = price ? { a: 'left', v: 'bottom' } : LAYOUTS[(Number(opts.layoutSeed) || 0) % LAYOUTS.length];
   const footPos = L.v === 'top' ? `top:${footTop}px` : `bottom:${footBottom}px`;
@@ -195,7 +191,6 @@ function buildFullbleedHtml(opts) {
   const off = hasPromo ? Math.round((1 - Number(promoPrice) / Number(price)) * 100) : 0;
   const now = hasPromo ? promoPrice : price;
 
-  // Cupón como "ticket": la IA no escribe texto, así que el código va tipografiado.
   const couponHtml = opts.couponCode
     ? `<div class="coupon"><span class="cpn-lbl">CUPÓN</span><span class="cpn-code">${esc(opts.couponCode)}</span></div>`
     : '';
@@ -203,18 +198,15 @@ function buildFullbleedHtml(opts) {
   let content = '';
   if (price) {
     content = `<div class="pblock">
-      ${hasPromo ? `<div class="lbl">ANTES</div><div class="antes">$${formatPrice(price)}</div>
-        <div class="hr"></div><div class="off">-${off}% OFF</div>` : ''}
+      ${hasPromo ? `<div class="pheader"><span class="antes">$${formatPrice(price)}</span><span class="off">-${off}% OFF</span></div>` : ''}
       <div class="lbl">${hasPromo ? 'AHORA' : 'PRECIO'}</div>
       <div class="now">$${formatPrice(now)}</div>
-      ${transfer ? `<div class="transfer">${esc(transfer)}</div>` : ''}
+      ${transfer ? `<div class="transfer"><span class="lightning">⚡</span> ${esc(transfer)}</div>` : ''}
     </div>${couponHtml}`;
   } else if (overlayTitle) {
     content = `<div class="headline">${esc(overlayTitle)}</div>${couponHtml}`;
   }
 
-  // El logo va SIN fondo (PNG transparente), sólo con una sombra sutil para legibilidad.
-  // El wordmark siempre queda sobre un scrim oscuro (arriba de la pieza) -> logo de tinta clara.
   const fullbleedLogoUrl = (logos && typeof logos === 'object') ? (logos.onDark || logos.fallback) : logos;
   const brandMark = fullbleedLogoUrl
     ? `<img class="logo" src="${esc(fullbleedLogoUrl)}" alt="BLACKS"/>`
@@ -231,55 +223,56 @@ function buildFullbleedHtml(opts) {
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
     html,body { width:${w}px; height:${h}px; overflow:hidden; font-family:'Inter','Helvetica Neue',Arial,sans-serif; }
-    .canvas { position:relative; width:${w}px; height:${h}px; background:${hasCover ? '#0e0e10' : bgFallback}; color:#fff; }
-    /* Fondo: la misma foto difuminada para rellenar sin recortar el producto. */
-    .bg { position:absolute; inset:-60px; width:calc(100% + 120px); height:calc(100% + 120px);
-      object-fit:cover; filter:blur(34px) brightness(.66); z-index:0; }
-    /* Producto: CONTAIN (se ve entero, sin zoom excesivo). */
+    .canvas { position:relative; width:${w}px; height:${h}px; background:${hasCover ? '#0a0a0c' : bgFallback}; color:#fff; overflow:hidden; }
+    /* Glow volumétrico ambiental de estudio */
+    .glow { position:absolute; top:40%; left:50%; transform:translate(-50%, -50%); width:850px; height:850px;
+      background:radial-gradient(circle, rgba(232,93,27,.22) 0%, rgba(0,0,0,0) 65%); pointer-events:none; z-index:1; }
+    .bg { position:absolute; inset:-40px; width:calc(100% + 80px); height:calc(100% + 80px);
+      object-fit:cover; filter:blur(28px) brightness(.55); z-index:0; }
     .hero { position:absolute; top:${heroTop}px; bottom:${heroBottom}px; left:${padX}px; right:${padX}px;
       display:flex; align-items:center; justify-content:center; z-index:1; }
-    .hero img { max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 26px 44px rgba(0,0,0,.45)); }
+    .hero img { max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 30px 60px rgba(0,0,0,.55)); }
+    /* Scrim editorial multicapa: viñeta oscura en bordes + sombra de legibilidad en texto */
     .scrim { position:absolute; inset:0; z-index:2; background:
-      linear-gradient(to bottom, rgba(0,0,0,.5) 0%, rgba(0,0,0,0) 22%, rgba(0,0,0,0) 60%, rgba(0,0,0,.72) 100%); }
-    /* Logo esquinado (arriba-izquierda), como lockup de marca — no centrado. */
+      radial-gradient(circle at 50% 40%, rgba(0,0,0,0) 40%, rgba(0,0,0,.45) 100%),
+      linear-gradient(to bottom, rgba(0,0,0,.65) 0%, rgba(0,0,0,0) 25%, rgba(0,0,0,0) 55%, rgba(10,10,12,.88) 100%); }
     .wm { position:absolute; top:${wmTop}px; left:${padX}px; display:flex; justify-content:flex-start; z-index:4; }
-    .wordmark { font-family:'Anton',sans-serif; font-size:${isStory ? 46 : 40}px; letter-spacing:7px;
-      color:#fff; text-shadow:0 2px 18px rgba(0,0,0,.7); }
+    .wordmark { font-family:'Anton',sans-serif; font-size:${isStory ? 48 : 42}px; letter-spacing:8px;
+      color:#fff; text-shadow:0 4px 20px rgba(0,0,0,.8); }
     .logo { height:${isStory ? 92 : 76}px; max-width:56%; object-fit:contain;
-      filter:drop-shadow(0 1px 2px rgba(255,255,255,.3)) drop-shadow(0 4px 14px rgba(0,0,0,.6)); }
-    /* Badge tipo "sello": esquina recta, acento sólido, bien espaciado (menos "sticker"). */
-    .badge { position:absolute; top:${wmTop}px; right:${padX}px; background:${accent}; color:#fff;
-      font-weight:800; font-size:19px; padding:9px 17px; border-radius:5px; text-transform:uppercase;
-      letter-spacing:3px; box-shadow:0 6px 18px rgba(0,0,0,.4); z-index:4; }
-    /* Cupón: ticket claro con borde dashed y el código destacado. */
-    .coupon { display:inline-flex; align-items:center; gap:12px; margin-top:22px; padding:12px 20px;
-      background:rgba(255,255,255,.95); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.4); }
+      filter:drop-shadow(0 1px 2px rgba(255,255,255,.3)) drop-shadow(0 4px 16px rgba(0,0,0,.7)); }
+    /* Badge editorial metálico/naranja */
+    .badge { position:absolute; top:${wmTop}px; right:${padX}px; background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); color:#fff;
+      font-weight:800; font-size:18px; padding:10px 22px; border-radius:100px; text-transform:uppercase;
+      letter-spacing:3px; box-shadow:0 10px 25px rgba(232,93,27,.45); border:1px solid rgba(255,255,255,.25); z-index:4; }
+    .coupon { display:inline-flex; align-items:center; gap:14px; margin-top:24px; padding:14px 24px;
+      background:rgba(255,255,255,.96); border-radius:14px; box-shadow:0 12px 35px rgba(0,0,0,.5); border:1px solid rgba(0,0,0,.08); }
     .cpn-lbl { font-size:${isStory ? 22 : 19}px; font-weight:800; letter-spacing:3px; color:#6b6b70;
-      text-transform:uppercase; padding-right:12px; border-right:2px dashed #c9c9cf; }
-    .cpn-code { font-family:'Anton',sans-serif; font-size:${isStory ? 46 : 40}px; letter-spacing:2px; color:#141416; }
+      text-transform:uppercase; padding-right:14px; border-right:2px dashed #c9c9cf; }
+    .cpn-code { font-family:'Anton',sans-serif; font-size:${isStory ? 48 : 42}px; letter-spacing:2px; color:#141416; }
     .foot { position:absolute; left:${padX}px; right:${padX}px; ${footPos}; text-align:${L.a}; z-index:4; }
-    .headline { display:inline-block; font-family:'Anton',sans-serif; font-size:${isStory ? 76 : 64}px; line-height:.98;
-      letter-spacing:.5px; text-transform:uppercase; color:#fff; max-width:92%; text-shadow:0 2px 16px rgba(0,0,0,.6); }
-    .pblock { display:inline-block; text-align:left; }
-    .lbl { font-size:22px; font-weight:700; letter-spacing:3px; color:rgba(255,255,255,.9); text-transform:uppercase; }
-    .antes { font-family:'Anton',sans-serif; font-size:${isStory ? 54 : 48}px; color:#fff; opacity:.9;
-      text-decoration:line-through; text-decoration-thickness:3px; line-height:1; }
-    .hr { width:170px; height:3px; background:#fff; margin:12px 0; opacity:.85; }
-    .off { display:inline-block; background:${accent}; color:#fff; font-weight:800; font-size:24px;
-      padding:5px 14px; border-radius:6px; letter-spacing:1px; margin-bottom:14px; }
-    .now { font-family:'Anton',sans-serif; font-size:${isStory ? 100 : 92}px; color:#fff; line-height:.9;
-      text-shadow:0 3px 20px rgba(0,0,0,.5); }
-    .transfer { font-size:22px; font-weight:600; letter-spacing:1px; color:rgba(255,255,255,.92); margin-top:12px; max-width:520px; }
+    .headline { display:inline-block; font-family:'Anton',sans-serif; font-size:${isStory ? 80 : 66}px; line-height:.96;
+      letter-spacing:.5px; text-transform:uppercase; color:#fff; max-width:94%; text-shadow:0 6px 30px rgba(0,0,0,.7); }
+    /* Cápsula de precio Glassmorphic editorial Apple/SaaS */
+    .pblock { display:inline-block; text-align:left; background:rgba(18,18,22,.65); backdrop-filter:blur(24px);
+      -webkit-backdrop-filter:blur(24px); border:1px solid rgba(255,255,255,.14); border-radius:28px; padding:28px 36px; box-shadow:0 24px 60px rgba(0,0,0,.55); }
+    .pheader { display:flex; align-items:center; gap:16px; margin-bottom:12px; }
+    .lbl { font-size:19px; font-weight:800; letter-spacing:4px; color:#FF8B4D; text-transform:uppercase; margin-bottom:4px; }
+    .antes { font-family:'Anton',sans-serif; font-size:${isStory ? 46 : 40}px; color:rgba(255,255,255,.65); text-decoration:line-through; text-decoration-thickness:3px; line-height:1; }
+    .off { background:linear-gradient(135deg, ${accent} 0%, #b83804 100%); color:#fff; font-weight:800; font-size:22px; padding:6px 16px; border-radius:100px; letter-spacing:1px; box-shadow:0 4px 15px rgba(232,93,27,.4); }
+    .now { font-family:'Anton',sans-serif; font-size:${isStory ? 108 : 96}px; color:#fff; line-height:.88; letter-spacing:-1px; text-shadow:0 4px 20px rgba(0,0,0,.5); }
+    .transfer { font-size:22px; font-weight:600; letter-spacing:1px; color:rgba(255,255,255,.92); margin-top:16px; max-width:540px; display:flex; align-items:center; gap:8px; }
+    .lightning { color:#FF8B4D; font-size:26px; }
     .interaction { position:absolute; left:50%; bottom:${(isStory ? 360 : 140) + 30}px; transform:translateX(-50%);
-      background:rgba(255,255,255,.16); border:1px solid rgba(255,255,255,.5); backdrop-filter:blur(4px);
-      padding:14px 28px; border-radius:100px; font-size:26px; font-weight:700; color:#fff; white-space:nowrap; z-index:4; }
+      background:rgba(255,255,255,.18); border:1px solid rgba(255,255,255,.5); backdrop-filter:blur(8px);
+      padding:16px 32px; border-radius:100px; font-size:26px; font-weight:700; color:#fff; white-space:nowrap; box-shadow:0 12px 30px rgba(0,0,0,.4); z-index:4; }
     .domain { position:absolute; left:0; right:0; bottom:${domainBottom}px; display:flex; align-items:center;
       justify-content:center; gap:12px; z-index:4; }
-    .tick { width:13px; height:13px; background:${accent}; border-radius:3px; }
+    .tick { width:13px; height:13px; background:${accent}; border-radius:3px; box-shadow:0 0 12px ${accent}; }
     .site { font-size:${isStory ? 24 : 22}px; font-weight:700; letter-spacing:3px; color:#fff; text-shadow:0 1px 6px rgba(0,0,0,.6); }
   </style></head><body>
     <div class="canvas">
-      ${hasCover ? `<img class="bg" src="${esc(cover)}" alt=""/><div class="hero"><img src="${esc(cover)}" alt=""/></div><div class="scrim"></div>` : ''}
+      ${hasCover ? `<div class="glow"></div><img class="bg" src="${esc(cover)}" alt=""/><div class="hero"><img src="${esc(cover)}" alt=""/></div><div class="scrim"></div>` : ''}
       ${showBrand ? `<div class="wm">${brandMark}</div>` : ''}
       ${badgeHtml}
       ${interactionHtml}
@@ -289,7 +282,7 @@ function buildFullbleedHtml(opts) {
   </body></html>`;
 }
 
-/** MINIMAL: estudio claro, producto flotando grande, titular oscuro. Evergreen. */
+/** MINIMAL: estudio editorial claro con marca arquitectónica de agua, producto flotando en pedestal de luz y titular oscuro. */
 function buildMinimalHtml(opts) {
   const g = sharedGeometry(opts.format);
   const accent = opts.accent || config.brand.colors.darkOrange;
@@ -297,25 +290,29 @@ function buildMinimalHtml(opts) {
   const hero = heroPhotoHtml({
     bgImageUrl: opts.bgImageUrl,
     productImageUrl: opts.productImageUrl,
-    box: { top: g.isStory ? 340 : 230, bottom: g.isStory ? 620 : 420, left: g.padX, right: g.padX },
-    shadow: 'rgba(0,0,0,.22)',
+    box: { top: g.isStory ? 330 : 220, bottom: g.isStory ? 610 : 410, left: g.padX, right: g.padX },
+    shadow: 'rgba(0,0,0,.26)',
   });
   const price = opts.price ? `
-    <div style="display:flex; align-items:baseline; gap:18px; margin-top:18px;">
+    <div style="display:flex; align-items:baseline; gap:18px; margin-top:22px; background:rgba(255,255,255,.8); padding:18px 28px; border-radius:24px; border:1px solid rgba(0,0,0,.06); box-shadow:0 15px 35px rgba(0,0,0,.06); display:inline-flex;">
       ${hasPromo ? `<span style="font-family:'Anton',sans-serif; font-size:40px; color:${hero.fullBleed ? 'rgba(255,255,255,.7)' : '#8b8b90'}; text-decoration:line-through;">$${formatPrice(opts.price)}</span>
-        <span style="background:${accent}; color:#fff; font-weight:800; font-size:22px; padding:4px 12px; border-radius:6px;">-${off}%</span>` : ''}
-      <span style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 84 : 72}px; color:${hero.fullBleed ? '#fff' : '#111'};">$${formatPrice(now)}</span>
+        <span style="background:${accent}; color:#fff; font-weight:800; font-size:20px; padding:6px 14px; border-radius:100px;">-${off}% OFF</span>` : ''}
+      <span style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 84 : 72}px; color:${hero.fullBleed ? '#fff' : '#111113'}; letter-spacing:-1px;">$${formatPrice(now)}</span>
     </div>` : '';
 
   return `${headHtml(g.w, g.h)}</head><body>
-    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:${hero.fullBleed ? '#fff' : '#111'}; overflow:hidden;
-      background:radial-gradient(130% 100% at 50% 0%, #ffffff 0%, #f0f0f2 55%, #e0e0e4 100%);">
+    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:${hero.fullBleed ? '#fff' : '#111113'}; overflow:hidden;
+      background:radial-gradient(130% 100% at 50% 0%, #ffffff 0%, #f2f2f6 55%, #e2e2e8 100%);">
+      <!-- Watermark arquitectónico de fondo -->
+      ${!hero.fullBleed ? `<div style="position:absolute; top:36%; left:-10%; width:120%; text-align:center; font-family:'Anton',sans-serif; font-size:${g.isStory ? 260 : 210}px; color:rgba(0,0,0,.032); letter-spacing:22px; transform:rotate(-12deg); pointer-events:none; z-index:0;">BLACKS</div>` : ''}
+      <!-- Volumetric top light -->
+      ${!hero.fullBleed ? `<div style="position:absolute; top:280px; left:50%; transform:translateX(-50%); width:650px; height:650px; background:radial-gradient(circle, rgba(232,93,27,.11) 0%, rgba(255,255,255,0) 65%); pointer-events:none; z-index:0;"></div>` : ''}
       ${hero.html}
       ${hero.fullBleed ? scrimHtml({ dark: true }) : ''}
-      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: !hero.fullBleed, heightPx: g.isStory ? 88 : 72, top: g.wmTop, left: g.padX })}
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: !hero.fullBleed, heightPx: g.isStory ? 92 : 76, top: g.wmTop, left: g.padX })}
       ${opts.badgeText ? badgeTag(opts.badgeText, { accent, top: g.wmTop, right: g.padX }) : ''}
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
-        ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 72 : 60}px; line-height:.98; text-transform:uppercase; color:${hero.fullBleed ? '#fff' : '#111'}; max-width:94%; ${hero.fullBleed ? 'text-shadow:0 2px 16px rgba(0,0,0,.6);' : ''}">${esc(opts.overlayTitle)}</div>` : ''}
+        ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 76 : 64}px; line-height:.96; text-transform:uppercase; color:${hero.fullBleed ? '#fff' : '#111113'}; max-width:94%; letter-spacing:.5px; ${hero.fullBleed ? 'text-shadow:0 4px 20px rgba(0,0,0,.7);' : 'text-shadow:0 2px 10px rgba(0,0,0,.04);'}">${esc(opts.overlayTitle)}</div>` : ''}
         ${price}
         ${couponTag(opts.couponCode, { isStory: g.isStory })}
       </div>
@@ -324,41 +321,46 @@ function buildMinimalHtml(opts) {
   </body></html>`;
 }
 
-/** PROMO: oscura y agresiva, % OFF y precio gigantes. Ofertas / fechas comerciales. */
+/** PROMO: oscura, cibernética y agresiva con cortes de luz neón/naranja y % OFF gigante en cápsula flotante. */
 function buildPromoHtml(opts) {
   const g = sharedGeometry(opts.format);
   const accent = opts.accent || config.brand.colors.darkOrange;
   const hero = heroPhotoHtml({
     bgImageUrl: opts.bgImageUrl,
     productImageUrl: opts.productImageUrl,
-    box: { top: g.isStory ? 360 : 240, bottom: g.isStory ? 700 : 470, left: g.padX, right: g.padX },
-    shadow: 'rgba(0,0,0,.65)',
+    box: { top: g.isStory ? 350 : 230, bottom: g.isStory ? 690 : 460, left: g.padX, right: g.padX },
+    shadow: 'rgba(0,0,0,.7)',
   });
   const { hasPromo, off, now } = priceParts(opts.price, opts.promoPrice);
   const transfer = String(config.brand.transferNote || '').toUpperCase();
 
   const priceBlock = opts.price ? `
-    ${hasPromo ? `<div style="display:flex; align-items:center; gap:16px; margin-bottom:10px;">
-      <span style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 52 : 46}px; color:rgba(255,255,255,.75); text-decoration:line-through;">$${formatPrice(opts.price)}</span>
-      <span style="background:${accent}; color:#fff; font-family:'Anton',sans-serif; font-size:${g.isStory ? 52 : 44}px; padding:6px 20px; border-radius:10px; transform:rotate(-2deg);">-${off}% OFF</span>
+    ${hasPromo ? `<div style="display:flex; align-items:center; gap:16px; margin-bottom:12px;">
+      <span style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 52 : 46}px; color:rgba(255,255,255,.6); text-decoration:line-through;">$${formatPrice(opts.price)}</span>
+      <span style="background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); color:#fff; font-family:'Anton',sans-serif; font-size:${g.isStory ? 54 : 46}px; padding:6px 24px; border-radius:14px; box-shadow:0 12px 30px rgba(232,93,27,.5); border:1px solid rgba(255,255,255,.3); transform:rotate(-2deg);">-${off}% OFF</span>
     </div>` : ''}
-    <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 128 : 108}px; color:#fff; line-height:.9; text-shadow:0 4px 26px rgba(0,0,0,.6);">$${formatPrice(now)}</div>
-    ${transfer ? `<div style="font-size:22px; font-weight:600; letter-spacing:1px; color:rgba(255,255,255,.92); margin-top:14px; max-width:560px;">${esc(transfer)}</div>` : ''}`
-    : (opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 84 : 70}px; line-height:.96; text-transform:uppercase; color:#fff; text-shadow:0 3px 20px rgba(0,0,0,.7);">${esc(opts.overlayTitle)}</div>` : '');
+    <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 132 : 112}px; color:#fff; line-height:.86; letter-spacing:-2px; text-shadow:0 6px 35px rgba(0,0,0,.8);">$${formatPrice(now)}</div>
+    ${transfer ? `<div style="font-size:22px; font-weight:600; letter-spacing:1px; color:rgba(255,255,255,.92); margin-top:16px; max-width:560px; display:flex; align-items:center; gap:8px;"><span style="color:#FF8B4D;">⚡</span> ${esc(transfer)}</div>` : ''}`
+    : (opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 88 : 74}px; line-height:.94; text-transform:uppercase; color:#fff; text-shadow:0 4px 26px rgba(0,0,0,.8);">${esc(opts.overlayTitle)}</div>` : '');
 
   return `${headHtml(g.w, g.h)}</head><body>
-    <div style="position:relative; width:${g.w}px; height:${g.h}px; background:#0b0b0d; color:#fff; overflow:hidden;">
+    <div style="position:relative; width:${g.w}px; height:${g.h}px; background:#08080a; color:#fff; overflow:hidden;">
+      <!-- Destellos de luz diagonal naranja / ciber comercial -->
+      <div style="position:absolute; top:-250px; right:-250px; width:750px; height:750px; background:radial-gradient(circle, rgba(232,93,27,.34) 0%, rgba(0,0,0,0) 65%); pointer-events:none; z-index:0;"></div>
+      <div style="position:absolute; bottom:-150px; left:-150px; width:600px; height:600px; background:radial-gradient(circle, rgba(232,93,27,.18) 0%, rgba(0,0,0,0) 65%); pointer-events:none; z-index:0;"></div>
+      <!-- Watermark agresivo OFERTA -->
+      <div style="position:absolute; top:42%; left:-5%; width:110%; text-align:center; font-family:'Anton',sans-serif; font-size:${g.isStory ? 280 : 230}px; color:rgba(255,255,255,.025); letter-spacing:18px; transform:rotate(-14deg); pointer-events:none; z-index:0;">OFERTA</div>
       ${hero.html}
       ${hero.fullBleed
-        ? scrimHtml({ dark: true, extra: 'radial-gradient(90% 60% at 78% 12%, rgba(232,93,27,.28) 0%, rgba(232,93,27,0) 55%)' })
-        : `<div style="position:absolute; inset:0; background:
-        radial-gradient(90% 60% at 78% 18%, rgba(232,93,27,.32) 0%, rgba(232,93,27,0) 60%),
-        radial-gradient(120% 80% at 20% 100%, rgba(232,93,27,.14) 0%, rgba(0,0,0,0) 55%);"></div>`}
-      <div style="position:absolute; top:0; left:0; right:0; height:14px; background:${accent}; z-index:4;"></div>
-      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: false, heightPx: g.isStory ? 88 : 72, top: g.wmTop, left: g.padX })}
+        ? scrimHtml({ dark: true, extra: 'radial-gradient(90% 60% at 78% 12%, rgba(232,93,27,.35) 0%, rgba(232,93,27,0) 55%)' })
+        : `<div style="position:absolute; inset:0; z-index:1; background:
+        radial-gradient(90% 60% at 78% 18%, rgba(232,93,27,.35) 0%, rgba(232,93,27,0) 60%),
+        radial-gradient(120% 80% at 20% 100%, rgba(232,93,27,.16) 0%, rgba(0,0,0,0) 55%); pointer-events:none;"></div>`}
+      <div style="position:absolute; top:0; left:0; right:0; height:16px; background:linear-gradient(90deg, #FF6B1A 0%, #C1440C 100%); box-shadow:0 0 25px rgba(232,93,27,.6); z-index:4;"></div>
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: false, heightPx: g.isStory ? 92 : 76, top: g.wmTop, left: g.padX })}
       ${badgeTag(opts.badgeText || 'OFERTA', { accent, top: g.wmTop, right: g.padX })}
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
-        ${opts.overlayTitle && opts.price ? `<div style="font-size:${g.isStory ? 34 : 30}px; font-weight:800; letter-spacing:2px; text-transform:uppercase; color:rgba(255,255,255,.9); margin-bottom:14px;">${esc(opts.overlayTitle)}</div>` : ''}
+        ${opts.overlayTitle && opts.price ? `<div style="font-size:${g.isStory ? 34 : 30}px; font-weight:800; letter-spacing:3px; text-transform:uppercase; color:#FF8B4D; margin-bottom:14px; text-shadow:0 2px 10px rgba(0,0,0,.6);">${esc(opts.overlayTitle)}</div>` : ''}
         ${priceBlock}
         ${couponTag(opts.couponCode, { isStory: g.isStory })}
       </div>
@@ -367,78 +369,84 @@ function buildPromoHtml(opts) {
   </body></html>`;
 }
 
-/** EDUCATIVO: diseño editorial high-end. Modo A (con bgImageUrl de IA): foto a sangre. Modo B (con productImageUrl de catálogo): Showcase Card estilo Apple/SaaS con mix-blend-mode para eliminar fondo blanco del recorte. */
+/** EDUCATIVO: diseño editorial high-end de revista técnica/SaaS. Modo A (IA a sangre). Modo B (Showcase Card Apple Pedestal 3D + tap quiz indicator). */
 function buildEducativoHtml(opts) {
   const g = sharedGeometry(opts.format);
   const accent = opts.accent || config.brand.colors.darkOrange;
   const hasBg = Boolean(opts.bgImageUrl);
   const img = opts.bgImageUrl || opts.productImageUrl;
 
-  // Si hay escena generada con IA (bgImageUrl), va a sangre (full-bleed) con scrim oscuro y texto blanco.
   if (hasBg) {
     return `${headHtml(g.w, g.h)}</head><body>
-      <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#fff; overflow:hidden; background:#101012;">
-        <img src="${esc(opts.bgImageUrl)}" alt="" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:0;"/>
-        <div style="position:absolute; inset:0; z-index:1; background:linear-gradient(180deg, rgba(14,14,16,.85) 0%, rgba(14,14,16,.40) 45%, rgba(14,14,16,.92) 100%);"></div>
-        <div style="position:absolute; top:0; left:0; bottom:0; width:14px; background:${accent}; z-index:4;"></div>
-        <div style="position:absolute; top:${g.wmTop}px; left:${g.padX + 20}px; display:flex; align-items:center; gap:16px; z-index:4;">
-          ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: false, heightPx: g.isStory ? 100 : 85 }) : ''}
+      <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#fff; overflow:hidden; background:#0a0a0c;">
+        <img src="${esc(opts.bgImageUrl)}" alt="" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:0; filter:brightness(.85);"/>
+        <div style="position:absolute; inset:0; z-index:1; background:
+          radial-gradient(circle at 50% 35%, rgba(0,0,0,0) 35%, rgba(0,0,0,.55) 100%),
+          linear-gradient(180deg, rgba(10,10,12,.88) 0%, rgba(10,10,12,.38) 45%, rgba(10,10,12,.94) 100%);"></div>
+        <div style="position:absolute; top:0; left:0; bottom:0; width:16px; background:linear-gradient(180deg, #FF6B1A 0%, #C1440C 100%); box-shadow:0 0 25px rgba(232,93,27,.6); z-index:4;"></div>
+        <div style="position:absolute; top:${g.wmTop}px; left:${g.padX + 24}px; display:flex; align-items:center; gap:16px; z-index:4;">
+          ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: false, heightPx: g.isStory ? 92 : 76 }) : ''}
         </div>
-        <div style="position:absolute; top:${g.isStory ? 340 : 220}px; left:${g.padX + 20}px; right:${g.padX}px; z-index:3;">
-          <div style="display:inline-block; background:${accent}; color:#fff; font-weight:800; font-size:${g.isStory ? 26 : 24}px; letter-spacing:3px; text-transform:uppercase; padding:8px 18px; border-radius:6px; margin-bottom:26px;">${esc(opts.kicker || 'PARA SABER')}</div>
-          <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 88 : 72}px; line-height:1; text-transform:uppercase; color:#fff; text-shadow:0 3px 20px rgba(0,0,0,.7); max-width:96%;">${esc(opts.overlayTitle || '')}</div>
-          ${opts.bodyText ? `<div style="font-size:${g.isStory ? 34 : 30}px; font-weight:500; line-height:1.4; color:rgba(255,255,255,.9); margin-top:26px; max-width:88%; text-shadow:0 2px 10px rgba(0,0,0,.6);">${esc(opts.bodyText)}</div>` : ''}
+        <div style="position:absolute; top:${g.isStory ? 340 : 220}px; left:${g.padX + 24}px; right:${g.padX}px; z-index:3;">
+          <div style="display:inline-flex; align-items:center; gap:10px; background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); color:#fff; font-weight:800; font-size:${g.isStory ? 22 : 20}px; letter-spacing:3px; text-transform:uppercase; padding:10px 24px; border-radius:100px; box-shadow:0 8px 24px rgba(232,93,27,.45); margin-bottom:26px;"><span style="width:8px;height:8px;border-radius:50%;background:#fff;"></span> ${esc(opts.kicker || 'PARA SABER')}</div>
+          <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 88 : 72}px; line-height:.96; letter-spacing:.5px; text-transform:uppercase; color:#fff; text-shadow:0 6px 30px rgba(0,0,0,.8); max-width:96%;">${esc(opts.overlayTitle || '')}</div>
+          ${opts.bodyText ? `<div style="font-size:${g.isStory ? 34 : 30}px; font-weight:500; line-height:1.4; color:rgba(255,255,255,.92); margin-top:26px; max-width:88%; text-shadow:0 2px 14px rgba(0,0,0,.7);">${esc(opts.bodyText)}</div>` : ''}
         </div>
+        ${g.isStory ? `<div style="position:absolute; bottom:${g.domainBottom + 50}px; left:0; right:0; display:flex; justify-content:center; z-index:4;"><div style="background:rgba(255,255,255,.16); backdrop-filter:blur(10px); border:1px solid rgba(255,255,255,.3); padding:12px 28px; border-radius:100px; font-size:22px; font-weight:700; color:#fff; letter-spacing:1px; display:flex; align-items:center; gap:10px;">⚡ TIP DE EXPERTO: Respondé en historias</div></div>` : ''}
         ${domainHtml(g, { dark: false, accent })}
       </div>
     </body></html>`;
   }
 
-  // Modo B: Si es foto de catálogo (productImageUrl o diagrama), en vez de flotar chica en la esquina,
-  // la enmarcamos en una tarjeta editorial de exhibición ("Showcase Card") blanca.
-  // El mix-blend-mode:multiply hace que si el JPG de Tiendanube tiene fondo blanco, desaparezca mágicamente en la tarjeta.
+  // Modo B (Catalog Showcase Pedestal Card)
   return `${headHtml(g.w, g.h)}</head><body>
-    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#141416; overflow:hidden;
-      background:radial-gradient(130% 100% at 50% 0%, #ffffff 0%, #f0f0f4 55%, #e2e2e8 100%);">
-      <div style="position:absolute; top:0; left:0; bottom:0; width:14px; background:${accent}; z-index:4;"></div>
-      <div style="position:absolute; top:${g.wmTop}px; left:${g.padX + 20}px; display:flex; align-items:center; gap:16px; z-index:4;">
-        ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: true, heightPx: g.isStory ? 100 : 85 }) : ''}
+    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#111113; overflow:hidden;
+      background:radial-gradient(130% 100% at 50% 0%, #ffffff 0%, #f0f0f4 55%, #e0e0e6 100%);">
+      <!-- Faded grid watermark -->
+      <div style="position:absolute; top:42%; left:-5%; width:110%; text-align:center; font-family:'Anton',sans-serif; font-size:${g.isStory ? 240 : 190}px; color:rgba(0,0,0,.03); letter-spacing:24px; transform:rotate(-12deg); pointer-events:none; z-index:0;">SAFETY</div>
+      <div style="position:absolute; top:350px; left:50%; transform:translateX(-50%); width:650px; height:650px; background:radial-gradient(circle, rgba(232,93,27,.12) 0%, rgba(255,255,255,0) 65%); pointer-events:none; z-index:0;"></div>
+      <div style="position:absolute; top:0; left:0; bottom:0; width:16px; background:linear-gradient(180deg, #FF6B1A 0%, #C1440C 100%); box-shadow:0 0 25px rgba(232,93,27,.4); z-index:4;"></div>
+      <div style="position:absolute; top:${g.wmTop}px; left:${g.padX + 24}px; display:flex; align-items:center; gap:16px; z-index:4;">
+        ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: true, heightPx: g.isStory ? 92 : 76 }) : ''}
       </div>
-      <div style="position:absolute; top:${g.isStory ? 290 : 190}px; left:${g.padX + 20}px; right:${g.padX}px; z-index:3;">
-        <div style="display:inline-block; background:${accent}; color:#fff; font-weight:800; font-size:${g.isStory ? 26 : 24}px; letter-spacing:3px; text-transform:uppercase; padding:8px 18px; border-radius:6px; margin-bottom:22px;">${esc(opts.kicker || 'PARA SABER')}</div>
-        <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 80 : 66}px; line-height:1.02; text-transform:uppercase; color:#141416; max-width:96%;">${esc(opts.overlayTitle || '')}</div>
+      <div style="position:absolute; top:${g.isStory ? 280 : 180}px; left:${g.padX + 24}px; right:${g.padX}px; z-index:3;">
+        <div style="display:inline-flex; align-items:center; gap:10px; background:#111113; color:#fff; font-weight:800; font-size:${g.isStory ? 22 : 20}px; letter-spacing:3px; text-transform:uppercase; padding:10px 24px; border-radius:100px; box-shadow:0 12px 28px rgba(0,0,0,.15); margin-bottom:24px;"><span style="width:8px;height:8px;border-radius:50%;background:${accent}; box-shadow:0 0 10px ${accent};"></span> ${esc(opts.kicker || 'PARA SABER')}</div>
+        <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 82 : 68}px; line-height:1.02; letter-spacing:.5px; text-transform:uppercase; color:#111113; max-width:96%;">${esc(opts.overlayTitle || '')}</div>
         ${opts.bodyText ? `<div style="font-size:${g.isStory ? 32 : 28}px; font-weight:500; line-height:1.4; color:#3c3c42; margin-top:20px; max-width:88%;">${esc(opts.bodyText)}</div>` : ''}
       </div>
-      ${img ? `<div style="position:absolute; top:${g.isStory ? 740 : 510}px; bottom:${g.footBottom + 20}px; left:${g.padX + 20}px; right:${g.padX + 20}px; background:#ffffff; border-radius:32px; border:1px solid rgba(0,0,0,.06); box-shadow:0 30px 60px rgba(0,0,0,.12); display:flex; align-items:center; justify-content:center; padding:40px; z-index:2;">
-        <img src="${esc(img)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 20px 35px rgba(0,0,0,.18)); mix-blend-mode:multiply;"/>
+      ${img ? `<div style="position:absolute; top:${g.isStory ? 730 : 500}px; bottom:${g.footBottom + 35}px; left:${g.padX + 24}px; right:${g.padX + 24}px; background:linear-gradient(180deg, #ffffff 0%, #f7f7fc 100%); border-radius:36px; border:1px solid rgba(0,0,0,.07); box-shadow:0 40px 80px -15px rgba(0,0,0,.16), 0 12px 25px -5px rgba(0,0,0,.05); display:flex; align-items:center; justify-content:center; padding:44px; z-index:2;">
+        <img src="${esc(img)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 25px 45px rgba(0,0,0,.22)); mix-blend-mode:multiply;"/>
       </div>` : ''}
+      ${g.isStory ? `<div style="position:absolute; bottom:${g.domainBottom + 45}px; left:0; right:0; display:flex; justify-content:center; z-index:4;"><div style="background:#111113; padding:12px 28px; border-radius:100px; font-size:20px; font-weight:700; color:#fff; letter-spacing:1px; box-shadow:0 10px 25px rgba(0,0,0,.2); display:flex; align-items:center; gap:10px;"><span style="color:#FF8B4D;">⚡</span> TIP DE EXPERTO: Deslizá o respondé en historias</div></div>` : ''}
       ${domainHtml(g, { dark: true, accent })}
     </div>
   </body></html>`;
 }
 
-/** MAYORISTA: corporativa oscura, badge + CTA de presupuesto, sin precio unitario. */
+/** MAYORISTA: corporativa oscura con detalles dorados/naranjas, cápsulas de prestigio y CTA de presupuesto. */
 function buildMayoristaHtml(opts) {
   const g = sharedGeometry(opts.format);
   const accent = opts.accent || config.brand.colors.darkOrange;
   const hero = heroPhotoHtml({
     bgImageUrl: opts.bgImageUrl,
     productImageUrl: opts.productImageUrl,
-    box: { top: g.isStory ? 355 : 235, bottom: g.isStory ? 660 : 440, left: g.padX, right: g.padX },
-    shadow: 'rgba(0,0,0,.6)',
+    box: { top: g.isStory ? 350 : 230, bottom: g.isStory ? 660 : 440, left: g.padX, right: g.padX },
+    shadow: 'rgba(0,0,0,.65)',
   });
 
   return `${headHtml(g.w, g.h)}</head><body>
     <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#fff; overflow:hidden;
-      background:linear-gradient(165deg, #101216 0%, #171a20 55%, #1d212a 100%);">
+      background:linear-gradient(165deg, #0a0b0e 0%, #13161c 55%, #1c2029 100%);">
+      <div style="position:absolute; top:38%; left:-5%; width:110%; text-align:center; font-family:'Anton',sans-serif; font-size:${g.isStory ? 240 : 190}px; color:rgba(255,255,255,.025); letter-spacing:22px; transform:rotate(-12deg); pointer-events:none; z-index:0;">MAYORISTA</div>
+      <div style="position:absolute; top:350px; left:50%; transform:translateX(-50%); width:650px; height:650px; background:radial-gradient(circle, rgba(232,93,27,.18) 0%, rgba(0,0,0,0) 65%); pointer-events:none; z-index:0;"></div>
       ${hero.html}
       ${hero.fullBleed ? scrimHtml({ dark: true }) : ''}
-      <div style="position:absolute; top:0; left:0; right:0; height:12px; background:${accent}; z-index:4;"></div>
-      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: false, heightPx: g.isStory ? 88 : 72, top: g.wmTop, left: g.padX })}
-      <div style="position:absolute; top:${g.wmTop}px; right:${g.padX}px; border:2px solid ${accent}; color:${accent}; font-weight:800; font-size:19px; padding:9px 17px; border-radius:5px; text-transform:uppercase; letter-spacing:3px; z-index:4;">MAYORISTA</div>
+      <div style="position:absolute; top:0; left:0; right:0; height:16px; background:linear-gradient(90deg, #FF6B1A 0%, #C1440C 100%); box-shadow:0 0 25px rgba(232,93,27,.6); z-index:4;"></div>
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: false, heightPx: g.isStory ? 92 : 76, top: g.wmTop, left: g.padX })}
+      <div style="position:absolute; top:${g.wmTop}px; right:${g.padX}px; background:rgba(232,93,27,.15); border:1.5px solid ${accent}; color:${accent}; font-weight:800; font-size:18px; padding:10px 22px; border-radius:100px; text-transform:uppercase; letter-spacing:3px; box-shadow:0 8px 24px rgba(232,93,27,.3); z-index:4;">MAYORISTA</div>
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
-        ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 74 : 62}px; line-height:.98; text-transform:uppercase; color:#fff; max-width:94%;">${esc(opts.overlayTitle)}</div>` : ''}
-        <div style="display:inline-flex; align-items:center; gap:12px; background:${accent}; color:#fff; font-weight:800; font-size:${g.isStory ? 32 : 28}px; letter-spacing:1px; padding:16px 34px; border-radius:100px; margin-top:28px; text-transform:uppercase;">Pedí tu presupuesto</div>
+        ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 78 : 64}px; line-height:.96; text-transform:uppercase; color:#fff; max-width:94%; text-shadow:0 4px 25px rgba(0,0,0,.8); letter-spacing:.5px;">${esc(opts.overlayTitle)}</div>` : ''}
+        <div style="display:inline-flex; align-items:center; gap:14px; background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); color:#fff; font-weight:800; font-size:${g.isStory ? 32 : 28}px; letter-spacing:2px; padding:18px 38px; border-radius:100px; margin-top:30px; text-transform:uppercase; box-shadow:0 15px 35px rgba(232,93,27,.5); border:1px solid rgba(255,255,255,.28);">PEDÍ TU PRESUPUESTO <span style="font-size:26px;">→</span></div>
       </div>
       ${domainHtml(g, { accent })}
     </div>
