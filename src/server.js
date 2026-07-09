@@ -238,6 +238,11 @@ app.get('/api/cron/has-pending-renders', authCron, wrap(async (req, res) => {
 /* ----------------------- Calendario ----------------------- */
 app.get('/api/calendar', wrap(async (req, res) => {
   const days = Math.min(Number(req.query.days || 14), 60);
+  // Días hacia atrás: nada se borra de la base cuando una pieza no se publica
+  // (por ej. se pasó la ventana horaria) — sólo queda fuera de la vista por defecto
+  // porque normalmente sólo interesa hoy en adelante. Con `back` se puede pedir
+  // días anteriores sin costo extra: es la misma fila que ya estaba guardada.
+  const back = Math.min(Math.max(Number(req.query.back) || 0, 0), 90);
 
   // Sólo sembramos si el calendario está vacío (no en cada carga: eso era lento).
   if (await calendarIsEmpty()) await seedCalendar(days);
@@ -248,7 +253,8 @@ app.get('/api/calendar', wrap(async (req, res) => {
             a.meta_post_id, a.status as asset_status, a.format as asset_format, a.slides,
             a.edited_video_path, a.edit_status, a.voiceover_path, a.est_cost_usd, a.gen_model, a.qa_notes,
             p.name as product_name, p.image_url as product_image_url, p.price as product_price, p.stock as product_stock,
-            COALESCE(cd.events, '[]'::json) AS commercial_dates
+            COALESCE(cd.events, '[]'::json) AS commercial_dates,
+            pq.status as queue_status, pq.last_error as queue_error
      FROM content_calendar c
      LEFT JOIN LATERAL (
        SELECT * FROM generated_assets WHERE calendar_id = c.id ORDER BY id DESC LIMIT 1
@@ -267,10 +273,14 @@ app.get('/api/calendar', wrap(async (req, res) => {
        FROM commercial_dates d
        WHERE d.event_date = c.scheduled_date
      ) cd ON true
-     WHERE c.scheduled_date >= CURRENT_DATE
+     LEFT JOIN LATERAL (
+       SELECT status, last_error FROM publish_queue WHERE asset_id = a.id ORDER BY id DESC LIMIT 1
+     ) pq ON true
+     WHERE c.scheduled_date >= CURRENT_DATE - ($2 || ' days')::interval
+       AND c.scheduled_date < CURRENT_DATE + ($1 || ' days')::interval
      ORDER BY c.scheduled_date ASC, c.id ASC
-     LIMIT $1`,
-    [days]
+     LIMIT 500`,
+    [days, back]
   );
   res.json(rows);
 }));

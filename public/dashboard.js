@@ -276,6 +276,18 @@ function setCalDays(n) {
   localStorage.setItem('calViewDays', String(calendarViewDays));
 }
 let calendarViewDays = loadCalDays();
+// Días para atrás que se piden junto con el calendario (nada se borra: una pieza que
+// no se publicó a tiempo sigue en la base, sólo hay que pedirla). 0 = sólo hoy en
+// adelante (comportamiento de siempre). Se persiste para no tener que re-elegirlo.
+function loadCalBack() {
+  const saved = Number(localStorage.getItem('calBackDays'));
+  return [0, 3, 7, 14, 30].includes(saved) ? saved : 0;
+}
+let calBackDays = loadCalBack();
+function setCalBack(n) {
+  calBackDays = n;
+  localStorage.setItem('calBackDays', String(calBackDays));
+}
 const filters = { status: 'all', format: 'all', pillar: 'all', auto: 'all', comercial: 'all', q: '' };
 function comercialOf(it) {
   if (it.pillar === 'mayorista') return 'mayorista';
@@ -349,8 +361,16 @@ function renderFilters() {
     <option value="all">${label}: todos</option>
     ${opts.map((o) => `<option value="${o.v}" ${o.v === val ? 'selected' : ''}>${o.t}</option>`).join('')}</select>`;
   const bar = document.getElementById('filters');
+  const backSel = `<select class="filter" id="f-back" title="Piezas de días anteriores: no se borran, sólo se ocultan por defecto" onchange="onCalBack(this.value)">
+    <option value="0" ${calBackDays === 0 ? 'selected' : ''}>Desde hoy</option>
+    <option value="3" ${calBackDays === 3 ? 'selected' : ''}>+ 3 días atrás</option>
+    <option value="7" ${calBackDays === 7 ? 'selected' : ''}>+ 7 días atrás</option>
+    <option value="14" ${calBackDays === 14 ? 'selected' : ''}>+ 14 días atrás</option>
+    <option value="30" ${calBackDays === 30 ? 'selected' : ''}>+ 30 días atrás</option>
+  </select>`;
   bar.innerHTML =
     `<span style="display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:12px;font-weight:700;">${icon('filter')} Filtros</span>` +
+    backSel +
     sel('f-status', 'Estado', [
       { v: 'sin-generar', t: 'Sin generar' }, { v: 'draft', t: 'Borrador' },
       { v: 'approved', t: 'Aprobado' }, { v: 'published', t: 'Publicado' }, { v: 'repost', t: 'Descanso' },
@@ -363,6 +383,11 @@ function renderFilters() {
     `<span class="filter-count" id="f-count"></span>`;
 }
 
+function onCalBack(val) {
+  setCalBack(Number(val) || 0);
+  loadCalendar();
+}
+
 function onFilter(id, val) {
   const map = { 'f-status': 'status', 'f-format': 'format', 'f-pillar': 'pillar', 'f-auto': 'auto', 'f-comercial': 'comercial', 'f-q': 'q' };
   filters[map[id]] = val;
@@ -373,7 +398,7 @@ async function loadCalendar() {
   const list = document.getElementById('calendar-list');
   list.innerHTML = skeleton('cards', 3);
   try {
-    calItems = await api(`/api/calendar?days=${calendarViewDays}`);
+    calItems = await api(`/api/calendar?days=${calendarViewDays}&back=${calBackDays}`);
     document.getElementById('next-plan').innerHTML =
       `${icon('bot')} <b>Automático:</b> genera piezas todos los días a las <b>07:00 ARG</b>. Todo lo que apruebes y sea automático se publica solo <b>en su horario</b> (si se pasa la ventana por algún error, queda para republicar a mano, no sale a cualquier hora). Sólo las piezas <b>Semi</b> las publicás vos a mano (para sumarles el sticker/encuesta).`;
     renderFilters();
@@ -772,6 +797,10 @@ function renderCard(item) {
   const autoBadge = (!isRepost && isSemi)
     ? `<span class="badge semi"><span class="idot amber"></span>Semi · publicás vos</span>` : '';
   const statusBadge = aid ? `<span class="badge status-${item.asset_status || item.status}">${statusLabel(item.asset_status || item.status)}</span>` : '';
+  // La pieza sigue existiendo (nada se borra): esto avisa que no salió en su horario
+  // (venció la ventana de publicación) y quedó para republicar a mano si todavía sirve.
+  const missedBadge = (aid && item.queue_status === 'failed' && status !== 'published')
+    ? `<span class="badge qa-warn" title="${esc(item.queue_error || 'No se publicó a tiempo.')}">${icon('alert')} no se publicó a tiempo</span>` : '';
   // Qué costó generar ESTA pieza (imágenes IA). 0 = salió gratis (plantilla/copy free tier).
   const pieceCost = Number(item.est_cost_usd || 0);
   const costBadge = aid
@@ -863,7 +892,7 @@ function renderCard(item) {
         ${commercialBadge}
         ${dateBadges}
         ${item.scheduled_time ? `<span class="badge time">${icon('clock')} ${esc(item.scheduled_time)} hs</span>` : ''}
-        ${autoBadge}${statusBadge}${costBadge}${modelBadge}${qaBadge}
+        ${autoBadge}${statusBadge}${missedBadge}${costBadge}${modelBadge}${qaBadge}
       </div>
       ${caption}
       ${interaction}

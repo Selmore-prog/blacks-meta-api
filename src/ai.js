@@ -304,12 +304,16 @@ async function geminiGenerateContent(model, body) {
     } else {
       const promptText = body?.contents?.map(c => c?.parts?.filter(p => p.text)?.map(p => p.text)?.join('\n'))?.join('\n') || '';
       const aspectRatio = body?.aspectRatio || '1:1';
+      // negativePrompt: Imagen le da más peso a este campo dedicado que a una mención
+      // de "sin texto" perdida en medio de un prompt largo — por eso además de estar
+      // en el prompt, se manda acá aparte.
+      const negativePrompt = 'text, letters, words, numbers, typography, title, banner, sign, coupon code, price tag, watermark, logo, wordmark, emblem, badge, invented brand mark';
       const predictRes = await fetch(`${GEMINI_BASE}/models/${targetModel}:predict`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.gemini.apiKey },
         body: JSON.stringify({
           instances: [{ prompt: promptText }],
-          parameters: { sampleCount: 1, aspectRatio },
+          parameters: { sampleCount: 1, aspectRatio, negativePrompt },
         }),
       });
       if (predictRes.ok) {
@@ -444,6 +448,51 @@ function inlineImageFromResponse(data) {
     }
   }
   return null;
+}
+
+/**
+ * Regla dura anti-texto/anti-logo, compartida por todos los prompts de imagen.
+ * Repetida a propósito con distintas palabras: algunos modelos (Imagen sobre todo)
+ * ignoran una única mención de "sin texto" en medio de un prompt largo.
+ * strict=true se usa en el segundo intento, si el primero vino con texto/logo.
+ */
+function noTextNoLogoRule(strict = false) {
+  const base = `REGLA DURA — CERO TIPOGRAFÍA: la salida es SOLO la fotografía/ilustración, sin ninguna letra, palabra, número, título, cartel, código, precio, cupón, sticker ni tipografía de ningún tipo, en NINGÚN idioma (ni español, ni inglés, ni inventado) — ni siquiera la palabra "BLACKS". El texto y el logo se agregan DESPUÉS con un sistema de diseño aparte; si la imagen trae cualquier rastro de texto o de un logo/isotipo (real o inventado), se descarta entera.
+REGLA DURA — CERO LOGOS: prohibido inventar o insinuar un logo, isotipo, escudo, sello o marca gráfica de ningún tipo (ni de BLACKS ni de ninguna otra marca), aunque sea sutil o parcialmente tapado.`;
+  if (!strict) return base;
+  return `${base}
+REINTENTO ESTRICTO: el intento anterior violó esta regla. Es la instrucción MÁS IMPORTANTE del prompt, por encima de cualquier otra idea creativa — priorizala incluso si el resultado es una composición más simple y menos "publicitaria". Ante la duda, dejá más aire vacío y menos elementos en vez de arriesgarte a escribir algo.`;
+}
+
+/**
+ * Verificación de calidad post-generación: se le muestra la imagen ya generada a un
+ * modelo de visión y se le pregunta si coló texto o un logo (lo que rompió la pieza
+ * de Independencia: un botín inventado con un titular en inglés mal escrito horneado
+ * en la foto). Best-effort — si el chequeo en sí falla (cuota, red), se asume OK para
+ * no trabar todo el pipeline por un problema de la verificación y no de la imagen.
+ */
+async function checkImageQuality(img) {
+  try {
+    const data = await geminiGenerateContent(config.gemini.visionModel, {
+      contents: [{
+        role: 'user',
+        parts: [
+          { text: `Sos control de calidad de una agencia de publicidad. Mirá esta imagen y respondé SOLO un JSON, sin explicación adicional: {"hasText": bool, "hasLogo": bool, "notes": "breve, en español"}.
+- "hasText": true si aparece CUALQUIER letra, palabra, número, título, cartel, código de cupón o tipografía visible en la foto, en cualquier idioma, sin importar cuán chica, borrosa o parcial.
+- "hasLogo": true SOLO si aparece un logo, isotipo o wordmark de MARCA COMERCIAL (inventada o real: por ejemplo un logo de ropa, de calzado, o cualquier isotipo tipo "sello de marca"). NO cuenta como logo: banderas nacionales (incluida la bandera Argentina con su sol), escudos patrios, ni símbolos religiosos, deportivos o culturales genéricos — esos SÍ pueden estar si el contexto de la escena los pide.` },
+          { inlineData: { data: img.buffer.toString('base64'), mimeType: img.mimeType } },
+        ],
+      }],
+      generationConfig: { temperature: 0, maxOutputTokens: 150, thinkingConfig: { thinkingBudget: 0 } },
+    });
+    const raw = textFromResponse(data).replace(/```json|```/g, '').trim();
+    const match = raw.match(/\{[\s\S]*\}/);
+    const obj = JSON.parse(match ? match[0] : raw);
+    return { ok: !obj.hasText && !obj.hasLogo, hasText: !!obj.hasText, hasLogo: !!obj.hasLogo, notes: obj.notes || '' };
+  } catch (err) {
+    console.warn(`[ai] chequeo de calidad de imagen falló (sigo, asumo OK): ${err.message}`);
+    return { ok: true };
+  }
 }
 
 /* =========================================================================
@@ -637,9 +686,14 @@ async function generateBackground({ theme, brief, occasion, format = 'feed', ref
 
   const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
   const brandStyle = await brandStyleForImages();
-  const prompt = `Actuás como DIRECTOR DE ARTE SENIOR y ESPECIALISTA EN PROMPT ENGINEERING de una agencia creativa premium. Generá la fotografía de fondo ${ratio} para una pieza comercial de BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
+  const hasRefs = referenceImages.slice(0, 3).some((r) => r && r.data && r.mimeType);
+  const buildPrompt = (strict) => `Actuás como DIRECTOR DE ARTE SENIOR y ESPECIALISTA EN PROMPT ENGINEERING de una agencia creativa premium. Generá la fotografía de fondo ${ratio} para una pieza comercial de BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
 
 CONCEPTO GENERAL (la imagen tiene que contarlo con autoridad visual, no ser decorativa): "${theme || 'ropa de trabajo e industria'}".${briefBlock(brief)}${occasionGuidance(occasion)}
+
+QUÉ MOSTRAR (sin foto de referencia de ningún producto puntual — esto es un FONDO/AMBIENTE, no un producto):
+- Está PROHIBIDO inventar un producto específico como protagonista: nada de un calzado, bota, campera o prenda puntual en primer plano, nítida y reconocible como "el producto" — eso NO existe en el catálogo real y arruina la pieza (fue justo lo que pasó con un botín inventado que no vendemos).
+- Mostrá en cambio AMBIENTE y CONTEXTO: el espacio de trabajo (taller, obra, depósito, galpón), herramientas, texturas, materiales, luz. Si aparece indumentaria o calzado, que sea genérico y secundario — de fondo, algo desenfocado o parcialmente fuera de cuadro, nunca el centro de atención ni con detalle de marca/diseño particular.
 
 DIRECCIÓN DE FOTOGRAFÍA Y ÓPTICA COMERCIAL:
 - Fotografía editorial hiperrealista, calidad de campaña publicitaria impresa de alta gama. Lente Hasselblad H6D-100c, óptica 50mm/85mm f/1.8 prime lens, apertura amplia, profundidad de campo real y micro-texturas ultra nítidas.
@@ -655,26 +709,39 @@ REALISMO ANTI-IA (crítico — la foto tiene que pasar por tomada con cámara re
 
 ARQUITECTURA DE NEGATIVE SPACE Y ZONAS SEGURAS (TEXT SAFE AREAS):
 - Composición por regla de los tercios con AMPLIO espacio negativo limpio y desenfocado (bokeh/depth of field) en el tercio superior e inferior para permitir la legibilidad absoluta del copy/titular tipográfico que se superpondrá después.
-- LA SALIDA ES SOLO LA FOTOGRAFÍA. El diseño gráfico (títulos, precios, logos, íconos, placas) lo agrega DESPUÉS otro sistema: si la imagen trae CUALQUIER texto, letra, número, ícono o logo, se descarta y se pierde el trabajo.
-- PROHIBIDO además: marcas visibles, caras reconocibles en primer plano, manos deformes, objetos flotando, aspecto render 3D o IA evidente. Si hay personas, de espaldas o con desenfoque suave.`;
+${noTextNoLogoRule(strict)}
+- PROHIBIDO además: caras reconocibles en primer plano, manos deformes, objetos flotando, aspecto render 3D o IA evidente. Si hay personas, de espaldas o con desenfoque suave.`;
 
-  try {
-    const parts = [{ text: prompt }];
-    for (const ref of referenceImages.slice(0, 3)) {
-      if (ref && ref.data && ref.mimeType) parts.push({ inlineData: { data: ref.data, mimeType: ref.mimeType } });
+  let spent = 0;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const parts = [{ text: buildPrompt(attempt > 0) }];
+      for (const ref of referenceImages.slice(0, 3)) {
+        if (ref && ref.data && ref.mimeType) parts.push({ inlineData: { data: ref.data, mimeType: ref.mimeType } });
+      }
+      const data = await geminiGenerateContent(config.gemini.imageModel, {
+        contents: [{ role: 'user', parts }],
+        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+      });
+      const img = inlineImageFromResponse(data);
+      if (!img) continue;
+      spent += await logImageUsage('fondo'); // se generó y se gastó, se use o no
+      // Sin referencia real, el chequeo de calidad es la única red de seguridad contra
+      // texto/logo horneado en la imagen — vale la pena aunque cueste un poco más.
+      const check = hasRefs ? { ok: true } : await checkImageQuality(img);
+      if (!check.ok) {
+        console.warn(`[ai] generateBackground: descartada por control de calidad (texto=${check.hasText} logo=${check.hasLogo} ${check.notes || ''}), reintentando más estricto...`);
+        continue;
+      }
+      img.costUsd = spent;
+      return img;
+    } catch (err) {
+      if (err.status === 429) { markImageQuotaHit(); console.warn(`[ai] Cuota de imágenes agotada (429): pauso ${IMAGE_QUOTA_COOLDOWN_MS / 60000} min y sigo con plantilla mientras tanto.`); return null; }
+      console.warn(`[ai] generateBackground falló (intento ${attempt + 1}/2): ${err.message}`);
     }
-    const data = await geminiGenerateContent(config.gemini.imageModel, {
-      contents: [{ role: 'user', parts }],
-      generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
-    });
-    const img = inlineImageFromResponse(data);
-    if (img) img.costUsd = await logImageUsage('fondo');
-    return img;
-  } catch (err) {
-    if (err.status === 429) { markImageQuotaHit(); console.warn(`[ai] Cuota de imágenes agotada (429): pauso ${IMAGE_QUOTA_COOLDOWN_MS / 60000} min y sigo con plantilla mientras tanto.`); }
-    else console.warn(`[ai] generateBackground falló (sigo con diseño plano): ${err.message}`);
-    return null;
   }
+  console.warn('[ai] generateBackground: sin resultado limpio tras reintentar, sigo con diseño plano.');
+  return null;
 }
 
 /**
@@ -685,32 +752,44 @@ ARQUITECTURA DE NEGATIVE SPACE Y ZONAS SEGURAS (TEXT SAFE AREAS):
 async function generateDiagram({ topic, format = 'feed' } = {}) {
   if (!config.ai.useAiImages || !hasGemini() || isImageQuotaCoolingDown()) return null;
 
-  const prompt = `Actuás como ILUSTRADOR TÉCNICO EDITORIAL de una marca de indumentaria de trabajo. Generá UNA ilustración didáctica (NO una fotografía) que ENSEÑE visualmente este tema: "${topic || 'cómo elegir ropa de trabajo'}".
+  const buildPrompt = (strict) => `Actuás como ILUSTRADOR TÉCNICO EDITORIAL de una marca de indumentaria de trabajo. Generá UNA ilustración didáctica (NO una fotografía) que ENSEÑE visualmente este tema: "${topic || 'cómo elegir ropa de trabajo'}".
 
 QUÉ TIENE QUE SER:
-- Un dibujo instructivo claro, tipo manual/infografía SIN texto: por ejemplo, la silueta de una prenda con cinta métrica y flechas mostrando DÓNDE se mide (pecho, cintura, largo), un botín en corte mostrando la puntera de acero, o una comparativa lado a lado de dos prendas.
-- Estilo ilustración vectorial plana (flat), trazos limpios y gruesos, mínima cantidad de elementos. Nada de estilo cartoon infantil ni 3D.
+- Un dibujo instructivo claro, tipo manual/infografía: por ejemplo, la silueta de una prenda con cinta métrica y flechas mostrando DÓNDE se mide (pecho, cintura, largo), un botín en corte mostrando la puntera de acero, o una comparativa lado a lado de dos prendas. Las flechas y líneas indicadoras SÍ pueden estar (son dibujo, no texto); los NÚMEROS y ETIQUETAS de esas medidas los agrega después el sistema de diseño.
+- Estilo ilustración vectorial plana (flat), trazos limpios y gruesos, mínima cantidad de elementos. Nada de estilo cartoon infantil ni 3D. Genérico: no un producto puntual del catálogo, sino la idea/silueta ilustrada.
 
 PALETA (obligatoria, es la identidad de la marca):
 - Fondo blanco o gris muy claro (#f4f4f5), LISO.
 - Línea principal en gris carbón oscuro (#1c1c1e).
 - UN solo color de acento: naranja quemado (#C1440C) para las flechas/indicaciones importantes.
 
-REGLA DURA: la salida es SOLO el dibujo. PROHIBIDO cualquier texto, letra, número, cota, logo o etiqueta (los textos los agrega otro sistema después; si aparece alguno, la imagen se descarta). Composición centrada con aire alrededor, formato ${format === 'story' ? 'vertical' : 'cuadrado/vertical'}.`;
+${noTextNoLogoRule(strict)}
+Composición centrada con aire alrededor, formato ${format === 'story' ? 'vertical' : 'cuadrado/vertical'}.`;
 
-  try {
-    const data = await geminiGenerateContent(config.gemini.imageModel, {
-      contents: [{ role: 'user', parts: [{ text: prompt }] }],
-      generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
-    });
-    const img = inlineImageFromResponse(data);
-    if (img) img.costUsd = await logImageUsage('ilustración didáctica');
-    return img;
-  } catch (err) {
-    if (err.status === 429) { markImageQuotaHit(); console.warn(`[ai] Cuota de imágenes agotada (429): pauso ${IMAGE_QUOTA_COOLDOWN_MS / 60000} min.`); }
-    else console.warn(`[ai] generateDiagram falló (sigo sin ilustración): ${err.message}`);
-    return null;
+  let spent = 0;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const data = await geminiGenerateContent(config.gemini.imageModel, {
+        contents: [{ role: 'user', parts: [{ text: buildPrompt(attempt > 0) }] }],
+        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+      });
+      const img = inlineImageFromResponse(data);
+      if (!img) continue;
+      spent += await logImageUsage('ilustración didáctica');
+      const check = await checkImageQuality(img);
+      if (!check.ok) {
+        console.warn(`[ai] generateDiagram: descartada por control de calidad (texto=${check.hasText} logo=${check.hasLogo} ${check.notes || ''}), reintentando más estricto...`);
+        continue;
+      }
+      img.costUsd = spent;
+      return img;
+    } catch (err) {
+      if (err.status === 429) { markImageQuotaHit(); console.warn(`[ai] Cuota de imágenes agotada (429): pauso ${IMAGE_QUOTA_COOLDOWN_MS / 60000} min.`); return null; }
+      console.warn(`[ai] generateDiagram falló (intento ${attempt + 1}/2): ${err.message}`);
+    }
   }
+  console.warn('[ai] generateDiagram: sin resultado limpio tras reintentar, sigo sin ilustración.');
+  return null;
 }
 
 /**
@@ -731,7 +810,7 @@ async function generateProductScene({ productImageUrl, productName, theme, brief
 
   const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
   const brandStyle = await brandStyleForImages();
-  const prompt = `Actuás como DIRECTOR DE ARTE SENIOR de una campaña publicitaria high-end. Tomá EXACTAMENTE el producto adjunto de la imagen de referencia (fidelidad absoluta de marca: mismo modelo, geometría, color, costuras, etiquetas — queda terminantemente prohibido rediseñarlo o alterar sus proporciones) y componé una escena comercial de catálogo ${ratio} para BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
+  const buildPrompt = (strict) => `Actuás como DIRECTOR DE ARTE SENIOR de una campaña publicitaria high-end. Tomá EXACTAMENTE el producto adjunto de la imagen de referencia (fidelidad absoluta de marca: mismo modelo, geometría, color, costuras, etiquetas — queda terminantemente prohibido rediseñarlo, inventarle detalles que no tiene, o alterar sus proporciones) y componé una escena comercial de catálogo ${ratio} para BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
 
 CONTEXTO DE LA PIEZA: ${theme || productName || 'indumentaria laboral y seguridad industrial'}.${briefBlock(brief)}${occasionGuidance(occasion)}
 
@@ -749,22 +828,33 @@ REALISMO Y PRESERVACIÓN ESTRUCTURAL (PRODUCT-IN-CONTEXT):
 
 ARQUITECTURA DE ZONAS SEGURAS (NEGATIVE SPACE):
 - Aire limpio y desenfocado en los tercios superior e inferior para garantizar contraste absoluto al superponer titulares y precios.
-- LA SALIDA ES SOLO LA FOTOGRAFÍA. El diseño gráfico (títulos, precios, logos, íconos, placas, badges) lo agrega DESPUÉS otro sistema: si la imagen trae CUALQUIER texto, letra, número, ícono o placa gráfica, se descarta y se pierde el trabajo.
-- PROHIBIDO además: logos inventados, manos/pies deformes, duplicar el producto, cambiarle color o forma, o aspecto de render 3D artificial.`;
+${noTextNoLogoRule(strict)}
+- PROHIBIDO además: manos/pies deformes, duplicar el producto, cambiarle color o forma, o aspecto de render 3D artificial.`;
 
-  try {
-    const data = await geminiGenerateContent(config.gemini.imageModel, {
-      contents: [{ role: 'user', parts: [{ text: prompt }, { inlineData: ref }] }],
-      generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
-    });
-    const img = inlineImageFromResponse(data);
-    if (img) img.costUsd = await logImageUsage('escena de producto');
-    return img;
-  } catch (err) {
-    if (err.status === 429) { markImageQuotaHit(); console.warn(`[ai] Cuota de imágenes agotada (429): pauso ${IMAGE_QUOTA_COOLDOWN_MS / 60000} min y sigo con la foto del producto mientras tanto.`); }
-    else console.warn(`[ai] generateProductScene falló (uso plantilla): ${err.message}`);
-    return null;
+  let spent = 0;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const data = await geminiGenerateContent(config.gemini.imageModel, {
+        contents: [{ role: 'user', parts: [{ text: buildPrompt(attempt > 0) }, { inlineData: ref }] }],
+        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+      });
+      const img = inlineImageFromResponse(data);
+      if (!img) continue;
+      spent += await logImageUsage('escena de producto');
+      const check = await checkImageQuality(img);
+      if (!check.ok) {
+        console.warn(`[ai] generateProductScene: descartada por control de calidad (texto=${check.hasText} logo=${check.hasLogo} ${check.notes || ''}), reintentando más estricto...`);
+        continue;
+      }
+      img.costUsd = spent;
+      return img;
+    } catch (err) {
+      if (err.status === 429) { markImageQuotaHit(); console.warn(`[ai] Cuota de imágenes agotada (429): pauso ${IMAGE_QUOTA_COOLDOWN_MS / 60000} min y sigo con la foto del producto mientras tanto.`); return null; }
+      console.warn(`[ai] generateProductScene falló (intento ${attempt + 1}/2): ${err.message}`);
+    }
   }
+  console.warn('[ai] generateProductScene: sin resultado limpio tras reintentar, uso la foto del producto.');
+  return null;
 }
 
 /**
@@ -795,9 +885,9 @@ async function generateStudioScene({ products = [], theme, format = 'feed' } = {
   const brandStyle = await brandStyleForImages();
   const names = products.map((p, i) => `${i + 1}. ${p.name}`).join('\n');
 
-  const prompt = `Actuás como DIRECTOR DE ARTE SENIOR y FOTÓGRAFO COMERCIAL DE ALTA GAMA. Componé UNA fotografía publicitaria ${ratio} para BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
+  const buildPrompt = (strict) => `Actuás como DIRECTOR DE ARTE SENIOR y FOTÓGRAFO COMERCIAL DE ALTA GAMA. Componé UNA fotografía publicitaria ${ratio} para BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
 
-PRODUCTOS DE REFERENCIA (${refs.length} foto${refs.length > 1 ? 's' : ''} adjunta${refs.length > 1 ? 's' : ''} — FIDELIDAD ABSOLUTA a cada uno: conserva geometría, color exacto, costuras, ojales, suelas, logotipos y terminaciones; prohibido rediseñarlos ni alterar sus proporciones):
+PRODUCTOS DE REFERENCIA (${refs.length} foto${refs.length > 1 ? 's' : ''} adjunta${refs.length > 1 ? 's' : ''} — FIDELIDAD ABSOLUTA a cada uno: conserva geometría, color exacto, costuras, ojales, suelas, logotipos y terminaciones; prohibido rediseñarlos, inventarles detalles que no tienen, o alterar sus proporciones):
 ${names}
 
 ${isCombo
@@ -812,23 +902,36 @@ DIRECCIÓN DE FOTOGRAFÍA Y ÓPTICA COMERCIAL:
 - Color grading premium: Kodak Portra 400, base oscuro/carbón (#1c1c1e) con acentos naranja quemado (#C1440C) sutiles.
 - REALISMO ANTI-IA: Imperfecciones creíbles en el entorno (desgaste en piso o herramientas), una sola fuente de luz coherente. Manos anatómicamente perfectas si aparecen.
 
-REGLA DURA DE NEGATIVE SPACE: LA SALIDA ES SOLO LA FOTOGRAFÍA. Prohibido incluir texto, letras, números, logos inventados o placas gráficas superpuestas. Aire limpio y desenfocado arriba y abajo para futura superposición tipográfica.`;
+${noTextNoLogoRule(strict)}
+Aire limpio y desenfocado arriba y abajo para futura superposición tipográfica.`;
 
-  try {
-    const parts = [{ text: prompt }, ...refs.map((r) => ({ inlineData: r }))];
-    const data = await geminiGenerateContent(config.gemini.imageModel, {
-      contents: [{ role: 'user', parts }],
-      generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
-    });
-    const img = inlineImageFromResponse(data);
-    if (img) img.costUsd = await logImageUsage('estudio');
-    if (img) img.prompt = prompt;
-    return img;
-  } catch (err) {
-    if (err.status === 429) { markImageQuotaHit(); console.warn('[ai] Cuota de imágenes agotada (429) en el estudio.'); }
-    else console.warn(`[ai] generateStudioScene falló: ${err.message}`);
-    return null;
+  let spent = 0;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    try {
+      const prompt = buildPrompt(attempt > 0);
+      const parts = [{ text: prompt }, ...refs.map((r) => ({ inlineData: r }))];
+      const data = await geminiGenerateContent(config.gemini.imageModel, {
+        contents: [{ role: 'user', parts }],
+        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+      });
+      const img = inlineImageFromResponse(data);
+      if (!img) continue;
+      spent += await logImageUsage('estudio');
+      const check = await checkImageQuality(img);
+      if (!check.ok) {
+        console.warn(`[ai] generateStudioScene: descartada por control de calidad (texto=${check.hasText} logo=${check.hasLogo} ${check.notes || ''}), reintentando más estricto...`);
+        continue;
+      }
+      img.costUsd = spent;
+      img.prompt = prompt;
+      return img;
+    } catch (err) {
+      if (err.status === 429) { markImageQuotaHit(); console.warn('[ai] Cuota de imágenes agotada (429) en el estudio.'); return null; }
+      console.warn(`[ai] generateStudioScene falló (intento ${attempt + 1}/2): ${err.message}`);
+    }
   }
+  console.warn('[ai] generateStudioScene: sin resultado limpio tras reintentar.');
+  return null;
 }
 
 /* =========================================================================
