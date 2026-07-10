@@ -496,6 +496,7 @@ async function renderPostBuffer(options) {
       productImageUrl, productImageUrls: options.productImageUrls || [],
       productName: options.overlayTitle, theme: options.bgTheme,
       brief: options.bgBrief, occasion: options.bgOccasion, format,
+      seed: options.layoutSeed, // variedad de escenario/luz/cámara por pieza
     });
     if (scene) {
       bgImageUrl = `data:${scene.mimeType};base64,${scene.buffer.toString('base64')}`;
@@ -518,6 +519,7 @@ async function renderPostBuffer(options) {
     const bg = await generateBackground({
       theme: options.bgTheme || options.overlayTitle,
       brief: options.bgBrief, occasion: options.bgOccasion, format,
+      seed: options.layoutSeed,
     });
     if (bg) {
       bgImageUrl = `data:${bg.mimeType};base64,${bg.buffer.toString('base64')}`;

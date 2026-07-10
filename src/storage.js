@@ -30,7 +30,10 @@ async function uploadAsset({ buffer, filename, contentType }) {
     const bucket = config.supabase.bucket || 'blacks-assets';
     const { data, error } = await supabase.storage
       .from(bucket)
-      .upload(filename, buffer, { contentType, upsert: true });
+      // cacheControl 1 año: los archivos son inmutables (nombre con timestamp), así el
+      // navegador/CDN no los re-descarga en cada carga del panel — menos egress de
+      // Supabase (la cuota de egress fue lo que dejó al proyecto en 402 en jul-2026).
+      .upload(filename, buffer, { contentType, upsert: true, cacheControl: '31536000' });
 
     if (error) {
       console.error(`[storage] Error subiendo a Supabase Storage (${bucket}/${filename}):`, error.message);

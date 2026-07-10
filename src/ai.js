@@ -513,6 +513,62 @@ function inlineImageFromResponse(data) {
   return null;
 }
 
+/* =========================================================================
+ * VARIEDAD DE ESCENA (anti-monotonía)
+ * Los prompts fijos ("taller metalúrgico + naranja quemado") hacían que todas
+ * las piezas se parecieran — y un feed repetitivo grita IA. Cada pieza elige
+ * una combinación distinta de escenario/luz/cámara, determinística por seed
+ * (mismo slot = misma escena al regenerar plantilla, distinto slot = distinta).
+ * ========================================================================= */
+
+const SCENE_POOL = {
+  escenario: [
+    'taller metalúrgico con banco de trabajo de acero, morsa, virutas y herramientas colgadas en un panel',
+    'obra en construcción: encofrados de madera, hierros del 8 atados con alambre, bloques y polvo de cemento en el aire',
+    'depósito logístico con racks altos cargados, pallets de madera marcada y una zorra hidráulica',
+    'galpón industrial amplio con portón corredizo alto abierto, piso de hormigón alisado con marcas de uso',
+    'taller mecánico rural: máquinas agrícolas, mesada con grasa, madera gastada y bidones',
+    'estructura metálica en montaje con andamios tubulares y tablones',
+    'carpintería con madera estacionada apilada, aserrín flotando en la luz y prensas de banco',
+    'patio de materiales a cielo abierto con contenedores oxidados, chapas onduladas y cadenas',
+  ],
+  luz: [
+    'sol bajo de la tarde entrando rasante por el portón: sombras largas, tonos cálidos y bordes dorados',
+    'mediodía con haces de luz volumétrica cayendo desde tragaluces altos, polvo en suspensión visible',
+    'amanecer frío con neblina suave: luz azulada, contraste bajo y ambiente callado',
+    'noche de taller: lámparas halógenas colgantes que arman islas de luz cálida sobre fondo en penumbra',
+    'día nublado de luz pareja y difusa, colores naturales desaturados tipo documental',
+    'contraluz dramático desde una abertura: siluetas recortadas con rim light y flare sutil',
+  ],
+  camara: [
+    'ángulo bajo (contrapicado suave) que le da presencia y solidez al sujeto',
+    'cámara a la altura del pecho, encuadre frontal en tres cuartos, naturalidad de foto documental',
+    'leve picado sobre la superficie de trabajo, casi flat-lay pero con perspectiva real',
+    'cámara a ras del piso: primer plano protagonista y fondo profundo totalmente desenfocado',
+    'plano medio lateral con capas de profundidad: algo fuera de foco en primerísimo plano, sujeto nítido detrás',
+  ],
+};
+
+/**
+ * Elige una combinación de escena determinística por seed (o aleatoria sin seed).
+ * Devuelve { escenario, luz, camara, describe() }.
+ */
+function sceneVariation(seed = null) {
+  const n = seed !== null && Number.isFinite(Number(seed))
+    ? Math.abs(Math.trunc(Number(seed)))
+    : Math.floor(Math.random() * 99991);
+  const pick = (arr, salt) => arr[(n * 7 + salt) % arr.length];
+  const v = {
+    escenario: pick(SCENE_POOL.escenario, 0),
+    luz: pick(SCENE_POOL.luz, 3),
+    camara: pick(SCENE_POOL.camara, 5),
+  };
+  v.describe = () => `- ESCENARIO de esta pieza (usalo, no lo cambies por el genérico de siempre): ${v.escenario}.
+- LUZ de esta pieza: ${v.luz}.
+- CÁMARA/ENCUADRE de esta pieza: ${v.camara}.`;
+  return v;
+}
+
 /**
  * Regla dura anti-texto/anti-logo, compartida por todos los prompts de imagen.
  * Repetida a propósito con distintas palabras: algunos modelos (Imagen sobre todo)
@@ -758,11 +814,12 @@ function briefBlock(brief) {
   return `\nBRIEF DE LA PIEZA (respetá estas indicaciones al pie de la letra; las que pidan texto/cupón/precio se resuelven después con tipografía, vos NO escribas texto): "${brief}"`;
 }
 
-async function generateBackground({ theme, brief, occasion, format = 'feed', referenceImages = [] } = {}) {
+async function generateBackground({ theme, brief, occasion, format = 'feed', referenceImages = [], seed = null } = {}) {
   if (!config.ai.useAiImages || !hasGemini() || isImageQuotaCoolingDown()) return null;
 
   const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
   const brandStyle = await brandStyleForImages();
+  const scene = sceneVariation(seed);
   const hasRefs = referenceImages.slice(0, 3).some((r) => r && r.data && r.mimeType);
   const buildPrompt = (strict) => `Actuás como DIRECTOR DE ARTE SENIOR y ESPECIALISTA EN PROMPT ENGINEERING de una agencia creativa premium. Generá la fotografía de fondo ${ratio} para una pieza comercial de BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
 
@@ -774,8 +831,8 @@ QUÉ MOSTRAR (sin foto de referencia de ningún producto puntual — esto es un 
 
 DIRECCIÓN DE FOTOGRAFÍA Y ÓPTICA COMERCIAL:
 - Fotografía editorial hiperrealista, calidad de campaña publicitaria impresa de alta gama. Lente Hasselblad H6D-100c, óptica 50mm/85mm f/1.8 prime lens, apertura amplia, profundidad de campo real y micro-texturas ultra nítidas.
-- Iluminación comercial motivada (softbox de estudio cenital difuso + luz natural de galpón o sol bajo entrando por portón industrial): contraste dramático chiaroscuro con reflejos especulares limpios y sombras con caída real.
-- Escenario auténtico argentino del rubro: obra en construcción, taller metalúrgico, depósito logístico, galpón, superficies con desgaste creíble. NADA de estudios genéricos ni escenarios plásticos "de stock".
+${scene.describe()}
+- Escenario auténtico argentino del rubro, con superficies de desgaste creíble. NADA de estudios genéricos ni escenarios plásticos "de stock".
 - Color grading sobrio y premium: ciencia de color Kodak Portra 400, base negro/gris carbón con UN acento naranja quemado (#C1440C) apareciendo de forma orgánica en la escena. Grano fílmico sutil.
 ${brandStyle ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
 
@@ -873,7 +930,7 @@ Composición centrada con aire alrededor, formato ${format === 'story' ? 'vertic
  * Genera una ESCENA PROFESIONAL con el producto real adentro (foto de producto como
  * referencia). Devuelve { buffer, mimeType } o null (best-effort, con fallback).
  */
-async function generateProductScene({ productImageUrl, productImageUrls = [], productName, theme, brief, occasion, format = 'feed' } = {}) {
+async function generateProductScene({ productImageUrl, productImageUrls = [], productName, theme, brief, occasion, format = 'feed', seed = null } = {}) {
   if (!config.ai.useAiImages || !hasGemini() || isImageQuotaCoolingDown() || (!productImageUrl && !productImageUrls.length)) return null;
 
   // Hasta 3 fotos del MISMO producto (distintos ángulos): más referencias = menos
@@ -893,6 +950,7 @@ async function generateProductScene({ productImageUrl, productImageUrls = [], pr
 
   const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
   const brandStyle = await brandStyleForImages();
+  const scene = sceneVariation(seed);
   const buildPrompt = (strict) => `Actuás como DIRECTOR DE ARTE SENIOR de una campaña publicitaria high-end. Tomá EXACTAMENTE el producto adjunto de la${refs.length > 1 ? 's' : ''} imagen${refs.length > 1 ? 'es' : ''} de referencia${refs.length > 1 ? ` (son ${refs.length} fotos DEL MISMO producto desde distintos ángulos: usalas todas para reproducirlo fiel)` : ''} (fidelidad absoluta de marca: mismo modelo, geometría, color, costuras, etiquetas — queda terminantemente prohibido rediseñarlo, inventarle detalles que no tiene, o alterar sus proporciones) y componé una escena comercial de catálogo ${ratio} para BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
 
 CONTEXTO DE LA PIEZA: ${theme || productName || 'indumentaria laboral y seguridad industrial'}.${briefBlock(brief)}${occasionGuidance(occasion)}
@@ -900,9 +958,9 @@ CONTEXTO DE LA PIEZA: ${theme || productName || 'indumentaria laboral y segurida
 DIRECCIÓN DE FOTOGRAFÍA Y ÓPTICA COMERCIAL:
 - El producto es EL héroe y punto focal absoluto de la composición: nítido, con micro-texturas de tela/cuero ultradetalladas, ocupando la posición de máximo impacto visual en la regla de los tercios.
 - Lente Hasselblad 85mm f/1.8 prime lens, macro commercial product photography, enfoque selectivo milimétrico en los detalles y terminaciones del producto.
-- Escena creíble y auténtica de uso industrial: banco de taller metalúrgico, andamio, pallet de depósito logístico, hormigón pulido, chapa o madera tratada. Utilería mínima y realista SIN competir con el producto.
-- Iluminación de estudio dramática (softbox lateral + contraluz rim lighting para recortar el contorno del producto) o luz natural volumétrica de galpón. Sombras suaves con caída y física real.
-- Color grading premium: ciencia de color Kodak Portra 400, fondo neutro oscuro (carbón/grafito #1c1c1e) con acentos naranja quemado (#C1440C) sutiles.
+${scene.describe()}
+- Utilería mínima y realista del escenario elegido, SIN competir con el producto.
+- Color grading premium: ciencia de color Kodak Portra 400, fondo neutro con acentos naranja quemado (#C1440C) sutiles.
 ${brandStyle ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
 
 REALISMO Y PRESERVACIÓN ESTRUCTURAL (PRODUCT-IN-CONTEXT):
@@ -966,6 +1024,7 @@ async function generateStudioScene({ products = [], theme, format = 'feed' } = {
   const isCombo = products.length > 1;
   const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
   const brandStyle = await brandStyleForImages();
+  const scene = sceneVariation(); // estudio: escena distinta en cada generación
   const names = products.map((p, i) => `${i + 1}. ${p.name}`).join('\n');
 
   const buildPrompt = (strict) => `Actuás como DIRECTOR DE ARTE SENIOR y FOTÓGRAFO COMERCIAL DE ALTA GAMA. Componé UNA fotografía publicitaria ${ratio} para BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
@@ -979,10 +1038,10 @@ ${isCombo
 ${theme ? `\nCONTEXTO/IDEA DE LA ESCENA: ${theme}.` : ''}
 
 DIRECCIÓN DE FOTOGRAFÍA Y ÓPTICA COMERCIAL:
-- Escena auténtica del rubro laboral/industrial argentino: taller metalúrgico, obra en construcción, depósito logístico o galpón con textura real. Utilería mínima y realista SIN robar protagonismo.
+${scene.describe()}
+- Utilería mínima y realista del escenario elegido, SIN robar protagonismo a los productos.
 - Lente Hasselblad 85mm prime lens f/1.8, enfoque selectivo milimétrico en las texturas del tejido y cuero, profundidad de campo con bokeh arquitectónico en el fondo.
-- Iluminación motivada de estudio chiaroscuro (softbox lateral + contraluz rim lighting para recortar el contorno) o luz natural rasante de galpón. Sombras volumétricas con física real.
-- Color grading premium: Kodak Portra 400, base oscuro/carbón (#1c1c1e) con acentos naranja quemado (#C1440C) sutiles.
+- Color grading premium: Kodak Portra 400, base sobria con acentos naranja quemado (#C1440C) sutiles.
 - REALISMO ANTI-IA: Imperfecciones creíbles en el entorno (desgaste en piso o herramientas), una sola fuente de luz coherente. Manos anatómicamente perfectas si aparecen.
 
 ${noTextNoLogoRule(strict)}
@@ -1058,14 +1117,24 @@ function buildStudioVideoPrompt({ products = [], theme, format = 'story', durati
   const ratio = format === 'feed' ? '4:5' : '9:16 vertical';
   const allImages = products.flatMap((p) => (Array.isArray(p.images) && p.images.length ? p.images : [p.imageUrl]).filter(Boolean));
 
+  const scene = sceneVariation();
   const prompt = `[SUBJECT & ACTION]: ${isCombo
     ? `Un trabajador profesional en un entorno industrial auténtico vistiendo un conjunto de trabajo BLACKS (${products.map(p => p.name).join(' + ')}). Los productos se muestran en uso real con una progresión natural de movimiento, donde la tela pesada y el calzado de seguridad lucen firmes, cómodos y ultra resistentes.`
     : `El producto hero (${products[0]?.name || 'calzado/indumentaria BLACKS'}) presentado en su entorno natural de trabajo industrial, mostrando su firmeza, costuras reforzadas y terminación premium en acción.`}
 ${productAnchorLines(products)}
 
-[CAMERA MOVEMENT]: Plano fijo estable de alta calidad de cine 35mm o push-in cinemático MUY lento y suave hacia el producto (dolly track frontal/lateral a velocidad constante). Cámara montada en grúa o estabilizador pesado. PROHIBIDO: órbitas de 360°, giros bruscos, paneos rápidos o zoom digital irreal.
+[SCENE]: ${scene.escenario}. Ambiente laboral argentino real, con desgaste y utilería creíbles.
 
-[LIGHTING & ATMOSPHERE]: Iluminación dramática motivada de galpón industrial (haces de luz solar baja o lámparas halógenas de taller entrando por portón alto, cruzando el aire con polvo en suspensión volumétrico). Contraluz (rim lighting) para separar el contorno del calzado/indumentaria del fondo oscuro. Color grading Kodak Portra 400, tonos carbón con acentos naranja quemado.
+[PACING / BEATS] (~${duration}s en un solo plano continuo, sin cortes):
+- Segundos 0-1.5: el producto YA está en cuadro y reconocible desde el primer frame (el gancho es la textura/presencia, no una revelación).
+- Desarrollo: micro-acción creíble y lenta (una mano acomoda la prenda, el trabajador da dos pasos, el polvo cruza la luz). Nada teatral.
+- Cierre: la cámara termina de asentarse en un plano hero limpio y estable del producto, ideal para congelar el último frame.
+
+[CAMERA MOVEMENT]: ${scene.camara}. Plano fijo estable de cine 35mm o push-in MUY lento y suave (dolly track a velocidad constante), montado en estabilizador pesado. PROHIBIDO: órbitas de 360°, giros bruscos, paneos rápidos o zoom digital irreal.
+
+[LIGHTING & ATMOSPHERE]: ${scene.luz}. Contraluz (rim lighting) para separar el contorno del calzado/indumentaria del fondo. Color grading Kodak Portra 400, tonos sobrios con acentos naranja quemado.
+
+[AUDIO] (si el modelo genera sonido, ej. Veo 3): sonido ambiente diegético del lugar — eco de galpón, herramientas lejanas, pasos sobre hormigón, viento suave. SIN música, SIN voces, SIN efectos de "whoosh" publicitarios.
 
 [FIDELITY & REALISM CONSTRAINTS]:
 - ${isCombo ? 'Cada producto del combo' : 'El producto'} se mantiene 100% IDÉNTICO y consistente en todos los fotogramas (cero morphing, cero mutaciones en logos, costuras o suelas).
@@ -1174,17 +1243,29 @@ function buildVideoPrompt({ productName, productDescription, productImages = [],
   const imgs = (productImages && productImages.length ? productImages : [productImageUrl]).filter(Boolean);
   const ratio = format === 'feed' ? '4:5' : '9:16 vertical';
   const anchor = productAnchorLines([{ name: productName || 'producto de trabajo', description: productDescription }]);
+  const scene = sceneVariation();
   const prompt = `Creá un video comercial ${ratio} de ~8 segundos para BLACKS, una marca argentina de ropa de trabajo y calzado de seguridad.
 
-PRODUCTO (usá EXACTAMENTE el de las imágenes de referencia adjuntas):
+[PRODUCTO] (usá EXACTAMENTE el de las imágenes de referencia adjuntas):
 ${anchor}
 
 ${videoFidelityRules(false)}
 
-ESCENA: mostralo en un entorno real con contexto (${theme || 'obra / taller / depósito / fábrica / calle'}), usado o exhibido de forma creíble. Ambiente real argentino, no set de estudio artificial.
-${videoCameraRules()}
+[ESCENA]: ${theme ? `${theme} — ambientado así: ` : ''}${scene.escenario}. Ambiente real argentino con desgaste creíble, no set de estudio artificial. El producto se usa o exhibe de forma natural.
+
+[RITMO / BEATS] (~8s, UN solo plano continuo sin cortes):
+- 0-1.5s: el producto ya está en cuadro, nítido y reconocible desde el primer frame (en Reels se decide seguir mirando en el primer segundo).
+- 1.5-6s: una sola micro-acción creíble y lenta (ajustar un cordón, cargar una caja, caminar dos pasos, sacudir el polvo). Nada teatral ni "de publicidad".
+- 6-8s: la cámara se asienta en un plano hero limpio y estable del producto (último frame usable como portada).
+
+[CÁMARA]: ${scene.camara}. ${videoCameraRules()}
+
+[LUZ Y ATMÓSFERA]: ${scene.luz}.
 ${videoRealismRules()}
-ESTÉTICA: robusta, premium, alto contraste, look de aviso moderno. SIN texto en pantalla (el texto/subtítulos los agrego después). Terminá en un plano hero limpio del producto.`;
+
+[AUDIO] (si el modelo genera sonido, ej. Veo 3): sólo sonido ambiente diegético del lugar — eco, herramientas lejanas, pasos, tela que roza. SIN música, SIN voces en off, SIN efectos "whoosh" publicitarios.
+
+[ESTÉTICA]: robusta, premium, alto contraste, look de aviso moderno. SIN texto en pantalla (el texto/subtítulos los agrego después).`;
   const instructions = [
     'RECOMENDADO (Estándar Oro Image-to-Video / i2v en Runway Gen-3 / Kling / Luma / Veo): Subí como "Primer Fotograma" (Frame 0 / Input Image) la foto estática generada por el sistema. Eso garantiza 100% cero deformación del producto.',
     'OPCIÓN GEMINI VEO (Reference-to-Video): Subí VARIAS fotos del producto desde distintos ángulos (frente, espalda, detalle) y pegá el prompt.',

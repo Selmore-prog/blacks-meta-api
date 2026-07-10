@@ -639,8 +639,8 @@ function renderPreview(item) {
   const isCarousel = slides && slides.length > 1;
   let media;
   if (item.video_path) media = `<video class="media" src="${esc(item.video_path)}" muted loop playsinline autoplay poster="${esc(item.image_path || '')}"></video>`;
-  else if (isCarousel) media = `<div class="carousel">${slides.map((u) => `<img src="${esc(u)}" alt=""/>`).join('')}</div><div class="c-count">${icon('grid')} ${slides.length}</div>`;
-  else if (item.image_path) media = `<img class="media" src="${esc(item.image_path)}" alt="" />`;
+  else if (isCarousel) media = `<div class="carousel">${slides.map((u) => `<img src="${esc(u)}" loading="lazy" alt=""/>`).join('')}</div><div class="c-count">${icon('grid')} ${slides.length}</div>`;
+  else if (item.image_path) media = `<img class="media" src="${esc(item.image_path)}" loading="lazy" alt="" />`;
   else media = `<div class="empty-media">${esc(item.pillar_detail || item.theme_title || 'Sin generar')}</div>`;
 
   const chrome = isStory ? `<div class="story-chrome">
@@ -1813,11 +1813,11 @@ async function loadStyle() {
     const images = refs.filter((r) => r.kind !== 'logo');
 
     document.getElementById('logo-row').innerHTML = logos.length
-      ? logos.map((l) => `<div class="logo-thumb"><img src="${esc(l.url)}" alt="logo" /><button class="del" onclick="deleteRef(${l.id})">${icon('x')}</button></div>`).join('')
+      ? logos.map((l) => `<div class="logo-thumb"><img src="${esc(l.url)}" loading="lazy" alt="logo" /><button class="del" onclick="deleteRef(${l.id})">${icon('x')}</button></div>`).join('')
       : '<span class="hint" style="margin:0;">Todavía no subiste ningún logo.</span>';
 
     document.getElementById('ref-grid').innerHTML = images.map((r) => `
-      <div class="ref-thumb"><img src="${esc(r.url)}" alt="" onerror="this.parentNode.style.opacity=.3" />
+      <div class="ref-thumb"><img src="${esc(r.url)}" loading="lazy" alt="" onerror="this.parentNode.style.opacity=.3" />
         <button class="del" onclick="deleteRef(${r.id})">&times;</button></div>`).join('');
 
     // Carpetas/orígenes leídos + fecha del último análisis.
