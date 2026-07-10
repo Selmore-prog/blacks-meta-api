@@ -525,7 +525,7 @@ const SCENE_POOL = {
   escenario: [
     'taller metalúrgico con banco de trabajo de acero, morsa, virutas y herramientas colgadas en un panel',
     'obra en construcción: encofrados de madera, hierros del 8 atados con alambre, bloques y polvo de cemento en el aire',
-    'depósito logístico con racks altos cargados, pallets de madera marcada y una zorra hidráulica',
+    'depósito logístico con racks altos cargados, pallets de madera estibados y una zorra hidráulica',
     'galpón industrial amplio con portón corredizo alto abierto, piso de hormigón alisado con marcas de uso',
     'taller mecánico rural: máquinas agrícolas, mesada con grasa, madera gastada y bidones',
     'estructura metálica en montaje con andamios tubulares y tablones',
@@ -799,11 +799,22 @@ async function generateJson({ system, prompt, schema, maxTokens = 4000, temperat
  * Detecta fechas patrias argentinas para meter identidad nacional creíble (bandera
  * real en el fondo, luz celeste), no como sticker plano.
  */
+const PATRIA_RE = /independencia|25 de mayo|revoluci[oó]n de mayo|d[ií]a de la bandera|g[üu]emes|belgrano|san mart[ií]n|orgullo argentino|orgullo nacional|bandera argentina|celeste y blanco|hecho en argentina/i;
+
+/**
+ * Identidad patria CREÍBLE en la escena (bandera real, luz celeste) — reutilizable
+ * tanto para fechas comerciales formales (occasionGuidance) como para cualquier
+ * brief que el usuario escriba a mano pidiendo "orgullo argentino"/bandera/sol.
+ */
+function patrioticVisualGuidance(text) {
+  if (!text || !PATRIA_RE.test(text)) return '';
+  return `\n- IDENTIDAD PATRIA ARGENTINA pedida en el brief: incorporá la identidad nacional de forma CREÍBLE y parte de la foto — una bandera argentina real colgada o flameando al fondo del galpón/taller, luz celeste natural entrando (o un sol entrando fuerte por una abertura, si el brief lo pide), el celeste y blanco integrados en objetos reales de la escena. NUNCA como sticker, filtro, guirnalda de dibujito ni gráfico plano. Sobria y de marca, con orgullo de trabajo nacional, sin sobreactuar.`;
+}
+
 function occasionGuidance(occasion) {
   if (!occasion) return '';
-  const isPatria = /independencia|25 de mayo|revoluci[oó]n de mayo|d[ií]a de la bandera|g[üu]emes|belgrano|san mart[ií]n/i.test(occasion);
-  const patria = isPatria
-    ? `\n- ES UNA FECHA PATRIA ARGENTINA: incorporá la identidad nacional de forma CREÍBLE y parte de la foto — una bandera argentina real colgada o flameando al fondo del galpón/taller, luz celeste natural entrando, o el celeste y blanco integrados en objetos reales de la escena. NUNCA como sticker, filtro, guirnalda de dibujito ni gráfico plano. Sobria y de marca, con orgullo de trabajo nacional, sin sobreactuar.`
+  const patria = PATRIA_RE.test(occasion)
+    ? patrioticVisualGuidance(occasion)
     : `\n- Reflejá el clima de la fecha con la luz, la escena y el ambiente (energía comercial si es promo/oferta; calidez si es una fecha de comunidad), nunca con texto ni carteles.`;
   return `\nOCASIÓN / FECHA DE LA PIEZA: ${occasion}${patria}`;
 }
@@ -811,7 +822,7 @@ function occasionGuidance(occasion) {
 /** Bloque de BRIEF: las indicaciones explícitas del usuario/plan para esta pieza. */
 function briefBlock(brief) {
   if (!brief) return '';
-  return `\nBRIEF DE LA PIEZA (respetá estas indicaciones al pie de la letra; las que pidan texto/cupón/precio se resuelven después con tipografía, vos NO escribas texto): "${brief}"`;
+  return `\nBRIEF DE LA PIEZA (respetá estas indicaciones al pie de la letra; las que pidan texto/cupón/precio se resuelven después con tipografía, vos NO escribas texto): "${brief}"${patrioticVisualGuidance(brief)}`;
 }
 
 async function generateBackground({ theme, brief, occasion, format = 'feed', referenceImages = [], seed = null } = {}) {

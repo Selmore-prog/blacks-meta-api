@@ -536,21 +536,16 @@ async function generateForSlot(slot, overrides = {}) {
   const isStepCarousel = isCarousel && ['educativo', 'mayorista'].includes(slot.pillar);
   const slides = isCarousel && Array.isArray(copy.slides) && copy.slides.length >= 2
     ? copy.slides.slice(0, isStepCarousel ? 5 : 4) : null;
-  if (slides) {
-    // Carrusel: portada con foto (si hay), pasos tipográficos SIN foto de producto
+  if (slides && isStepCarousel) {
+    // Carrusel GUÍA (educativo/mayorista): pasos tipográficos SIN foto de producto
     // (una guía no necesita mostrar el producto en cada slide), y si el tema es de
     // talles/medidas y el producto tiene su guía real en Tiendanube, va como slide extra.
-    const imgs = (visualProduct && Array.isArray(visualProduct.images) && visualProduct.images.length)
-      ? visualProduct.images : (visualImageUrl ? [visualImageUrl] : []);
     const topicText = `${pillarDetail || ''} ${slot.theme_title || ''} ${slides.map((s) => s.title).join(' ')}`;
-    const sizeChart = isStepCarousel && /talle|medida|calce|guia|guía/i.test(topicText)
+    const sizeChart = /talle|medida|calce|guia|guía/i.test(topicText)
       ? descriptionImages(visualProduct)[0] || null : null;
 
     const urls = [];
     for (let i = 0; i < slides.length; i += 1) {
-      const img = isStepCarousel
-        ? (i === 0 ? visualImageUrl : null) // pasos limpios, foto sólo en la portada
-        : (imgs.length ? imgs[i % imgs.length] : visualImageUrl);
       const { url, costUsd } = await renderPostBuffer({
         format,
         template: 'educativo',
@@ -559,7 +554,7 @@ async function generateForSlot(slot, overrides = {}) {
         // Sin contador N/total en la imagen: Instagram ya muestra los puntitos del carrusel.
         kicker: slot.pillar === 'mayorista' ? 'PARA EMPRESAS' : 'PARA SABER',
         badgeText: i === 0 ? badgeText : null,
-        productImageUrl: img,
+        productImageUrl: i === 0 ? visualImageUrl : null, // pasos limpios, foto sólo en la portada
         logos,
         showBrand: i === 0, // el logo sólo en la portada
         layoutSeed: Number(slot.id) + i,
@@ -579,6 +574,67 @@ async function generateForSlot(slot, overrides = {}) {
         logos,
         showBrand: false,
         bgTheme: 'guía de talles',
+      });
+      urls.push(url);
+      pieceCostUsd += costUsd || 0;
+    }
+
+    imagePath = urls[0];
+    slidesJson = JSON.stringify(urls);
+  } else if (slides) {
+    // Carrusel FOTOGRÁFICO (producto/promo/marca/ugc/engagement): cada slide es una
+    // escena profesional generada con IA (no la foto de catálogo pelada en una tarjeta
+    // blanca) — misma calidad que la pieza única, con variedad de escena por slide.
+    // Si el brief pide algo puntual (ej. "bandera argentina, orgullo nacional, sol"),
+    // fluye a cada slide via bgBrief (ver patrioticVisualGuidance en ai.js).
+    const refImgs = (visualProduct && Array.isArray(visualProduct.images) && visualProduct.images.length)
+      ? visualProduct.images : (visualImageUrl ? [visualImageUrl] : []);
+    const sceneTheme = product
+      ? `${product.name}${product.category ? ` (${product.category})` : ''}`
+      : [pillarDetail || slot.theme_title, copy.overlay].filter(Boolean).join(' — ');
+
+    const urls = [];
+    let lastCleanImageUrl = null; // foto SIN texto quemado, para reusar en el slide de precio
+    for (let i = 0; i < slides.length; i += 1) {
+      const refUrl = refImgs.length ? refImgs[i % refImgs.length] : visualImageUrl;
+      const slideBrief = [imageBrief, slides[i].title, slides[i].text].filter(Boolean).join(' — ').slice(0, 500);
+      // Reusa el mismo mecanismo de la pieza única (renderPostBuffer -> generateProductScene):
+      // si la IA falla o AI_IMAGES está apagado, cae sola a la foto real de catálogo, nunca rompe.
+      const { url, costUsd, cleanImageUrl } = await renderPostBuffer({
+        format,
+        template: 'fullbleed',
+        overlayTitle: slides[i].title || overlayTitle,
+        badgeText: i === 0 ? badgeText : null,
+        productImageUrl: refUrl,
+        productImageUrls: refImgs.slice(0, 4),
+        logos,
+        showBrand: i === 0,
+        layoutSeed: Number(slot.id) + i * 13, // otra escena por slide: variedad real dentro del mismo carrusel
+        useAiProductScene: Boolean(refUrl) && slot.pillar !== 'repost',
+        bgTheme: sceneTheme,
+        bgBrief: slideBrief,
+        bgOccasion: occasion,
+        couponCode: i === slides.length - 1 ? couponCode : null,
+      });
+      urls.push(url);
+      pieceCostUsd += costUsd || 0;
+      lastCleanImageUrl = cleanImageUrl;
+    }
+
+    // Slide final de PRECIO (venta): reusa la última foto LIMPIA (sin texto quemado)
+    // como fondo, sin gastar una imagen IA de más — "a lo último, el precio".
+    if (product && ['producto', 'promo'].includes(slot.pillar) && Number(product.price) > 0) {
+      const { url, costUsd } = await renderPostBuffer({
+        format,
+        template: 'fullbleed',
+        overlayTitle: null,
+        price: product.price,
+        promoPrice: product.promo_price,
+        bgImageUrl: lastCleanImageUrl,
+        productImageUrl: lastCleanImageUrl ? null : (refImgs[refImgs.length - 1] || visualImageUrl),
+        logos,
+        showBrand: false,
+        couponCode,
       });
       urls.push(url);
       pieceCostUsd += costUsd || 0;

@@ -887,7 +887,11 @@ async function renderPostBuffer(options) {
   }
 
   const url = await uploadAsset({ buffer, filename: outFile, contentType: 'image/jpeg' });
-  return { url, buffer, costUsd };
+  // La foto LIMPIA usada (escena IA o foto de catálogo), antes de estampar texto/precio
+  // encima. Sirve para reusarla en otro slide (ej. el de precio) sin duplicar texto
+  // "quemado" — reusar directamente `url` (que ya tiene chrome) genera doble cuadro/texto fantasma.
+  const cleanImageUrl = bgImageUrl || productImageUrl || null;
+  return { url, buffer, costUsd, cleanImageUrl };
 }
 
 async function renderPostImage(options) {
