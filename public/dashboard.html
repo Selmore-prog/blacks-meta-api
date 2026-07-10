@@ -172,8 +172,10 @@
           <h2>Productos</h2>
           <div class="sub">Prioridades según ventas (30 días), stock y curva de talles.</div>
         </div>
+        <button class="btn-primary btn-sm" id="products-sync-btn" onclick="syncProductsFromTiendanube()"><span data-ic="refresh"></span> Sincronizar con Tiendanube</button>
         <button class="btn-ghost" onclick="loadProducts()"><span data-ic="refresh"></span> Refrescar</button>
       </div>
+      <p class="hint" style="margin:0 0 14px;">El catálogo se sincroniza solo todos los días a las 06:45 ARG. Si acabás de cargar o cambiar un producto en Tiendanube y todavía no aparece acá, usá "Sincronizar con Tiendanube" para traerlo ya mismo (tarda unos 20-30 s).</p>
       <div id="products-body"><p class="loading">Cargando productos...</p></div>
     </section>
 

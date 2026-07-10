@@ -1124,6 +1124,7 @@ function openPlanSlot(item = null) {
       <div id="plan-product-results"></div>
       <div id="plan-product-chosen"></div>
       <p class="hint" style="margin:6px 0 0;">Si elegís uno, el generador usa EXACTAMENTE ese producto (con sus fotos reales, en escena de estudio profesional) en vez de elegir uno automático. Sin elegir ninguno, sigue como hasta ahora.</p>
+      <p class="hint" style="margin:4px 0 0;">¿No aparece un producto que acabás de cargar en Tiendanube? <a href="#" id="plan-product-sync-link">Sincronizalo ahora</a> (tarda ~20-30 s).</p>
     </div>
     <div class="field"><label>Brief / detalle del pilar</label><textarea class="input" id="plan-detail" placeholder="Ej: Botines con puntera para construcción">${esc(item?.pillar_detail || '')}</textarea></div>
     <div class="field"><label>Acción manual si es semi</label><textarea class="input" id="plan-hint" placeholder="Ej: Agregá encuesta con dos opciones">${esc(item?.interaction_hint || '')}</textarea></div>
@@ -1158,6 +1159,18 @@ function openPlanSlot(item = null) {
       overlay.querySelector('#plan-product-search').value = '';
       overlay.querySelector('#plan-product-results').innerHTML = '';
     }), 300);
+  });
+  overlay.querySelector('#plan-product-sync-link').addEventListener('click', async (e) => {
+    e.preventDefault();
+    const link = e.target;
+    const original = link.textContent;
+    link.textContent = 'Sincronizando… (~20-30 s)';
+    try {
+      const d = await api('/api/products/sync', { method: 'POST' });
+      toast(`Catálogo sincronizado: ${d.count} producto(s)`, 'ok');
+    } catch (err) {
+      toast(err.message, 'err');
+    } finally { link.textContent = original; }
   });
 
   // El selector de producto sólo tiene sentido para el pilar 'producto'.
@@ -1507,6 +1520,20 @@ async function saveWholesale(e) {
     });
     toast('Condiciones mayoristas guardadas', 'ok');
   } catch (err) { toast(err.message, 'err'); } finally { b.disabled = false; }
+}
+
+/** Trae el catálogo completo de Tiendanube ahora mismo (no espera al cron diario). */
+async function syncProductsFromTiendanube() {
+  const btn = document.getElementById('products-sync-btn');
+  const original = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Sincronizando… (~20-30 s)`;
+  try {
+    const d = await api('/api/products/sync', { method: 'POST' });
+    toast(`Catálogo sincronizado: ${d.count} producto(s)`, 'ok');
+    loadProducts();
+  } catch (e) {
+    toast(e.message, 'err');
+  } finally { btn.disabled = false; btn.innerHTML = original; }
 }
 
 async function loadProducts() {

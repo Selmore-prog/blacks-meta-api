@@ -597,6 +597,14 @@ app.get('/api/insights/weekly-reach', wrap(async (req, res) => {
   res.json(rows);
 }));
 
+// Sincroniza el catálogo COMPLETO con Tiendanube a demanda (el cron diario ya lo
+// hace solo a las 06:45 ARG; este endpoint es para no esperar esa corrida cuando
+// hay un producto nuevo y todavía no aparece en el buscador del panel).
+app.post('/api/products/sync', wrap(async (req, res) => {
+  const { syncProducts } = require('../scripts/sync-products');
+  res.json({ ok: true, ...(await syncProducts()) });
+}));
+
 app.get('/api/products', wrap(async (req, res) => {
   const search = req.query.q ? `%${req.query.q}%` : '%';
   const { rows } = await pool.query(

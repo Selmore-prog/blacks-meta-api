@@ -1,6 +1,12 @@
 const pool = require('../src/db');
 const { fetchAllProducts } = require('../src/tiendanube');
 
+/**
+ * Trae TODO el catálogo de Tiendanube y lo guarda en products_cache (upsert).
+ * La ejecuta el cron diario (GitHub Actions, 06:45 ARG) y también el botón
+ * "Sincronizar con Tiendanube" del panel (server.js, para productos nuevos que
+ * no quieras esperar hasta la próxima corrida del cron).
+ */
 async function syncProducts() {
   console.log('[sync] Trayendo catalogo de Tiendanube...');
   const products = await fetchAllProducts();
@@ -31,10 +37,16 @@ async function syncProducts() {
   }
 
   console.log('[sync] Listo.');
-  await pool.end();
+  return { count: products.length };
 }
 
-syncProducts().catch((err) => {
-  console.error('[sync] Error:', err);
-  process.exit(1);
-});
+if (require.main === module) {
+  syncProducts()
+    .then(() => pool.end())
+    .catch((err) => {
+      console.error('[sync] Error:', err);
+      process.exit(1);
+    });
+}
+
+module.exports = { syncProducts };
