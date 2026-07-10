@@ -192,6 +192,9 @@ ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS objective TEXT;
 -- QA del copy (Ronda 38): con qué modelo salió y qué problemas quedaron (null = limpio).
 ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS gen_model TEXT;
 ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS qa_notes TEXT;
+-- Producto FIJADO a mano desde el panel (pilar 'producto'): si está seteado, el
+-- generador usa EXACTAMENTE este producto en vez de elegirlo automáticamente.
+ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS forced_product_id BIGINT REFERENCES products_cache(id);
 -- Sticker interactivo (piezas semi): especificación exacta generada con el copy
 -- {type: encuesta|quiz|pregunta|slider, question, options: [..], correct_index}.
 ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS sticker JSONB;

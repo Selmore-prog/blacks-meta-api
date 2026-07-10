@@ -839,6 +839,8 @@ function renderCard(item) {
   const commercialBadge = item.pillar === 'mayorista'
     ? `<span class="badge whole">Mayorista</span>`
     : (['producto', 'promo'].includes(item.pillar) ? `<span class="badge retail">Minorista</span>` : '');
+  const forcedProductBadge = item.forced_product_id
+    ? `<span class="badge objective" title="El generador usa exactamente este producto, no elige automático">${icon('tag')} ${esc(item.forced_product_name || 'producto fijado')}</span>` : '';
   const dateBadges = commercialDatesOf(item).slice(0, 2).map((d) =>
     `<span class="badge commercial" title="${esc(d.angle || '')}">${icon('tag')} ${esc(d.title)}</span>`
   ).join('');
@@ -914,6 +916,7 @@ function renderCard(item) {
         <span class="badge pillar">${esc(item.pillar)}</span>
         ${item.objective ? `<span class="badge objective" title="Qué busca esta pieza">${esc(item.objective)}</span>` : ''}
         ${commercialBadge}
+        ${forcedProductBadge}
         ${dateBadges}
         ${item.scheduled_time ? `<span class="badge time">${icon('clock')} ${esc(item.scheduled_time)} hs</span>` : ''}
         ${autoBadge}${statusBadge}${missedBadge}${costBadge}${modelBadge}${qaBadge}
@@ -1062,8 +1065,34 @@ function readPlanForm(overlay) {
   };
 }
 
+/** Búsqueda de producto real de Tiendanube para fijarlo a un slot de pilar 'producto'. */
+async function planProductSearch(overlay, q, onPick) {
+  const out = overlay.querySelector('#plan-product-results');
+  if (!out) return;
+  if (!q || q.length < 2) { out.innerHTML = ''; return; }
+  try {
+    const rows = await api(`/api/products?q=${encodeURIComponent(q)}`);
+    out.innerHTML = rows.slice(0, 8).map((p) => `
+      <div class="prod-row plan-prod-result" data-id="${p.id}" style="cursor:pointer;">
+        <img src="${esc(p.image_url || '')}" onerror="this.style.visibility='hidden'"/>
+        <div class="prod-info"><div class="prod-name">${esc(p.name)}</div>
+          <div class="prod-sub">${esc(p.brand || '')} · stock ${p.stock ?? '∞'}</div></div>
+      </div>`).join('') || '<p class="hint">Sin resultados.</p>';
+    out.querySelectorAll('.plan-prod-result').forEach((r) => r.addEventListener('click', () => {
+      const p = rows.find((x) => String(x.id) === String(r.dataset.id));
+      if (p) onPick(p);
+    }));
+  } catch (e) { out.innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
+}
+
 function openPlanSlot(item = null) {
   const isNew = !item;
+  // Producto fijado a mano (si el slot ya lo tenía). Elegirlo acá hace que el
+  // generador use EXACTAMENTE este producto (foto real de Tiendanube en modo
+  // estudio profesional) en vez de la selección automática.
+  let chosenProduct = (item && item.forced_product_id)
+    ? { id: item.forced_product_id, name: item.forced_product_name, image_url: item.forced_product_image_url }
+    : null;
   const body = `
     <p class="hint" style="margin-top:0;">Editá la estrategia del calendario sin regenerar todavía. Si ya hay una pieza creada, estos cambios aplican al slot; usá “Regenerar” para rehacer copy/imagen con el nuevo brief.</p>
     <div class="plan-grid">
@@ -1089,6 +1118,13 @@ function openPlanSlot(item = null) {
       <label class="check-row"><input type="checkbox" id="plan-carousel" ${item?.carousel ? 'checked' : ''} /> Carrusel</label>
     </div>
     <div class="field"><label>Título interno</label><input class="input" id="plan-theme" value="${esc(item?.theme_title || '')}" placeholder="Ej: Oferta aguinaldo" /></div>
+    <div class="field" id="plan-product-field">
+      <label>Producto (opcional)</label>
+      <input class="input" id="plan-product-search" placeholder="Buscar producto real de Tiendanube por nombre…" autocomplete="off" />
+      <div id="plan-product-results"></div>
+      <div id="plan-product-chosen"></div>
+      <p class="hint" style="margin:6px 0 0;">Si elegís uno, el generador usa EXACTAMENTE ese producto (con sus fotos reales, en escena de estudio profesional) en vez de elegir uno automático. Sin elegir ninguno, sigue como hasta ahora.</p>
+    </div>
     <div class="field"><label>Brief / detalle del pilar</label><textarea class="input" id="plan-detail" placeholder="Ej: Botines con puntera para construcción">${esc(item?.pillar_detail || '')}</textarea></div>
     <div class="field"><label>Acción manual si es semi</label><textarea class="input" id="plan-hint" placeholder="Ej: Agregá encuesta con dos opciones">${esc(item?.interaction_hint || '')}</textarea></div>
     <div style="display:flex; gap:8px; justify-content:flex-end;">
@@ -1099,12 +1135,45 @@ function openPlanSlot(item = null) {
   overlay.querySelector('#plan-post-type').addEventListener('change', (e) => {
     overlay.querySelector('#plan-format').value = e.target.value === 'feed' ? 'feed' : 'story';
   });
+
+  const renderChosenProduct = () => {
+    const el = overlay.querySelector('#plan-product-chosen');
+    if (!chosenProduct) { el.innerHTML = ''; return; }
+    el.innerHTML = `<div class="prod-row">
+      <img src="${esc(chosenProduct.image_url || '')}" onerror="this.style.visibility='hidden'"/>
+      <div class="prod-info"><div class="prod-name">${esc(chosenProduct.name || '')}</div><div class="prod-sub">Fijado para esta pieza</div></div>
+      <button class="btn-ghost btn-sm" id="plan-product-clear" type="button">${icon('x')} Quitar</button>
+    </div>`;
+    el.querySelector('#plan-product-clear').addEventListener('click', () => { chosenProduct = null; renderChosenProduct(); });
+  };
+  renderChosenProduct();
+
+  let planProductTimer;
+  overlay.querySelector('#plan-product-search').addEventListener('input', (e) => {
+    clearTimeout(planProductTimer);
+    const q = e.target.value.trim();
+    planProductTimer = setTimeout(() => planProductSearch(overlay, q, (p) => {
+      chosenProduct = p;
+      renderChosenProduct();
+      overlay.querySelector('#plan-product-search').value = '';
+      overlay.querySelector('#plan-product-results').innerHTML = '';
+    }), 300);
+  });
+
+  // El selector de producto sólo tiene sentido para el pilar 'producto'.
+  const pillarSel = overlay.querySelector('#plan-pillar');
+  const productField = overlay.querySelector('#plan-product-field');
+  const syncProductField = () => { productField.style.display = pillarSel.value === 'producto' ? '' : 'none'; };
+  pillarSel.addEventListener('change', syncProductField);
+  syncProductField();
+
   overlay.querySelector('#plan-cancel').addEventListener('click', () => overlay.remove());
   overlay.querySelector('#plan-save').addEventListener('click', async () => {
     const btn = overlay.querySelector('#plan-save');
     btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Guardando…`;
     try {
       const payload = readPlanForm(overlay);
+      payload.product_id = chosenProduct ? chosenProduct.id : null;
       await api(isNew ? '/api/calendar' : `/api/calendar/${item.id}`, {
         method: isNew ? 'POST' : 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -1226,23 +1295,59 @@ function openRegen(item) {
   });
 }
 
+/** Convierte cualquier blob de imagen a PNG (máxima compatibilidad del portapapeles). */
+async function imageBlobToPng(blob) {
+  if (blob.type === 'image/png') return blob;
+  const bitmap = await createImageBitmap(blob);
+  const canvas = document.createElement('canvas');
+  canvas.width = bitmap.width; canvas.height = bitmap.height;
+  canvas.getContext('2d').drawImage(bitmap, 0, 0);
+  return new Promise((resolve, reject) => canvas.toBlob((b) => (b ? resolve(b) : reject(new Error('No se pudo convertir la imagen'))), 'image/png'));
+}
+
+/** Copia varias fotos al portapapeles de una (como si las copiaras del Finder) para pegarlas en Gemini Omni. */
+async function copyImagesToClipboard(urls) {
+  const items = [];
+  for (const url of urls) {
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`No pude descargar la foto (${res.status})`);
+    const png = await imageBlobToPng(await res.blob());
+    items.push(new ClipboardItem({ 'image/png': png }));
+  }
+  await navigator.clipboard.write(items);
+}
+
 async function openVideoPrompt(assetId) {
   try {
     const d = await api(`/api/assets/${assetId}/video-prompt`);
+    const firstImgs = (d.productImages || []).slice(0, 3);
     const body = `
       <p class="hint" style="margin-top:0;">Para una escena de video a medida (fábrica, calle, obra…) generala a mano en Gemini/Veo con esto:</p>
       <div class="field"><label>Pasos</label>
         <ol style="line-height:1.8; padding-left:20px; font-size:14px; margin:0;">${d.instructions.map((i) => `<li>${esc(i)}</li>`).join('')}</ol></div>
       ${(d.productImages && d.productImages.length) ? `<div class="field"><label>Fotos del producto a mandar (${d.productImages.length}) — subí varias perspectivas</label>
-        <div class="vp-imgs">${d.productImages.map((u, i) => `<a href="${esc(u)}" target="_blank" title="foto ${i + 1}"><img src="${esc(u)}"/></a>`).join('')}</div></div>` : ''}
+        <div class="vp-imgs">${d.productImages.map((u, i) => `<a href="${esc(u)}" target="_blank" title="foto ${i + 1}"><img src="${esc(u)}"/></a>`).join('')}</div>
+        <p class="hint" style="margin:6px 0 0;">1) Copiá las fotos y pegalas en Gemini Omni. 2) Copiá el prompt y pegalo en el chat. No se pueden pegar juntas en una sola acción — el portapapeles sólo lleva un tipo de contenido a la vez.</p></div>` : ''}
       <div class="field"><label>Prompt (copialo y pegalo)</label>
         <textarea class="input" id="vp-text" readonly style="min-height:200px">${esc(d.prompt)}</textarea></div>
       ${d.platformNote ? `<p class="hint" style="margin:0 0 12px;">${icon('info')} ${esc(d.platformNote)}</p>` : ''}
-      <div style="display:flex; gap:8px; justify-content:flex-end;">
+      <div style="display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
+        ${firstImgs.length ? `<button class="btn-ghost" id="vp-copy-imgs">${icon('copy')} Copiar ${firstImgs.length} foto${firstImgs.length > 1 ? 's' : ''}</button>` : ''}
         <button class="btn-primary" id="vp-copy">${icon('copy')} Copiar prompt</button></div>`;
     const ov = showInfoModal('Prompt para video con IA', body);
     ov.querySelector('#vp-copy').addEventListener('click', () =>
       navigator.clipboard.writeText(d.prompt).then(() => toast('Prompt copiado', 'ok')));
+    const imgsBtn = ov.querySelector('#vp-copy-imgs');
+    if (imgsBtn) imgsBtn.addEventListener('click', async () => {
+      const original = imgsBtn.innerHTML;
+      imgsBtn.disabled = true; imgsBtn.innerHTML = `${icon('refresh', 'spin')} Copiando…`;
+      try {
+        await copyImagesToClipboard(firstImgs);
+        toast(`${firstImgs.length} foto${firstImgs.length > 1 ? 's' : ''} copiada${firstImgs.length > 1 ? 's' : ''} — pegalas en Gemini Omni`, 'ok');
+      } catch (e) {
+        toast('No pude copiarlas automático (bloqueo del navegador). Hacé click derecho sobre cada miniatura → "Copiar imagen".', 'err');
+      } finally { imgsBtn.disabled = false; imgsBtn.innerHTML = original; }
+    });
   } catch (e) { toast(e.message, 'err'); }
 }
 
@@ -1705,11 +1810,23 @@ async function studioVideoPrompt() {
         <textarea class="input" readonly style="min-height:220px">${esc(d.prompt)}</textarea></div>
       <div style="display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
         <button class="btn-ghost btn-sm" id="svp-upload">${icon('upload')} Ya lo generé: subir video</button>
+        ${(d.productImages && d.productImages.length) ? `<button class="btn-ghost" id="svp-copy-imgs">${icon('copy')} Copiar ${Math.min(d.productImages.length, 3)} foto${Math.min(d.productImages.length, 3) > 1 ? 's' : ''}</button>` : ''}
         <button class="btn-primary" id="svp-copy">${icon('copy')} Copiar prompt</button>
       </div>`;
     const ov = showInfoModal('Prompt de video · Estudio', body);
     ov.querySelector('#svp-copy').addEventListener('click', () =>
       navigator.clipboard.writeText(d.prompt).then(() => toast('Prompt copiado', 'ok')));
+    const svpImgsBtn = ov.querySelector('#svp-copy-imgs');
+    if (svpImgsBtn) svpImgsBtn.addEventListener('click', async () => {
+      const original = svpImgsBtn.innerHTML;
+      svpImgsBtn.disabled = true; svpImgsBtn.innerHTML = `${icon('refresh', 'spin')} Copiando…`;
+      try {
+        await copyImagesToClipboard(d.productImages.slice(0, 3));
+        toast('Fotos copiadas — pegalas en Gemini Omni', 'ok');
+      } catch (e) {
+        toast('No pude copiarlas automático. Hacé click derecho sobre cada miniatura → "Copiar imagen".', 'err');
+      } finally { svpImgsBtn.disabled = false; svpImgsBtn.innerHTML = original; }
+    });
     ov.querySelector('#svp-upload').addEventListener('click', () => { ov.remove(); studioUpload(); });
   } catch (e) { toast(e.message, 'err'); }
 }
@@ -1999,6 +2116,34 @@ async function loadGaSummary() {
           </div>`).join('')}
       </div>
       <p class="hint" style="margin:0 0 14px;">Ingresos y compras "según Analytics" no se muestran acá porque ese conteo subestima ventas reales. — mirá la pestaña <b>Productos</b> para los números reales de Tiendanube.</p>`;
+  } catch (_) { el.innerHTML = ''; }
+}
+
+/* Vistas de producto (GA) desglosadas Mayorista vs Minorista. */
+async function loadSegmentViews() {
+  const el = document.getElementById('segment-views');
+  if (!el) return;
+  try {
+    const s = await api('/api/analytics/views-by-segment');
+    if (!s.enabled) { el.innerHTML = ''; return; }
+    const src = (label) => `<span class="src-tag">${esc(label)}</span>`;
+    const row = (p) => `
+      <div class="prod-row">
+        <div class="prod-info"><div class="prod-name">${esc(p.name)}</div>
+          <div class="prod-sub">${p.sales_30d ? `${p.sales_30d} vendido(s) ${src('Tiendanube')}` : 'sin ventas registradas'}</div></div>
+        <div class="prod-metric"><b>${p.views}</b><span>vistas · ${src('GA')}</span></div>
+      </div>`;
+    el.innerHTML = `
+      <div class="panel">
+        <h3>Vistas por sección: Mayorista vs Minorista</h3>
+        <p class="hint">Mayorista = productos sin precio público ("Consultar precio") en Tiendanube. Sirve para ver si el público mira más lo corporativo o lo minorista, y ajustar cuánto contenido de cada uno conviene generar.</p>
+        <div class="prod-totals" style="margin-bottom:14px;">
+          <div class="stat"><b>${s.minorista.views.toLocaleString('es-AR')} · ${s.minorista.pct}%</b><span>Vistas Minorista (${s.days} días) ${src('GA')}</span></div>
+          <div class="stat"><b>${s.mayorista.views.toLocaleString('es-AR')} · ${s.mayorista.pct}%</b><span>Vistas Mayorista (${s.days} días) ${src('GA')}</span></div>
+        </div>
+        ${s.minorista.top.length ? `<h4 style="margin:16px 0 6px; font-size:14px; color:var(--muted);">Más vistos · Minorista</h4>${s.minorista.top.slice(0, 5).map(row).join('')}` : ''}
+        ${s.mayorista.top.length ? `<h4 style="margin:16px 0 6px; font-size:14px; color:var(--muted);">Más vistos · Mayorista</h4>${s.mayorista.top.slice(0, 5).map(row).join('')}` : ''}
+      </div>`;
   } catch (_) { el.innerHTML = ''; }
 }
 
@@ -2333,6 +2478,7 @@ async function loadReachChart() {
 
 async function loadMetrics() {
   loadGaSummary();
+  loadSegmentViews();
   loadAdsSummary();
   loadConversionAudit();
   loadAttribution();

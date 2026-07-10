@@ -253,6 +253,7 @@ app.get('/api/calendar', wrap(async (req, res) => {
             a.meta_post_id, a.status as asset_status, a.format as asset_format, a.slides,
             a.edited_video_path, a.edit_status, a.voiceover_path, a.est_cost_usd, a.gen_model, a.qa_notes, a.sticker,
             p.name as product_name, p.image_url as product_image_url, p.price as product_price, p.stock as product_stock,
+            fp.name as forced_product_name, fp.image_url as forced_product_image_url,
             COALESCE(cd.events, '[]'::json) AS commercial_dates,
             pq.status as queue_status, pq.last_error as queue_error
      FROM content_calendar c
@@ -260,6 +261,7 @@ app.get('/api/calendar', wrap(async (req, res) => {
        SELECT * FROM generated_assets WHERE calendar_id = c.id ORDER BY id DESC LIMIT 1
      ) a ON true
      LEFT JOIN products_cache p ON p.id = a.product_id
+     LEFT JOIN products_cache fp ON fp.id = c.forced_product_id
      LEFT JOIN LATERAL (
        SELECT json_agg(json_build_object(
          'id', d.id,
@@ -310,11 +312,12 @@ app.post('/api/calendar', wrap(async (req, res) => {
   assertOneOf('status', status, ['pending', 'draft', 'approved', 'published', 'skipped']);
 
   if (!scheduledDate) return res.status(400).json({ error: 'Falta scheduled_date.' });
+  const forcedProductId = intParam(body.product_id);
   const { rows } = await pool.query(
     `INSERT INTO content_calendar
        (scheduled_date, platform, post_type, format, pillar, pillar_detail, automation_level,
-        interaction_hint, scheduled_time, theme_title, carousel, status, origin)
-     VALUES ($1, 'instagram', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'manual')
+        interaction_hint, scheduled_time, theme_title, carousel, status, origin, forced_product_id)
+     VALUES ($1, 'instagram', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'manual', $12)
      RETURNING *`,
     [
       scheduledDate,
@@ -328,6 +331,7 @@ app.post('/api/calendar', wrap(async (req, res) => {
       textOrNull(body.theme_title),
       Boolean(boolOrNull(body.carousel)),
       status,
+      forcedProductId,
     ]
   );
   res.json({ ok: true, slot: rows[0] });
@@ -351,6 +355,8 @@ app.patch('/api/calendar/:calendarId', wrap(async (req, res) => {
     status: textOrNull(body.status),
     carousel: boolOrNull(body.carousel),
     objective: textOrNull(body.objective),
+    // undefined = no tocar; null/vacío = desfijar el producto; número = fijarlo.
+    forced_product_id: body.product_id === undefined ? undefined : (intParam(body.product_id) || null),
   };
 
   assertDate(values.scheduled_date);
@@ -384,6 +390,19 @@ app.get('/api/analytics/summary', wrap(async (req, res) => {
     gaCache = { data: await topViewedWithRealSales(pool), at: Date.now() };
   }
   res.json({ enabled: true, ...gaCache.data });
+}));
+
+// Vistas de producto (Google Analytics) desglosadas Mayorista vs Minorista, para
+// comparar qué mira el público en cada sección de la tienda. Cache 1h como el resto.
+let segmentViewsCache = { data: null, at: 0 };
+app.get('/api/analytics/views-by-segment', wrap(async (req, res) => {
+  const { productViewsBySegment, isEnabled } = require('./analytics');
+  if (!isEnabled()) return res.json({ enabled: false });
+  if (!segmentViewsCache.data || Date.now() - segmentViewsCache.at > 60 * 60 * 1000) {
+    segmentViewsCache = { data: await productViewsBySegment(pool), at: Date.now() };
+  }
+  if (!segmentViewsCache.data) return res.json({ enabled: false });
+  res.json({ enabled: true, ...segmentViewsCache.data });
 }));
 
 // Consumo de imágenes IA del mes (estimado en USD) + proyección a fin de mes.
@@ -771,7 +790,7 @@ app.get('/api/assets/:assetId/video-prompt', wrap(async (req, res) => {
   const id = intParam(req.params.assetId);
   if (!id) return res.status(400).json({ error: 'assetId inválido' });
   const { rows } = await pool.query(
-    `SELECT a.caption, a.image_path, c.pillar_detail, c.theme_title, c.format,
+    `SELECT a.caption, a.image_path, c.pillar_detail, c.theme_title, c.format, c.pillar,
             p.name as product_name, p.description as product_description,
             p.image_url as product_image_url, p.images as product_images
      FROM generated_assets a JOIN content_calendar c ON c.id = a.calendar_id
@@ -789,6 +808,7 @@ app.get('/api/assets/:assetId/video-prompt', wrap(async (req, res) => {
     theme: r.pillar_detail || r.theme_title,
     format: r.format,
     caption: r.caption,
+    pillar: r.pillar,
   }));
 }));
 

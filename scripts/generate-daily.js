@@ -13,6 +13,19 @@ const config = require('../src/config');
 // Retail (con precio y stock finito). 'mayorista' se maneja aparte con pickMayoristaProduct.
 const PRODUCT_PILLARS = ['producto', 'promo'];
 
+/**
+ * Producto FIJADO a mano desde el panel (content_calendar.forced_product_id):
+ * ignora toda la lógica de selección automática y usa exactamente este producto,
+ * refrescando precio/stock en vivo. Si Tiendanube no lo devuelve (borrado, etc.),
+ * cae a la fila cacheada.
+ */
+async function pickForcedProduct(productId) {
+  const live = await fetchProduct(productId).catch(() => null);
+  if (live) { await updateCacheFromLive(live).catch(() => {}); return live; }
+  const { rows } = await pool.query('SELECT * FROM products_cache WHERE id = $1', [productId]);
+  return rows[0] || null;
+}
+
 /** Producto mayorista: stock infinito (null) o sin precio ("Consultar precio"). */
 async function pickMayoristaProduct(slot, excludeIds = []) {
   const brand = config.brand.knownBrands.find((b) => (slot.pillar_detail || '').toLowerCase().includes(b.toLowerCase()));
@@ -97,10 +110,12 @@ async function productFromDetail(slot) {
      ) t
      WHERE match_score >= 4
      ORDER BY match_score DESC, sales_30d DESC NULLS LAST
-     LIMIT 1`,
+     LIMIT 15`,
     [patterns]
   );
-  return rows[0] || null;
+  // Re-rankeo en JS: si el texto nombra una marca puntual (ej. "Gurre"), esa marca en
+  // el nombre del producto pesa mucho más que las ventas (ver rankByRelevance).
+  return rankByRelevance(rows, { patterns, mentionedBrand: mentionedBrandIn(slot.pillar_detail) });
 }
 
 /**
@@ -152,6 +167,35 @@ const STOPWORDS = new Set(['para', 'con', 'sin', 'los', 'las', 'del', 'una', 'un
 
 function stripAccents(s) {
   return String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+}
+
+/** Marca conocida mencionada expl\u00edcitamente en el texto (ej. "Gurre" en "Pantal\u00f3n Cargo Gurre"). */
+function mentionedBrandIn(text) {
+  return config.brand.knownBrands.find((b) => stripAccents(String(text || '')).toLowerCase().includes(stripAccents(b).toLowerCase()));
+}
+
+/**
+ * Re-rankea candidatos de producto por relevancia REAL. El bug real que esto arregla
+ * (detectado 2026-07-11): la SQL s\u00f3lo chequeaba "\u00bfmatchea ALG\u00daN patr\u00f3n?" (booleano) y
+ * empataba por ventas \u2014 entonces "Pantal\u00f3n Cargo Gurre" terminaba eligiendo un Pantal\u00f3n
+ * Cargo PAMPERO porque ese vend\u00eda m\u00e1s y "pantalon" solo ya alcanzaba para el mismo
+ * puntaje. Ac\u00e1 se cuenta CU\u00c1NTAS palabras matchean en el nombre, y si el texto nombra
+ * una marca conocida, esa marca en el nombre pesa much\u00edsimo m\u00e1s que las ventas.
+ */
+function rankByRelevance(rows, { patterns = [], mentionedBrand = null } = {}) {
+  if (!rows.length) return null;
+  const words = patterns.map((p) => stripAccents(String(p).replace(/%/g, '')).toLowerCase()).filter(Boolean);
+  const brandNorm = mentionedBrand ? stripAccents(mentionedBrand).toLowerCase() : null;
+  const scored = rows.map((row) => {
+    const nameNorm = stripAccents(String(row.name || '')).toLowerCase();
+    const wordHits = words.filter((w) => nameNorm.includes(w)).length;
+    const brandHit = brandNorm && nameNorm.includes(brandNorm) ? 1 : 0;
+    // El acierto de marca pesa 1000x: nunca lo tapan las ventas. Despu\u00e9s, m\u00e1s
+    // palabras clave en el nombre = m\u00e1s espec\u00edfico. Ventas s\u00f3lo desempata entre iguales.
+    return { row, score: brandHit * 1000 + wordHits * 10 + Math.min(Number(row.sales_30d) || 0, 50) * 0.01 };
+  });
+  scored.sort((a, b) => b.score - a.score);
+  return scored[0].row;
 }
 
 function keywordsFromText(text) {
@@ -238,10 +282,13 @@ async function pickRelevantVisualProduct(slot) {
      ) t
      WHERE relevance_score >= 3
      ORDER BY relevance_score DESC, sales_30d DESC NULLS LAST, stock DESC NULLS LAST
-     LIMIT 1`,
+     LIMIT 20`,
     params
   );
-  return rows[0] || null;
+  // Re-rankeo en JS: si el texto nombra una marca puntual, esa marca en el nombre
+  // pesa mucho más que las ventas — evita mostrar la foto de OTRA marca (bug real:
+  // "Pantalón Cargo Gurre" mostrando un Pampero porque ese vendía más).
+  return rankByRelevance(rows, { patterns: include, mentionedBrand: mentionedBrandIn(`${slot.pillar_detail || ''} ${slot.theme_title || ''}`) });
 }
 
 /**
@@ -415,10 +462,13 @@ async function generateForSlot(slot, overrides = {}) {
     .test(pillarDetail || '');
 
   const isMayorista = slot.pillar === 'mayorista';
+  // Producto fijado a mano desde el panel: manda sobre cualquier selección automática.
   const product = noProductBrief ? null
-    : isMayorista
-      ? await pickMayoristaProduct(effectiveSlot, await recentlyFeaturedIds().catch(() => []))
-      : (PRODUCT_PILLARS.includes(slot.pillar) ? await pickProductForSlot(effectiveSlot) : null);
+    : slot.forced_product_id
+      ? await pickForcedProduct(slot.forced_product_id)
+      : isMayorista
+        ? await pickMayoristaProduct(effectiveSlot, await recentlyFeaturedIds().catch(() => []))
+        : (PRODUCT_PILLARS.includes(slot.pillar) ? await pickProductForSlot(effectiveSlot) : null);
   const visualProduct = noProductBrief ? null : (product || await pickRelevantVisualProduct(effectiveSlot));
   const wholesale = isMayorista ? wholesaleContext(await getWholesaleSettings()) : null;
   const format = slot.format === 'story' ? 'story' : 'feed';

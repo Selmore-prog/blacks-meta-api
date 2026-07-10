@@ -1136,44 +1136,60 @@ function cinematographyPlan(seed = null) {
 }
 
 /* =========================================================================
- * ACCIÓN DEL PRODUCTO EN VIDEO (anti "acciones que no tienen sentido")
- * Antes el prompt decía genéricamente "se muestra en uso real" para CUALQUIER
- * producto, y el modelo terminaba inventando usos absurdos. Ahora la acción se
- * elige según el TIPO real de la prenda/calzado, para que sea físicamente lógica.
+ * POSTURA DEL PRODUCTO EN VIDEO (reemplaza la "acción física")
+ * Feedback real del usuario (2026-07-11): las acciones dinámicas (caminar,
+ * agacharse, atarse cordones) generan artefactos y movimiento entrecortado en
+ * Gemini Omni/Veo — animar un cuerpo completo en movimiento complejo es lo que
+ * más rompe. El default ahora es QUIETUD: alguien con la prenda puesta, de pie,
+ * con sólo micro-movimiento ambiental — como si lo estuvieran FILMANDO (no como
+ * si estuviera actuando). El movimiento lo aporta la CÁMARA (cinematographyPlan),
+ * no el cuerpo.
  * ========================================================================= */
-const PRODUCT_ACTION_RULES = [
-  { re: /bot[ií]n|zapato|calzado|borcegu[ií]/i,
-    action: 'el trabajador camina con paso firme sobre una superficie irregular (grava, tierra, chapa) y se ve cómo el calzado flexiona y pisa con solidez real; o se agacha y se ata los cordones con un gesto simple' },
-  { re: /campera|buzo|canguro|chaleco|softshell|rompeviento|t[eé]rmic/i,
-    action: 'el trabajador se acomoda el cuello o sube el cierre con una mano mientras camina, dejando ver cómo la tela cae y se mueve naturalmente sobre los hombros' },
-  { re: /pantal[oó]n|cargo|jean/i,
-    action: 'el trabajador se agacha a tomar una herramienta del piso o ajusta el cinturón, mostrando cómo el tejido se pliega en la rodilla sin perder la forma' },
-  { re: /remera|chomba|camisa/i,
-    action: 'el trabajador se acomoda el cuello o se arremanga con un gesto natural, mostrando la caída y textura real de la tela bajo la luz' },
-  { re: /mameluco|overol/i,
-    action: 'el trabajador ajusta un tirante o cierra el frente con un gesto rápido antes de agacharse a trabajar' },
-  { re: /casco|anteojo|guante|faja|pasamont|arn[eé]s/i,
-    action: 'el trabajador se coloca el equipo con un gesto preciso y funcional antes de girar hacia la tarea, sin exagerar el movimiento' },
+const PRODUCT_POSTURE_RULES = [
+  { re: /bot[ií]n|zapato|calzado|borcegu[ií]/i, posture: 'de pie, con el calzado bien apoyado y el peso del cuerpo firme sobre el piso' },
+  { re: /campera|buzo|canguro|chaleco|softshell|rompeviento|t[eé]rmic/i, posture: 'de pie, con la prenda puesta y el cierre/cuello bien visible' },
+  { re: /pantal[oó]n|cargo|jean/i, posture: 'de pie, con el pantalón calzando naturalmente en la cintura y el largo real de la pierna' },
+  { re: /remera|chomba|camisa/i, posture: 'de pie, con la prenda puesta y la caída natural de la tela sobre los hombros' },
+  { re: /mameluco|overol/i, posture: 'de pie, con el mameluco puesto y los tirantes/cierre bien visibles' },
+  { re: /casco|anteojo|guante|faja|pasamont|arn[eé]s/i, posture: 'de pie, con el equipo ya puesto y ajustado' },
 ];
-const DEFAULT_PRODUCT_ACTION = 'el trabajador manipula la prenda/calzado con un gesto simple, breve y creíble — nunca posa para cámara ni actúa de forma teatral';
+const DEFAULT_PRODUCT_POSTURE = 'de pie, con la prenda/calzado puesto de forma natural';
 
-/** Acción físicamente coherente con el TIPO real de producto (evita usos inventados o absurdos). */
+function productPostureFor(name) {
+  const rule = PRODUCT_POSTURE_RULES.find((r) => r.re.test(name || ''));
+  return rule ? rule.posture : DEFAULT_PRODUCT_POSTURE;
+}
+
+/** Describe QUIETUD + micro-movimiento ambiental — NO una acción física dinámica. */
 function productActionFor(name) {
-  const rule = PRODUCT_ACTION_RULES.find((r) => r.re.test(name || ''));
-  return rule ? rule.action : DEFAULT_PRODUCT_ACTION;
+  return `${productPostureFor(name)}, prácticamente QUIETO/A. El único movimiento es sutil y ambiental: la tela que se acomoda o se mueve levemente con el viento, una respiración natural, el peso del cuerpo que se asienta. PROHIBIDO actuar una acción física dinámica (caminar, agacharse, atarse cordones, gestos grandes o repetidos) — ese tipo de movimiento articulado es lo que más rompe la coherencia del video y genera cortes/artefactos. Ante la duda entre quietud y una acción vistosa, elegí SIEMPRE la quietud.`;
 }
 
 /**
- * Para combos: encadena 2-3 acciones (una por producto) como progresión DENTRO
- * de la MISMA toma continua — la cámara conecta los productos con un movimiento
- * (tilt/pan/track), nunca con un corte de edición.
+ * Para combos: UNA persona con TODO el conjunto puesto, quieta — el recorrido
+ * por cada prenda lo hace la CÁMARA (ver cinematographyPlan), no una secuencia
+ * de acciones del cuerpo.
  */
 function comboActionSequence(products) {
-  const items = products.slice(0, 3);
-  if (items.length <= 1) return productActionFor(items[0] && items[0].name);
-  const first = `con ${items[0].name}: ${productActionFor(items[0].name)}`;
-  const rest = items.slice(1).map((p) => `con ${p.name}: ${productActionFor(p.name)}`).join('; después, ');
-  return `En una única toma continua, sin cortar el plano: primero ${first}; después, mientras la cámara se desplaza suavemente (tilt/pan lento y constante) para encuadrar el resto del conjunto, ${rest}.`;
+  const names = products.slice(0, 3).map((p) => p.name).join(', ');
+  return `Una persona con TODO el conjunto puesto (${names}), de pie, prácticamente quieta — el único movimiento es ambiental (tela, viento leve, respiración natural). La cámara es la que recorre el conjunto con su movimiento (ver técnica de cámara); nada de secuencia de gestos ni transiciones de acción entre prendas.`;
+}
+
+/** Regla dura: si la referencia muestra a una persona con la cara visible, en el video esa cara NO se reconstruye ni se muestra (es lo que más falla/genera artefactos en estos modelos). */
+const FACE_RULE = `[ROSTRO]: si en la foto de referencia aparece una persona con la cara visible, en el video la cara NO debe mostrarse ni reconstruirse. Encuadrá desde el cuello hacia abajo, de espaldas, con la cabeza fuera de cuadro, girada hacia un costado, en penumbra o desenfocada — nunca de frente y nítida. Generar caras es lo que más se rompe y genera artefactos; evitalo directamente encuadrando sin mostrarla.`;
+
+/** Tono/energía del video según el PILAR de la pieza (antes era igual para cualquier pilar). */
+function pillarVideoTone(pillar) {
+  const tones = {
+    producto: 'Tono de catálogo premium: foco total en el detalle y la calidad del producto, ritmo tranquilo y confiado.',
+    promo: 'Tono comercial con energía contenida: urgencia sutil (aprovechar la oferta ahora) sin gestos exagerados ni cortes rápidos.',
+    marca: 'Tono de marca: atmosférico, más sensación que venta — como un momento real de trabajo, no un aviso publicitario.',
+    mayorista: 'Tono corporativo y de equipo: sensación de un grupo de trabajo real y coordinado, seriedad profesional, sin golpes de efecto.',
+    educativo: 'Tono claro y calmo, casi documental: como mostrando el producto para que se entienda bien, sin apuro.',
+    ugc: 'Tono cercano y espontáneo: como contenido genuino grabado en el lugar de trabajo, no un comercial armado.',
+    engagement: 'Tono cercano y conversacional, simple y directo.',
+  };
+  return tones[pillar] || tones.producto;
 }
 
 /**
@@ -1181,7 +1197,7 @@ function comboActionSequence(products) {
  * productos (combo). No llama a ninguna API: el video lo genera el usuario a mano
  * y después lo sube a la biblioteca del estudio.
  */
-function buildStudioVideoPrompt({ products = [], theme, format = 'story', duration = 8 } = {}) {
+function buildStudioVideoPrompt({ products = [], theme, format = 'story', duration = 8, pillar = 'producto' } = {}) {
   const isCombo = products.length > 1;
   const ratio = format === 'feed' ? '4:5' : '9:16 vertical';
   const allImages = products.flatMap((p) => (Array.isArray(p.images) && p.images.length ? p.images : [p.imageUrl]).filter(Boolean));
@@ -1192,6 +1208,8 @@ function buildStudioVideoPrompt({ products = [], theme, format = 'story', durati
 
   const prompt = `Un director de fotografía profesional filma este plano para BLACKS, marca argentina de ropa de trabajo y calzado de seguridad. Formato ${ratio}, ~${duration} segundos, UNA SOLA TOMA CONTINUA — sin cortes de edición, sin distintos ángulos empalmados.
 
+[TONO DE LA PIEZA]: ${pillarVideoTone(pillar)}
+
 [PRODUCTO${isCombo ? 'S' : ''}] (fidelidad absoluta a las fotos de referencia adjuntas):
 ${productAnchorLines(products)}
 
@@ -1199,7 +1217,9 @@ ${videoFidelityRules(isCombo)}
 
 [ESCENA]: ${theme ? `${theme} — ambientado así: ` : ''}${scene.escenario}. Ambiente laboral argentino real, con desgaste y utilería creíbles.
 
-[ACCIÓN] (tiene que ser físicamente lógica para este tipo de producto — nada inventado ni absurdo): ${action}
+[PERSONA Y POSTURA] (quietud, no actuación — ver por qué abajo): ${action}
+
+${FACE_RULE}
 
 [ÓPTICA Y TÉCNICA DE CÁMARA] (vocabulario de rodaje profesional, un solo movimiento fluido de principio a fin):
 - Óptica: ${cine.optica}.
@@ -1209,14 +1229,14 @@ ${videoFidelityRules(isCombo)}
 
 [RITMO] (~${duration}s dentro de esa misma toma):
 - Arranque: el/los producto(s) ya en cuadro, reconocibles desde el primer frame.
-- Desarrollo: la acción descripta arriba, a un ritmo pausado y creíble.
+- Desarrollo: la quietud/micro-movimiento descripto arriba — el interés lo genera la cámara, no el sujeto.
 - Cierre: la cámara termina de asentarse en un plano hero limpio y estable, ideal como último frame/portada.
 
 [LUZ Y ATMÓSFERA]: ${scene.luz}. Contraluz (rim lighting) para separar el contorno del producto del fondo. Color grading Kodak Portra 400, tonos sobrios con acentos naranja quemado.
 
-[AUDIO] (si el modelo genera sonido, ej. Veo 3): sonido ambiente diegético del lugar — eco de galpón, herramientas lejanas, pasos sobre hormigón, viento suave. SIN música, SIN voces, SIN efectos de "whoosh" publicitarios.
+[AUDIO] (si el modelo genera sonido, ej. Veo 3): sonido ambiente diegético del lugar — eco de galpón, herramientas lejanas, viento suave. SIN música, SIN voces, SIN efectos de "whoosh" publicitarios.
 
-[REALISMO]: física de tela y movimiento corporal anatómicamente perfectos, sombras con caída real. SIN TEXTO en pantalla, sin placas, sin números ni marcas de agua.`;
+[REALISMO]: física de tela con caída real, sombras con caída real. SIN TEXTO en pantalla, sin placas, sin números ni marcas de agua.`;
 
   return {
     prompt,
@@ -1315,7 +1335,7 @@ Devolvé SOLO un JSON válido con esta forma:
  * Arma un súper-prompt listo para pegar en Gemini/Veo (Omni) y generar una escena
  * de video a medida. No llama a la API (es texto): la generación la hace el usuario a mano.
  */
-function buildVideoPrompt({ productName, productDescription, productImages = [], productImageUrl, theme, format = 'story', caption } = {}) {
+function buildVideoPrompt({ productName, productDescription, productImages = [], productImageUrl, theme, format = 'story', caption, pillar = 'producto' } = {}) {
   const imgs = (productImages && productImages.length ? productImages : [productImageUrl]).filter(Boolean);
   const ratio = format === 'feed' ? '4:5' : '9:16 vertical';
   const anchor = productAnchorLines([{ name: productName || 'producto de trabajo', description: productDescription }]);
@@ -1324,6 +1344,8 @@ function buildVideoPrompt({ productName, productDescription, productImages = [],
   const action = productActionFor(productName);
   const prompt = `Un director de fotografía profesional filma este plano para BLACKS, marca argentina de ropa de trabajo y calzado de seguridad. Formato ${ratio}, ~8 segundos, UNA SOLA TOMA CONTINUA — sin cortes de edición, sin distintos ángulos empalmados.
 
+[TONO DE LA PIEZA]: ${pillarVideoTone(pillar)}
+
 [PRODUCTO] (usá EXACTAMENTE el de las imágenes de referencia adjuntas):
 ${anchor}
 
@@ -1331,7 +1353,9 @@ ${videoFidelityRules(false)}
 
 [ESCENA]: ${theme ? `${theme} — ambientado así: ` : ''}${scene.escenario}. Ambiente real argentino con desgaste creíble, no set de estudio artificial.
 
-[ACCIÓN] (tiene que ser físicamente lógica para este tipo de producto — nada inventado ni absurdo): ${action}
+[PERSONA Y POSTURA] (quietud, no actuación — ver por qué abajo): ${action}
+
+${FACE_RULE}
 
 [ÓPTICA Y TÉCNICA DE CÁMARA] (vocabulario de rodaje profesional, un solo movimiento fluido de principio a fin):
 - Óptica: ${cine.optica}.
@@ -1341,13 +1365,13 @@ ${videoFidelityRules(false)}
 
 [RITMO] (~8s dentro de esa misma toma):
 - 0-1.5s: el producto ya está en cuadro, nítido y reconocible desde el primer frame (en Reels se decide seguir mirando en el primer segundo).
-- 1.5-6s: la acción descripta arriba, a un ritmo pausado y creíble. Nada teatral ni "de publicidad".
+- 1.5-6s: la quietud/micro-movimiento descripto arriba. Nada teatral ni "de publicidad".
 - 6-8s: la cámara se asienta en un plano hero limpio y estable del producto (último frame usable como portada).
 
 [LUZ Y ATMÓSFERA]: ${scene.luz}.
 ${videoRealismRules()}
 
-[AUDIO] (si el modelo genera sonido, ej. Veo 3): sólo sonido ambiente diegético del lugar — eco, herramientas lejanas, pasos, tela que roza. SIN música, SIN voces en off, SIN efectos "whoosh" publicitarios.
+[AUDIO] (si el modelo genera sonido, ej. Veo 3): sólo sonido ambiente diegético del lugar — eco, herramientas lejanas, viento suave. SIN música, SIN voces en off, SIN efectos "whoosh" publicitarios.
 
 [ESTÉTICA]: robusta, premium, alto contraste, look de aviso moderno filmado por un director de fotografía real. SIN texto en pantalla (el texto/subtítulos los agrego después).`;
   const instructions = [

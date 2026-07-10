@@ -200,4 +200,56 @@ async function topViewedWithRealSales(pool, { days = 28 } = {}) {
   return { ...summary, topViewedProducts: merged };
 }
 
-module.exports = { isEnabled, storeSummary, topViewedWithRealSales, runReport };
+/**
+ * Desglosa las vistas de producto (Google Analytics) entre MAYORISTA (sin precio
+ * público / "Consultar precio" en Tiendanube) y MINORISTA (precio y stock reales),
+ * para poder comparar qué mira el público en cada sección de la tienda.
+ * pool: conexión a products_cache (misma fuente que define "mayorista" en todo el motor).
+ */
+async function productViewsBySegment(pool, { days = 28 } = {}) {
+  if (!isEnabled()) return null;
+  const report = await runReport({
+    dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'today' }],
+    dimensions: [{ name: 'itemName' }],
+    metrics: [{ name: 'itemsViewed' }],
+    orderBys: [{ metric: { metricName: 'itemsViewed' }, desc: true }],
+    limit: 200,
+  }).catch(() => null);
+  if (!report) return null;
+
+  const norm = (s) => String(s || '').toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
+  const byProduct = {};
+  for (const r of rowsOf(report)) {
+    const base = r.dimensionValues[0].value.replace(/\s*\([^)]*\)\s*$/, '').trim();
+    if (!byProduct[base]) byProduct[base] = { name: base, views: 0 };
+    byProduct[base].views += Number(r.metricValues[0].value);
+  }
+
+  const { rows: catalog } = await pool.query(`SELECT name, price, stock, sales_30d FROM products_cache`);
+  const byName = new Map(catalog.map((p) => [norm(p.name), p]));
+
+  let mayoristaViews = 0;
+  let minoristaViews = 0;
+  let unknownViews = 0;
+  const mayoristaTop = [];
+  const minoristaTop = [];
+  for (const item of Object.values(byProduct)) {
+    const match = byName.get(norm(item.name));
+    if (!match) { unknownViews += item.views; continue; }
+    const isMayorista = match.price === null || Number(match.price) <= 0;
+    if (isMayorista) { mayoristaViews += item.views; mayoristaTop.push({ ...item, sales_30d: match.sales_30d }); }
+    else { minoristaViews += item.views; minoristaTop.push({ ...item, sales_30d: match.sales_30d }); }
+  }
+  mayoristaTop.sort((a, b) => b.views - a.views);
+  minoristaTop.sort((a, b) => b.views - a.views);
+
+  const totalMatched = mayoristaViews + minoristaViews;
+  return {
+    days,
+    mayorista: { views: mayoristaViews, pct: totalMatched ? Math.round((mayoristaViews / totalMatched) * 100) : 0, top: mayoristaTop.slice(0, 10) },
+    minorista: { views: minoristaViews, pct: totalMatched ? Math.round((minoristaViews / totalMatched) * 100) : 0, top: minoristaTop.slice(0, 10) },
+    unknownViews,
+  };
+}
+
+module.exports = { isEnabled, storeSummary, topViewedWithRealSales, productViewsBySegment, runReport };
