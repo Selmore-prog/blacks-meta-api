@@ -493,7 +493,8 @@ async function renderPostBuffer(options) {
   // 1) Si hay producto, intentamos meterlo en una escena profesional generada con IA.
   if (!bgImageUrl && options.useAiProductScene && productImageUrl) {
     const scene = await generateProductScene({
-      productImageUrl, productName: options.overlayTitle, theme: options.bgTheme,
+      productImageUrl, productImageUrls: options.productImageUrls || [],
+      productName: options.overlayTitle, theme: options.bgTheme,
       brief: options.bgBrief, occasion: options.bgOccasion, format,
     });
     if (scene) {

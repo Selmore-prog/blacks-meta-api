@@ -91,6 +91,11 @@ module.exports = {
     // (el que usan los anuncios dinámicos). Sin esto, el sincronizador no corre.
     catalogId: process.env.META_CATALOG_ID || null,
     autoPublishPillars: (process.env.AUTO_PUBLISH_PILLARS || 'promo,producto').split(',').map((s) => s.trim()).filter(Boolean),
+    // AUTO_APPROVE=true: las piezas de HOY que salieron limpias del control de calidad
+    // (copy sin problemas, modelo principal, no reels sin video, slot automático) se
+    // aprueban solas antes de encolar la publicación diaria. Apagado por defecto:
+    // sin la variable seguís aprobando todo a mano desde el panel.
+    autoApprove: bool('AUTO_APPROVE', false),
     // Historia de refuerzo automática cuando se publica un post de feed (STORY_BOOST=false para apagarla).
     // Nota: hoy queda apagada de fábrica porque la API no permite LINKEAR la historia al
     // post del feed (eso es sólo en la app), y una historia suelta no sirve de refuerzo.

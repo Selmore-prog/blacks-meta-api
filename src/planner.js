@@ -119,7 +119,7 @@ REGLAS DEL PLAN (obligatorias):
 - Pilares por semana: 2 producto, 1 promo, 1 educativo, 1 de marca o ugc, 1 mayorista cada 2 semanas, 1 engagement como máximo.
 - En piezas de 'producto'/'promo', nombrá SOLO productos de la lista de arriba (son los que tienen stock y curva de talles reales). No inventes productos.
 - En los días de fechas comerciales de prioridad >= 8, poné 'promo' con pillar_detail referido a esa fecha. El día ANTERIOR a una fecha de prioridad 10, anticipala.
-- automation_level: 'auto' siempre, salvo engagement con encuesta -> 'semi' (máximo 1 'semi' por semana, con interaction_hint explicando la encuesta).
+- automation_level: 'auto' siempre, salvo engagement con encuesta/quiz -> 'semi' (máximo 1 'semi' por semana). En los 'semi', interaction_hint tiene que ser la instrucción EXACTA del sticker, lista para copiar: tipo (ENCUESTA/QUIZ/PREGUNTA), la pregunta textual, las opciones textuales (2-4, cortas) y, si es quiz, cuál es la correcta. Ej: 'ENCUESTA: "¿Qué priorizás en un botín?" Opciones: "Comodidad" / "Resistencia"'. Nada vago tipo "agregá una encuesta sobre el tema".
 - scheduled_time entre '11:00' y '18:00'.${ctx.bestHours && ctx.bestHours.length
     ? ` HORARIOS QUE MEJOR RINDIERON EN ESTA CUENTA (usalos como preferencia): ${ctx.bestHours.join(', ')}.`
     : ' Sin datos de la cuenta todavía: 17:00-18:00 suele rendir mejor; los story pueden ir 11:00-13:00.'}

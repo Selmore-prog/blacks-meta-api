@@ -192,6 +192,9 @@ ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS objective TEXT;
 -- QA del copy (Ronda 38): con qué modelo salió y qué problemas quedaron (null = limpio).
 ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS gen_model TEXT;
 ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS qa_notes TEXT;
+-- Sticker interactivo (piezas semi): especificación exacta generada con el copy
+-- {type: encuesta|quiz|pregunta|slider, question, options: [..], correct_index}.
+ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS sticker JSONB;
 -- Curva de talles (Ronda 36): para no protagonizar productos con stock en un solo talle.
 ALTER TABLE products_cache ADD COLUMN IF NOT EXISTS sizes_total INTEGER;    -- variantes/talles del producto
 ALTER TABLE products_cache ADD COLUMN IF NOT EXISTS sizes_in_stock INTEGER; -- variantes/talles con stock

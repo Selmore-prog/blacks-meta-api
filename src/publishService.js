@@ -7,8 +7,10 @@ const { publishToInstagram, publishToFacebook, publishCarouselToInstagram } = re
 async function loadAsset(assetId) {
   const { rows } = await pool.query(
     `SELECT a.*, c.platform, c.post_type, c.pillar, c.format, c.scheduled_date,
-            c.automation_level, c.interaction_hint,
-            p.permalink AS product_permalink
+            c.automation_level, c.interaction_hint, c.status AS calendar_status,
+            p.permalink AS product_permalink,
+            (SELECT MAX(id) FROM generated_assets ga
+             WHERE ga.calendar_id = a.calendar_id AND ga.status <> 'discarded') AS latest_asset_id
      FROM generated_assets a
      JOIN content_calendar c ON c.id = a.calendar_id
      LEFT JOIN products_cache p ON p.id = a.product_id
@@ -16,6 +18,30 @@ async function loadAsset(assetId) {
     [assetId]
   );
   return rows[0];
+}
+
+/**
+ * Saca de la cola las entradas pendientes de un asset (cuando se descarta, se pausa
+ * su slot o se regenera). Evita el bug de "lo eliminé y se publicó igual".
+ */
+async function cancelQueuedForAsset(assetId) {
+  const { rowCount } = await pool.query(
+    `DELETE FROM publish_queue WHERE asset_id = $1 AND status IN ('queued', 'processing')`,
+    [assetId]
+  );
+  if (rowCount) console.log(`[publishService] ${rowCount} entrada(s) de cola canceladas para el asset #${assetId}.`);
+  return rowCount;
+}
+
+/** Cancela la cola de TODOS los assets de un slot (cuando el slot se pausa/skipped). */
+async function cancelQueuedForCalendar(calendarId) {
+  const { rowCount } = await pool.query(
+    `DELETE FROM publish_queue q USING generated_assets a
+     WHERE q.asset_id = a.id AND a.calendar_id = $1 AND q.status IN ('queued', 'processing')`,
+    [calendarId]
+  );
+  if (rowCount) console.log(`[publishService] ${rowCount} entrada(s) de cola canceladas para el slot #${calendarId}.`);
+  return rowCount;
 }
 
 /**
@@ -31,6 +57,19 @@ async function publishAssetById(assetId, { force = false } = {}) {
     throw new Error(`El asset #${assetId} está en estado "${asset.status}". Solo se publican piezas aprobadas.`);
   }
 
+  // El slot fue pausado/eliminado (skipped) DESPUÉS de aprobar la pieza: no se publica.
+  if (asset.calendar_status === 'skipped' && !force) {
+    await cancelQueuedForAsset(assetId).catch(() => {});
+    throw new Error(`El slot de esta pieza está pausado (skipped): no se publica. Si la querés publicar igual, reactivá el slot desde "Planificar".`);
+  }
+
+  // Hay una versión MÁS NUEVA de esta pieza (se regeneró): la vieja no se publica,
+  // aunque haya quedado aprobada. Evita publicar contenido reemplazado/eliminado.
+  if (asset.latest_asset_id && Number(asset.latest_asset_id) !== Number(assetId) && !force) {
+    await cancelQueuedForAsset(assetId).catch(() => {});
+    throw new Error(`La pieza #${assetId} fue reemplazada por una versión más nueva (#${asset.latest_asset_id}): no se publica la versión vieja.`);
+  }
+
   // Semiautomatizada: la publicás vos desde la app para poder agregar el sticker/encuesta.
   if (asset.automation_level === 'semi' && !force) {
     return {
@@ -41,6 +80,9 @@ async function publishAssetById(assetId, { force = false } = {}) {
       image_url: getPublicUrl(asset.image_path),
       video_url: getPublicUrl(asset.video_path),
       caption: [asset.caption, asset.hashtags].filter(Boolean).join('\n\n'),
+      // Especificación exacta del sticker (encuesta/quiz/pregunta) generada junto
+      // con el copy: tipo, pregunta, opciones y respuesta correcta.
+      sticker: asset.sticker || null,
       // Link con UTMs para el sticker de link de la historia: al usarlo, Google
       // Analytics registra la campaña engine_<calendarId> y la pieza queda atribuida.
       link_url: asset.product_permalink
@@ -127,12 +169,54 @@ async function enqueueDailyAuto() {
        AND a.status = 'approved'
        AND c.automation_level = 'auto'
        AND c.pillar != 'repost'
+       -- Slots pausados/eliminados desde el panel NO se publican.
+       AND c.status <> 'skipped'
+       -- Sólo la ÚLTIMA versión de la pieza: si se regeneró, la vieja (aunque haya
+       -- quedado aprobada) no se encola — era el bug de "publicó algo que eliminé".
+       AND a.id = (SELECT MAX(ga.id) FROM generated_assets ga
+                   WHERE ga.calendar_id = c.id AND ga.status <> 'discarded')
      ON CONFLICT (asset_id) DO NOTHING
      RETURNING asset_id`,
     [config.timezone]
   );
   console.log(`[publishService] ${rows.length} asset(s) nuevos encolados para publicar en su horario.`);
   return rows.map((r) => r.asset_id);
+}
+
+/**
+ * Aprobación automática (opt-in con AUTO_APPROVE=true): aprueba sola las piezas de HOY
+ * que salieron LIMPIAS del control de calidad. Condiciones duras para no publicar nada
+ * dudoso sin revisión: slot automático y no pausado, copy sin problemas de QA
+ * (qa_notes null) y generado con el modelo principal (no el de respaldo), no reels sin
+ * video, no semi, y sólo la última versión de cada slot. Con AUTO_APPROVE apagado
+ * (default) no hace nada: seguís aprobando a mano.
+ */
+async function autoApproveCleanDrafts() {
+  if (!config.meta.autoApprove) return 0;
+  const { rows } = await pool.query(
+    `UPDATE generated_assets a SET status = 'approved', updated_at = now()
+     FROM content_calendar c
+     WHERE c.id = a.calendar_id
+       AND c.scheduled_date = CURRENT_DATE
+       AND a.status = 'draft'
+       AND c.status = 'draft'
+       AND c.automation_level = 'auto'
+       AND c.pillar != 'repost'
+       AND a.qa_notes IS NULL
+       AND COALESCE(a.gen_model, '') = 'gemini'
+       AND NOT (c.post_type = 'reel' AND a.video_path IS NULL)
+       AND a.id = (SELECT MAX(ga.id) FROM generated_assets ga
+                   WHERE ga.calendar_id = c.id AND ga.status <> 'discarded')
+     RETURNING a.id, a.calendar_id`
+  );
+  if (rows.length) {
+    await pool.query(
+      `UPDATE content_calendar SET status = 'approved' WHERE id = ANY($1)`,
+      [rows.map((r) => r.calendar_id)]
+    );
+    console.log(`[publishService] AUTO_APPROVE: ${rows.length} pieza(s) limpias de hoy aprobadas solas (${rows.map((r) => '#' + r.id).join(', ')}).`);
+  }
+  return rows.length;
 }
 
 /**
@@ -251,9 +335,13 @@ async function getPublishQueueStatus({ limit = 25 } = {}) {
  * (incluye reintentos pendientes de pasadas anteriores).
  */
 async function publishDailyAuto() {
-  console.log(`[publishService] Auto-publish para pilares: ${config.meta.autoPublishPillars.join(', ')}`);
+  const autoApproved = await autoApproveCleanDrafts().catch((err) => {
+    console.warn(`[publishService] AUTO_APPROVE falló (sigo sin aprobar nada): ${err.message}`);
+    return 0;
+  });
   await enqueueDailyAuto();
-  return processPublishQueue();
+  const result = await processPublishQueue();
+  return { ...result, autoApproved };
 }
 
 module.exports = {
@@ -262,4 +350,7 @@ module.exports = {
   enqueueDailyAuto,
   processPublishQueue,
   getPublishQueueStatus,
+  autoApproveCleanDrafts,
+  cancelQueuedForAsset,
+  cancelQueuedForCalendar,
 };

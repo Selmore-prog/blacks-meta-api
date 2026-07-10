@@ -324,8 +324,15 @@ function chooseTemplate(slot, { override } = {}) {
   }
 }
 
-function interactionChip(slot) {
+function interactionChip(slot, sticker = null) {
   if (slot.automation_level !== 'semi') return null;
+  // Con la especificación del sticker generada junto al copy, el chip refleja el
+  // tipo REAL de interacción; si no hay, se infiere del hint del plan.
+  const type = sticker && sticker.type;
+  if (type === 'encuesta') return '👆 Votá en la encuesta';
+  if (type === 'quiz') return '🧠 ¿Sabías la respuesta?';
+  if (type === 'pregunta') return '💬 Contanos vos';
+  if (type === 'slider') return '👆 Deslizá y opiná';
   const hint = (slot.interaction_hint || '').toUpperCase();
   if (hint.includes('ENCUESTA')) return '👆 Votá en la encuesta';
   if (hint.includes('QUIZ')) return '🧠 ¿Sabías la respuesta?';
@@ -402,6 +409,9 @@ async function generateForSlot(slot, overrides = {}) {
     visualProduct: product ? null : visualProduct,
     brandProfile,
     interactionHint: slot.interaction_hint,
+    // Piezas semi: la IA especifica el sticker EXACTO (tipo, pregunta, opciones,
+    // respuesta correcta) para copiarlo tal cual al publicar desde la app.
+    wantSticker: slot.automation_level === 'semi',
     wholesale,
     carousel: isCarousel,
     // Educativo/mayorista: el carrusel es una guía paso a paso (más slides).
@@ -504,6 +514,10 @@ async function generateForSlot(slot, overrides = {}) {
       cta: copy.cta,
       badgeText,
       productImageUrl: realSizeChart || visualImageUrl,
+      // Fotos extra del mismo producto (otros ángulos) para anclar la fidelidad
+      // de la escena IA: menos chance de que el modelo reinvente el producto.
+      productImageUrls: (visualProduct && Array.isArray(visualProduct.images))
+        ? visualProduct.images.slice(0, 3) : [],
       logos,
       layoutSeed: Number(slot.id),
       useAiProductScene: !isReel && Boolean(visualImageUrl) && slot.pillar !== 'repost',
@@ -521,7 +535,7 @@ async function generateForSlot(slot, overrides = {}) {
       bgBrief: imageBrief,
       bgOccasion: occasion,
       couponCode,
-      interactionLabel: interactionChip(slot),
+      interactionLabel: interactionChip(slot, copy.sticker),
     });
     imagePath = url;
     pieceCostUsd += costUsd || 0;
@@ -556,10 +570,15 @@ async function generateForSlot(slot, overrides = {}) {
   // El video del Reel NO se renderiza acá (ffmpeg es pesado). Lo completa
   // scripts/render-pending-reels.js corriendo en GitHub Actions.
   await pool.query(
-    `INSERT INTO generated_assets (calendar_id, product_id, caption, hashtags, cta, image_path, video_path, format, slides, status, template, story_teaser_path, est_cost_usd, gen_model, qa_notes)
-     VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, 'draft', $9, $10, $11, $12, $13)`,
-    [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson, slides ? 'educativo' : template, storyTeaserPath, pieceCostUsd, copy.gen_model || null, copy.qa_notes || null]
+    `INSERT INTO generated_assets (calendar_id, product_id, caption, hashtags, cta, image_path, video_path, format, slides, status, template, story_teaser_path, est_cost_usd, gen_model, qa_notes, sticker)
+     VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, 'draft', $9, $10, $11, $12, $13, $14)`,
+    [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson, slides ? 'educativo' : template, storyTeaserPath, pieceCostUsd, copy.gen_model || null, copy.qa_notes || null, copy.sticker ? JSON.stringify(copy.sticker) : null]
   );
+
+  // Si el slot ya tenía versiones encoladas para publicar (se está regenerando una
+  // pieza aprobada), esas entradas quedan obsoletas: la versión nueva es la vigente.
+  const { cancelQueuedForCalendar } = require('../src/publishService');
+  await cancelQueuedForCalendar(slot.id).catch(() => {});
 
   // Marca el slot como generado y, si no tenía objetivo (slot viejo), lo fija ahora
   // para que el panel muestre el chip coherente con el copy recién generado.

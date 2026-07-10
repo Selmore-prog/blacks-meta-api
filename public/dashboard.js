@@ -400,7 +400,7 @@ async function loadCalendar() {
   try {
     calItems = await api(`/api/calendar?days=${calendarViewDays}&back=${calBackDays}`);
     document.getElementById('next-plan').innerHTML =
-      `${icon('bot')} <b>Automático:</b> genera piezas todos los días a las <b>07:00 ARG</b>. Todo lo que apruebes y sea automático se publica solo <b>en su horario</b> (si se pasa la ventana por algún error, queda para republicar a mano, no sale a cualquier hora). Sólo las piezas <b>Semi</b> las publicás vos a mano (para sumarles el sticker/encuesta).`;
+      `${icon('bot')} Los borradores se generan solos a las <b>07:00 ARG</b>. Lo que apruebes sale <b>en su horario</b>; las <b>Semi</b> las subís vos con su sticker. Para que algo no salga: <b>Descartar</b> la pieza o pausar el slot desde <b>Planificar</b>.`;
     renderFilters();
     renderCalView();
     refreshStaleDraftsButton();
@@ -670,6 +670,29 @@ function carouselBadge(item) {
   return '';
 }
 
+/**
+ * Especificación exacta del sticker (generada con el copy): pregunta, opciones a
+ * tipear tal cual y respuesta correcta si es quiz. Devuelve '' si no hay spec.
+ */
+function stickerSpecHtml(sticker) {
+  let s = sticker;
+  if (typeof s === 'string') { try { s = JSON.parse(s); } catch (_) { s = null; } }
+  if (!s || !s.question) return '';
+  const typeLabels = { encuesta: 'ENCUESTA', quiz: 'QUIZ', pregunta: 'PREGUNTA ABIERTA', slider: 'SLIDER DE EMOJI' };
+  const opts = Array.isArray(s.options) ? s.options : [];
+  const optsHtml = opts.length
+    ? `<div style="display:flex; gap:6px; flex-wrap:wrap; margin-top:8px;">${opts.map((o, i) => {
+        const correct = s.type === 'quiz' && Number(s.correct_index) === i;
+        return `<span style="padding:5px 12px; border-radius:999px; font-size:13px; font-weight:600; border:1px solid ${correct ? '#3fb950' : 'rgba(255,255,255,.25)'}; ${correct ? 'background:rgba(63,185,80,.15); color:#3fb950;' : 'color:rgba(255,255,255,.9);'}">${esc(o)}${correct ? ' ✓ correcta' : ''}</span>`;
+      }).join('')}</div>` : '';
+  return `<div style="margin-top:10px; padding:10px 12px; background:rgba(0,0,0,.25); border-radius:10px;">
+      <div style="font-size:12px; font-weight:800; letter-spacing:.4px; color:#FF8B4D;">STICKER: ${esc(typeLabels[s.type] || String(s.type || '').toUpperCase())}</div>
+      <div style="font-size:14px; font-weight:700; margin-top:4px;">“${esc(s.question)}”</div>
+      ${optsHtml}
+      <div style="font-size:12px; color:rgba(255,255,255,.55); margin-top:8px;">Copiá la pregunta y las opciones tal cual al sticker de Instagram.</div>
+    </div>`;
+}
+
 function interactionShort(item) {
   const h = (item.interaction_hint || '').toUpperCase();
   if (h.includes('ENCUESTA')) return 'Encuesta';
@@ -863,13 +886,14 @@ function renderCard(item) {
     actions = `<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('refresh')} Regenerar</button>${planBtn}`;
   }
 
-  const interaction = (isSemi && item.interaction_hint && status !== 'published')
+  const stickerSpec = (isSemi && status !== 'published') ? stickerSpecHtml(item.sticker) : '';
+  const interaction = (isSemi && (item.interaction_hint || stickerSpec) && status !== 'published')
     ? `<div class="interaction-box" style="background: linear-gradient(135deg, rgba(232,93,27,.14) 0%, rgba(255,139,77,.06) 100%); border: 1.5px solid #FF6B1A; border-radius: 14px; padding: 16px 20px; margin: 16px 0; color: #fff;">
         <div style="display:flex; align-items:center; gap:8px; font-weight:800; color:#FF8B4D; font-size:15px; margin-bottom:6px;">
-          ${icon('alert')} PASO A PASO PARA INSTAGRAM (INTERACCIÓN MANUAL)
+          ${icon('alert')} PUBLICÁS VOS · STICKER MANUAL
         </div>
-        <div style="font-size:14px; line-height:1.5; color:rgba(255,255,255,.92); font-weight:500;">${esc(item.interaction_hint)}</div>
-        <div style="font-size:12px; color:rgba(255,255,255,.6); margin-top:8px; font-style:italic;">💡 Nota: Al subir esta imagen a tus Historias de Instagram, tocá el ícono de sticker de arriba y pegá el widget interactivo (Quiz/Encuesta/Pregunta) tal como se indica.</div>
+        ${stickerSpec || `<div style="font-size:14px; line-height:1.5; color:rgba(255,255,255,.92); font-weight:500;">${esc(item.interaction_hint)}</div>
+        <div style="font-size:12px; color:rgba(255,255,255,.6); margin-top:8px;">Al subir la historia, tocá el ícono de stickers y agregá lo indicado. Regenerá la pieza para que la IA te deje la pregunta y las opciones exactas.</div>`}
       </div>` : '';
 
   // Reels: el video NUNCA se auto-genera (nada de imagen estática con zoom).
@@ -1446,9 +1470,11 @@ async function doPublish(id, btn) {
 }
 
 function openManualPublish(data) {
+  const stickerSpec = stickerSpecHtml(data.sticker);
   const body = `
     <p style="line-height:1.6; margin-top:0;">${esc(data.message)}</p>
-    ${data.interaction_hint ? `<div class="interaction-box" style="margin:14px 0;"><b>${icon('alert')} Sticker a agregar:</b> ${esc(data.interaction_hint)}</div>` : ''}
+    ${stickerSpec ? `<div class="interaction-box" style="margin:14px 0;"><b>${icon('alert')} Sticker a agregar (tal cual):</b>${stickerSpec}</div>`
+      : (data.interaction_hint ? `<div class="interaction-box" style="margin:14px 0;"><b>${icon('alert')} Sticker a agregar:</b> ${esc(data.interaction_hint)}</div>` : '')}
     <ol style="line-height:1.8; padding-left:20px; font-size:14px;">
       <li>Descargá la pieza y abrí Instagram.</li>
       <li>Subí la historia con esa imagen/video.</li>
@@ -1461,12 +1487,21 @@ function openManualPublish(data) {
     <div style="display:flex; gap:8px; flex-wrap:wrap; margin-top:16px;">
       <a class="btn-primary btn-sm" href="${esc(data.video_url || data.image_url)}" target="_blank" download>${icon('download')} Descargar pieza</a>
       <button class="btn-ghost btn-sm" id="copy-caption">${icon('copy')} Copiar texto</button>
+      ${stickerSpec ? `<button class="btn-ghost btn-sm" id="copy-sticker">${icon('copy')} Copiar sticker</button>` : ''}
       ${data.link_url ? `<button class="btn-ghost btn-sm" id="copy-link">${icon('copy')} Copiar link</button>` : ''}
     </div>`;
   const overlay = showInfoModal('Publicación semiautomatizada', body);
   const copyBtn = overlay.querySelector('#copy-caption');
   if (copyBtn) copyBtn.addEventListener('click', () =>
     navigator.clipboard.writeText(data.caption || '').then(() => toast('Texto copiado', 'ok')));
+  const stickerBtn = overlay.querySelector('#copy-sticker');
+  if (stickerBtn) stickerBtn.addEventListener('click', () => {
+    let s = data.sticker;
+    if (typeof s === 'string') { try { s = JSON.parse(s); } catch (_) { s = null; } }
+    const txt = s ? [s.question, ...(s.options || []).map((o, i) =>
+      `${i + 1}. ${o}${s.type === 'quiz' && Number(s.correct_index) === i ? ' (correcta)' : ''}`)].join('\n') : '';
+    navigator.clipboard.writeText(txt).then(() => toast('Sticker copiado', 'ok'));
+  });
   const linkBtn = overlay.querySelector('#copy-link');
   if (linkBtn) linkBtn.addEventListener('click', () =>
     navigator.clipboard.writeText(data.link_url).then(() => toast('Link con seguimiento copiado', 'ok')));

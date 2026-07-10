@@ -52,6 +52,14 @@ function sanitizeCopy(copy) {
     hashtags: sanitizeText(copy.hashtags),
     cta: sanitizeText(copy.cta),
     slides: (copy.slides || []).map((s) => ({ title: sanitizeText(s.title), text: sanitizeText(s.text) })),
+    sticker: copy.sticker
+      ? {
+          type: copy.sticker.type,
+          question: sanitizeText(copy.sticker.question),
+          options: (copy.sticker.options || []).map(sanitizeText),
+          correct_index: copy.sticker.correct_index,
+        }
+      : null,
   };
 }
 
@@ -106,7 +114,7 @@ function productPriceText(product) {
   return regular ? `, precio ${fmt(regular)}` : '';
 }
 
-function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visualProduct, brandProfile, interactionHint, carousel, slideCount = 3, wholesale, commercialContext, topCaptions, objective, recentPieces }) {
+function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visualProduct, brandProfile, interactionHint, wantSticker, carousel, slideCount = 3, wholesale, commercialContext, topCaptions, objective, recentPieces }) {
   let productInfo = product
     ? `Producto a destacar: ${product.name}${product.brand ? ` (marca ${product.brand})` : ''}${productPriceText(product)}${typeof product.stock === 'number' ? `, stock ${product.stock}` : ''}.`
     : 'No hay un producto puntual; el foco es la marca/línea en general.';
@@ -162,6 +170,18 @@ function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visu
   const interaction = interactionHint
     ? `\n\nEsta pieza busca interacción: ${interactionHint}. Redactá el copy/overlay para provocar esa interacción.`
     : '';
+
+  // Piezas SEMI: además del copy, se especifica EXACTAMENTE el sticker de Instagram
+  // que va a agregarse a mano (tipo, pregunta, opciones textuales, respuesta correcta).
+  // Sin esto, el panel decía "agregá una encuesta" sin decir QUÉ opciones poner.
+  const stickerSpec = wantSticker
+    ? `\n\nSTICKER INTERACTIVO (obligatorio): esta pieza se publica a mano para agregarle un sticker de Instagram. Devolvé también "sticker", la especificación EXACTA y lista para copiar:
+- "type": "encuesta" | "quiz" | "pregunta" | "slider" — elegí según la interacción pedida (${interactionHint || 'una encuesta simple'}).
+- "question": la pregunta textual del sticker (corta, en voseo, coherente con la imagen y el copy).
+- "options": las opciones EXACTAS a tipear. Encuesta: 2 a 4 opciones de máx. 25 caracteres. Quiz: 2 a 4 opciones cortas. Pregunta abierta o slider: array vacío.
+- "correct_index": SOLO para quiz, el índice (desde 0) de la respuesta correcta. En el resto, null.
+La pregunta y las opciones tienen que ser concretas y fáciles de contestar en 2 segundos (nada genérico tipo "¿Te gusta?"). El overlay de la imagen y el sticker deben complementarse, no repetirse textual.`
+    : '';
   const commercial = commercialContext
     ? `\n\nCALENDARIO COMERCIAL CERCANO:\n${commercialContext}\nSi alguna fecha encaja con el producto/pilar, usala como ángulo de venta natural. Si queda forzada, ignorala.`
     : '';
@@ -188,13 +208,13 @@ function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visu
 Pilar de contenido: ${pillar}${OBJECTIVE_GUIDE[objective] ? `\n${OBJECTIVE_GUIDE[objective]}` : ''}
 Ángulo/detalle: ${pillarDetail || 'sin detalle adicional'}
 ${productInfo}${wholesaleInfo}${educationalGuard}
-Temporada: ${seasonLine}${commercial}${winners}${noRepeat}${interaction}${voice}
+Temporada: ${seasonLine}${commercial}${winners}${noRepeat}${interaction}${stickerSpec}${voice}
 
 ${carousel ? (['educativo', 'mayorista'].includes(pillar)
     ? `\nCARRUSEL PASO A PASO: devolvé "slides": un array de ${slideCount} objetos {"title","text"}. Es una GUÍA accionable, no un folleto: (1) portada con gancho que promete el resultado ("Guía de talles sin equivocarte", "Cómo comprar al por mayor"), (2-${slideCount - 1}) PASOS numerados y concretos — "title" tipo "PASO 1 — MEDÍ TU CINTURA" y "text" con la instrucción exacta (qué hacer, con qué, qué número anotar), (${slideCount}) cierre con el beneficio + CTA${pillar === 'educativo' ? ' (CTA educativo: guardar/compartir/comentar — nunca comprar)' : ''}. Cada paso tiene que poder hacerse EN EL MOMENTO. Nada repetido entre slides.${pillar === 'educativo' ? ' NINGÚN slide nombra productos/prendas propias como solución.' : ''}\n`
     : `\nCARRUSEL: además, devolvé "slides": un array de ${slideCount} objetos {"title","text"} para un carrusel deslizable. Cada slide UN punto distinto, con progresión: (1) gancho, (2-${slideCount - 1}) beneficios/datos concretos, (${slideCount}) cierre + CTA. "title" cortísimo (2-4 palabras, va grande en pantalla), "text" 1 línea corta. Nada repetido entre slides.\n`) : ''}
 Escribí el copy siguiendo la voz de marca y las reglas. Devolvé SOLO un JSON válido con esta forma exacta:
-{"overlay": "...", "caption": "...", "hashtags": "...", "cta": "..."${carousel ? ', "slides": [{"title":"...","text":"..."}]' : ''}}`;
+{"overlay": "...", "caption": "...", "hashtags": "...", "cta": "..."${carousel ? ', "slides": [{"title":"...","text":"..."}]' : ''}${wantSticker ? ', "sticker": {"type":"encuesta","question":"...","options":["...","..."],"correct_index":null}' : ''}}`;
 }
 
 /* =========================================================================
@@ -222,6 +242,12 @@ const BANNED_PATTERNS = [
   { re: /aguanta los trapos/i, label: 'lunfardo ("aguanta los trapos")' },
   { re: /buzos?\s+polares/i, label: 'plural incorrecto: es "buzos polar" (regla de marca: el tejido no se pluraliza)' },
   { re: /camperas?\s+softshells/i, label: 'plural incorrecto: es "camperas softshell"' },
+  { re: /no busques m[aá]s/i, label: 'usa "no busques más" (frase de IA)' },
+  { re: /te tenemos cubiert/i, label: 'usa "te tenemos cubierto" (frase de IA)' },
+  { re: /tu (mejor )?aliad[oa]/i, label: 'usa "tu aliado/a" (frase de IA)' },
+  { re: /marca la diferencia/i, label: 'usa "marca la diferencia" (frase de IA)' },
+  { re: /soluci[oó]n perfecta|opci[oó]n perfecta/i, label: 'usa "solución/opción perfecta" (frase de IA)' },
+  { re: /es m[aá]s que (un|una)\b/i, label: 'usa "es más que un/una..." (frase de IA)' },
 ];
 
 // Venta encubierta en piezas EDUCATIVAS: lo educativo no vende ni nombra el catálogo
@@ -233,11 +259,39 @@ const EDU_SELLING_PATTERNS = [
   { re: /(buzos?|camperas?|ropa)\s+(polar(es)?|softshell|t[eé]rmica)[^.]{0,80}\b(te|los?|las?)\s+(mantien|proteg|abriga|cuida)/i, label: 'pieza educativa recomienda prendas del catálogo como solución (venta encubierta) — reformular en genérico ("ropa de abrigo adecuada")' },
 ];
 
-/** Revisa un copy generado y devuelve la lista de problemas (vacía = pasa). */
-function lintCopy(copy, { format = 'feed', postType = 'feed', pillar = null } = {}) {
+const STICKER_TYPES = ['encuesta', 'quiz', 'pregunta', 'slider'];
+
+/** Valida la especificación de sticker de una pieza semi. Devuelve problemas (vacía = pasa). */
+function lintSticker(sticker) {
   const problems = [];
-  const all = [copy.overlay, copy.caption, copy.cta, ...(copy.slides || []).map((s) => `${s.title} ${s.text}`)]
+  if (!sticker || typeof sticker !== 'object') return ['falta la especificación del sticker (pieza semi)'];
+  if (!STICKER_TYPES.includes(sticker.type)) problems.push(`tipo de sticker inválido ("${sticker.type}")`);
+  if (!String(sticker.question || '').trim()) problems.push('el sticker no tiene pregunta');
+  const opts = Array.isArray(sticker.options) ? sticker.options.filter((o) => String(o || '').trim()) : [];
+  if (['encuesta', 'quiz'].includes(sticker.type)) {
+    if (opts.length < 2) problems.push(`el sticker de ${sticker.type} necesita al menos 2 opciones exactas`);
+    if (opts.length > 4) problems.push('el sticker tiene más de 4 opciones (Instagram permite hasta 4)');
+    const long = opts.find((o) => String(o).length > 30);
+    if (long) problems.push(`opción de sticker muy larga ("${String(long).slice(0, 30)}…"): máx ~25 caracteres`);
+  }
+  if (sticker.type === 'quiz') {
+    const ci = sticker.correct_index;
+    if (ci === null || ci === undefined || !Number.isInteger(Number(ci)) || Number(ci) < 0 || Number(ci) >= opts.length) {
+      problems.push('el quiz no indica cuál es la respuesta correcta (correct_index)');
+    }
+  }
+  return problems;
+}
+
+/** Revisa un copy generado y devuelve la lista de problemas (vacía = pasa). */
+function lintCopy(copy, { format = 'feed', postType = 'feed', pillar = null, wantSticker = false } = {}) {
+  const problems = [];
+  const all = [copy.overlay, copy.caption, copy.cta,
+    ...(copy.slides || []).map((s) => `${s.title} ${s.text}`),
+    ...(copy.sticker ? [copy.sticker.question, ...(copy.sticker.options || [])] : [])]
     .filter(Boolean).join('\n');
+
+  if (wantSticker) problems.push(...lintSticker(copy.sticker));
 
   for (const { re, label } of BANNED_PATTERNS) {
     if (re.test(all)) problems.push(label);
@@ -281,6 +335,15 @@ function parseCopyJson(text) {
     hashtags: obj.hashtags || '',
     cta: obj.cta || '',
     slides: Array.isArray(obj.slides) ? obj.slides.map((s) => ({ title: s.title || '', text: s.text || '' })) : [],
+    sticker: obj.sticker && typeof obj.sticker === 'object'
+      ? {
+          type: String(obj.sticker.type || '').toLowerCase(),
+          question: obj.sticker.question || '',
+          options: Array.isArray(obj.sticker.options) ? obj.sticker.options.map((o) => String(o || '').trim()).filter(Boolean) : [],
+          correct_index: Number.isInteger(Number(obj.sticker.correct_index)) && obj.sticker.correct_index !== null
+            ? Number(obj.sticker.correct_index) : null,
+        }
+      : null,
   };
 }
 
@@ -499,11 +562,12 @@ async function checkImageQuality(img) {
  * GROQ (fallback de copy)
  * ========================================================================= */
 
-async function groqCopy(promptUser, wantSlides = false) {
+async function groqCopy(promptUser, wantSlides = false, wantSticker = false) {
   if (!config.groq.apiKey) throw new Error('No hay GROQ_API_KEY ni GEMINI_API_KEY configuradas para generar copy.');
+  const stickerShape = wantSticker ? ',"sticker":{"type","question","options":[...],"correct_index"} — "sticker" es OBLIGATORIO' : '';
   const shape = wantSlides
-    ? '{"overlay","caption","hashtags","cta","slides":[{"title","text"},...]} — "slides" es OBLIGATORIO'
-    : '{"overlay","caption","hashtags","cta"}';
+    ? `{"overlay","caption","hashtags","cta","slides":[{"title","text"},...]${stickerShape}} — "slides" es OBLIGATORIO`
+    : `{"overlay","caption","hashtags","cta"${stickerShape}}`;
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.groq.apiKey}` },
@@ -559,9 +623,22 @@ async function generateCopyOnce(opts, feedback = null) {
               hashtags: { type: 'string' },
               cta: { type: 'string' },
               ...(opts.carousel ? { slides: { type: 'array', minItems: 3, items: { type: 'object', properties: { title: { type: 'string' }, text: { type: 'string' } }, required: ['title', 'text'] } } } : {}),
+              ...(opts.wantSticker ? {
+                sticker: {
+                  type: 'object',
+                  properties: {
+                    type: { type: 'string', enum: ['encuesta', 'quiz', 'pregunta', 'slider'] },
+                    question: { type: 'string' },
+                    options: { type: 'array', items: { type: 'string' } },
+                    correct_index: { type: 'integer', nullable: true },
+                  },
+                  required: ['type', 'question', 'options'],
+                },
+              } : {}),
             },
             // En carrusel las slides son OBLIGATORIAS: sin ellas la pieza sale simple.
-            required: ['overlay', 'caption', 'hashtags', 'cta', ...(opts.carousel ? ['slides'] : [])],
+            // En piezas semi, el sticker también.
+            required: ['overlay', 'caption', 'hashtags', 'cta', ...(opts.carousel ? ['slides'] : []), ...(opts.wantSticker ? ['sticker'] : [])],
           },
         },
       });
@@ -574,7 +651,7 @@ async function generateCopyOnce(opts, feedback = null) {
       console.warn(`[ai] Gemini copy falló, caigo a Groq: ${err.message}`);
     }
   }
-  return { copy: sanitizeCopy(await groqCopy(promptUser, Boolean(opts.carousel))), model: 'groq' };
+  return { copy: sanitizeCopy(await groqCopy(promptUser, Boolean(opts.carousel), Boolean(opts.wantSticker))), model: 'groq' };
 }
 
 /**
@@ -796,21 +873,27 @@ Composición centrada con aire alrededor, formato ${format === 'story' ? 'vertic
  * Genera una ESCENA PROFESIONAL con el producto real adentro (foto de producto como
  * referencia). Devuelve { buffer, mimeType } o null (best-effort, con fallback).
  */
-async function generateProductScene({ productImageUrl, productName, theme, brief, occasion, format = 'feed' } = {}) {
-  if (!config.ai.useAiImages || !hasGemini() || isImageQuotaCoolingDown() || !productImageUrl) return null;
+async function generateProductScene({ productImageUrl, productImageUrls = [], productName, theme, brief, occasion, format = 'feed' } = {}) {
+  if (!config.ai.useAiImages || !hasGemini() || isImageQuotaCoolingDown() || (!productImageUrl && !productImageUrls.length)) return null;
 
-  let ref;
-  try {
-    const r = await fetch(productImageUrl);
-    if (!r.ok) return null;
-    let buf = Buffer.from(await r.arrayBuffer());
-    buf = await resizeImage(buf, 1024).catch(() => buf);
-    ref = { data: buf.toString('base64'), mimeType: 'image/jpeg' };
-  } catch (_) { return null; }
+  // Hasta 3 fotos del MISMO producto (distintos ángulos): más referencias = menos
+  // chance de que el modelo "reinvente" costuras, color o silueta.
+  const urls = [...new Set([productImageUrl, ...productImageUrls].filter(Boolean))].slice(0, 3);
+  const refs = [];
+  for (const u of urls) {
+    try {
+      const r = await fetch(u);
+      if (!r.ok) continue;
+      let buf = Buffer.from(await r.arrayBuffer());
+      buf = await resizeImage(buf, 1024).catch(() => buf);
+      refs.push({ data: buf.toString('base64'), mimeType: 'image/jpeg' });
+    } catch (_) { /* seguimos con las que se pudieron bajar */ }
+  }
+  if (!refs.length) return null;
 
   const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
   const brandStyle = await brandStyleForImages();
-  const buildPrompt = (strict) => `Actuás como DIRECTOR DE ARTE SENIOR de una campaña publicitaria high-end. Tomá EXACTAMENTE el producto adjunto de la imagen de referencia (fidelidad absoluta de marca: mismo modelo, geometría, color, costuras, etiquetas — queda terminantemente prohibido rediseñarlo, inventarle detalles que no tiene, o alterar sus proporciones) y componé una escena comercial de catálogo ${ratio} para BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
+  const buildPrompt = (strict) => `Actuás como DIRECTOR DE ARTE SENIOR de una campaña publicitaria high-end. Tomá EXACTAMENTE el producto adjunto de la${refs.length > 1 ? 's' : ''} imagen${refs.length > 1 ? 'es' : ''} de referencia${refs.length > 1 ? ` (son ${refs.length} fotos DEL MISMO producto desde distintos ángulos: usalas todas para reproducirlo fiel)` : ''} (fidelidad absoluta de marca: mismo modelo, geometría, color, costuras, etiquetas — queda terminantemente prohibido rediseñarlo, inventarle detalles que no tiene, o alterar sus proporciones) y componé una escena comercial de catálogo ${ratio} para BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
 
 CONTEXTO DE LA PIEZA: ${theme || productName || 'indumentaria laboral y seguridad industrial'}.${briefBlock(brief)}${occasionGuidance(occasion)}
 
@@ -835,7 +918,7 @@ ${noTextNoLogoRule(strict)}
   for (let attempt = 0; attempt < 2; attempt++) {
     try {
       const data = await geminiGenerateContent(config.gemini.imageModel, {
-        contents: [{ role: 'user', parts: [{ text: buildPrompt(attempt > 0) }, { inlineData: ref }] }],
+        contents: [{ role: 'user', parts: [{ text: buildPrompt(attempt > 0) }, ...refs.map((r) => ({ inlineData: r }))] }],
         generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
       });
       const img = inlineImageFromResponse(data);

@@ -7,7 +7,7 @@ const pool = require('./db');
 const { seedCalendar, calendarIsEmpty } = require('./calendar');
 const { generateForSlot } = require('../scripts/generate-daily');
 const { generateDaily } = require('../scripts/generate-daily');
-const { publishAssetById, publishDailyAuto, getPublishQueueStatus } = require('./publishService');
+const { publishAssetById, publishDailyAuto, getPublishQueueStatus, cancelQueuedForAsset, cancelQueuedForCalendar } = require('./publishService');
 const { syncPostInsights, analyzePerformance } = require('./insights');
 const { getBrandProfile } = require('./brandProfile');
 const { uploadAsset } = require('./storage');
@@ -251,7 +251,7 @@ app.get('/api/calendar', wrap(async (req, res) => {
     `SELECT c.*,
             a.id as asset_id, a.caption, a.hashtags, a.cta, a.image_path, a.video_path,
             a.meta_post_id, a.status as asset_status, a.format as asset_format, a.slides,
-            a.edited_video_path, a.edit_status, a.voiceover_path, a.est_cost_usd, a.gen_model, a.qa_notes,
+            a.edited_video_path, a.edit_status, a.voiceover_path, a.est_cost_usd, a.gen_model, a.qa_notes, a.sticker,
             p.name as product_name, p.image_url as product_image_url, p.price as product_price, p.stock as product_stock,
             COALESCE(cd.events, '[]'::json) AS commercial_dates,
             pq.status as queue_status, pq.last_error as queue_error
@@ -370,6 +370,8 @@ app.patch('/api/calendar/:calendarId', wrap(async (req, res) => {
     params
   );
   if (!rows[0]) return res.status(404).json({ error: 'No existe ese slot de calendario.' });
+  // Pausar el slot (skipped) cancela cualquier publicación pendiente de sus piezas.
+  if (values.status === 'skipped') await cancelQueuedForCalendar(id).catch(() => {});
   res.json({ ok: true, slot: rows[0] });
 }));
 
@@ -650,6 +652,13 @@ app.post('/api/generate/:calendarId', wrap(async (req, res) => {
   }
 
   const template = ['fullbleed', 'minimal', 'promo', 'educativo', 'mayorista'].includes(body.template) ? body.template : null;
+  // La versión anterior se descarta ANTES de regenerar: si quedaba aprobada e
+  // invisible (el panel muestra sólo la última), la cola podía publicarla igual.
+  await pool.query(
+    `UPDATE generated_assets SET status = 'discarded', updated_at = now()
+     WHERE calendar_id = $1 AND status IN ('draft', 'approved')`, [id]
+  );
+  await cancelQueuedForCalendar(id).catch(() => {});
   await generateForSlot(slot, { pillarDetail: newDetail || slot.pillar_detail, template });
   const { rows: assetRows } = await pool.query(
     `SELECT * FROM generated_assets WHERE calendar_id = $1 ORDER BY id DESC LIMIT 1`, [id]
@@ -733,6 +742,8 @@ app.post('/api/assets/:assetId/discard', wrap(async (req, res) => {
   const id = intParam(req.params.assetId);
   if (!id) return res.status(400).json({ error: 'assetId inválido' });
   await pool.query(`UPDATE generated_assets SET status = 'discarded', updated_at = now() WHERE id = $1`, [id]);
+  // Si estaba encolada para publicarse, se cancela: descartada = no sale.
+  await cancelQueuedForAsset(id).catch(() => {});
   res.json({ ok: true });
 }));
 

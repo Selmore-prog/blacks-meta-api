@@ -71,7 +71,11 @@ async function seedCalendar(daysAhead = 14, startDate = new Date()) {
          origin = EXCLUDED.origin,
          status = EXCLUDED.status,
          objective = EXCLUDED.objective
-       WHERE content_calendar.status IN ('pending', 'skipped')
+       WHERE content_calendar.status = 'pending'
+          -- Sólo se pisan los descansos sembrados automáticamente: un slot que VOS
+          -- pausaste (skipped con pilar real) queda pausado — la siembra diaria no
+          -- lo resucita a 'pending' (era el bug de piezas eliminadas que volvían).
+          OR (content_calendar.status = 'skipped' AND content_calendar.pillar = 'repost')
        RETURNING id`,
       [dateStr, slot.post_type, slot.format, slot.pillar, slot.pillar_detail,
        slot.automation_level || 'auto', slot.interaction_hint || null, slot.scheduled_time || null,
@@ -89,7 +93,11 @@ async function seedCalendar(daysAhead = 14, startDate = new Date()) {
         `DELETE FROM content_calendar
          WHERE scheduled_date = $1 AND platform = 'instagram'
            AND status IN ('pending', 'skipped') AND post_type != $2
-           AND COALESCE(origin, 'rotation') != 'manual'`,
+           AND COALESCE(origin, 'rotation') != 'manual'
+           -- Nunca borrar un slot que ya tiene piezas generadas (borrar el slot
+           -- borra sus assets en cascada).
+           AND NOT EXISTS (SELECT 1 FROM generated_assets ga
+                           WHERE ga.calendar_id = content_calendar.id AND ga.status <> 'discarded')`,
         [dateStr, slot.post_type]
       );
     }
