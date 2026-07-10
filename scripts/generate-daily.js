@@ -297,13 +297,41 @@ function descriptionImages(product) {
     .filter((u) => /^https?:\/\//i.test(u));
 }
 
-const VALID_TEMPLATES = ['fullbleed', 'minimal', 'promo', 'educativo', 'mayorista'];
+const { TEMPLATES: VALID_TEMPLATES } = require('../src/imageRenderer');
+
+// Requisitos mínimos de cada estilo nuevo (cuántas fotos reales del producto
+// necesita, si necesita descripción real de Tiendanube para specs, si es sólo
+// para historias). Los 5 clásicos (fullbleed/minimal/promo/educativo/mayorista)
+// no tienen requisitos: siempre están disponibles.
+const TEMPLATE_REQUIREMENTS = {
+  grid: { minImages: 3 },
+  overlap: { minImages: 2 },
+  specsheet: { minImages: 1, needsDescription: true },
+  polaroidstrip: { minImages: 2, storyOnly: true },
+};
+
+// Qué estilos tienen sentido para cada pilar — variedad real por pilar, filtrada
+// después por lo que el producto puede sostener (fotos/descripción disponibles).
+// Antes sólo alternaba 2 diseños por pilar; ahora rota entre +10 estilos (bento
+// grid, fotos superpuestas, ficha técnica con specs reales, splitscreen, blueprint,
+// portada editorial, bento de tarjetas, tira de polaroids) para que el feed no
+// se sienta repetitivo/plantillero.
+const PILLAR_TEMPLATE_POOL = {
+  producto: ['fullbleed', 'minimal', 'grid', 'overlap', 'specsheet'],
+  promo: ['promo', 'splitscreen', 'fullbleed'],
+  educativo: ['educativo', 'blueprint'],
+  mayorista: ['mayorista', 'stackedcards', 'magazine'],
+  marca: ['minimal', 'magazine', 'overlap', 'fullbleed'],
+  ugc: ['magazine', 'polaroidstrip', 'overlap', 'minimal'],
+  engagement: ['fullbleed', 'splitscreen', 'minimal'],
+};
 
 /**
- * Plantilla visual según pilar (con override manual desde el panel).
- * producto alterna fullbleed/minimal por slot para que el feed no sea monótono.
+ * Plantilla visual: override manual > pool del pilar (filtrado por lo que el
+ * producto puede sostener) > fullbleed. Rota entre el catálogo de estilos por
+ * seed del slot, así la misma combinación pilar+producto no repite diseño.
  */
-function chooseTemplate(slot, { override } = {}) {
+function chooseTemplate(slot, { override, visualProduct } = {}) {
   if (VALID_TEMPLATES.includes(override)) return override;
   // La plantilla 'educativo' es una tarjeta tipográfica CON MUCHO texto y una foto
   // chica de apoyo: pensada para feed/carrusel estático. En un Reel (post_type='reel')
@@ -312,16 +340,23 @@ function chooseTemplate(slot, { override } = {}) {
   if (slot.post_type === 'reel') {
     return slot.pillar === 'mayorista' ? 'mayorista' : (Number(slot.id) % 2 === 0 ? 'fullbleed' : 'promo');
   }
-  switch (slot.pillar) {
-    case 'promo': return 'promo';
-    case 'mayorista': return 'mayorista';
-    case 'educativo': return 'educativo';
-    case 'producto': return Number(slot.id) % 2 === 0 ? 'minimal' : 'fullbleed';
-    case 'marca':
-    case 'ugc':
-    case 'engagement': return Number(slot.id) % 2 === 0 ? 'fullbleed' : 'minimal';
-    default: return 'fullbleed';
-  }
+
+  const images = (visualProduct && Array.isArray(visualProduct.images) && visualProduct.images.length)
+    ? visualProduct.images
+    : (visualProduct && visualProduct.image_url ? [visualProduct.image_url] : []);
+  const hasDescription = Boolean(visualProduct && visualProduct.description);
+  const isStory = slot.format === 'story';
+
+  const pool = (PILLAR_TEMPLATE_POOL[slot.pillar] || ['fullbleed', 'minimal']).filter((t) => {
+    const req = TEMPLATE_REQUIREMENTS[t];
+    if (!req) return true;
+    if (req.minImages && images.length < req.minImages) return false;
+    if (req.needsDescription && !hasDescription) return false;
+    if (req.storyOnly && !isStory) return false;
+    return true;
+  });
+  const candidates = pool.length ? pool : ['fullbleed'];
+  return candidates[Number(slot.id) % candidates.length];
 }
 
 function interactionChip(slot, sticker = null) {
@@ -432,8 +467,9 @@ async function generateForSlot(slot, overrides = {}) {
   // que envejezca). Reels tampoco llevan precio en el copy visual.
   const showPrice = format === 'story' && slot.post_type !== 'reel';
 
-  // Plantilla visual: override manual > pilar > variedad por seed.
-  const template = chooseTemplate(effectiveSlot, { override: overrides.template });
+  // Plantilla visual: override manual > pool del pilar (filtrado por fotos/descripción
+  // reales disponibles) > variedad por seed.
+  const template = chooseTemplate(effectiveSlot, { override: overrides.template, visualProduct });
 
   let imagePath;
   let slidesJson = null;
@@ -517,7 +553,10 @@ async function generateForSlot(slot, overrides = {}) {
       // Fotos extra del mismo producto (otros ángulos) para anclar la fidelidad
       // de la escena IA: menos chance de que el modelo reinvente el producto.
       productImageUrls: (visualProduct && Array.isArray(visualProduct.images))
-        ? visualProduct.images.slice(0, 3) : [],
+        ? visualProduct.images.slice(0, 4) : [],
+      // Descripción REAL de Tiendanube: la plantilla 'specsheet' pinea specs
+      // técnicos reales (material, feature) tomados de acá, nunca inventados.
+      productDescription: (product && product.description) || (visualProduct && visualProduct.description) || null,
       logos,
       layoutSeed: Number(slot.id),
       useAiProductScene: !isReel && Boolean(visualImageUrl) && slot.pillar !== 'repost',
@@ -624,4 +663,4 @@ if (require.main === module) {
     });
 }
 
-module.exports = { generateDaily, generateForSlot, pickRelevantVisualProduct };
+module.exports = { generateDaily, generateForSlot, pickRelevantVisualProduct, VALID_TEMPLATES };

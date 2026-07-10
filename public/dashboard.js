@@ -1185,7 +1185,16 @@ function openRegen(item) {
         <option value="promo">Promo — oscura, % OFF gigante</option>
         <option value="educativo">Educativa — tipográfica clara</option>
         <option value="mayorista">Mayorista — corporativa + presupuesto</option>
+        <option value="grid">Grid — bento de varias fotos reales</option>
+        <option value="overlap">Overlap — fotos superpuestas estilo moodboard</option>
+        <option value="specsheet">Ficha técnica — specs reales pineados</option>
+        <option value="splitscreen">Splitscreen — bloque de color + foto</option>
+        <option value="blueprint">Blueprint — plano técnico/manual</option>
+        <option value="magazine">Magazine — portada editorial</option>
+        <option value="stackedcards">Bento cards — tarjetas apiladas</option>
+        <option value="polaroidstrip">Polaroids — tira de instantáneas (historias)</option>
       </select>
+      <p class="hint" style="margin-top:6px;">Algunos estilos necesitan varias fotos del producto o descripción real de Tiendanube; si no hay suficiente, el sistema elige otro automáticamente.</p>
     </div>
     <div style="display:flex; gap:8px; justify-content:flex-end;">
       <button class="btn-discard" id="regen-cancel">Cancelar</button>

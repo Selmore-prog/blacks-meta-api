@@ -30,7 +30,24 @@ function esc(s) {
  * Todas comparten dims, zonas seguras de IG y footer con dominio.
  * ========================================================================= */
 
-const TEMPLATES = ['fullbleed', 'minimal', 'promo', 'educativo', 'mayorista'];
+const TEMPLATES = ['fullbleed', 'minimal', 'promo', 'educativo', 'mayorista',
+  'grid', 'overlap', 'specsheet', 'splitscreen', 'blueprint', 'magazine', 'stackedcards', 'polaroidstrip'];
+
+/**
+ * Extrae 2-3 frases técnicas CORTAS de la descripción real de Tiendanube (nunca
+ * inventa nada) para pinearlas como specs en la plantilla 'specsheet'. Prioriza
+ * frases con palabras de material/feature/certificación; si no encuentra, usa
+ * las primeras frases cortas del texto.
+ */
+function extractSpecTags(description, max = 3) {
+  if (!description) return [];
+  const plain = String(description).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  const parts = plain.split(/[.;•\n]+/).map((s) => s.trim()).filter((s) => s.length >= 6 && s.length <= 70);
+  const featureWords = /(cuero|acero|algod[oó]n|poli[eé]ster|impermeable|transpirable|reforzad|resistente|antideslizante|certificad|t[eé]rmic|softshell|grafa|ripstop|cordura|costura|puntera|antiest[aá]tic|diel[eé]ctric)/i;
+  const featured = parts.filter((p) => featureWords.test(p));
+  const rest = parts.filter((p) => !featureWords.test(p));
+  return [...featured, ...rest].slice(0, max);
+}
 
 function sharedGeometry(format) {
   const { w, h } = DIMS[format] || DIMS.feed;
@@ -109,6 +126,18 @@ function priceParts(price, promoPrice) {
     off: hasPromo ? Math.round((1 - Number(promoPrice) / Number(price)) * 100) : 0,
     now: hasPromo ? promoPrice : price,
   };
+}
+
+/** Cápsula de precio compacta reutilizada por las plantillas nuevas (grid/overlap/specsheet/etc.). */
+function compactPriceHtml(g, accent, price, promoPrice, { dark = false } = {}) {
+  if (!price) return '';
+  const { hasPromo, off, now } = priceParts(price, promoPrice);
+  const fg = dark ? '#fff' : '#111113';
+  const bg = dark ? 'rgba(255,255,255,.12)' : 'rgba(255,255,255,.85)';
+  return `<div style="display:inline-flex; align-items:baseline; gap:16px; margin-top:18px; background:${bg}; padding:14px 24px; border-radius:20px; box-shadow:0 12px 30px rgba(0,0,0,.14); ${dark ? 'backdrop-filter:blur(16px);' : ''}">
+    ${hasPromo ? `<span style="font-family:'Anton',sans-serif; font-size:30px; color:${dark ? 'rgba(255,255,255,.55)' : '#9a9aa0'}; text-decoration:line-through;">$${formatPrice(price)}</span><span style="background:${accent}; color:#fff; font-weight:800; font-size:17px; padding:5px 12px; border-radius:100px;">-${off}%</span>` : ''}
+    <span style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 60 : 50}px; color:${fg};">$${formatPrice(now)}</span>
+  </div>`;
 }
 
 /**
@@ -465,6 +494,293 @@ function buildMayoristaHtml(opts) {
   </body></html>`;
 }
 
+/** GRID: bento de 3-4 fotos reales del producto (ángulos/tomas distintas) en collage editorial. */
+function buildGridHtml(opts) {
+  const g = sharedGeometry(opts.format);
+  const accent = opts.accent || config.brand.colors.darkOrange;
+  const urls = (opts.productImageUrls && opts.productImageUrls.length ? opts.productImageUrls : [opts.productImageUrl]).filter(Boolean).slice(0, 4);
+  // El titular va DEBAJO del logo (no a la misma altura) para que nunca se pisen.
+  const headTop = g.wmTop + (g.isStory ? 120 : 95);
+  const top = headTop + (g.isStory ? 220 : 170);
+  const bottom = g.footBottom + (g.isStory ? 40 : 30);
+  const gap = 14;
+  const cell = (url, radius, shadow) => `<div style="border-radius:${radius}px; overflow:hidden; background:#f4f4f6; box-shadow:0 ${shadow}px ${shadow * 2}px rgba(0,0,0,.24);"><img src="${esc(url)}" style="width:100%; height:100%; object-fit:cover;"/></div>`;
+  const cellsHtml = urls.length >= 3
+    ? `<div style="position:absolute; top:${top}px; bottom:${bottom}px; left:${g.padX}px; right:${g.padX}px; display:grid; grid-template-columns: 1.4fr 1fr; grid-template-rows: 1fr 1fr; gap:${gap}px; z-index:1;">
+        <div style="grid-row: 1 / 3;">${cell(urls[0], 28, 20)}</div>
+        ${cell(urls[1], 22, 14)}
+        ${cell(urls[3] || urls[2], 22, 14)}
+      </div>`
+    : heroPhotoHtml({ productImageUrl: urls[0], box: { top, bottom, left: g.padX, right: g.padX } }).html;
+
+  return `${headHtml(g.w, g.h)}</head><body>
+    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#111113; overflow:hidden;
+      background:radial-gradient(130% 100% at 50% 0%, #ffffff 0%, #f0f0f4 55%, #e2e2e8 100%);">
+      ${cellsHtml}
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: g.isStory ? 92 : 76, top: g.wmTop, left: g.padX })}
+      ${opts.badgeText ? badgeTag(opts.badgeText, { accent, top: g.wmTop, right: g.padX }) : ''}
+      <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; top:${headTop}px; z-index:4;">
+        ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 60 : 48}px; line-height:.98; text-transform:uppercase; color:#111113; max-width:90%; letter-spacing:.5px;">${esc(opts.overlayTitle)}</div>` : ''}
+        ${compactPriceHtml(g, accent, opts.price, opts.promoPrice)}
+      </div>
+      ${domainHtml(g, { dark: true, accent })}
+    </div>
+  </body></html>`;
+}
+
+/** OVERLAP: 2-3 fotos reales superpuestas y rotadas, estilo mesa de fotógrafo/moodboard. */
+function buildOverlapHtml(opts) {
+  const g = sharedGeometry(opts.format);
+  const accent = opts.accent || config.brand.colors.darkOrange;
+  const urls = (opts.productImageUrls && opts.productImageUrls.length ? opts.productImageUrls : [opts.productImageUrl]).filter(Boolean).slice(0, 3);
+  const cx = g.w / 2;
+  const areaTop = g.isStory ? 420 : 300;
+  const areaH = g.isStory ? 780 : 560;
+  const cardW = Math.round(g.w * (g.isStory ? 0.62 : 0.56));
+  const cardH = Math.round(cardW * 1.12);
+  const offsets = [{ x: -0.24, y: -0.06, rot: -7 }, { x: 0.1, y: 0.08, rot: 5 }, { x: -0.05, y: -0.14, rot: -2 }];
+  const cards = urls.map((u, i) => {
+    const o = offsets[i % offsets.length];
+    const left = Math.round(cx - cardW / 2 + o.x * g.w);
+    const top = Math.round(areaTop + areaH / 2 - cardH / 2 + o.y * areaH);
+    return `<div style="position:absolute; top:${top}px; left:${left}px; width:${cardW}px; height:${cardH}px; background:#fff; padding:16px 16px 46px; border-radius:8px; box-shadow:0 30px 60px rgba(0,0,0,.35); transform:rotate(${o.rot}deg); z-index:${2 + i};">
+      <img src="${esc(u)}" style="width:100%; height:calc(100% - 30px); object-fit:cover; border-radius:2px;"/>
+    </div>`;
+  }).join('');
+
+  return `${headHtml(g.w, g.h)}</head><body>
+    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#111113; overflow:hidden;
+      background:radial-gradient(130% 100% at 50% 0%, #ffffff 0%, #eeeef1 55%, #dfdfe6 100%);">
+      <div style="position:absolute; top:38%; left:-8%; width:116%; text-align:center; font-family:'Anton',sans-serif; font-size:${g.isStory ? 200 : 160}px; color:rgba(0,0,0,.03); letter-spacing:16px; transform:rotate(-9deg); pointer-events:none; z-index:0;">BLACKS</div>
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: g.isStory ? 92 : 76, top: g.wmTop, left: g.padX })}
+      ${opts.badgeText ? badgeTag(opts.badgeText, { accent, top: g.wmTop, right: g.padX }) : ''}
+      ${cards}
+      <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:5;">
+        ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 70 : 58}px; line-height:.98; text-transform:uppercase; color:#111113; max-width:92%;">${esc(opts.overlayTitle)}</div>` : ''}
+        ${compactPriceHtml(g, accent, opts.price, opts.promoPrice)}
+        ${couponTag(opts.couponCode, { isStory: g.isStory })}
+      </div>
+      ${domainHtml(g, { dark: true, accent })}
+    </div>
+  </body></html>`;
+}
+
+/** SPECSHEET: foto del producto con specs técnicos REALES (de la descripción de Tiendanube) pineados alrededor, estilo ficha técnica editorial. */
+function buildSpecsheetHtml(opts) {
+  const g = sharedGeometry(opts.format);
+  const accent = opts.accent || config.brand.colors.darkOrange;
+  const tags = extractSpecTags(opts.productDescription, 3);
+  const headTop = g.wmTop + (g.isStory ? 120 : 95);
+  const boxTop = headTop + (g.isStory ? 250 : 195);
+  const boxBottom = g.footBottom + (g.isStory ? 210 : 160);
+  const hero = heroPhotoHtml({ productImageUrl: opts.productImageUrl, box: { top: boxTop, bottom: boxBottom, left: g.padX + 70, right: g.padX + 70 } });
+
+  const tagSlots = [
+    { top: boxTop + 10, left: g.padX - 10 },
+    { top: Math.round((boxTop + (g.h - boxBottom)) / 2), right: g.padX - 30 },
+    { top: g.h - boxBottom - 40, left: g.padX + 10 },
+  ];
+  const pins = tags.map((t, i) => {
+    const pos = tagSlots[i] || tagSlots[0];
+    const side = pos.left !== undefined ? `left:${pos.left}px;` : `right:${pos.right}px;`;
+    return `<div style="position:absolute; top:${pos.top}px; ${side} max-width:${g.isStory ? 300 : 250}px; z-index:4;
+      background:rgba(255,255,255,.95); border:1px solid rgba(0,0,0,.08); border-radius:14px; padding:10px 16px; box-shadow:0 14px 30px rgba(0,0,0,.16);
+      font-size:${g.isStory ? 19 : 16}px; font-weight:700; color:#1c1c1e; line-height:1.25;">
+      <span style="color:${accent};">●</span> ${esc(t)}
+    </div>`;
+  }).join('');
+
+  return `${headHtml(g.w, g.h)}</head><body>
+    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#111113; overflow:hidden;
+      background:radial-gradient(130% 100% at 50% 0%, #ffffff 0%, #f2f2f6 55%, #e5e5eb 100%);">
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: g.isStory ? 92 : 76, top: g.wmTop, left: g.padX })}
+      <div style="position:absolute; top:${headTop}px; left:${g.padX}px; right:${g.padX}px; z-index:3;">
+        <div style="display:inline-flex; align-items:center; gap:10px; background:#111113; color:#fff; font-weight:800; font-size:${g.isStory ? 20 : 18}px; letter-spacing:3px; text-transform:uppercase; padding:9px 20px; border-radius:100px; margin-bottom:20px;">
+          <span style="width:8px;height:8px;border-radius:50%;background:${accent};"></span> FICHA TÉCNICA
+        </div>
+        ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 60 : 48}px; line-height:.98; text-transform:uppercase; color:#111113; max-width:90%;">${esc(opts.overlayTitle)}</div>` : ''}
+      </div>
+      ${hero.html}
+      ${pins}
+      <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
+        ${compactPriceHtml(g, accent, opts.price, opts.promoPrice)}
+        ${couponTag(opts.couponCode, { isStory: g.isStory })}
+      </div>
+      ${domainHtml(g, { dark: true, accent })}
+    </div>
+  </body></html>`;
+}
+
+/** SPLITSCREEN: canvas partido en dos (bloque de color + foto), alto contraste para promos/comparativas. */
+function buildSplitscreenHtml(opts) {
+  const g = sharedGeometry(opts.format);
+  const accent = opts.accent || config.brand.colors.darkOrange;
+  const isVertical = !g.isStory; // feed: split izquierda/derecha; historia: split arriba/abajo
+  const splitAt = isVertical ? Math.round(g.w * 0.44) : Math.round(g.h * 0.4);
+
+  const photoAreaStyle = isVertical
+    ? `position:absolute; top:0; bottom:0; right:0; width:${g.w - splitAt}px;`
+    : `position:absolute; left:0; right:0; bottom:0; height:${g.h - splitAt}px;`;
+  const colorAreaStyle = isVertical
+    ? `position:absolute; top:0; bottom:0; left:0; width:${splitAt}px;`
+    : `position:absolute; left:0; right:0; top:0; height:${splitAt}px;`;
+
+  const { hasPromo, off, now } = priceParts(opts.price, opts.promoPrice);
+
+  return `${headHtml(g.w, g.h)}</head><body>
+    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#fff; overflow:hidden; background:#0a0a0c;">
+      <div style="${photoAreaStyle} background:#111; overflow:hidden; z-index:0;">
+        ${opts.bgImageUrl ? `<img src="${esc(opts.bgImageUrl)}" style="width:100%; height:100%; object-fit:cover;"/>`
+          : (opts.productImageUrl ? `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:radial-gradient(circle at 50% 30%, #1c1c1e 0%, #0a0a0c 100%);"><img src="${esc(opts.productImageUrl)}" style="max-width:82%; max-height:82%; object-fit:contain; filter:drop-shadow(0 30px 50px rgba(0,0,0,.6));"/></div>` : '')}
+      </div>
+      <div style="${colorAreaStyle} background:linear-gradient(160deg, #111113 0%, #1c1c1e 100%); z-index:2; display:flex; flex-direction:column; justify-content:center; padding:${g.padX}px;">
+        <div style="width:64px; height:6px; background:${accent}; margin-bottom:24px; border-radius:3px;"></div>
+        ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 58 : 50}px; line-height:1.0; text-transform:uppercase; color:#fff;">${esc(opts.overlayTitle)}</div>` : ''}
+        ${opts.price ? `<div style="margin-top:22px;">
+          ${hasPromo ? `<div style="display:flex; align-items:center; gap:12px; margin-bottom:8px;"><span style="font-family:'Anton',sans-serif; font-size:28px; color:rgba(255,255,255,.5); text-decoration:line-through;">$${formatPrice(opts.price)}</span><span style="background:${accent}; color:#fff; font-weight:800; font-size:15px; padding:5px 12px; border-radius:100px;">-${off}%</span></div>` : ''}
+          <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 68 : 58}px; color:#fff;">$${formatPrice(now)}</div>
+        </div>` : ''}
+        ${couponTag(opts.couponCode, { isStory: g.isStory })}
+      </div>
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: false, heightPx: g.isStory ? 84 : 68, top: g.wmTop, left: g.padX })}
+      ${opts.badgeText ? badgeTag(opts.badgeText, { accent, top: g.wmTop, right: g.padX }) : ''}
+      ${domainHtml(g, { accent })}
+    </div>
+  </body></html>`;
+}
+
+/** BLUEPRINT: estética de plano técnico/manual de ingeniería — segunda cara para educativo. */
+function buildBlueprintHtml(opts) {
+  const g = sharedGeometry(opts.format);
+  const accent = opts.accent || config.brand.colors.darkOrange;
+  const img = opts.bgImageUrl || opts.productImageUrl;
+  const gridLine = 'rgba(28,28,30,.06)';
+  const gridBg = `repeating-linear-gradient(0deg, ${gridLine} 0px, ${gridLine} 1px, transparent 1px, transparent 44px),
+    repeating-linear-gradient(90deg, ${gridLine} 0px, ${gridLine} 1px, transparent 1px, transparent 44px)`;
+  const bracket = (styleProps) => `<div style="position:absolute; width:34px; height:34px; z-index:4; opacity:.8; ${styleProps}"></div>`;
+  const corners = `
+    ${bracket(`top:${g.wmTop - 24}px; left:${g.padX - 24}px; border-top:3px solid ${accent}; border-left:3px solid ${accent};`)}
+    ${bracket(`top:${g.wmTop - 24}px; right:${g.padX - 24}px; border-top:3px solid ${accent}; border-right:3px solid ${accent};`)}
+    ${bracket(`bottom:${g.footBottom - 24}px; left:${g.padX - 24}px; border-bottom:3px solid ${accent}; border-left:3px solid ${accent};`)}
+    ${bracket(`bottom:${g.footBottom - 24}px; right:${g.padX - 24}px; border-bottom:3px solid ${accent}; border-right:3px solid ${accent};`)}
+  `;
+
+  return `${headHtml(g.w, g.h)}</head><body>
+    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#111113; overflow:hidden; background:#fafafa;">
+      <div style="position:absolute; inset:0; background:${gridBg}; z-index:0;"></div>
+      ${corners}
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: g.isStory ? 86 : 70, top: g.wmTop, left: g.padX })}
+      <div style="position:absolute; top:${g.wmTop}px; right:${g.padX}px; font-family:'Inter',monospace; font-size:${g.isStory ? 18 : 16}px; font-weight:700; letter-spacing:2px; color:#9a9aa0; z-index:4;">FIG. ${String((Number(opts.layoutSeed) || 1) % 20 + 1).padStart(2, '0')}</div>
+      <div style="position:absolute; top:${g.isStory ? 260 : 180}px; left:${g.padX + 20}px; right:${g.padX + 20}px; z-index:3;">
+        <div style="display:inline-flex; align-items:center; gap:10px; border:1.5px solid #111113; color:#111113; font-weight:800; font-size:${g.isStory ? 20 : 18}px; letter-spacing:3px; text-transform:uppercase; padding:8px 20px; margin-bottom:22px;">${esc(opts.kicker || 'GUÍA TÉCNICA')}</div>
+        <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 78 : 64}px; line-height:1.0; letter-spacing:.5px; text-transform:uppercase; color:#111113; max-width:94%;">${esc(opts.overlayTitle || '')}</div>
+        ${opts.bodyText ? `<div style="font-size:${g.isStory ? 30 : 26}px; font-weight:500; line-height:1.4; color:#3c3c42; margin-top:22px; max-width:88%;">${esc(opts.bodyText)}</div>` : ''}
+      </div>
+      ${img ? `<div style="position:absolute; top:${g.isStory ? 720 : 480}px; bottom:${g.footBottom + 30}px; left:${g.padX + 40}px; right:${g.padX + 40}px; background:rgba(255,255,255,.7); border:1.5px dashed rgba(28,28,30,.25); display:flex; align-items:center; justify-content:center; padding:36px; z-index:2;">
+        <img src="${esc(img)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 20px 35px rgba(0,0,0,.15));"/>
+      </div>` : ''}
+      ${domainHtml(g, { dark: true, accent })}
+    </div>
+  </body></html>`;
+}
+
+/** MAGAZINE: portada editorial — kicker + titular gigante, foto chica de apoyo (o ninguna). */
+function buildMagazineHtml(opts) {
+  const g = sharedGeometry(opts.format);
+  const accent = opts.accent || config.brand.colors.darkOrange;
+  const img = opts.bgImageUrl || opts.productImageUrl;
+
+  return `${headHtml(g.w, g.h)}</head><body>
+    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#fff; overflow:hidden; background:#0d0d0f;">
+      <div style="position:absolute; top:-10%; left:-10%; width:120%; height:60%; background:radial-gradient(ellipse at 30% 20%, rgba(232,93,27,.16) 0%, rgba(0,0,0,0) 65%); z-index:0;"></div>
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: false, heightPx: g.isStory ? 86 : 70, top: g.wmTop, left: g.padX })}
+      <div style="position:absolute; top:${g.wmTop}px; right:${g.padX}px; font-size:${g.isStory ? 20 : 18}px; font-weight:700; letter-spacing:3px; color:rgba(255,255,255,.55); z-index:4;">${esc((config.brand.instagram || '').toUpperCase())}</div>
+      <div style="position:absolute; top:${g.isStory ? 300 : 200}px; left:${g.padX}px; right:${g.padX}px; z-index:3;">
+        <div style="font-size:${g.isStory ? 22 : 20}px; font-weight:800; letter-spacing:4px; color:${accent}; text-transform:uppercase; margin-bottom:18px;">${esc(opts.kicker || 'NOTA DE TAPA')}</div>
+        <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 108 : 88}px; line-height:.92; letter-spacing:-.5px; text-transform:uppercase; color:#fff; text-shadow:0 8px 40px rgba(0,0,0,.6);">${esc(opts.overlayTitle || '')}</div>
+        ${opts.bodyText ? `<div style="font-size:${g.isStory ? 30 : 26}px; font-weight:500; line-height:1.4; color:rgba(255,255,255,.8); margin-top:26px; max-width:80%;">${esc(opts.bodyText)}</div>` : ''}
+      </div>
+      ${img ? `<div style="position:absolute; bottom:${g.footBottom}px; right:${g.padX}px; width:${g.isStory ? 300 : 260}px; height:${g.isStory ? 380 : 320}px; border-radius:18px; overflow:hidden; box-shadow:0 30px 60px rgba(0,0,0,.5); border:2px solid rgba(255,255,255,.15); z-index:2;">
+        <img src="${esc(img)}" style="width:100%; height:100%; object-fit:cover;"/>
+      </div>` : ''}
+      ${domainHtml(g, { accent })}
+    </div>
+  </body></html>`;
+}
+
+/** STACKEDCARDS: bento de 3 tarjetas (foto/headline + highlight + dato de marca) — moderno, bueno para mayorista. */
+function buildStackedcardsHtml(opts) {
+  const g = sharedGeometry(opts.format);
+  const accent = opts.accent || config.brand.colors.darkOrange;
+  const top = g.wmTop + (g.isStory ? 110 : 90);
+  const bottom = g.footBottom;
+  const gap = 16;
+  const bigH = Math.round((g.h - top - bottom - gap) * 0.62);
+  const smallH = g.h - top - bottom - gap * 2 - bigH;
+  const halfW = Math.round((g.w - g.padX * 2 - gap) / 2);
+
+  const bigCard = opts.productImageUrl
+    ? `<div style="position:absolute; top:${top}px; left:${g.padX}px; right:${g.padX}px; height:${bigH}px; border-radius:28px; overflow:hidden; background:#f4f4f6; box-shadow:0 20px 45px rgba(0,0,0,.25); z-index:1;">
+        <img src="${esc(opts.productImageUrl)}" style="width:100%; height:100%; object-fit:cover;"/>
+      </div>`
+    : `<div style="position:absolute; top:${top}px; left:${g.padX}px; right:${g.padX}px; height:${bigH}px; border-radius:28px; background:linear-gradient(160deg, #111113 0%, #1c1c1e 100%); box-shadow:0 20px 45px rgba(0,0,0,.25); z-index:1; display:flex; align-items:center; padding:36px;">
+        <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 60 : 48}px; line-height:1.0; text-transform:uppercase; color:#fff;">${esc(opts.overlayTitle || '')}</div>
+      </div>`;
+
+  const cardTop2 = top + bigH + gap;
+  const card2 = `<div style="position:absolute; top:${cardTop2}px; left:${g.padX}px; width:${halfW}px; height:${smallH}px; border-radius:22px; background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); box-shadow:0 14px 32px rgba(232,93,27,.35); z-index:1; display:flex; flex-direction:column; justify-content:center; padding:24px;">
+    <div style="font-size:${g.isStory ? 17 : 15}px; font-weight:800; letter-spacing:2px; color:rgba(255,255,255,.8); text-transform:uppercase; margin-bottom:6px;">${esc(opts.kicker || 'BLACKS')}</div>
+    <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 28 : 23}px; line-height:1.1; color:#fff;">${esc(opts.cta || opts.badgeText || 'Para tu empresa')}</div>
+  </div>`;
+  const card3 = `<div style="position:absolute; top:${cardTop2}px; right:${g.padX}px; width:${halfW}px; height:${smallH}px; border-radius:22px; background:#fff; box-shadow:0 14px 32px rgba(0,0,0,.14); z-index:1; display:flex; flex-direction:column; justify-content:center; padding:24px;">
+    <div style="font-size:${g.isStory ? 17 : 15}px; font-weight:800; letter-spacing:2px; color:#9a9aa0; text-transform:uppercase; margin-bottom:6px;">ENVÍOS</div>
+    <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 24 : 20}px; line-height:1.1; color:#111113;">A TODO EL PAÍS</div>
+  </div>`;
+
+  return `${headHtml(g.w, g.h)}</head><body>
+    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#111113; overflow:hidden;
+      background:radial-gradient(130% 100% at 50% 0%, #f4f4f6 0%, #e8e8ee 100%);">
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: g.isStory ? 84 : 68, top: g.wmTop, left: g.padX })}
+      ${opts.overlayTitle && opts.productImageUrl ? `<div style="position:absolute; top:${g.wmTop + 12}px; left:${g.padX + 200}px; right:${g.padX}px; text-align:right; font-family:'Anton',sans-serif; font-size:${g.isStory ? 36 : 30}px; text-transform:uppercase; color:#111113; z-index:2;">${esc(opts.overlayTitle)}</div>` : ''}
+      ${bigCard}
+      ${card2}
+      ${card3}
+      ${domainHtml(g, { dark: true, accent })}
+    </div>
+  </body></html>`;
+}
+
+/** POLAROIDSTRIP: 2-3 fotos reales en formato instantánea, apiladas verticalmente (sólo historias) — estética UGC/backstage. */
+function buildPolaroidStripHtml(opts) {
+  const g = sharedGeometry('story');
+  const accent = opts.accent || config.brand.colors.darkOrange;
+  const urls = (opts.productImageUrls && opts.productImageUrls.length ? opts.productImageUrls : [opts.productImageUrl]).filter(Boolean).slice(0, 3);
+  const areaTop = g.wmTop + 140;
+  const areaBottom = g.footBottom + 40;
+  const areaH = g.h - areaTop - areaBottom;
+  const frameH = Math.round(areaH / urls.length) - 20;
+  const frameW = Math.round(g.w * 0.62);
+  const rotations = [-4, 3, -2];
+
+  const frames = urls.map((u, i) => {
+    const top = areaTop + i * (frameH + 26);
+    const left = Math.round((g.w - frameW) / 2 + (i % 2 === 0 ? -30 : 30));
+    return `<div style="position:absolute; top:${top}px; left:${left}px; width:${frameW}px; background:#fff; padding:14px 14px 34px; border-radius:6px; box-shadow:0 24px 45px rgba(0,0,0,.4); transform:rotate(${rotations[i % rotations.length]}deg); z-index:${2 + i};">
+      <img src="${esc(u)}" style="width:100%; height:${frameH - 40}px; object-fit:cover;"/>
+    </div>`;
+  }).join('');
+
+  return `${headHtml(g.w, g.h)}</head><body>
+    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#111113; overflow:hidden;
+      background:radial-gradient(130% 100% at 50% 0%, #f4f4f6 0%, #e2e2e8 100%);">
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: 88, top: g.wmTop, left: g.padX })}
+      ${opts.overlayTitle ? `<div style="position:absolute; top:${g.wmTop + 6}px; left:${g.padX + 200}px; right:${g.padX}px; text-align:right; font-family:'Anton',sans-serif; font-size:30px; text-transform:uppercase; color:#111113; z-index:4;">${esc(opts.overlayTitle)}</div>` : ''}
+      ${frames}
+      ${domainHtml(g, { dark: true, accent })}
+    </div>
+  </body></html>`;
+}
+
 /** Despachador: elige el builder según opts.template (default: fullbleed, la clásica). */
 function buildHtml(opts) {
   switch (opts.template) {
@@ -472,6 +788,14 @@ function buildHtml(opts) {
     case 'promo': return buildPromoHtml(opts);
     case 'educativo': return buildEducativoHtml(opts);
     case 'mayorista': return buildMayoristaHtml(opts);
+    case 'grid': return buildGridHtml(opts);
+    case 'overlap': return buildOverlapHtml(opts);
+    case 'specsheet': return buildSpecsheetHtml(opts);
+    case 'splitscreen': return buildSplitscreenHtml(opts);
+    case 'blueprint': return buildBlueprintHtml(opts);
+    case 'magazine': return buildMagazineHtml(opts);
+    case 'stackedcards': return buildStackedcardsHtml(opts);
+    case 'polaroidstrip': return buildPolaroidStripHtml(opts);
     default: return buildFullbleedHtml(opts);
   }
 }
@@ -490,8 +814,12 @@ async function renderPostBuffer(options) {
   let productImageUrl = options.productImageUrl || null;
   let costUsd = 0;
 
+  // Plantillas que muestran FOTOS REALES del catálogo (varias tomas o specs reales):
+  // ahí no conviene reemplazar la foto por una escena compuesta con IA.
+  const skipAiScene = ['grid', 'overlap', 'specsheet', 'polaroidstrip'].includes(options.template);
+
   // 1) Si hay producto, intentamos meterlo en una escena profesional generada con IA.
-  if (!bgImageUrl && options.useAiProductScene && productImageUrl) {
+  if (!bgImageUrl && options.useAiProductScene && productImageUrl && !skipAiScene) {
     const scene = await generateProductScene({
       productImageUrl, productImageUrls: options.productImageUrls || [],
       productName: options.overlayTitle, theme: options.bgTheme,

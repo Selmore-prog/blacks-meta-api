@@ -5,7 +5,7 @@ const multer = require('multer');
 const config = require('./config');
 const pool = require('./db');
 const { seedCalendar, calendarIsEmpty } = require('./calendar');
-const { generateForSlot } = require('../scripts/generate-daily');
+const { generateForSlot, VALID_TEMPLATES } = require('../scripts/generate-daily');
 const { generateDaily } = require('../scripts/generate-daily');
 const { publishAssetById, publishDailyAuto, getPublishQueueStatus, cancelQueuedForAsset, cancelQueuedForCalendar } = require('./publishService');
 const { syncPostInsights, analyzePerformance } = require('./insights');
@@ -651,7 +651,7 @@ app.post('/api/generate/:calendarId', wrap(async (req, res) => {
     slot = r2[0];
   }
 
-  const template = ['fullbleed', 'minimal', 'promo', 'educativo', 'mayorista'].includes(body.template) ? body.template : null;
+  const template = VALID_TEMPLATES.includes(body.template) ? body.template : null;
   // La versión anterior se descarta ANTES de regenerar: si quedaba aprobada e
   // invisible (el panel muestra sólo la última), la cola podía publicarla igual.
   await pool.query(

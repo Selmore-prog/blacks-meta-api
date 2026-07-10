@@ -1086,25 +1086,94 @@ Aire limpio y desenfocado arriba y abajo para futura superposición tipográfica
 /** Ancla textual: nombre + descripción real acota lo que el modelo puede inventar. */
 function productAnchorLines(products) {
   return products.map((p, i) => {
-    const desc = p.description ? ` — ${String(p.description).replace(/\s+/g, ' ').slice(0, 200)}` : '';
+    const desc = p.description ? ` — ${String(p.description).replace(/\s+/g, ' ').slice(0, 260)}` : '';
     return `${products.length > 1 ? `${i + 1}. ` : ''}${p.name}${desc}`;
   }).join('\n');
 }
 
 function videoFidelityRules(isCombo) {
-  return `FIDELIDAD DEL PRODUCTO (lo MÁS importante — si esto se rompe, el video no sirve):
-- ${isCombo ? 'Cada producto' : 'El producto'} tiene que quedar IDÉNTICO en TODOS los frames: mismo color exacto, mismo corte, mismos bolsillos, cierres, costuras, etiquetas y logo que en las fotos de referencia. No cambia nada de un frame a otro.
-- PROHIBIDO: rediseñar, recolorear o "mejorar" el producto; agregarle estampados, texturas, logos o marcas que no estén en las fotos; deformarlo, estirarlo o cambiarle la silueta; que "mute" (morphing) entre frames.
-- El producto queda SIEMPRE dentro del cuadro, sin cortes de plano que lo obliguen a re-generarse. Un solo plano continuo es mejor que varios cortes.
-- Si tenés que elegir entre un movimiento de cámara vistoso y mantener el producto idéntico, ELEGÍ mantenerlo idéntico.`;
-}
-
-function videoCameraRules() {
-  return `CÁMARA CINEMATOGRÁFICA (diseñada milimétricamente para que el producto NO mute ni se deforme): plano fijo estable o push-in cinemático MUY lento y suave hacia el producto hero (dolly track), con micro-animación ambiental elegante (polvo flotando en luz volumétrica, destellos especulares). PROHIBIDO: órbitas de 360°, giros bruscos o paneos laterales rápidos (obligan al modelo a inventar ángulos y destruyen la fidelidad del producto). Física de luz coherente, motion blur natural de 24fps film look.`;
+  return `FIDELIDAD DEL PRODUCTO (la regla más importante — un video con costuras, cierres, bolsillos, texturas o detalles que NO están en la foto de referencia se descarta entero, aunque el resto salga bien):
+- Usá SOLO lo que se ve en la(s) foto(s) de referencia adjunta(s). PROHIBIDO inventar costuras, pespuntes, bolsillos, cierres, botones, hebillas, cordones, relieves, estampados o texturas que no sean visibles ahí. Si una parte del producto no se ve clara en la referencia (ej. la espalda), dejala AMBIGUA o fuera de foco — nunca le inventes geometría nueva.
+- ${isCombo ? 'Cada producto' : 'El producto'} mantiene el MISMO color exacto, el mismo corte y la misma silueta en TODOS los frames. Cero "mejoras" creativas, cero morphing entre frames, cero mutaciones de logo/etiqueta.
+- Es UNA SOLA TOMA CONTINUA (single continuous take): nada de cortes de plano, ángulos distintos empalmados ni jump cuts. Cualquier cambio de encuadre pasa DENTRO del mismo plano, por movimiento de cámara — nunca por corte de edición.
+- Si tenés que elegir entre un movimiento vistoso y mantener el producto idéntico + una sola toma, ELEGÍ SIEMPRE lo segundo.`;
 }
 
 function videoRealismRules() {
   return `REALISMO ANTI-IA (que NO parezca video generado): imperfecciones reales (desgaste, polvo, arrugas de tela con física creíble, piso sucio de obra), una sola fuente de luz coherente con sombras hacia el mismo lado, leve grano fílmico, saturación contenida tipo documental. PROHIBIDO: superficies plásticas perfectas, movimientos flotantes irreales, cámara imposiblemente estable, colores vibrantes de render, transiciones mágicas. Si hay personas: de espaldas o fuera de foco, manos con anatomía perfecta.`;
+}
+
+/* =========================================================================
+ * CINEMATOGRAFÍA PROFESIONAL (lenguaje de rodaje real)
+ * sceneVariation ya elige escenario/luz/encuadre; esto agrega el VOCABULARIO
+ * TÉCNICO de un director de fotografía real (óptica + técnica de cámara) para
+ * que el video se sienta filmado, no "generado" — foco selectivo, rack focus,
+ * dolly, gimbal: siempre en UNA sola toma fluida, sin cortes ni saltos.
+ * ========================================================================= */
+const CINE_POOL = {
+  optica: [
+    'lente prime 50mm f/2, bokeh cremoso y compresión natural sin distorsión',
+    'lente macro 100mm f/2.8 para el detalle del producto, profundidad de campo mínima y muy selectiva',
+    'lente anamórfico 40mm, leve aberración de lente y flares horizontales característicos de cine',
+    'zoom cinematográfico 24-70mm operado a mano con micro-temblor orgánico (handheld sutil y controlado, NO tembloroso)',
+  ],
+  tecnica: [
+    'RACK FOCUS: arranca con foco en un elemento del entorno en primer plano (el producto queda desenfocado detrás) y el enfoque se corre suavemente hacia el producto, que termina nítido a mitad de toma — una sola pasada de foco, técnica de focus puller profesional, sin saltos',
+    'PUSH-IN CONTINUO: dolly frontal lento y constante acercándose al producto, velocidad pareja de principio a fin, sin aceleraciones ni tirones',
+    'TRACKING LATERAL: la cámara se desplaza en paralelo al sujeto sobre rieles, manteniendo el producto siempre a la misma distancia focal, un solo recorrido fluido',
+    'PLANO FIJO CON RESPIRO: cámara en trípode, perfectamente estable; sólo el aire, el polvo o la tela se mueven en el encuadre — la quietud absoluta es la puesta en escena',
+    'TILT-REVEAL: arranca en un detalle del entorno (una herramienta, el piso, una textura) y sube o gira lentamente en UN solo movimiento hasta revelar el producto en plano completo',
+  ],
+};
+
+/** Combinación de óptica + técnica de cámara determinística por seed (o al azar sin seed). */
+function cinematographyPlan(seed = null) {
+  const n = seed !== null && Number.isFinite(Number(seed)) ? Math.abs(Math.trunc(Number(seed))) : Math.floor(Math.random() * 99991);
+  return {
+    optica: CINE_POOL.optica[(n * 13 + 2) % CINE_POOL.optica.length],
+    tecnica: CINE_POOL.tecnica[(n * 13 + 9) % CINE_POOL.tecnica.length],
+  };
+}
+
+/* =========================================================================
+ * ACCIÓN DEL PRODUCTO EN VIDEO (anti "acciones que no tienen sentido")
+ * Antes el prompt decía genéricamente "se muestra en uso real" para CUALQUIER
+ * producto, y el modelo terminaba inventando usos absurdos. Ahora la acción se
+ * elige según el TIPO real de la prenda/calzado, para que sea físicamente lógica.
+ * ========================================================================= */
+const PRODUCT_ACTION_RULES = [
+  { re: /bot[ií]n|zapato|calzado|borcegu[ií]/i,
+    action: 'el trabajador camina con paso firme sobre una superficie irregular (grava, tierra, chapa) y se ve cómo el calzado flexiona y pisa con solidez real; o se agacha y se ata los cordones con un gesto simple' },
+  { re: /campera|buzo|canguro|chaleco|softshell|rompeviento|t[eé]rmic/i,
+    action: 'el trabajador se acomoda el cuello o sube el cierre con una mano mientras camina, dejando ver cómo la tela cae y se mueve naturalmente sobre los hombros' },
+  { re: /pantal[oó]n|cargo|jean/i,
+    action: 'el trabajador se agacha a tomar una herramienta del piso o ajusta el cinturón, mostrando cómo el tejido se pliega en la rodilla sin perder la forma' },
+  { re: /remera|chomba|camisa/i,
+    action: 'el trabajador se acomoda el cuello o se arremanga con un gesto natural, mostrando la caída y textura real de la tela bajo la luz' },
+  { re: /mameluco|overol/i,
+    action: 'el trabajador ajusta un tirante o cierra el frente con un gesto rápido antes de agacharse a trabajar' },
+  { re: /casco|anteojo|guante|faja|pasamont|arn[eé]s/i,
+    action: 'el trabajador se coloca el equipo con un gesto preciso y funcional antes de girar hacia la tarea, sin exagerar el movimiento' },
+];
+const DEFAULT_PRODUCT_ACTION = 'el trabajador manipula la prenda/calzado con un gesto simple, breve y creíble — nunca posa para cámara ni actúa de forma teatral';
+
+/** Acción físicamente coherente con el TIPO real de producto (evita usos inventados o absurdos). */
+function productActionFor(name) {
+  const rule = PRODUCT_ACTION_RULES.find((r) => r.re.test(name || ''));
+  return rule ? rule.action : DEFAULT_PRODUCT_ACTION;
+}
+
+/**
+ * Para combos: encadena 2-3 acciones (una por producto) como progresión DENTRO
+ * de la MISMA toma continua — la cámara conecta los productos con un movimiento
+ * (tilt/pan/track), nunca con un corte de edición.
+ */
+function comboActionSequence(products) {
+  const items = products.slice(0, 3);
+  if (items.length <= 1) return productActionFor(items[0] && items[0].name);
+  const first = `con ${items[0].name}: ${productActionFor(items[0].name)}`;
+  const rest = items.slice(1).map((p) => `con ${p.name}: ${productActionFor(p.name)}`).join('; después, ');
+  return `En una única toma continua, sin cortar el plano: primero ${first}; después, mientras la cámara se desplaza suavemente (tilt/pan lento y constante) para encuadrar el resto del conjunto, ${rest}.`;
 }
 
 /**
@@ -1118,29 +1187,36 @@ function buildStudioVideoPrompt({ products = [], theme, format = 'story', durati
   const allImages = products.flatMap((p) => (Array.isArray(p.images) && p.images.length ? p.images : [p.imageUrl]).filter(Boolean));
 
   const scene = sceneVariation();
-  const prompt = `[SUBJECT & ACTION]: ${isCombo
-    ? `Un trabajador profesional en un entorno industrial auténtico vistiendo un conjunto de trabajo BLACKS (${products.map(p => p.name).join(' + ')}). Los productos se muestran en uso real con una progresión natural de movimiento, donde la tela pesada y el calzado de seguridad lucen firmes, cómodos y ultra resistentes.`
-    : `El producto hero (${products[0]?.name || 'calzado/indumentaria BLACKS'}) presentado en su entorno natural de trabajo industrial, mostrando su firmeza, costuras reforzadas y terminación premium en acción.`}
+  const cine = cinematographyPlan();
+  const action = isCombo ? comboActionSequence(products) : productActionFor(products[0] && products[0].name);
+
+  const prompt = `Un director de fotografía profesional filma este plano para BLACKS, marca argentina de ropa de trabajo y calzado de seguridad. Formato ${ratio}, ~${duration} segundos, UNA SOLA TOMA CONTINUA — sin cortes de edición, sin distintos ángulos empalmados.
+
+[PRODUCTO${isCombo ? 'S' : ''}] (fidelidad absoluta a las fotos de referencia adjuntas):
 ${productAnchorLines(products)}
 
-[SCENE]: ${scene.escenario}. Ambiente laboral argentino real, con desgaste y utilería creíbles.
+${videoFidelityRules(isCombo)}
 
-[PACING / BEATS] (~${duration}s en un solo plano continuo, sin cortes):
-- Segundos 0-1.5: el producto YA está en cuadro y reconocible desde el primer frame (el gancho es la textura/presencia, no una revelación).
-- Desarrollo: micro-acción creíble y lenta (una mano acomoda la prenda, el trabajador da dos pasos, el polvo cruza la luz). Nada teatral.
-- Cierre: la cámara termina de asentarse en un plano hero limpio y estable del producto, ideal para congelar el último frame.
+[ESCENA]: ${theme ? `${theme} — ambientado así: ` : ''}${scene.escenario}. Ambiente laboral argentino real, con desgaste y utilería creíbles.
 
-[CAMERA MOVEMENT]: ${scene.camara}. Plano fijo estable de cine 35mm o push-in MUY lento y suave (dolly track a velocidad constante), montado en estabilizador pesado. PROHIBIDO: órbitas de 360°, giros bruscos, paneos rápidos o zoom digital irreal.
+[ACCIÓN] (tiene que ser físicamente lógica para este tipo de producto — nada inventado ni absurdo): ${action}
 
-[LIGHTING & ATMOSPHERE]: ${scene.luz}. Contraluz (rim lighting) para separar el contorno del calzado/indumentaria del fondo. Color grading Kodak Portra 400, tonos sobrios con acentos naranja quemado.
+[ÓPTICA Y TÉCNICA DE CÁMARA] (vocabulario de rodaje profesional, un solo movimiento fluido de principio a fin):
+- Óptica: ${cine.optica}.
+- Técnica: ${cine.tecnica}.
+- Encuadre de esta escena: ${scene.camara}.
+- La cámara se opera con estabilizador/gimbal o rieles de dolly: el movimiento es CONTINUO y a velocidad constante, sin aceleraciones ni sacudidas. PROHIBIDO: órbitas de 360°, giros bruscos, paneos rápidos, cortes de edición o distintos planos empalmados.
+
+[RITMO] (~${duration}s dentro de esa misma toma):
+- Arranque: el/los producto(s) ya en cuadro, reconocibles desde el primer frame.
+- Desarrollo: la acción descripta arriba, a un ritmo pausado y creíble.
+- Cierre: la cámara termina de asentarse en un plano hero limpio y estable, ideal como último frame/portada.
+
+[LUZ Y ATMÓSFERA]: ${scene.luz}. Contraluz (rim lighting) para separar el contorno del producto del fondo. Color grading Kodak Portra 400, tonos sobrios con acentos naranja quemado.
 
 [AUDIO] (si el modelo genera sonido, ej. Veo 3): sonido ambiente diegético del lugar — eco de galpón, herramientas lejanas, pasos sobre hormigón, viento suave. SIN música, SIN voces, SIN efectos de "whoosh" publicitarios.
 
-[FIDELITY & REALISM CONSTRAINTS]:
-- ${isCombo ? 'Cada producto del combo' : 'El producto'} se mantiene 100% IDÉNTICO y consistente en todos los fotogramas (cero morphing, cero mutaciones en logos, costuras o suelas).
-- Física de tela y movimiento corporal anatómicamente perfectos. Sombras con caída real.
-- SIN TEXTO en pantalla, sin placas, sin números ni marcas de agua.
-- Duración: ~${duration} segundos a 24fps motion blur natural.`;
+[REALISMO]: física de tela y movimiento corporal anatómicamente perfectos, sombras con caída real. SIN TEXTO en pantalla, sin placas, sin números ni marcas de agua.`;
 
   return {
     prompt,
@@ -1244,28 +1320,36 @@ function buildVideoPrompt({ productName, productDescription, productImages = [],
   const ratio = format === 'feed' ? '4:5' : '9:16 vertical';
   const anchor = productAnchorLines([{ name: productName || 'producto de trabajo', description: productDescription }]);
   const scene = sceneVariation();
-  const prompt = `Creá un video comercial ${ratio} de ~8 segundos para BLACKS, una marca argentina de ropa de trabajo y calzado de seguridad.
+  const cine = cinematographyPlan();
+  const action = productActionFor(productName);
+  const prompt = `Un director de fotografía profesional filma este plano para BLACKS, marca argentina de ropa de trabajo y calzado de seguridad. Formato ${ratio}, ~8 segundos, UNA SOLA TOMA CONTINUA — sin cortes de edición, sin distintos ángulos empalmados.
 
 [PRODUCTO] (usá EXACTAMENTE el de las imágenes de referencia adjuntas):
 ${anchor}
 
 ${videoFidelityRules(false)}
 
-[ESCENA]: ${theme ? `${theme} — ambientado así: ` : ''}${scene.escenario}. Ambiente real argentino con desgaste creíble, no set de estudio artificial. El producto se usa o exhibe de forma natural.
+[ESCENA]: ${theme ? `${theme} — ambientado así: ` : ''}${scene.escenario}. Ambiente real argentino con desgaste creíble, no set de estudio artificial.
 
-[RITMO / BEATS] (~8s, UN solo plano continuo sin cortes):
+[ACCIÓN] (tiene que ser físicamente lógica para este tipo de producto — nada inventado ni absurdo): ${action}
+
+[ÓPTICA Y TÉCNICA DE CÁMARA] (vocabulario de rodaje profesional, un solo movimiento fluido de principio a fin):
+- Óptica: ${cine.optica}.
+- Técnica: ${cine.tecnica}.
+- Encuadre de esta escena: ${scene.camara}.
+- La cámara se opera con estabilizador/gimbal o rieles de dolly: el movimiento es CONTINUO y a velocidad constante, sin aceleraciones ni sacudidas. PROHIBIDO: órbitas de 360°, giros bruscos, paneos rápidos, cortes de edición o distintos planos empalmados.
+
+[RITMO] (~8s dentro de esa misma toma):
 - 0-1.5s: el producto ya está en cuadro, nítido y reconocible desde el primer frame (en Reels se decide seguir mirando en el primer segundo).
-- 1.5-6s: una sola micro-acción creíble y lenta (ajustar un cordón, cargar una caja, caminar dos pasos, sacudir el polvo). Nada teatral ni "de publicidad".
+- 1.5-6s: la acción descripta arriba, a un ritmo pausado y creíble. Nada teatral ni "de publicidad".
 - 6-8s: la cámara se asienta en un plano hero limpio y estable del producto (último frame usable como portada).
-
-[CÁMARA]: ${scene.camara}. ${videoCameraRules()}
 
 [LUZ Y ATMÓSFERA]: ${scene.luz}.
 ${videoRealismRules()}
 
 [AUDIO] (si el modelo genera sonido, ej. Veo 3): sólo sonido ambiente diegético del lugar — eco, herramientas lejanas, pasos, tela que roza. SIN música, SIN voces en off, SIN efectos "whoosh" publicitarios.
 
-[ESTÉTICA]: robusta, premium, alto contraste, look de aviso moderno. SIN texto en pantalla (el texto/subtítulos los agrego después).`;
+[ESTÉTICA]: robusta, premium, alto contraste, look de aviso moderno filmado por un director de fotografía real. SIN texto en pantalla (el texto/subtítulos los agrego después).`;
   const instructions = [
     'RECOMENDADO (Estándar Oro Image-to-Video / i2v en Runway Gen-3 / Kling / Luma / Veo): Subí como "Primer Fotograma" (Frame 0 / Input Image) la foto estática generada por el sistema. Eso garantiza 100% cero deformación del producto.',
     'OPCIÓN GEMINI VEO (Reference-to-Video): Subí VARIAS fotos del producto desde distintos ángulos (frente, espalda, detalle) y pegá el prompt.',
