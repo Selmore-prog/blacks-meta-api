@@ -258,7 +258,11 @@ app.get('/api/calendar', wrap(async (req, res) => {
             pq.status as queue_status, pq.last_error as queue_error
      FROM content_calendar c
      LEFT JOIN LATERAL (
-       SELECT * FROM generated_assets WHERE calendar_id = c.id ORDER BY id DESC LIMIT 1
+       -- Preferí la última versión NO descartada; sólo si TODAS están descartadas
+       -- mostramos la descartada (para poder regenerar). Antes tomaba la última por id
+       -- sin filtrar y un descarte tapaba la versión buena.
+       SELECT * FROM generated_assets WHERE calendar_id = c.id
+       ORDER BY (status <> 'discarded') DESC, id DESC LIMIT 1
      ) a ON true
      LEFT JOIN products_cache p ON p.id = a.product_id
      LEFT JOIN products_cache fp ON fp.id = c.forced_product_id
@@ -702,13 +706,14 @@ app.post('/api/generate/:calendarId', wrap(async (req, res) => {
   }
 
   const template = VALID_TEMPLATES.includes(body.template) ? body.template : null;
-  // La versión anterior se descarta ANTES de regenerar: si quedaba aprobada e
-  // invisible (el panel muestra sólo la última), la cola podía publicarla igual.
-  await pool.query(
-    `UPDATE generated_assets SET status = 'discarded', updated_at = now()
-     WHERE calendar_id = $1 AND status IN ('draft', 'approved')`, [id]
+
+  // Guardamos qué versiones había ANTES: recién las descartamos si la nueva sale bien.
+  // (Antes se descartaba primero y, si la generación en segundo plano fallaba, la pieza
+  // quedaba "descartada" sin reemplazo y no se podía aprobar — bug real jul-2026.)
+  const { rows: prevRows } = await pool.query(
+    `SELECT id FROM generated_assets WHERE calendar_id = $1 AND status IN ('draft', 'approved')`, [id]
   );
-  await cancelQueuedForCalendar(id).catch(() => {});
+  const prevIds = prevRows.map((r) => r.id);
 
   // Segundo plano: respondemos ya (el panel muestra "generando" y poolea /api/generating).
   generatingSlots.set(id, { startedAt: Date.now(), error: null });
@@ -717,10 +722,15 @@ app.post('/api/generate/:calendarId', wrap(async (req, res) => {
   (async () => {
     try {
       await generateForSlot(slotForGen, { pillarDetail: detailForGen, template });
+      // La nueva se creó OK → recién ahora descartamos las viejas y limpiamos su cola.
+      if (prevIds.length) {
+        await pool.query(`UPDATE generated_assets SET status = 'discarded', updated_at = now() WHERE id = ANY($1)`, [prevIds]);
+      }
+      await cancelQueuedForCalendar(id).catch(() => {});
       generatingSlots.delete(id);
     } catch (err) {
-      console.error(`[server] Generación en segundo plano del slot #${id} falló:`, err.message);
-      // Dejamos el error un ratito para que el panel lo muestre, después se limpia solo.
+      console.error(`[server] Generación en segundo plano del slot #${id} falló (la versión anterior queda intacta):`, err.message);
+      // La versión vieja NO se tocó: la pieza sigue aprobable como estaba.
       generatingSlots.set(id, { startedAt: Date.now(), error: err.message });
       setTimeout(() => { const cur = generatingSlots.get(id); if (cur && cur.error) generatingSlots.delete(id); }, 30000);
     }
