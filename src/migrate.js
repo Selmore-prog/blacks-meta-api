@@ -195,6 +195,9 @@ ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS qa_notes TEXT;
 -- Producto FIJADO a mano desde el panel (pilar 'producto'): si está seteado, el
 -- generador usa EXACTAMENTE este producto en vez de elegirlo automáticamente.
 ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS forced_product_id BIGINT REFERENCES products_cache(id);
+-- Receta de cada slide del carrusel (para regenerar UNO solo con correcciones):
+-- [{kind, shotType, photoIndex, extraPhotos, background, focus, overlay, badge}]
+ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS slides_meta JSONB;
 -- Sticker interactivo (piezas semi): especificación exacta generada con el copy
 -- {type: encuesta|quiz|pregunta|slider, question, options: [..], correct_index}.
 ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS sticker JSONB;

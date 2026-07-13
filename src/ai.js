@@ -1024,7 +1024,8 @@ REGLAS (cada slide con un PROPÓSITO distinto — que NO sean todas iguales):
 - FOTOS ÚNICAS: cada foto (photo_index) se usa UNA SOLA vez en TODO el carrusel. Nunca repitas una foto entre slides (ni en el cierre).
 - shot_type 'variantes' (opcional, sólo si en las fotos hay 2+ COLORES distintos): un collage/bento que muestra los OTROS colores. Poné en "extra_photos" los photo_index de las otras variantes de color (2 a 4). overlay tipo "También en otros colores".
 - shot_type 'cta' (SIEMPRE el último en feed): cierre con llamado a la acción sobre una foto linda del producto NO usada antes. overlay tipo "Conseguilas en la web" / "Sumalas a tu look". SIN precio.
-- REGLA DE ORO overlay↔foto: el overlay TIENE que describir lo que MUESTRA la foto elegida. Si ninguna foto muestra ese detalle, NO hagas ese slide.
+- REGLA DE ORO overlay↔foto: el overlay TIENE que describir lo MÁS DISTINTIVO que MUESTRA la foto elegida. Si ninguna foto muestra ese detalle, NO hagas ese slide.
+- overlay ACERTADO, no genérico ni inventado: si la foto muestra la etiqueta con la bandera argentina, el overlay va tipo "Etiqueta argentina" / "Hecho en Argentina" — NUNCA inventes el material ("de lona") si no está en la descripción real. Elegí el rasgo que hace ÚNICO a ese detalle (la bandera, el sol, la costura reforzada, la suela de yute), no una obviedad.
 - badge: casi siempre null. "NUEVO" (sólo en la hero) si el brief habla de lanzamiento; "OFERTA" si hay oferta real. Si no, null en TODOS.
 - overlay: MÁXIMO ~5 palabras, en voseo. Nunca repitas overlay.
 

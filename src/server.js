@@ -5,7 +5,7 @@ const multer = require('multer');
 const config = require('./config');
 const pool = require('./db');
 const { seedCalendar, calendarIsEmpty } = require('./calendar');
-const { generateForSlot, VALID_TEMPLATES } = require('../scripts/generate-daily');
+const { generateForSlot, VALID_TEMPLATES, regenerateSlide } = require('../scripts/generate-daily');
 const { generateDaily } = require('../scripts/generate-daily');
 const { publishAssetById, publishDailyAuto, getPublishQueueStatus, cancelQueuedForAsset, cancelQueuedForCalendar } = require('./publishService');
 const { syncPostInsights, analyzePerformance } = require('./insights');
@@ -780,6 +780,23 @@ app.post('/api/regenerate-drafts', wrap(async (req, res) => {
     }
   }
   res.json({ ok: true, regenerated, failed: failed.length, total: slots.length, errors: failed.slice(0, 5) });
+}));
+
+// Regenera UN SOLO slide del carrusel con correcciones (texto exacto y/o instrucción
+// para la imagen). No toca los demás slides. Corre en segundo plano por si tarda.
+app.post('/api/assets/:assetId/regenerate-slide', wrap(async (req, res) => {
+  const id = intParam(req.params.assetId);
+  if (!id) return res.status(400).json({ error: 'assetId inválido' });
+  const body = req.body || {};
+  const index = Number(body.index);
+  if (!Number.isInteger(index) || index < 0) return res.status(400).json({ error: 'index inválido' });
+  const result = await regenerateSlide({
+    assetId: id,
+    index,
+    overlay: typeof body.overlay === 'string' ? body.overlay : undefined,
+    instructions: typeof body.instructions === 'string' ? body.instructions : undefined,
+  });
+  res.json({ ok: true, ...result });
 }));
 
 app.post('/api/assets/:assetId/approve', wrap(async (req, res) => {

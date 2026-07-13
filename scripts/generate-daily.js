@@ -443,6 +443,70 @@ function extractCoupon(text) {
   return null;
 }
 
+/**
+ * Renderiza UNA toma del carrusel según su tipo. Es reutilizable: lo usa la generación
+ * completa (generateForSlot) y la regeneración de un solo slide (endpoint del panel).
+ * `ctx` trae todo lo compartido de la pieza (fotos reales, tema, logos, formato, etc.).
+ * Devuelve { url, costUsd, cleanImageUrl } (como renderPostBuffer).
+ */
+async function renderCarouselShot(shot, i, ctx) {
+  const { refImgs, visualImageUrl, sceneTheme, format, logos, occasion, couponCode, overlayTitle, badgeText, imageBrief, pillar, slotId, product } = ctx;
+  const refUrl = refImgs.length ? (refImgs[shot.photoIndex] || refImgs[i % refImgs.length]) : visualImageUrl;
+
+  // BENTO de variantes de color: collage (grid) con foto real de cada color, sin IA.
+  if (shot.shotType === 'variantes') {
+    const bento = [shot.photoIndex, ...(shot.extraPhotos || [])].map((idx) => refImgs[idx]).filter(Boolean).slice(0, 4);
+    return renderPostBuffer({
+      format, template: 'grid',
+      overlayTitle: shot.overlay || 'También en otros colores',
+      productImageUrls: bento.length ? bento : [refUrl],
+      productImageUrl: bento[0] || refUrl,
+      logos, showBrand: i === 0, layoutSeed: Number(slotId) + i * 13,
+    });
+  }
+
+  // CIERRE CTA (feed): foto linda full-bleed + llamado a la acción y beneficios, SIN precio.
+  if (shot.shotType === 'cta') {
+    return renderPostBuffer({
+      format, template: 'fullbleed',
+      overlayTitle: shot.overlay || config.brand.ctaHeadline,
+      ctaHeadline: config.brand.ctaHeadline,
+      ctaBenefits: config.brand.ctaBenefits,
+      productImageUrl: refUrl, coverImage: true,
+      logos, showBrand: false, layoutSeed: Number(slotId) + i * 13,
+    });
+  }
+
+  // PRECIO (sólo historias): foto real full-bleed + bloque de precio.
+  if (shot.shotType === 'price') {
+    return renderPostBuffer({
+      format, template: 'fullbleed', overlayTitle: shot.overlay || null,
+      price: product && product.price, promoPrice: product && product.promo_price,
+      productImageUrl: refUrl, coverImage: true,
+      logos, showBrand: false, couponCode,
+    });
+  }
+
+  // Hero/contexto → escena IA de estudio (full-bleed). Detalle/flatlay → FOTO REAL directa
+  // full-bleed (imposible que la IA invente algo en el producto). Overlay atado a la foto.
+  const detailRealPhoto = ['detalle', 'flatlay'].includes(shot.shotType);
+  const overlay = shot.overlay || (i === 0 ? overlayTitle : null);
+  const slideBrief = [imageBrief, shot.focus].filter(Boolean).join(' — ').slice(0, 500);
+  const slideBadge = badgeText || shot.badge || null;
+  return renderPostBuffer({
+    format, template: 'fullbleed',
+    overlayTitle: overlay,
+    badgeText: i === 0 ? slideBadge : null,
+    productImageUrl: refUrl,
+    productImageUrls: refImgs.filter((u) => u !== refUrl).slice(0, 3),
+    logos, showBrand: i === 0, layoutSeed: Number(slotId) + i * 13,
+    useAiProductScene: !detailRealPhoto && Boolean(refUrl) && pillar !== 'repost',
+    coverImage: detailRealPhoto,
+    shotSpec: { shotType: shot.shotType, focus: shot.focus, background: shot.background },
+    bgTheme: sceneTheme, bgBrief: slideBrief, bgOccasion: occasion,
+  });
+}
+
 async function generateForSlot(slot, overrides = {}) {
   const brandProfile = await getBrandProfile();
   // Permite regenerar cambiando el tema/ángulo del contenido sin cambiar el pilar.
@@ -523,6 +587,7 @@ async function generateForSlot(slot, overrides = {}) {
 
   let imagePath;
   let slidesJson = null;
+  let slidesMetaJson = null; // receta de cada slide del carrusel (para regenerar uno solo)
   let pieceCostUsd = 0; // lo que costó ESTA pieza en imágenes IA (0 = gratis)
 
   // Piezas educativas: la imagen tiene que ENSEÑAR el tema, no decorar.
@@ -639,77 +704,24 @@ async function generateForSlot(slot, overrides = {}) {
       plan = [...plan, { shotType: 'cta', focus: '', photoIndex: freeIdx < refImgs.length ? freeIdx : 0, extraPhotos: [], background: 'limpio', overlay: null, badge: null }];
     }
 
-    // Render de una toma según su tipo. En paralelo (memoria acotada por el navegador
-    // compartido + semáforo de imageRenderer).
-    const renderShot = (shot, i) => {
-      const refUrl = refImgs.length ? (refImgs[shot.photoIndex] || refImgs[i % refImgs.length]) : visualImageUrl;
-
-      // BENTO de variantes de color: collage (grid) con foto real de cada color, sin IA.
-      if (shot.shotType === 'variantes') {
-        const bento = [shot.photoIndex, ...(shot.extraPhotos || [])].map((idx) => refImgs[idx]).filter(Boolean).slice(0, 4);
-        return renderPostBuffer({
-          format, template: 'grid',
-          overlayTitle: shot.overlay || 'También en otros colores',
-          productImageUrls: bento.length ? bento : [refUrl],
-          productImageUrl: bento[0] || refUrl,
-          logos, showBrand: i === 0, layoutSeed: Number(slot.id) + i * 13,
-        });
-      }
-
-      // CIERRE CTA (feed): foto linda full-bleed + llamado a la acción y beneficios, SIN precio.
-      if (shot.shotType === 'cta') {
-        return renderPostBuffer({
-          format, template: 'fullbleed',
-          overlayTitle: shot.overlay || config.brand.ctaHeadline,
-          ctaHeadline: config.brand.ctaHeadline,
-          ctaBenefits: config.brand.ctaBenefits,
-          productImageUrl: refUrl, coverImage: true,
-          logos, showBrand: false, layoutSeed: Number(slot.id) + i * 13,
-        });
-      }
-
-      // Hero/contexto → escena IA de estudio (full-bleed). Detalle/flatlay → FOTO REAL directa
-      // full-bleed (imposible que la IA invente algo en el producto). Overlay atado a la foto.
-      const detailRealPhoto = ['detalle', 'flatlay'].includes(shot.shotType);
-      const overlay = shot.overlay || (i === 0 ? overlayTitle : null);
-      const slideBrief = [imageBrief, shot.focus].filter(Boolean).join(' — ').slice(0, 500);
-      const slideBadge = badgeText || shot.badge || null;
-      return renderPostBuffer({
-        format, template: 'fullbleed',
-        overlayTitle: overlay,
-        badgeText: i === 0 ? slideBadge : null,
-        productImageUrl: refUrl,
-        productImageUrls: refImgs.filter((u) => u !== refUrl).slice(0, 3),
-        logos, showBrand: i === 0, layoutSeed: Number(slot.id) + i * 13,
-        useAiProductScene: !detailRealPhoto && Boolean(refUrl) && slot.pillar !== 'repost',
-        coverImage: detailRealPhoto,
-        shotSpec: { shotType: shot.shotType, focus: shot.focus, background: shot.background },
-        bgTheme: sceneTheme, bgBrief: slideBrief, bgOccasion: occasion,
-      });
-    };
-
-    const slideResults = await Promise.all(plan.map(renderShot));
-    const urls = slideResults.map((r) => r.url);
-    pieceCostUsd += slideResults.reduce((sum, r) => sum + (r.costUsd || 0), 0);
-
-    // STORY (efímero): el precio SÍ puede ir. Slide de precio con una foto real NO usada
-    // (nunca repetir). En feed no va precio: cierra con el CTA de arriba.
+    // STORY (efímero): el precio SÍ puede ir como slide de cierre, con una foto real no usada.
     if (!isFeedFmt && product && ['producto', 'promo'].includes(slot.pillar) && Number(product.price) > 0) {
       const usedIdx = new Set(plan.flatMap((s) => [s.photoIndex, ...(s.extraPhotos || [])]));
       let freeIdx = 0; while (freeIdx < refImgs.length && usedIdx.has(freeIdx)) freeIdx += 1;
-      const priceImg = refImgs[freeIdx < refImgs.length ? freeIdx : 0] || visualImageUrl;
-      const { url, costUsd } = await renderPostBuffer({
-        format, template: 'fullbleed', overlayTitle: null,
-        price: product.price, promoPrice: product.promo_price,
-        productImageUrl: priceImg, coverImage: true,
-        logos, showBrand: false, couponCode,
-      });
-      urls.push(url);
-      pieceCostUsd += costUsd || 0;
+      plan = [...plan, { shotType: 'price', focus: '', photoIndex: freeIdx < refImgs.length ? freeIdx : 0, extraPhotos: [], background: 'limpio', overlay: null, badge: null }];
     }
+
+    // Contexto compartido de la pieza: lo usa renderCarouselShot (y la regeneración de 1 slide).
+    const ctx = { refImgs, visualImageUrl, sceneTheme, format, logos, occasion, couponCode, overlayTitle, badgeText, imageBrief, pillar: slot.pillar, slotId: slot.id, product };
+
+    // En paralelo (memoria acotada por el navegador compartido + semáforo de imageRenderer).
+    const slideResults = await Promise.all(plan.map((shot, i) => renderCarouselShot(shot, i, ctx)));
+    const urls = slideResults.map((r) => r.url);
+    pieceCostUsd += slideResults.reduce((sum, r) => sum + (r.costUsd || 0), 0);
 
     imagePath = urls[0];
     slidesJson = JSON.stringify(urls);
+    slidesMetaJson = JSON.stringify(plan); // receta de cada slide, para regenerar UNO solo
   } else {
     // Reels: NO se gasta en imagen IA automática. La imagen es sólo la base/portada;
     // el video real conviene generarlo a mano en Gemini/Veo con el botón
@@ -783,9 +795,9 @@ async function generateForSlot(slot, overrides = {}) {
   // El video del Reel NO se renderiza acá (ffmpeg es pesado). Lo completa
   // scripts/render-pending-reels.js corriendo en GitHub Actions.
   await pool.query(
-    `INSERT INTO generated_assets (calendar_id, product_id, caption, hashtags, cta, image_path, video_path, format, slides, status, template, story_teaser_path, est_cost_usd, gen_model, qa_notes, sticker)
-     VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, 'draft', $9, $10, $11, $12, $13, $14)`,
-    [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson, slides ? 'educativo' : template, storyTeaserPath, pieceCostUsd, copy.gen_model || null, copy.qa_notes || null, copy.sticker ? JSON.stringify(copy.sticker) : null]
+    `INSERT INTO generated_assets (calendar_id, product_id, caption, hashtags, cta, image_path, video_path, format, slides, status, template, story_teaser_path, est_cost_usd, gen_model, qa_notes, sticker, slides_meta)
+     VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, 'draft', $9, $10, $11, $12, $13, $14, $15)`,
+    [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson, slides ? 'educativo' : template, storyTeaserPath, pieceCostUsd, copy.gen_model || null, copy.qa_notes || null, copy.sticker ? JSON.stringify(copy.sticker) : null, slidesMetaJson]
   );
 
   // Si el slot ya tenía versiones encoladas para publicar (se está regenerando una
@@ -837,4 +849,64 @@ if (require.main === module) {
     });
 }
 
-module.exports = { generateDaily, generateForSlot, pickRelevantVisualProduct, VALID_TEMPLATES };
+/**
+ * Regenera UN SOLO slide de un carrusel (sin rehacer los demás), con correcciones
+ * opcionales: `overlay` (texto exacto a poner) e `instructions` (indicación libre que
+ * ajusta la imagen). Reconstruye el contexto desde el asset + producto + slot guardados.
+ * Devuelve { slides, image_path } actualizado. El panel llama a esto por slide.
+ */
+async function regenerateSlide({ assetId, index, overlay, instructions }) {
+  const { rows } = await pool.query(
+    `SELECT a.*, c.pillar, c.pillar_detail, c.theme_title, c.scheduled_date, c.format AS slot_format
+     FROM generated_assets a JOIN content_calendar c ON c.id = a.calendar_id WHERE a.id = $1`, [assetId]
+  );
+  const asset = rows[0];
+  if (!asset) throw new Error('No existe el asset.');
+  const urls = Array.isArray(asset.slides) ? [...asset.slides] : (asset.slides ? JSON.parse(asset.slides) : []);
+  if (!urls.length) throw new Error('Esta pieza no es un carrusel (no tiene slides).');
+  const i = Number(index);
+  if (!Number.isInteger(i) || i < 0 || i >= urls.length) throw new Error('Índice de slide inválido.');
+
+  const meta = Array.isArray(asset.slides_meta) ? asset.slides_meta : (asset.slides_meta ? JSON.parse(asset.slides_meta) : null);
+  // Receta de ESE slide (o una por defecto si la pieza es vieja y no tiene slides_meta).
+  const shot = (meta && meta[i]) ? { ...meta[i] } : { shotType: i === 0 ? 'hero' : 'detalle', photoIndex: i, extraPhotos: [], background: 'limpio', focus: '', overlay: null, badge: null };
+
+  // Correcciones del usuario: texto exacto del overlay y/o indicación para la imagen.
+  if (typeof overlay === 'string') shot.overlay = overlay.trim() || null;
+  if (instructions && String(instructions).trim()) shot.focus = `${shot.focus || ''} ${String(instructions).trim()}`.trim().slice(0, 200);
+  // Variar la escena IA para que salga distinta al regenerar (fotos reales no cambian).
+  shot.photoIndex = Number.isInteger(shot.photoIndex) ? shot.photoIndex : i;
+
+  const product = asset.product_id
+    ? (await pool.query('SELECT * FROM products_cache WHERE id = $1', [asset.product_id])).rows[0]
+    : null;
+  const refImgs = (product && Array.isArray(product.images) && product.images.length)
+    ? product.images : (product && product.image_url ? [product.image_url] : []);
+  const format = asset.slot_format === 'story' || asset.format === 'story' ? 'story' : 'feed';
+  const logos = await getLogos().catch(() => ({ onLight: null, onDark: null }));
+  const occasion = await getCommercialContextForDate(asset.scheduled_date, { daysAhead: 0 }).catch(() => null);
+  const sceneTheme = product ? `${product.name}${product.category ? ` (${product.category})` : ''}` : (asset.pillar_detail || asset.theme_title || '');
+
+  const ctx = {
+    refImgs,
+    visualImageUrl: product ? product.image_url : (refImgs[0] || null),
+    sceneTheme, format, logos, occasion,
+    couponCode: extractCoupon(`${asset.pillar_detail || ''} \n ${asset.caption || ''}`),
+    overlayTitle: (product && product.name) || asset.theme_title || asset.pillar_detail || '',
+    badgeText: asset.pillar === 'mayorista' ? 'MAYORISTA' : null,
+    imageBrief: [asset.pillar_detail, asset.theme_title].filter(Boolean).join(' — ').slice(0, 300),
+    pillar: asset.pillar, slotId: asset.calendar_id, product,
+  };
+
+  const { url } = await renderCarouselShot(shot, i, ctx);
+  urls[i] = url;
+  if (meta) meta[i] = shot;
+
+  await pool.query(
+    `UPDATE generated_assets SET slides = $2, image_path = $3, slides_meta = $4, updated_at = now() WHERE id = $1`,
+    [assetId, JSON.stringify(urls), urls[0], meta ? JSON.stringify(meta) : asset.slides_meta]
+  );
+  return { slides: urls, image_path: urls[0] };
+}
+
+module.exports = { generateDaily, generateForSlot, pickRelevantVisualProduct, VALID_TEMPLATES, regenerateSlide };

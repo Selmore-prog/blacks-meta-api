@@ -797,6 +797,7 @@ function openPreview(item) {
 
   // Carrusel: flechas para pasar de slide (además del swipe) + contador en vivo.
   const car = overlay.querySelector('.carousel');
+  let currentSlide = 0;
   if (car && slides && slides.length > 1) {
     const holder = car.parentElement;
     holder.insertAdjacentHTML('beforeend',
@@ -806,10 +807,60 @@ function openPreview(item) {
     holder.querySelector('.c-nav.prev').addEventListener('click', (e) => { e.stopPropagation(); goto(-1); });
     holder.querySelector('.c-nav.next').addEventListener('click', (e) => { e.stopPropagation(); goto(1); });
     car.addEventListener('scroll', () => {
-      const i = Math.round(car.scrollLeft / car.clientWidth) + 1;
-      if (count) count.innerHTML = `${icon('grid')} ${i}/${slides.length}`;
+      currentSlide = Math.round(car.scrollLeft / car.clientWidth);
+      if (count) count.innerHTML = `${icon('grid')} ${currentSlide + 1}/${slides.length}`;
     }, { passive: true });
+
+    // Botón para CORREGIR/REGENERAR sólo el slide visible (sin rehacer el resto).
+    if (item.asset_id) {
+      const box = overlay.querySelector('.preview-box');
+      box.insertAdjacentHTML('beforeend',
+        `<div class="slide-fix-bar"><button class="btn-ghost btn-sm slide-fix-btn">${icon('wand')} Corregir esta imagen</button></div>`);
+      box.querySelector('.slide-fix-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        openSlideFix(item, currentSlide, car);
+      });
+    }
   }
+}
+
+/** Corrige/regenera UN slide del carrusel: texto exacto y/o indicación para la imagen. */
+function openSlideFix(item, index, carEl) {
+  const body = `
+    <p class="hint" style="margin-top:0;">Regenerás <b>sólo el slide ${index + 1}</b> (los demás quedan igual). Podés cambiar el texto que va en la imagen y/o dar una indicación para la foto.</p>
+    <div class="field"><label>Texto en la imagen (dejalo vacío para no poner texto)</label>
+      <input class="input" id="sf-overlay" placeholder="Ej: Etiqueta argentina" /></div>
+    <div class="field"><label>Indicación para la imagen (opcional)</label>
+      <textarea class="input" id="sf-inst" placeholder="Ej: mostrá más de cerca la etiqueta, fondo más oscuro"></textarea></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end;">
+      <button class="btn-discard" id="sf-cancel">Cancelar</button>
+      <button class="btn-primary" id="sf-go">${icon('wand')} Regenerar slide ${index + 1}</button>
+    </div>`;
+  const ov = showInfoModal(`Corregir slide ${index + 1}`, body);
+  ov.querySelector('#sf-cancel').addEventListener('click', () => ov.remove());
+  ov.querySelector('#sf-go').addEventListener('click', async () => {
+    const go = ov.querySelector('#sf-go');
+    go.disabled = true; go.innerHTML = `${icon('refresh', 'spin')} Regenerando…`;
+    try {
+      const overlayText = ov.querySelector('#sf-overlay').value;
+      const instructions = ov.querySelector('#sf-inst').value.trim();
+      const r = await api(`/api/assets/${item.asset_id}/regenerate-slide`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ index, overlay: overlayText, instructions }),
+      });
+      // Reemplazá la imagen del slide en vivo (con cache-bust) sin recargar todo.
+      if (carEl && r.slides && r.slides[index]) {
+        const imgEl = carEl.querySelectorAll('img')[index];
+        if (imgEl) imgEl.src = `${r.slides[index]}?t=${Date.now()}`;
+      }
+      ov.remove();
+      toast('Slide regenerado', 'ok');
+      reloadKeepScroll();
+    } catch (e) {
+      toast(e.message, 'err');
+      go.disabled = false; go.innerHTML = `${icon('wand')} Regenerar slide ${index + 1}`;
+    }
+  });
 }
 
 /* ============ timer de auto-publicación ============ */
