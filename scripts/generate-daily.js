@@ -594,116 +594,115 @@ async function generateForSlot(slot, overrides = {}) {
       ? `${product.name}${product.category ? ` (${product.category})` : ''}`
       : [pillarDetail || slot.theme_title, copy.overlay].filter(Boolean).join(' — ');
 
-    // El cerebro planifica las tomas. Best-effort: si falla (o no hay IA de texto),
+    // Marca del producto (para aclararla SIEMPRE en la hero): la que aparezca en el nombre.
+    const brandName = mentionedBrandIn(product ? product.name : (visualProduct && visualProduct.name) || '');
+
+    // El cerebro planifica las tomas viendo las fotos reales. Best-effort: si falla,
     // caemos a un plan simple derivado de los slides del copy.
     let shotPlan = null;
-    let photoDescriptionsForVariants = []; // para el slide bento de colores
     try {
       const { planCarouselShots, describeProductPhotos } = require('../src/ai');
-      // Visión: el cerebro VE qué muestra cada foto real antes de planificar, así elige
-      // la foto correcta para cada detalle y el overlay coincide (no "sol bordado" sobre
-      // una foto que no muestra el sol). Best-effort: sin descripciones, plan a ciegas.
-      const photoDescriptions = await describeProductPhotos(refImgs.slice(0, 8)).catch(() => []);
-      photoDescriptionsForVariants = photoDescriptions;
+      // Visión: el cerebro VE qué muestra cada foto real (ángulo, detalle, COLOR) antes de
+      // planificar — elige la foto correcta para cada slide, mantiene el color consistente
+      // y arma el bento de variantes con los otros colores.
+      const photoDescriptions = await describeProductPhotos(refImgs.slice(0, 10)).catch(() => []);
+      // Cuántas tomas: hero + 2 detalle + cierre CTA, +1 si hay 2+ colores (slide bento).
+      const distinctColors = new Set(photoDescriptions.map((d) => d.color).filter(Boolean)).size;
+      const targetShots = Math.min(6, 4 + (distinctColors >= 2 ? 1 : 0));
       shotPlan = await planCarouselShots({
         productName: product ? product.name : sceneTheme,
         productDescription: (product && product.description) || (visualProduct && visualProduct.description),
         brief: imageBrief,
         pillar: slot.pillar,
         occasion,
-        slideCount: slides.length,
+        slideCount: targetShots,
         photoCount: Math.max(refImgs.length, 1),
         objective,
         photoDescriptions,
+        format,
+        brandName,
       });
     } catch (err) {
       console.warn(`[generate-daily] Director de arte no disponible (uso plan simple): ${err.message}`);
     }
 
-    // Plan efectivo: el del director de arte, o uno simple (1 foto por slide, fondo sutil).
-    const plan = (shotPlan && shotPlan.length)
+    let plan = (shotPlan && shotPlan.length)
       ? shotPlan
-      : slides.map((_, i) => ({ shotType: i === 0 ? 'hero' : 'detalle', focus: '', photoIndex: refImgs.length ? i % refImgs.length : 0, background: 'sutil', overlay: null, badge: null }));
+      : slides.map((_, i) => ({ shotType: i === 0 ? 'hero' : 'detalle', focus: '', photoIndex: refImgs.length ? i % refImgs.length : 0, extraPhotos: [], background: 'sutil', overlay: null, badge: null }));
 
-    // En paralelo: cada slide es una llamada a Gemini independiente. En secuencia tardaba
-    // 1-3 min; en paralelo baja al tiempo de la más lenta.
-    const slideResults = await Promise.all(plan.map((shot, i) => {
+    // Feed evergreen: garantizamos un slide de CIERRE con CTA (sin precio). Si el cerebro
+    // no lo puso, lo agregamos con una foto real no usada todavía (nunca repetir foto).
+    const isFeedFmt = format !== 'story';
+    if (isFeedFmt && !plan.some((s) => s.shotType === 'cta')) {
+      const usedIdx = new Set(plan.flatMap((s) => [s.photoIndex, ...(s.extraPhotos || [])]));
+      let freeIdx = 0; while (freeIdx < refImgs.length && usedIdx.has(freeIdx)) freeIdx += 1;
+      plan = [...plan, { shotType: 'cta', focus: '', photoIndex: freeIdx < refImgs.length ? freeIdx : 0, extraPhotos: [], background: 'limpio', overlay: null, badge: null }];
+    }
+
+    // Render de una toma según su tipo. En paralelo (memoria acotada por el navegador
+    // compartido + semáforo de imageRenderer).
+    const renderShot = (shot, i) => {
       const refUrl = refImgs.length ? (refImgs[shot.photoIndex] || refImgs[i % refImgs.length]) : visualImageUrl;
-      // Overlay COHERENTE con la imagen: el del director de arte (atado a la foto/detalle
-      // de ESE slide). En la hero, si no hay, el título general; en detalle, sin texto.
+
+      // BENTO de variantes de color: collage (grid) con foto real de cada color, sin IA.
+      if (shot.shotType === 'variantes') {
+        const bento = [shot.photoIndex, ...(shot.extraPhotos || [])].map((idx) => refImgs[idx]).filter(Boolean).slice(0, 4);
+        return renderPostBuffer({
+          format, template: 'grid',
+          overlayTitle: shot.overlay || 'También en otros colores',
+          productImageUrls: bento.length ? bento : [refUrl],
+          productImageUrl: bento[0] || refUrl,
+          logos, showBrand: i === 0, layoutSeed: Number(slot.id) + i * 13,
+        });
+      }
+
+      // CIERRE CTA (feed): foto linda full-bleed + llamado a la acción y beneficios, SIN precio.
+      if (shot.shotType === 'cta') {
+        return renderPostBuffer({
+          format, template: 'fullbleed',
+          overlayTitle: shot.overlay || config.brand.ctaHeadline,
+          ctaHeadline: config.brand.ctaHeadline,
+          ctaBenefits: config.brand.ctaBenefits,
+          productImageUrl: refUrl, coverImage: true,
+          logos, showBrand: false, layoutSeed: Number(slot.id) + i * 13,
+        });
+      }
+
+      // Hero/contexto → escena IA de estudio (full-bleed). Detalle/flatlay → FOTO REAL directa
+      // full-bleed (imposible que la IA invente algo en el producto). Overlay atado a la foto.
+      const detailRealPhoto = ['detalle', 'flatlay'].includes(shot.shotType);
       const overlay = shot.overlay || (i === 0 ? overlayTitle : null);
       const slideBrief = [imageBrief, shot.focus].filter(Boolean).join(' — ').slice(0, 500);
       const slideBadge = badgeText || shot.badge || null;
-      // TOMAS DE DETALLE (y bento de variantes): usan la FOTO REAL directa, full-bleed,
-      // SIN regenerar con IA. Así es IMPOSIBLE que el modelo invente algo en el producto
-      // (fue el problema del "sol en la parte de atrás" que no existe). El hero/contexto
-      // sí usan escena IA de estudio (recrean el producto en un fondo lindo, full-bleed).
-      const detailRealPhoto = ['detalle', 'flatlay', 'variantes'].includes(shot.shotType);
       return renderPostBuffer({
-        format,
-        template: 'fullbleed',
+        format, template: 'fullbleed',
         overlayTitle: overlay,
         badgeText: i === 0 ? slideBadge : null,
         productImageUrl: refUrl,
         productImageUrls: refImgs.filter((u) => u !== refUrl).slice(0, 3),
-        logos,
-        showBrand: i === 0,
-        layoutSeed: Number(slot.id) + i * 13,
-        // Detalle → foto real full-bleed (coverImage). Hero/contexto → escena IA.
+        logos, showBrand: i === 0, layoutSeed: Number(slot.id) + i * 13,
         useAiProductScene: !detailRealPhoto && Boolean(refUrl) && slot.pillar !== 'repost',
         coverImage: detailRealPhoto,
         shotSpec: { shotType: shot.shotType, focus: shot.focus, background: shot.background },
-        bgTheme: sceneTheme,
-        bgBrief: slideBrief,
-        bgOccasion: occasion,
-        couponCode: i === plan.length - 1 ? couponCode : null,
+        bgTheme: sceneTheme, bgBrief: slideBrief, bgOccasion: occasion,
       });
-    }));
+    };
+
+    const slideResults = await Promise.all(plan.map(renderShot));
     const urls = slideResults.map((r) => r.url);
     pieceCostUsd += slideResults.reduce((sum, r) => sum + (r.costUsd || 0), 0);
 
-    // Slide BENTO de VARIEDAD DE COLORES: si la visión detectó 2+ colores del mismo
-    // producto, un collage moderno (grid) con una foto real de cada color. Sólo fotos
-    // reales, sin IA — muestra la variedad tal cual es.
-    if (Array.isArray(photoDescriptionsForVariants) && photoDescriptionsForVariants.length) {
-      const byColor = new Map();
-      for (const d of photoDescriptionsForVariants) {
-        if (!d.color || d.isDetail) continue; // el bento muestra el producto entero por color
-        if (!byColor.has(d.color)) byColor.set(d.color, refImgs[d.index]);
-      }
-      const colorPhotos = [...byColor.values()].filter(Boolean).slice(0, 4);
-      if (colorPhotos.length >= 2) {
-        const { url, costUsd } = await renderPostBuffer({
-          format,
-          template: 'grid',
-          overlayTitle: 'También en otros colores',
-          productImageUrls: colorPhotos,
-          productImageUrl: colorPhotos[0],
-          logos,
-          showBrand: true,
-          layoutSeed: Number(slot.id) + 99,
-        });
-        urls.push(url);
-        pieceCostUsd += costUsd || 0;
-      }
-    }
-
-    // Slide final de PRECIO (venta): usa la foto LIMPIA del HERO (no la última, para NO
-    // repetir la misma imagen que el slide anterior — era el bug de "repite la del precio").
-    if (product && ['producto', 'promo'].includes(slot.pillar) && Number(product.price) > 0) {
-      const heroClean = slideResults[0] && slideResults[0].cleanImageUrl;
+    // STORY (efímero): el precio SÍ puede ir. Slide de precio con una foto real NO usada
+    // (nunca repetir). En feed no va precio: cierra con el CTA de arriba.
+    if (!isFeedFmt && product && ['producto', 'promo'].includes(slot.pillar) && Number(product.price) > 0) {
+      const usedIdx = new Set(plan.flatMap((s) => [s.photoIndex, ...(s.extraPhotos || [])]));
+      let freeIdx = 0; while (freeIdx < refImgs.length && usedIdx.has(freeIdx)) freeIdx += 1;
+      const priceImg = refImgs[freeIdx < refImgs.length ? freeIdx : 0] || visualImageUrl;
       const { url, costUsd } = await renderPostBuffer({
-        format,
-        template: 'fullbleed',
-        overlayTitle: null,
-        price: product.price,
-        promoPrice: product.promo_price,
-        bgImageUrl: heroClean || null,
-        productImageUrl: heroClean ? null : (refImgs[0] || visualImageUrl),
-        coverImage: !heroClean,
-        logos,
-        showBrand: false,
-        couponCode,
+        format, template: 'fullbleed', overlayTitle: null,
+        price: product.price, promoPrice: product.promo_price,
+        productImageUrl: priceImg, coverImage: true,
+        logos, showBrand: false, couponCode,
       });
       urls.push(url);
       pieceCostUsd += costUsd || 0;

@@ -116,11 +116,16 @@ module.exports = {
     oldSites: ['blackshop.com.ar', 'blackshop.com', 'www.blackshop.com.ar', 'blackshop'],
     // Texto fijo del beneficio por transferencia (aparece en el bloque de precio).
     transferNote: required('BRAND_TRANSFER_NOTE', '10% de descuento pagando con transferencia'),
+    // Slide de CIERRE (CTA) de los carruseles de feed: en vez de precio (que envejece)
+    // va un llamado a la acción con los beneficios. Editables por variable de entorno.
+    ctaHeadline: required('BRAND_CTA_HEADLINE', 'Conseguilas en la web'),
+    ctaBenefits: required('BRAND_CTA_BENEFITS', '6 cuotas sin interés · Envío gratis a todo el país')
+      .split(/·|\|/).map((s) => s.trim()).filter(Boolean),
     colors: {
       black: '#0A0A0A',
       white: '#FFFFFF',
       darkOrange: '#C1440C',
     },
-    knownBrands: ['Pampero', 'Ombu', 'Ombú', 'Grafa 70', 'Grafa70', 'Gurre'],
+    knownBrands: ['Pampero', 'Ombu', 'Ombú', 'Grafa 70', 'Grafa70', 'Gurre', 'Rueda'],
   },
 };

@@ -8,6 +8,56 @@ const DIMS = {
   story: { w: 1080, h: 1920 },  // 9:16
 };
 
+/* =========================================================================
+ * NAVEGADOR COMPARTIDO + LÍMITE DE CONCURRENCIA (memoria)
+ * Antes cada render lanzaba su propio Chromium. Con los slides del carrusel en
+ * paralelo eran 4-5 navegadores a la vez (~1GB) y Render (512MB) crasheaba
+ * ("Ran out of memory"). Ahora: UN navegador reutilizado + como mucho 2 páginas
+ * renderizando al mismo tiempo (las demás esperan en cola). Baja el pico de RAM
+ * de ~1GB a ~300MB sin perder el paralelismo de la generación IA (que es red).
+ * ========================================================================= */
+const LAUNCH_ARGS = [
+  '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu',
+  '--single-process', '--no-zygote', '--disable-extensions', '--disable-background-networking',
+  '--disable-default-apps', '--disable-sync', '--disable-translate', '--mute-audio',
+  '--no-first-run', '--metrics-recording-only', '--js-flags=--max-old-space-size=128',
+];
+
+let sharedBrowser = null;
+let browserLaunching = null;
+
+async function getBrowser() {
+  if (sharedBrowser && sharedBrowser.connected) return sharedBrowser;
+  if (browserLaunching) return browserLaunching;
+  browserLaunching = (async () => {
+    const launchOptions = { headless: 'new', args: LAUNCH_ARGS };
+    if (process.env.PUPPETEER_EXECUTABLE_PATH) launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
+    const b = await puppeteer.launch(launchOptions);
+    b.on('disconnected', () => { if (sharedBrowser === b) sharedBrowser = null; });
+    sharedBrowser = b;
+    browserLaunching = null;
+    return b;
+  })();
+  return browserLaunching;
+}
+
+// Semáforo: máximo N capturas de Puppeteer en simultáneo (la generación IA previa
+// sí corre en paralelo; sólo el renderizado, que abre páginas, se limita).
+let activeRenders = 0;
+const renderWaiters = [];
+const MAX_CONCURRENT_RENDERS = Number(process.env.RENDER_CONCURRENCY) || 2;
+
+async function acquireRenderSlot() {
+  if (activeRenders < MAX_CONCURRENT_RENDERS) { activeRenders += 1; return; }
+  await new Promise((resolve) => renderWaiters.push(resolve));
+  activeRenders += 1;
+}
+function releaseRenderSlot() {
+  activeRenders -= 1;
+  const next = renderWaiters.shift();
+  if (next) next();
+}
+
 function formatPrice(price) {
   if (price === null || price === undefined) return null;
   return Math.round(Number(price)).toLocaleString('es-AR');
@@ -237,8 +287,19 @@ function buildFullbleedHtml(opts) {
     ? `<div class="coupon"><span class="cpn-lbl">CUPÓN</span><span class="cpn-code">${esc(opts.couponCode)}</span></div>`
     : '';
 
+  // Slide de cierre (CTA): llamado a la acción + beneficios, SIN precio (feed evergreen).
+  const ctaBenefits = Array.isArray(opts.ctaBenefits) ? opts.ctaBenefits.filter(Boolean) : [];
+  const ctaHtml = opts.ctaHeadline
+    ? `<div class="pblock">
+        <div class="cta-head">${esc(opts.ctaHeadline)}</div>
+        ${ctaBenefits.map((b) => `<div class="cta-benefit"><span class="cta-check">✓</span> ${esc(b)}</div>`).join('')}
+      </div>`
+    : '';
+
   let content = '';
-  if (price) {
+  if (opts.ctaHeadline) {
+    content = ctaHtml;
+  } else if (price) {
     content = `<div class="pblock">
       ${hasPromo ? `<div class="pheader"><span class="antes">$${formatPrice(price)}</span><span class="off">-${off}% OFF</span></div>` : ''}
       <div class="lbl">${hasPromo ? 'AHORA' : 'PRECIO'}</div>
@@ -305,6 +366,9 @@ function buildFullbleedHtml(opts) {
     .now { font-family:'Anton',sans-serif; font-size:${isStory ? 108 : 96}px; color:#fff; line-height:.88; letter-spacing:-1px; text-shadow:0 4px 20px rgba(0,0,0,.5); }
     .transfer { font-size:22px; font-weight:600; letter-spacing:1px; color:rgba(255,255,255,.92); margin-top:16px; max-width:540px; display:flex; align-items:center; gap:8px; }
     .lightning { color:#FF8B4D; font-size:26px; }
+    .cta-head { font-family:'Anton',sans-serif; font-size:${isStory ? 68 : 58}px; color:#fff; line-height:.95; letter-spacing:-.5px; text-shadow:0 4px 20px rgba(0,0,0,.5); margin-bottom:14px; }
+    .cta-benefit { font-size:${isStory ? 26 : 23}px; font-weight:600; color:rgba(255,255,255,.95); display:flex; align-items:center; gap:10px; margin-top:8px; }
+    .cta-check { display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; background:${accent}; color:#fff; font-size:16px; font-weight:800; flex-shrink:0; }
     .interaction { position:absolute; left:50%; bottom:${(isStory ? 360 : 140) + 30}px; transform:translateX(-50%);
       background:rgba(255,255,255,.18); border:1px solid rgba(255,255,255,.5); backdrop-filter:blur(8px);
       padding:16px 32px; border-radius:100px; font-size:26px; font-weight:700; color:#fff; white-space:nowrap; box-shadow:0 12px 30px rgba(0,0,0,.4); z-index:4; }
@@ -867,21 +931,13 @@ async function renderPostBuffer(options) {
 
   const html = buildHtml({ ...options, format, bgImageUrl, productImageUrl });
 
-  const launchArgs = [
-    '--no-sandbox', '--disable-setuid-sandbox', '--disable-dev-shm-usage', '--disable-gpu',
-    '--single-process', '--no-zygote', '--disable-extensions', '--disable-background-networking',
-    '--disable-default-apps', '--disable-sync', '--disable-translate', '--mute-audio',
-    '--no-first-run', '--metrics-recording-only', '--js-flags=--max-old-space-size=128',
-  ];
-  const launchOptions = { headless: 'new', args: launchArgs };
-  if (process.env.PUPPETEER_EXECUTABLE_PATH) {
-    launchOptions.executablePath = process.env.PUPPETEER_EXECUTABLE_PATH;
-  }
-
-  const browser = await puppeteer.launch(launchOptions);
+  // Navegador compartido + a lo sumo 2 páginas a la vez (memoria de Render).
+  await acquireRenderSlot();
   let buffer;
+  let page;
   try {
-    const page = await browser.newPage();
+    const browser = await getBrowser();
+    page = await browser.newPage();
     await page.setViewport({ width: w, height: h });
     // Timeout acotado: si una imagen remota tarda/404ea, igual sacamos la captura.
     try {
@@ -893,7 +949,8 @@ async function renderPostBuffer(options) {
     try { await page.evaluate(async () => { if (document.fonts && document.fonts.ready) await document.fonts.ready; }); } catch (_) {}
     buffer = await page.screenshot({ type: 'jpeg', quality: 90 });
   } finally {
-    await browser.close();
+    if (page) await page.close().catch(() => {}); // cerramos la PÁGINA, no el navegador (se reusa)
+    releaseRenderSlot();
   }
 
   const url = await uploadAsset({ buffer, filename: outFile, contentType: 'image/jpeg' });

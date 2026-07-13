@@ -990,13 +990,14 @@ Composición centrada con aire alrededor, formato ${format === 'story' ? 'vertic
  * en vez de repetir un prompt genérico. Best-effort: si falla, generate-daily cae a la
  * lógica simple (misma escena por slide).
  */
-async function planCarouselShots({ productName, productDescription, brief, pillar = 'producto', occasion, slideCount = 4, photoCount = 1, objective = 'venta', photoDescriptions = [] } = {}) {
+async function planCarouselShots({ productName, productDescription, brief, pillar = 'producto', occasion, slideCount = 4, photoCount = 1, objective = 'venta', photoDescriptions = [], format = 'feed', brandName = null } = {}) {
   const cleanDesc = productDescription
     ? String(productDescription).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 700)
     : '';
+  const isFeed = format !== 'story';
   // Qué muestra CADA foto real (de la visión): el cerebro deja de elegir a ciegas.
   const photosBlock = (photoDescriptions && photoDescriptions.length)
-    ? `\nQUÉ MUESTRA CADA FOTO REAL (elegí para cada slide la foto cuyo contenido coincide con el overlay; NO pongas un overlay de un detalle si ninguna foto lo muestra):\n${photoDescriptions.map((p) => `- foto ${p.index}: ${p.shows}${p.isDetail ? ' [DETALLE]' : ''}`).join('\n')}`
+    ? `\nQUÉ MUESTRA CADA FOTO REAL (elegí para cada slide la foto cuyo contenido coincide con el overlay; NO pongas un overlay de un detalle si ninguna foto lo muestra):\n${photoDescriptions.map((p) => `- foto ${p.index}: ${p.shows}${p.color ? ` (color: ${p.color})` : ''}${p.isDetail ? ' [DETALLE]' : ''}`).join('\n')}`
     : `\n(No hay descripción de las fotos: elegí photo_index variados y overlays genéricos-pero-verdaderos, sin afirmar detalles que no podés confirmar.)`;
   // Estrategia fotográfica según el pilar: qué tipo de piezas convienen para cada objetivo.
   const PILLAR_STRATEGY = {
@@ -1011,22 +1012,24 @@ async function planCarouselShots({ productName, productDescription, brief, pilla
   const system = 'Sos DIRECTOR DE ARTE de una agencia premium de indumentaria de trabajo (BLACKS). Diseñás carruseles de Instagram que se ven como catálogo profesional real (tipo lookbook Nike/Zara), NO como plantilla repetida. Pensás cada toma como un fotógrafo de producto. Respondés SOLO con JSON válido.';
   const prompt = `Diseñá el SHOT LIST (lista de tomas) para un carrusel de ${slideCount} slides sobre este producto.
 
-PRODUCTO: ${productName || 'producto de trabajo BLACKS'}${cleanDesc ? `\nDESCRIPCIÓN REAL (características verdaderas — elegí qué detalles/zooms mostrar SÓLO en base a esto, NO inventes features): "${cleanDesc}"` : ''}
-PILAR: ${pillar} · OBJETIVO: ${objective}
+PRODUCTO: ${productName || 'producto de trabajo BLACKS'}${brandName ? `\nMARCA DEL PRODUCTO: ${brandName} (mencionala en el overlay de la HERO — el nombre lo incluye).` : ''}${cleanDesc ? `\nDESCRIPCIÓN REAL (características verdaderas — elegí qué detalles/zooms mostrar SÓLO en base a esto, NO inventes features): "${cleanDesc}"` : ''}
+PILAR: ${pillar} · OBJETIVO: ${objective} · FORMATO: ${isFeed ? 'feed (evergreen: SIN precio, cierre con CTA)' : 'story (efímero: el precio puede ir)'}
 ESTRATEGIA PARA ESTE PILAR: ${strategy}${brief ? `\nBRIEF (define el ángulo, respetalo — si menciona un detalle puntual como "sol bordado" o "bandera", dedicale una toma de zoom): "${brief}"` : ''}${occasion ? `\nOCASIÓN/FECHA: ${occasion}` : ''}
 FOTOS REALES DISPONIBLES: ${photoCount} (índices 0 a ${photoCount - 1}).${photosBlock}
 
 REGLAS (cada slide con un PROPÓSITO distinto — que NO sean todas iguales):
-- Progresión: slide 1 = HERO de estudio que engancha; slides del medio = ZOOM/DETALLE de las características REALES más fuertes; última = cierre coherente con el pilar.
-- Seguí la estrategia del pilar de arriba para decidir cuánto estudio vs contexto.
-- El fondo "limpio" NO es blanco plano: es estudio fotográfico profesional (ciclorama gris con degradado, sombra de contacto real). Preferilo para producto/promo.
-- REGLA DE ORO overlay↔foto: el overlay de cada slide TIENE que describir lo que MUESTRA la foto elegida (photo_index) según la lista de arriba. Si querés un slide "El sol bordado", elegí una foto que EN LA LISTA diga que muestra el sol; si ninguna lo muestra, NO hagas ese slide. Prohibido poner "sol bordado" sobre una foto que muestra la parte de atrás.
-- Para un slide de DETALLE, elegí de preferencia una foto marcada [DETALLE]. photo_index distinto en cada slide.
-- badge: casi siempre null. "NUEVO" (sólo en la hero) SÓLO si el brief habla de lanzamiento; "OFERTA" SÓLO si hay oferta real. Si no aplica, null en TODOS.
-- overlay: MÁXIMO ~4 palabras, en voseo. Nunca repitas overlay. Puede ser null si la imagen habla sola.
+- Progresión: slide 1 = HERO de estudio que engancha (overlay CON la marca si la hay); slides del medio = ZOOM/DETALLE de características REALES; si hay variantes de color, un slide 'variantes'; ÚLTIMA = cierre 'cta'.
+- Seguí la estrategia del pilar para decidir cuánto estudio vs contexto.
+- CONSISTENCIA DE COLOR (importante): elegí UN color principal del producto (el del brief, o el que tenga más fotos) y usá SIEMPRE fotos de ESE color para la hero y los detalles. NO mezcles: prohibido hero de un color y el detalle del sol de otro color.
+- FOTOS ÚNICAS: cada foto (photo_index) se usa UNA SOLA vez en TODO el carrusel. Nunca repitas una foto entre slides (ni en el cierre).
+- shot_type 'variantes' (opcional, sólo si en las fotos hay 2+ COLORES distintos): un collage/bento que muestra los OTROS colores. Poné en "extra_photos" los photo_index de las otras variantes de color (2 a 4). overlay tipo "También en otros colores".
+- shot_type 'cta' (SIEMPRE el último en feed): cierre con llamado a la acción sobre una foto linda del producto NO usada antes. overlay tipo "Conseguilas en la web" / "Sumalas a tu look". SIN precio.
+- REGLA DE ORO overlay↔foto: el overlay TIENE que describir lo que MUESTRA la foto elegida. Si ninguna foto muestra ese detalle, NO hagas ese slide.
+- badge: casi siempre null. "NUEVO" (sólo en la hero) si el brief habla de lanzamiento; "OFERTA" si hay oferta real. Si no, null en TODOS.
+- overlay: MÁXIMO ~5 palabras, en voseo. Nunca repitas overlay.
 
 Devolvé SOLO este JSON:
-{"shots":[{"shot_type":"hero","focus":"qué muestra/enfatiza esta toma, concreto","photo_index":0,"background":"limpio","overlay":"texto que describe ESA foto o null","badge":null}]}`;
+{"shots":[{"shot_type":"hero","focus":"qué muestra/enfatiza, concreto","photo_index":0,"extra_photos":[],"background":"limpio","overlay":"texto que describe ESA foto (con marca en la hero)","badge":null}]}`;
 
   const schema = {
     type: 'object',
@@ -1036,9 +1039,10 @@ Devolvé SOLO este JSON:
         items: {
           type: 'object',
           properties: {
-            shot_type: { type: 'string', enum: ['hero', 'detalle', 'contexto', 'flatlay', 'variantes'] },
+            shot_type: { type: 'string', enum: ['hero', 'detalle', 'contexto', 'flatlay', 'variantes', 'cta'] },
             focus: { type: 'string' },
             photo_index: { type: 'integer' },
+            extra_photos: { type: 'array', items: { type: 'integer' } },
             background: { type: 'string', enum: ['limpio', 'sutil', 'contexto'] },
             overlay: { type: 'string', nullable: true },
             badge: { type: 'string', nullable: true },
@@ -1050,18 +1054,33 @@ Devolvé SOLO este JSON:
     required: ['shots'],
   };
 
-  const result = await generateJson({ system, prompt, schema, maxTokens: 1500, temperature: 0.7 });
+  const result = await generateJson({ system, prompt, schema, maxTokens: 1800, temperature: 0.7 });
   const shots = Array.isArray(result && result.shots) ? result.shots : [];
   if (!shots.length) throw new Error('El director de arte no devolvió tomas.');
-  // Normalización: clamp de photo_index al rango real, badge sólo válido, overlay limpio.
-  return shots.slice(0, slideCount).map((s) => ({
-    shotType: ['hero', 'detalle', 'contexto', 'flatlay', 'variantes'].includes(s.shot_type) ? s.shot_type : 'hero',
-    focus: s.focus ? String(s.focus).slice(0, 160) : '',
-    photoIndex: Math.max(0, Math.min(photoCount - 1, Number.isInteger(s.photo_index) ? s.photo_index : 0)),
-    background: ['limpio', 'sutil', 'contexto'].includes(s.background) ? s.background : 'limpio',
-    overlay: s.overlay && String(s.overlay).trim() && String(s.overlay).toLowerCase() !== 'null' ? String(s.overlay).trim().slice(0, 60) : null,
-    badge: ['NUEVO', 'OFERTA'].includes(String(s.badge || '').toUpperCase()) ? String(s.badge).toUpperCase() : null,
-  }));
+  const clampIdx = (n, def = 0) => Math.max(0, Math.min(photoCount - 1, Number.isInteger(n) ? n : def));
+  // Normalización + garantía de FOTOS ÚNICAS: si el cerebro repite una foto, se le
+  // asigna la próxima libre (el usuario pidió que NUNCA se repita una foto de Tiendanube).
+  const used = new Set();
+  const nextFree = () => { for (let i = 0; i < photoCount; i += 1) if (!used.has(i)) return i; return 0; };
+  const norm = shots.slice(0, slideCount).map((s) => {
+    let pi = clampIdx(s.photo_index);
+    if (used.has(pi)) pi = nextFree();
+    used.add(pi);
+    const extras = Array.isArray(s.extra_photos)
+      ? [...new Set(s.extra_photos.map((n) => clampIdx(n)).filter((n) => !used.has(n)))].slice(0, 4)
+      : [];
+    extras.forEach((n) => used.add(n));
+    return {
+      shotType: ['hero', 'detalle', 'contexto', 'flatlay', 'variantes', 'cta'].includes(s.shot_type) ? s.shot_type : 'hero',
+      focus: s.focus ? String(s.focus).slice(0, 160) : '',
+      photoIndex: pi,
+      extraPhotos: extras,
+      background: ['limpio', 'sutil', 'contexto'].includes(s.background) ? s.background : 'limpio',
+      overlay: s.overlay && String(s.overlay).trim() && String(s.overlay).toLowerCase() !== 'null' ? String(s.overlay).trim().slice(0, 60) : null,
+      badge: ['NUEVO', 'OFERTA'].includes(String(s.badge || '').toUpperCase()) ? String(s.badge).toUpperCase() : null,
+    };
+  });
+  return norm;
 }
 
 /**
