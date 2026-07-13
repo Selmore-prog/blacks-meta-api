@@ -819,10 +819,52 @@ function occasionGuidance(occasion) {
   return `\nOCASIÓN / FECHA DE LA PIEZA: ${occasion}${patria}`;
 }
 
-/** Bloque de BRIEF: las indicaciones explícitas del usuario/plan para esta pieza. */
-function briefBlock(brief) {
+/**
+ * Bloque de BRIEF. allowScenery=false (tomas de DETALLE/macro) NO agrega la guía patria
+ * (bandera/sol) — una bandera en un primer plano cerrado del producto no tiene sentido y
+ * fue justo el problema: el zoom "sol bordado" salía con una bandera de fondo.
+ */
+function briefBlock(brief, { allowScenery = true } = {}) {
   if (!brief) return '';
-  return `\nBRIEF DE LA PIEZA (respetá estas indicaciones al pie de la letra; las que pidan texto/cupón/precio se resuelven después con tipografía, vos NO escribas texto): "${brief}"${patrioticVisualGuidance(brief)}`;
+  return `\nBRIEF DE LA PIEZA (respetá estas indicaciones al pie de la letra; las que pidan texto/cupón/precio se resuelven después con tipografía, vos NO escribas texto): "${brief}"${allowScenery ? patrioticVisualGuidance(brief) : ''}`;
+}
+
+/**
+ * VISIÓN: mira las fotos reales del producto y describe QUÉ muestra cada una (frontal,
+ * lateral, trasera, detalle del sol, suela, en uso...). Así el director de arte deja de
+ * elegir el número de foto a ciegas: puede pedir "la foto que muestra el sol" y el
+ * overlay coincide con lo que realmente se ve. Best-effort: si falla, devuelve [].
+ */
+async function describeProductPhotos(imageUrls = []) {
+  const urls = [...new Set((imageUrls || []).filter(Boolean))].slice(0, 8);
+  if (!urls.length || !hasGemini() || isImageQuotaCoolingDown()) return [];
+  const parts = [{
+    text: `Sos catalogador de producto. Te paso ${urls.length} fotos DEL MISMO producto (indexadas 0 a ${urls.length - 1}, en orden). Por cada foto, en pocas palabras, decí QUÉ muestra: el ángulo (frontal, 3/4, lateral, trasera, cenital) y si es un DETALLE/zoom de alguna parte puntual (ej. "detalle del sol bordado", "suela de yute", "etiqueta", "puntera") o el producto entero. Devolvé SOLO un JSON array alineado al orden de las fotos: [{"i":0,"shows":"...","is_detail":false},...]. Sé literal: describí lo que se ve, no inventes.` },
+  ];
+  for (const u of urls) {
+    try {
+      const r = await fetch(u);
+      if (!r.ok) { parts.push({ text: '(foto no disponible)' }); continue; }
+      let buf = Buffer.from(await r.arrayBuffer());
+      buf = await resizeImage(buf, 640).catch(() => buf);
+      parts.push({ inlineData: { data: buf.toString('base64'), mimeType: 'image/jpeg' } });
+    } catch (_) { parts.push({ text: '(foto no disponible)' }); }
+  }
+  try {
+    const data = await geminiGenerateContent(config.gemini.visionModel, {
+      contents: [{ role: 'user', parts }],
+      generationConfig: { temperature: 0.1, maxOutputTokens: 900, responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } },
+    });
+    const arr = JSON.parse(String(textFromResponse(data)).replace(/```json|```/g, '').trim());
+    if (!Array.isArray(arr)) return [];
+    return urls.map((_, i) => {
+      const d = arr.find((x) => Number(x.i) === i) || arr[i] || {};
+      return { index: i, shows: String(d.shows || '').slice(0, 100), isDetail: Boolean(d.is_detail) };
+    });
+  } catch (err) {
+    console.warn(`[ai] describeProductPhotos falló (sigo sin descripciones): ${err.message}`);
+    return [];
+  }
 }
 
 async function generateBackground({ theme, brief, occasion, format = 'feed', referenceImages = [], seed = null } = {}) {
@@ -948,10 +990,14 @@ Composición centrada con aire alrededor, formato ${format === 'story' ? 'vertic
  * en vez de repetir un prompt genérico. Best-effort: si falla, generate-daily cae a la
  * lógica simple (misma escena por slide).
  */
-async function planCarouselShots({ productName, productDescription, brief, pillar = 'producto', occasion, slideCount = 4, photoCount = 1, objective = 'venta' } = {}) {
+async function planCarouselShots({ productName, productDescription, brief, pillar = 'producto', occasion, slideCount = 4, photoCount = 1, objective = 'venta', photoDescriptions = [] } = {}) {
   const cleanDesc = productDescription
     ? String(productDescription).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 700)
     : '';
+  // Qué muestra CADA foto real (de la visión): el cerebro deja de elegir a ciegas.
+  const photosBlock = (photoDescriptions && photoDescriptions.length)
+    ? `\nQUÉ MUESTRA CADA FOTO REAL (elegí para cada slide la foto cuyo contenido coincide con el overlay; NO pongas un overlay de un detalle si ninguna foto lo muestra):\n${photoDescriptions.map((p) => `- foto ${p.index}: ${p.shows}${p.isDetail ? ' [DETALLE]' : ''}`).join('\n')}`
+    : `\n(No hay descripción de las fotos: elegí photo_index variados y overlays genéricos-pero-verdaderos, sin afirmar detalles que no podés confirmar.)`;
   // Estrategia fotográfica según el pilar: qué tipo de piezas convienen para cada objetivo.
   const PILLAR_STRATEGY = {
     producto: 'Catálogo premium: dominan las tomas de ESTUDIO (background "limpio") y los DETALLES/ZOOM de las características reales. El producto es la estrella absoluta.',
@@ -968,15 +1014,16 @@ async function planCarouselShots({ productName, productDescription, brief, pilla
 PRODUCTO: ${productName || 'producto de trabajo BLACKS'}${cleanDesc ? `\nDESCRIPCIÓN REAL (características verdaderas — elegí qué detalles/zooms mostrar SÓLO en base a esto, NO inventes features): "${cleanDesc}"` : ''}
 PILAR: ${pillar} · OBJETIVO: ${objective}
 ESTRATEGIA PARA ESTE PILAR: ${strategy}${brief ? `\nBRIEF (define el ángulo, respetalo — si menciona un detalle puntual como "sol bordado" o "bandera", dedicale una toma de zoom): "${brief}"` : ''}${occasion ? `\nOCASIÓN/FECHA: ${occasion}` : ''}
-FOTOS REALES DISPONIBLES: ${photoCount} (índices 0 a ${photoCount - 1}). Cada índice es una perspectiva distinta del producto; APROVECHALAS todas.
+FOTOS REALES DISPONIBLES: ${photoCount} (índices 0 a ${photoCount - 1}).${photosBlock}
 
 REGLAS (cada slide con un PROPÓSITO distinto — que NO sean todas iguales):
-- Progresión: slide 1 = HERO de estudio que engancha; slides del medio = ZOOM/DETALLE de las características REALES más fuertes (de la descripción o el brief), cada uno con OTRO ángulo/foto; última = cierre coherente con el pilar.
+- Progresión: slide 1 = HERO de estudio que engancha; slides del medio = ZOOM/DETALLE de las características REALES más fuertes; última = cierre coherente con el pilar.
 - Seguí la estrategia del pilar de arriba para decidir cuánto estudio vs contexto.
 - El fondo "limpio" NO es blanco plano: es estudio fotográfico profesional (ciclorama gris con degradado, sombra de contacto real). Preferilo para producto/promo.
-- photo_index: usá una foto real DISTINTA en cada slide (repartí los índices, no repitas). Elegí para cada toma la foto que MEJOR muestre ese detalle.
+- REGLA DE ORO overlay↔foto: el overlay de cada slide TIENE que describir lo que MUESTRA la foto elegida (photo_index) según la lista de arriba. Si querés un slide "El sol bordado", elegí una foto que EN LA LISTA diga que muestra el sol; si ninguna lo muestra, NO hagas ese slide. Prohibido poner "sol bordado" sobre una foto que muestra la parte de atrás.
+- Para un slide de DETALLE, elegí de preferencia una foto marcada [DETALLE]. photo_index distinto en cada slide.
 - badge: casi siempre null. "NUEVO" (sólo en la hero) SÓLO si el brief habla de lanzamiento; "OFERTA" SÓLO si hay oferta real. Si no aplica, null en TODOS.
-- overlay: MÁXIMO ~4 palabras, en voseo, y TIENE QUE DESCRIBIR LO QUE SE VE en ESA foto (si la toma es zoom al sol bordado → overlay tipo "El sol bordado"; si es la suela de yute → "Suela de yute"). NUNCA un overlay genérico que no se relacione con la imagen de ese slide. Nunca repitas overlay. Puede ser null si la imagen habla sola.
+- overlay: MÁXIMO ~4 palabras, en voseo. Nunca repitas overlay. Puede ser null si la imagen habla sola.
 
 Devolvé SOLO este JSON:
 {"shots":[{"shot_type":"hero","focus":"qué muestra/enfatiza esta toma, concreto","photo_index":0,"background":"limpio","overlay":"texto que describe ESA foto o null","badge":null}]}`;
@@ -1037,7 +1084,7 @@ ${scene.describe()}
       : `- Fondo de ESTUDIO FOTOGRÁFICO PROFESIONAL (no blanco plano ni recorte): ciclorama / seamless sweep sin esquinas (infinity cove) en gris medio a gris carbón, con degradado direccional suave y una viñeta sutil que enmarca el producto. El producto apoyado con SOMBRA DE CONTACTO realista (o sutil reflejo en superficie pulida). Iluminación de estudio de tres puntos con reflejo especular controlado, calidad de lookbook premium (Nike/Zara). El producto llena buena parte del cuadro — NADA de un objeto chiquito perdido en un mar de blanco.`;
   const focus = shotSpec.focus || 'la calidad y terminación del producto';
   const typeLine = {
-    detalle: `- TOMA DE DETALLE / MACRO: primerísimo plano de ${focus}. El producto (o esa parte puntual) LLENA el encuadre; se ven las costuras, la textura del material y las terminaciones a máximo detalle. Enfoque milimétrico, profundidad de campo mínima.`,
+    detalle: `- TOMA DE DETALLE / MACRO EXTREMO: recortá MUY CERCA a ${focus}. SÓLO esa parte del producto llena el cuadro (ocupa >70% del encuadre). NO muestres el producto entero, NO recompongas la escena, NO agregues banderas, props ni objetos de fondo — es un zoom fotográfico macro de e-commerce sobre ese detalle puntual, con fondo de estudio liso y desenfocado. Se ven las costuras, la textura del material y las terminaciones a máximo detalle. Enfoque milimétrico, profundidad de campo mínima.`,
     hero: `- TOMA HERO: el producto entero, centrado y protagonista absoluto, nítido de punta a punta, en la posición de máximo impacto. Enfatizá ${focus}.`,
     flatlay: `- TOMA CENITAL (flat-lay): el producto visto desde arriba sobre una superficie limpia, prolijo y ordenado, con aire alrededor. Enfatizá ${focus}.`,
     contexto: `- TOMA EN CONTEXTO: el producto en uso/ambiente creíble, pero SIEMPRE como protagonista nítido. Enfatizá ${focus}.`,
@@ -1068,14 +1115,18 @@ async function generateProductScene({ productImageUrl, productImageUrls = [], pr
   const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
   const brandStyle = await brandStyleForImages();
   const scene = sceneVariation(seed);
-  const buildPrompt = (strict) => `Actuás como DIRECTOR DE ARTE SENIOR de una campaña publicitaria high-end. Tomá EXACTAMENTE el producto adjunto de la${refs.length > 1 ? 's' : ''} imagen${refs.length > 1 ? 'es' : ''} de referencia${refs.length > 1 ? ` (son ${refs.length} fotos DEL MISMO producto desde distintos ángulos: usalas todas para reproducirlo fiel)` : ''} (fidelidad absoluta de marca: mismo modelo, geometría, color, costuras, etiquetas — queda terminantemente prohibido rediseñarlo, inventarle detalles que no tiene, o alterar sus proporciones) y componé una escena comercial de catálogo ${ratio} para BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
+  // Tomas de DETALLE/macro: nada de escenografía (bandera, ambiente, composición de
+  // marca) — sólo el detalle sobre estudio liso. Evita que el zoom "sol bordado" salga
+  // con una bandera de fondo o el producto entero.
+  const allowScenery = !shotSpec || ['hero', 'contexto'].includes(shotSpec.shotType);
+  const buildPrompt = (strict) => `Actuás como DIRECTOR DE ARTE SENIOR de una campaña publicitaria high-end. Tomá EXACTAMENTE el producto adjunto de la${refs.length > 1 ? 's' : ''} imagen${refs.length > 1 ? 'es' : ''} de referencia${refs.length > 1 ? ` (son ${refs.length} fotos DEL MISMO producto desde distintos ángulos: usalas todas para reproducirlo fiel)` : ''} (fidelidad absoluta de marca: mismo modelo, geometría, color, costuras, etiquetas — queda terminantemente prohibido rediseñarlo, inventarle detalles que no tiene, o alterar sus proporciones) y componé una ${allowScenery ? 'escena comercial de catálogo' : 'toma de producto de catálogo'} ${ratio} para BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
 
-CONTEXTO DE LA PIEZA: ${theme || productName || 'indumentaria laboral y seguridad industrial'}.${briefBlock(brief)}${occasionGuidance(occasion)}
+CONTEXTO DE LA PIEZA: ${theme || productName || 'indumentaria laboral y seguridad industrial'}.${briefBlock(brief, { allowScenery })}${allowScenery ? occasionGuidance(occasion) : ''}
 
 DIRECCIÓN DE FOTOGRAFÍA Y ÓPTICA COMERCIAL:
 ${shotDirection(shotSpec, scene)}
 - Color grading premium: ciencia de color Kodak Portra 400, con acentos naranja quemado (#C1440C) sutiles.
-${brandStyle ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
+${brandStyle && allowScenery ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
 
 REALISMO Y PRESERVACIÓN ESTRUCTURAL (PRODUCT-IN-CONTEXT):
 - PROHIBIDO generar alucinaciones visuales, deformaciones de la puntera/suela, o cambios en las letras y etiquetas del packaging/producto original.
@@ -1513,6 +1564,7 @@ module.exports = {
   generateBackground,
   generateProductScene,
   planCarouselShots,
+  describeProductPhotos,
   generateStudioScene,
   buildStudioVideoPrompt,
   generateDiagram,

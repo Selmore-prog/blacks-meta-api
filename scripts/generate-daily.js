@@ -598,7 +598,11 @@ async function generateForSlot(slot, overrides = {}) {
     // caemos a un plan simple derivado de los slides del copy.
     let shotPlan = null;
     try {
-      const { planCarouselShots } = require('../src/ai');
+      const { planCarouselShots, describeProductPhotos } = require('../src/ai');
+      // Visión: el cerebro VE qué muestra cada foto real antes de planificar, así elige
+      // la foto correcta para cada detalle y el overlay coincide (no "sol bordado" sobre
+      // una foto que no muestra el sol). Best-effort: sin descripciones, plan a ciegas.
+      const photoDescriptions = await describeProductPhotos(refImgs.slice(0, 8)).catch(() => []);
       shotPlan = await planCarouselShots({
         productName: product ? product.name : sceneTheme,
         productDescription: (product && product.description) || (visualProduct && visualProduct.description),
@@ -608,6 +612,7 @@ async function generateForSlot(slot, overrides = {}) {
         slideCount: slides.length,
         photoCount: Math.max(refImgs.length, 1),
         objective,
+        photoDescriptions,
       });
     } catch (err) {
       console.warn(`[generate-daily] Director de arte no disponible (uso plan simple): ${err.message}`);
