@@ -839,7 +839,7 @@ async function describeProductPhotos(imageUrls = []) {
   const urls = [...new Set((imageUrls || []).filter(Boolean))].slice(0, 8);
   if (!urls.length || !hasGemini() || isImageQuotaCoolingDown()) return [];
   const parts = [{
-    text: `Sos catalogador de producto. Te paso ${urls.length} fotos DEL MISMO producto (indexadas 0 a ${urls.length - 1}, en orden). Por cada foto, en pocas palabras, decí QUÉ muestra: el ángulo (frontal, 3/4, lateral, trasera, cenital) y si es un DETALLE/zoom de alguna parte puntual (ej. "detalle del sol bordado", "suela de yute", "etiqueta", "puntera") o el producto entero. Devolvé SOLO un JSON array alineado al orden de las fotos: [{"i":0,"shows":"...","is_detail":false},...]. Sé literal: describí lo que se ve, no inventes.` },
+    text: `Sos catalogador de producto. Te paso ${urls.length} fotos DEL MISMO producto (indexadas 0 a ${urls.length - 1}, en orden). Por cada foto decí: "shows" = QUÉ muestra en pocas palabras (ángulo: frontal/3-4/lateral/trasera/cenital, y si es DETALLE/zoom de una parte puntual como "detalle del sol bordado"/"suela de yute"/"etiqueta"/"puntera", o el producto entero); "is_detail" = true si es un primer plano de una parte; "color" = el color DOMINANTE del producto en esa foto, en 1-2 palabras (ej. "azul denim", "crudo", "negro"). Devolvé SOLO un JSON array alineado al orden: [{"i":0,"shows":"...","is_detail":false,"color":"..."},...]. Literal, no inventes.` },
   ];
   for (const u of urls) {
     try {
@@ -859,7 +859,7 @@ async function describeProductPhotos(imageUrls = []) {
     if (!Array.isArray(arr)) return [];
     return urls.map((_, i) => {
       const d = arr.find((x) => Number(x.i) === i) || arr[i] || {};
-      return { index: i, shows: String(d.shows || '').slice(0, 100), isDetail: Boolean(d.is_detail) };
+      return { index: i, shows: String(d.shows || '').slice(0, 100), isDetail: Boolean(d.is_detail), color: String(d.color || '').toLowerCase().trim().slice(0, 30) };
     });
   } catch (err) {
     console.warn(`[ai] describeProductPhotos falló (sigo sin descripciones): ${err.message}`);
@@ -1036,7 +1036,7 @@ Devolvé SOLO este JSON:
         items: {
           type: 'object',
           properties: {
-            shot_type: { type: 'string', enum: ['hero', 'detalle', 'contexto', 'flatlay'] },
+            shot_type: { type: 'string', enum: ['hero', 'detalle', 'contexto', 'flatlay', 'variantes'] },
             focus: { type: 'string' },
             photo_index: { type: 'integer' },
             background: { type: 'string', enum: ['limpio', 'sutil', 'contexto'] },
@@ -1055,7 +1055,7 @@ Devolvé SOLO este JSON:
   if (!shots.length) throw new Error('El director de arte no devolvió tomas.');
   // Normalización: clamp de photo_index al rango real, badge sólo válido, overlay limpio.
   return shots.slice(0, slideCount).map((s) => ({
-    shotType: ['hero', 'detalle', 'contexto', 'flatlay'].includes(s.shot_type) ? s.shot_type : 'hero',
+    shotType: ['hero', 'detalle', 'contexto', 'flatlay', 'variantes'].includes(s.shot_type) ? s.shot_type : 'hero',
     focus: s.focus ? String(s.focus).slice(0, 160) : '',
     photoIndex: Math.max(0, Math.min(photoCount - 1, Number.isInteger(s.photo_index) ? s.photo_index : 0)),
     background: ['limpio', 'sutil', 'contexto'].includes(s.background) ? s.background : 'limpio',
@@ -1131,6 +1131,9 @@ ${brandStyle && allowScenery ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyl
 REALISMO Y PRESERVACIÓN ESTRUCTURAL (PRODUCT-IN-CONTEXT):
 - PROHIBIDO generar alucinaciones visuales, deformaciones de la puntera/suela, o cambios en las letras y etiquetas del packaging/producto original.
 - Imperfecciones creíbles en el entorno (no en el producto): profundidad de campo suave con fondo desenfocado (bokeh) para resaltar la figura del producto.
+
+FIDELIDAD ABSOLUTA — PROHIBIDO MODIFICAR EL PRODUCTO (lo más importante):
+- El producto de la salida tiene que ser PÍXEL A PÍXEL el de la referencia: mismo bordado, mismos apliques, misma etiqueta, mismas costuras, misma suela, mismo color. PROHIBIDO agregar, mover, agrandar o inventar CUALQUIER elemento que no esté EXACTAMENTE donde está en la foto de referencia (ej: NO agregues un sol/escudo/logo bordado si la referencia no lo tiene, NI lo muevas de lugar). Si dudás de un detalle, dejalo TAL CUAL la referencia. Cambiás sólo el fondo/escena y la luz, NUNCA el producto.
 
 UN SOLO PRODUCTO EN CUADRO (crítico):
 - Mostrá EXACTAMENTE UN producto: el de la referencia. PROHIBIDO agregar un SEGUNDO par de calzado, otra prenda o cualquier producto extra — ni de fondo, ni en primer plano, ni desenfocado, ni "de acompañamiento". Si la referencia es un par de calzado, se ve ESE par y nada más.

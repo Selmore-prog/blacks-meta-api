@@ -597,12 +597,14 @@ async function generateForSlot(slot, overrides = {}) {
     // El cerebro planifica las tomas. Best-effort: si falla (o no hay IA de texto),
     // caemos a un plan simple derivado de los slides del copy.
     let shotPlan = null;
+    let photoDescriptionsForVariants = []; // para el slide bento de colores
     try {
       const { planCarouselShots, describeProductPhotos } = require('../src/ai');
       // Visión: el cerebro VE qué muestra cada foto real antes de planificar, así elige
       // la foto correcta para cada detalle y el overlay coincide (no "sol bordado" sobre
       // una foto que no muestra el sol). Best-effort: sin descripciones, plan a ciegas.
       const photoDescriptions = await describeProductPhotos(refImgs.slice(0, 8)).catch(() => []);
+      photoDescriptionsForVariants = photoDescriptions;
       shotPlan = await planCarouselShots({
         productName: product ? product.name : sceneTheme,
         productDescription: (product && product.description) || (visualProduct && visualProduct.description),
@@ -628,26 +630,28 @@ async function generateForSlot(slot, overrides = {}) {
     const slideResults = await Promise.all(plan.map((shot, i) => {
       const refUrl = refImgs.length ? (refImgs[shot.photoIndex] || refImgs[i % refImgs.length]) : visualImageUrl;
       // Overlay COHERENTE con la imagen: el del director de arte (atado a la foto/detalle
-      // de ESE slide). En la hero, si no hay, el título general. En los slides de detalle,
-      // si el cerebro no puso overlay, va SIN texto — mejor vacío que un título genérico
-      // del copy que no tenga nada que ver con lo que muestra la foto.
+      // de ESE slide). En la hero, si no hay, el título general; en detalle, sin texto.
       const overlay = shot.overlay || (i === 0 ? overlayTitle : null);
       const slideBrief = [imageBrief, shot.focus].filter(Boolean).join(' — ').slice(0, 500);
-      // La badge la decide el plan (no siempre va): sólo el badge de marca (MAYORISTA)
-      // se respeta siempre; los de OFERTA/NUEVO salen del director de arte.
       const slideBadge = badgeText || shot.badge || null;
+      // TOMAS DE DETALLE (y bento de variantes): usan la FOTO REAL directa, full-bleed,
+      // SIN regenerar con IA. Así es IMPOSIBLE que el modelo invente algo en el producto
+      // (fue el problema del "sol en la parte de atrás" que no existe). El hero/contexto
+      // sí usan escena IA de estudio (recrean el producto en un fondo lindo, full-bleed).
+      const detailRealPhoto = ['detalle', 'flatlay', 'variantes'].includes(shot.shotType);
       return renderPostBuffer({
         format,
         template: 'fullbleed',
         overlayTitle: overlay,
         badgeText: i === 0 ? slideBadge : null,
         productImageUrl: refUrl,
-        // El resto de las fotos reales como refuerzo de fidelidad (que no reinvente el producto).
         productImageUrls: refImgs.filter((u) => u !== refUrl).slice(0, 3),
         logos,
         showBrand: i === 0,
         layoutSeed: Number(slot.id) + i * 13,
-        useAiProductScene: Boolean(refUrl) && slot.pillar !== 'repost',
+        // Detalle → foto real full-bleed (coverImage). Hero/contexto → escena IA.
+        useAiProductScene: !detailRealPhoto && Boolean(refUrl) && slot.pillar !== 'repost',
+        coverImage: detailRealPhoto,
         shotSpec: { shotType: shot.shotType, focus: shot.focus, background: shot.background },
         bgTheme: sceneTheme,
         bgBrief: slideBrief,
@@ -657,19 +661,46 @@ async function generateForSlot(slot, overrides = {}) {
     }));
     const urls = slideResults.map((r) => r.url);
     pieceCostUsd += slideResults.reduce((sum, r) => sum + (r.costUsd || 0), 0);
-    const lastCleanImageUrl = slideResults[slideResults.length - 1].cleanImageUrl; // foto SIN texto quemado, para el slide de precio
 
-    // Slide final de PRECIO (venta): reusa la última foto LIMPIA (sin texto quemado)
-    // como fondo, sin gastar una imagen IA de más — "a lo último, el precio".
+    // Slide BENTO de VARIEDAD DE COLORES: si la visión detectó 2+ colores del mismo
+    // producto, un collage moderno (grid) con una foto real de cada color. Sólo fotos
+    // reales, sin IA — muestra la variedad tal cual es.
+    if (Array.isArray(photoDescriptionsForVariants) && photoDescriptionsForVariants.length) {
+      const byColor = new Map();
+      for (const d of photoDescriptionsForVariants) {
+        if (!d.color || d.isDetail) continue; // el bento muestra el producto entero por color
+        if (!byColor.has(d.color)) byColor.set(d.color, refImgs[d.index]);
+      }
+      const colorPhotos = [...byColor.values()].filter(Boolean).slice(0, 4);
+      if (colorPhotos.length >= 2) {
+        const { url, costUsd } = await renderPostBuffer({
+          format,
+          template: 'grid',
+          overlayTitle: 'También en otros colores',
+          productImageUrls: colorPhotos,
+          productImageUrl: colorPhotos[0],
+          logos,
+          showBrand: true,
+          layoutSeed: Number(slot.id) + 99,
+        });
+        urls.push(url);
+        pieceCostUsd += costUsd || 0;
+      }
+    }
+
+    // Slide final de PRECIO (venta): usa la foto LIMPIA del HERO (no la última, para NO
+    // repetir la misma imagen que el slide anterior — era el bug de "repite la del precio").
     if (product && ['producto', 'promo'].includes(slot.pillar) && Number(product.price) > 0) {
+      const heroClean = slideResults[0] && slideResults[0].cleanImageUrl;
       const { url, costUsd } = await renderPostBuffer({
         format,
         template: 'fullbleed',
         overlayTitle: null,
         price: product.price,
         promoPrice: product.promo_price,
-        bgImageUrl: lastCleanImageUrl,
-        productImageUrl: lastCleanImageUrl ? null : (refImgs[refImgs.length - 1] || visualImageUrl),
+        bgImageUrl: heroClean || null,
+        productImageUrl: heroClean ? null : (refImgs[0] || visualImageUrl),
+        coverImage: !heroClean,
         logos,
         showBrand: false,
         couponCode,

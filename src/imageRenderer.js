@@ -314,7 +314,16 @@ function buildFullbleedHtml(opts) {
     .site { font-size:${isStory ? 24 : 22}px; font-weight:700; letter-spacing:3px; color:#fff; text-shadow:0 1px 6px rgba(0,0,0,.6); }
   </style></head><body>
     <div class="canvas">
-      ${hasCover ? (bgImageUrl ? `<div class="glow"></div><img class="bg" src="${esc(bgImageUrl)}" alt=""/><div class="hero"><img src="${esc(bgImageUrl)}" alt=""/></div><div class="scrim"></div>` : `<img class="bg" src="${esc(productImageUrl)}" alt=""/>${heroPhotoHtml({ bgImageUrl: null, productImageUrl, box: { top: heroTop, bottom: heroBottom, left: padX, right: padX }, shadow: 'rgba(0,0,0,.6)', darkBg: true }).html}`) : ''}
+      ${hasCover ? (
+        // Escena IA (bgImageUrl) → SIEMPRE full-bleed (llena el 4:5, producto grande y cerca).
+        // Foto real con coverImage → también full-bleed (para tomas de detalle: se ve completa).
+        // Foto real sin coverImage → tarjeta hero clásica (recorte de catálogo sobre fondo).
+        bgImageUrl
+          ? `<img src="${esc(bgImageUrl)}" alt="" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:0;"/><div class="scrim"></div>`
+          : (opts.coverImage
+            ? `<img src="${esc(productImageUrl)}" alt="" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:0;"/><div class="scrim"></div>`
+            : `<img class="bg" src="${esc(productImageUrl)}" alt=""/>${heroPhotoHtml({ bgImageUrl: null, productImageUrl, box: { top: heroTop, bottom: heroBottom, left: padX, right: padX }, shadow: 'rgba(0,0,0,.6)', darkBg: true }).html}`)
+      ) : ''}
       ${showBrand ? `<div class="wm">${brandMark}</div>` : ''}
       ${badgeHtml}
       ${interactionHtml}
