@@ -151,6 +151,48 @@ async function reloadKeepScroll() {
   window.scrollTo(0, y);
 }
 
+/* ============ generación en segundo plano ============ */
+// Slots que estamos generando: el panel no se bloquea, muestra "generando" en la
+// tarjeta y poolea /api/generating hasta que termina (o falla).
+const generatingIds = new Set();
+let generatingPollTimer = null;
+
+function markGenerating(calendarId) {
+  generatingIds.add(String(calendarId));
+  const card = document.querySelector(`.card [data-id="${calendarId}"]`)?.closest('.card');
+  applyGeneratingChip(calendarId, card);
+  startGeneratingPoll();
+}
+
+function applyGeneratingChip(calendarId, card) {
+  if (!card) return;
+  const actions = card.querySelector('.actions');
+  if (actions && !actions.querySelector('.gen-chip')) {
+    actions.innerHTML = `<span class="badge semi gen-chip">${icon('refresh', 'spin')} Generando en segundo plano…</span>`;
+  }
+}
+
+function startGeneratingPoll() {
+  if (generatingPollTimer) return;
+  generatingPollTimer = setInterval(async () => {
+    if (!generatingIds.size) { clearInterval(generatingPollTimer); generatingPollTimer = null; return; }
+    let data;
+    try { data = await api('/api/generating'); } catch (_) { return; }
+    const stillGenerating = new Set((data.ids || []).map(String));
+    const errors = data.errors || {};
+    let anyDone = false;
+    for (const id of [...generatingIds]) {
+      if (errors[id]) {
+        toast(`No se pudo generar la pieza: ${errors[id]}`, 'err');
+        generatingIds.delete(id); anyDone = true;
+      } else if (!stillGenerating.has(id)) {
+        generatingIds.delete(id); anyDone = true;
+      }
+    }
+    if (anyDone) { toast('Pieza generada', 'ok'); reloadKeepScroll(); }
+  }, 4000);
+}
+
 function parseSlides(s) {
   if (!s) return null;
   if (Array.isArray(s)) return s;
@@ -399,6 +441,13 @@ async function loadCalendar() {
   list.innerHTML = skeleton('cards', 3);
   try {
     calItems = await api(`/api/calendar?days=${calendarViewDays}&back=${calBackDays}`);
+    // Sincroniza qué slots siguen generándose (por si recargaste con una generación en curso).
+    try {
+      const g = await api('/api/generating');
+      generatingIds.clear();
+      (g.ids || []).forEach((gid) => generatingIds.add(String(gid)));
+      if (generatingIds.size) startGeneratingPoll();
+    } catch (_) {}
     document.getElementById('next-plan').innerHTML =
       `${icon('bot')} Los borradores se generan solos a las <b>07:00 ARG</b>. Lo que apruebes sale <b>en su horario</b>; las <b>Semi</b> las subís vos con su sticker. Para que algo no salga: <b>Descartar</b> la pieza o pausar el slot desde <b>Planificar</b>.`;
     renderFilters();
@@ -860,7 +909,10 @@ function renderCard(item) {
     ? `<button class="btn-ghost btn-sm" data-act="planslot" data-id="${item.id}">${icon('calendar')} Planificar</button>` : '';
 
   let actions = '';
-  if (isRepost) {
+  if (generatingIds.has(String(item.id))) {
+    // Pieza generándose en segundo plano: el chip reemplaza los botones hasta terminar.
+    actions = `<span class="badge semi gen-chip">${icon('refresh', 'spin')} Generando en segundo plano…</span>`;
+  } else if (isRepost) {
     actions = `<span style="color:var(--muted); font-size:13px;">Día de descanso / repost — sin generación automática.</span>${planBtn}`;
   } else if (!aid) {
     // Reels: se genera SOLO el copy + imagen base (el video no se auto-genera nunca;
@@ -940,8 +992,11 @@ async function handleAction(act, id, btn, card, item) {
   try {
     if (act === 'generate') {
       btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Generando…`;
+      // Segundo plano: el server responde ya y genera atrás; el panel muestra el chip
+      // "generando" y refresca solo al terminar. Podés seguir usando el resto mientras.
       await api(`/api/generate/${id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
-      toast('Pieza generada', 'ok'); reloadKeepScroll();
+      toast('Generando en segundo plano… seguí usando el panel', 'ok');
+      markGenerating(id);
     } else if (act === 'approve') {
       await api(`/api/assets/${id}/approve`, { method: 'POST' }); toast('Aprobada', 'ok'); reloadKeepScroll();
     } else if (act === 'discard') {
@@ -1303,7 +1358,11 @@ function openRegen(item) {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ pillarDetail: detail, theme: detail, template: overlay.querySelector('#regen-template').value || undefined }),
       });
-      overlay.remove(); toast('Pieza regenerada', 'ok'); reloadKeepScroll();
+      // Segundo plano: cerramos el modal ya y el panel muestra "generando" hasta que
+      // termina (el director de arte + varias escenas de IA puede tardar 1-3 min).
+      overlay.remove();
+      toast('Generando en segundo plano… seguí usando el panel', 'ok');
+      markGenerating(item.id);
     } catch (e) { toast(e.message, 'err'); go.disabled = false; go.innerHTML = `${icon('wand')} Regenerar con IA`; }
   });
 }

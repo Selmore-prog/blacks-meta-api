@@ -582,44 +582,77 @@ async function generateForSlot(slot, overrides = {}) {
     imagePath = urls[0];
     slidesJson = JSON.stringify(urls);
   } else if (slides) {
-    // Carrusel FOTOGRÁFICO (producto/promo/marca/ugc/engagement): cada slide es una
-    // escena profesional generada con IA (no la foto de catálogo pelada en una tarjeta
-    // blanca) — misma calidad que la pieza única, con variedad de escena por slide.
-    // Si el brief pide algo puntual (ej. "bandera argentina, orgullo nacional, sol"),
-    // fluye a cada slide via bgBrief (ver patrioticVisualGuidance en ai.js).
+    // Carrusel FOTOGRÁFICO (producto/promo/marca/ugc/engagement): un DIRECTOR DE ARTE
+    // con IA (planCarouselShots) diseña primero qué muestra cada slide — tipo de toma
+    // (hero/detalle/contexto), qué característica REAL enfatizar, qué foto real usar y
+    // cuánto fondo — y recién después se genera cada imagen según ese plan. Así cada
+    // pieza sale pensada para SU producto, con foco en el producto (no tanto fondo) y
+    // usando todas las fotos reales, en vez de repetir la misma escena.
     const refImgs = (visualProduct && Array.isArray(visualProduct.images) && visualProduct.images.length)
       ? visualProduct.images : (visualImageUrl ? [visualImageUrl] : []);
     const sceneTheme = product
       ? `${product.name}${product.category ? ` (${product.category})` : ''}`
       : [pillarDetail || slot.theme_title, copy.overlay].filter(Boolean).join(' — ');
 
-    const urls = [];
-    let lastCleanImageUrl = null; // foto SIN texto quemado, para reusar en el slide de precio
-    for (let i = 0; i < slides.length; i += 1) {
-      const refUrl = refImgs.length ? refImgs[i % refImgs.length] : visualImageUrl;
-      const slideBrief = [imageBrief, slides[i].title, slides[i].text].filter(Boolean).join(' — ').slice(0, 500);
-      // Reusa el mismo mecanismo de la pieza única (renderPostBuffer -> generateProductScene):
-      // si la IA falla o AI_IMAGES está apagado, cae sola a la foto real de catálogo, nunca rompe.
-      const { url, costUsd, cleanImageUrl } = await renderPostBuffer({
+    // El cerebro planifica las tomas. Best-effort: si falla (o no hay IA de texto),
+    // caemos a un plan simple derivado de los slides del copy.
+    let shotPlan = null;
+    try {
+      const { planCarouselShots } = require('../src/ai');
+      shotPlan = await planCarouselShots({
+        productName: product ? product.name : sceneTheme,
+        productDescription: (product && product.description) || (visualProduct && visualProduct.description),
+        brief: imageBrief,
+        pillar: slot.pillar,
+        occasion,
+        slideCount: slides.length,
+        photoCount: Math.max(refImgs.length, 1),
+        objective,
+      });
+    } catch (err) {
+      console.warn(`[generate-daily] Director de arte no disponible (uso plan simple): ${err.message}`);
+    }
+
+    // Plan efectivo: el del director de arte, o uno simple (1 foto por slide, fondo sutil).
+    const plan = (shotPlan && shotPlan.length)
+      ? shotPlan
+      : slides.map((_, i) => ({ shotType: i === 0 ? 'hero' : 'detalle', focus: '', photoIndex: refImgs.length ? i % refImgs.length : 0, background: 'sutil', overlay: null, badge: null }));
+
+    // En paralelo: cada slide es una llamada a Gemini independiente. En secuencia tardaba
+    // 1-3 min; en paralelo baja al tiempo de la más lenta.
+    const slideResults = await Promise.all(plan.map((shot, i) => {
+      const refUrl = refImgs.length ? (refImgs[shot.photoIndex] || refImgs[i % refImgs.length]) : visualImageUrl;
+      // Overlay COHERENTE con la imagen: el del director de arte (atado a la foto/detalle
+      // de ESE slide). En la hero, si no hay, el título general. En los slides de detalle,
+      // si el cerebro no puso overlay, va SIN texto — mejor vacío que un título genérico
+      // del copy que no tenga nada que ver con lo que muestra la foto.
+      const overlay = shot.overlay || (i === 0 ? overlayTitle : null);
+      const slideBrief = [imageBrief, shot.focus].filter(Boolean).join(' — ').slice(0, 500);
+      // La badge la decide el plan (no siempre va): sólo el badge de marca (MAYORISTA)
+      // se respeta siempre; los de OFERTA/NUEVO salen del director de arte.
+      const slideBadge = badgeText || shot.badge || null;
+      return renderPostBuffer({
         format,
         template: 'fullbleed',
-        overlayTitle: slides[i].title || overlayTitle,
-        badgeText: i === 0 ? badgeText : null,
+        overlayTitle: overlay,
+        badgeText: i === 0 ? slideBadge : null,
         productImageUrl: refUrl,
-        productImageUrls: refImgs.slice(0, 4),
+        // El resto de las fotos reales como refuerzo de fidelidad (que no reinvente el producto).
+        productImageUrls: refImgs.filter((u) => u !== refUrl).slice(0, 3),
         logos,
         showBrand: i === 0,
-        layoutSeed: Number(slot.id) + i * 13, // otra escena por slide: variedad real dentro del mismo carrusel
+        layoutSeed: Number(slot.id) + i * 13,
         useAiProductScene: Boolean(refUrl) && slot.pillar !== 'repost',
+        shotSpec: { shotType: shot.shotType, focus: shot.focus, background: shot.background },
         bgTheme: sceneTheme,
         bgBrief: slideBrief,
         bgOccasion: occasion,
-        couponCode: i === slides.length - 1 ? couponCode : null,
+        couponCode: i === plan.length - 1 ? couponCode : null,
       });
-      urls.push(url);
-      pieceCostUsd += costUsd || 0;
-      lastCleanImageUrl = cleanImageUrl;
-    }
+    }));
+    const urls = slideResults.map((r) => r.url);
+    pieceCostUsd += slideResults.reduce((sum, r) => sum + (r.costUsd || 0), 0);
+    const lastCleanImageUrl = slideResults[slideResults.length - 1].cleanImageUrl; // foto SIN texto quemado, para el slide de precio
 
     // Slide final de PRECIO (venta): reusa la última foto LIMPIA (sin texto quemado)
     // como fondo, sin gastar una imagen IA de más — "a lo último, el precio".

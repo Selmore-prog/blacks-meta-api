@@ -825,6 +825,7 @@ async function renderPostBuffer(options) {
       productName: options.overlayTitle, theme: options.bgTheme,
       brief: options.bgBrief, occasion: options.bgOccasion, format,
       seed: options.layoutSeed, // variedad de escenario/luz/cámara por pieza
+      shotSpec: options.shotSpec || null, // director de arte: tipo de toma, foco, fondo
     });
     if (scene) {
       bgImageUrl = `data:${scene.mimeType};base64,${scene.buffer.toString('base64')}`;

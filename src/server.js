@@ -656,6 +656,26 @@ app.post('/api/wholesale', wrap(async (req, res) => {
 }));
 
 /* ----------------------- Generación / Assets ----------------------- */
+// Slots generándose AHORA (en memoria): la generación con el director de arte + varias
+// escenas de IA puede tardar 1-3 min, así que corre en segundo plano y el panel poolea
+// este estado en vez de quedar bloqueado. Se limpia solo al terminar (o por timeout).
+const generatingSlots = new Map(); // calendarId -> { startedAt, error }
+const GENERATION_TIMEOUT_MS = 6 * 60 * 1000;
+
+app.get('/api/generating', wrap(async (req, res) => {
+  // Limpieza defensiva de trabajos "colgados" (ej. si el proceso reinició a mitad).
+  const now = Date.now();
+  for (const [gid, info] of generatingSlots) {
+    if (!info.error && now - info.startedAt > GENERATION_TIMEOUT_MS) generatingSlots.delete(gid);
+  }
+  const ids = [];
+  const errors = {};
+  for (const [gid, info] of generatingSlots) {
+    if (info.error) { errors[gid] = info.error; } else { ids.push(gid); }
+  }
+  res.json({ ids, errors });
+}));
+
 app.post('/api/generate/:calendarId', wrap(async (req, res) => {
   const id = intParam(req.params.calendarId);
   if (!id) return res.status(400).json({ error: 'calendarId inválido' });
@@ -664,6 +684,9 @@ app.post('/api/generate/:calendarId', wrap(async (req, res) => {
   let slot = rows[0];
   if (!slot) return res.status(404).json({ error: 'No existe ese slot de calendario' });
   if (slot.pillar === 'repost') return res.status(400).json({ error: 'Los slots de repost/descanso no se generan.' });
+  if (generatingSlots.has(id) && !generatingSlots.get(id).error) {
+    return res.status(409).json({ error: 'Esta pieza ya se está generando.' });
+  }
 
   // Regenerar cambiando el tema/ángulo: se persiste en el slot y se usa al generar.
   const body = req.body || {};
@@ -686,11 +709,24 @@ app.post('/api/generate/:calendarId', wrap(async (req, res) => {
      WHERE calendar_id = $1 AND status IN ('draft', 'approved')`, [id]
   );
   await cancelQueuedForCalendar(id).catch(() => {});
-  await generateForSlot(slot, { pillarDetail: newDetail || slot.pillar_detail, template });
-  const { rows: assetRows } = await pool.query(
-    `SELECT * FROM generated_assets WHERE calendar_id = $1 ORDER BY id DESC LIMIT 1`, [id]
-  );
-  res.json(assetRows[0]);
+
+  // Segundo plano: respondemos ya (el panel muestra "generando" y poolea /api/generating).
+  generatingSlots.set(id, { startedAt: Date.now(), error: null });
+  const slotForGen = slot;
+  const detailForGen = newDetail || slot.pillar_detail;
+  (async () => {
+    try {
+      await generateForSlot(slotForGen, { pillarDetail: detailForGen, template });
+      generatingSlots.delete(id);
+    } catch (err) {
+      console.error(`[server] Generación en segundo plano del slot #${id} falló:`, err.message);
+      // Dejamos el error un ratito para que el panel lo muestre, después se limpia solo.
+      generatingSlots.set(id, { startedAt: Date.now(), error: err.message });
+      setTimeout(() => { const cur = generatingSlots.get(id); if (cur && cur.error) generatingSlots.delete(id); }, 30000);
+    }
+  })();
+
+  res.json({ ok: true, generating: true });
 }));
 
 /**

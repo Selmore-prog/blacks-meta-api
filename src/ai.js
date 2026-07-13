@@ -941,12 +941,118 @@ Composición centrada con aire alrededor, formato ${format === 'story' ? 'vertic
  * Genera una ESCENA PROFESIONAL con el producto real adentro (foto de producto como
  * referencia). Devuelve { buffer, mimeType } o null (best-effort, con fallback).
  */
-async function generateProductScene({ productImageUrl, productImageUrls = [], productName, theme, brief, occasion, format = 'feed', seed = null } = {}) {
+/**
+ * DIRECTOR DE ARTE (cerebro): antes de generar imágenes, la IA DISEÑA el carrusel —
+ * decide qué muestra cada slide, qué característica REAL enfatizar, qué foto real usar,
+ * cuánto fondo, y si va badge. Así cada pieza sale distinta y pensada para SU producto,
+ * en vez de repetir un prompt genérico. Best-effort: si falla, generate-daily cae a la
+ * lógica simple (misma escena por slide).
+ */
+async function planCarouselShots({ productName, productDescription, brief, pillar = 'producto', occasion, slideCount = 4, photoCount = 1, objective = 'venta' } = {}) {
+  const cleanDesc = productDescription
+    ? String(productDescription).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 700)
+    : '';
+  // Estrategia fotográfica según el pilar: qué tipo de piezas convienen para cada objetivo.
+  const PILLAR_STRATEGY = {
+    producto: 'Catálogo premium: dominan las tomas de ESTUDIO (background "limpio") y los DETALLES/ZOOM de las características reales. El producto es la estrella absoluta.',
+    promo: 'Vendedor y directo: hero potente + 1-2 detalles que justifican el precio. Fondo limpio de estudio. La última toma prepara el cierre con precio.',
+    marca: 'Aspiracional: mezclá 1 hero de estudio con 1-2 tomas en CONTEXTO real de trabajo (más lifestyle), transmitiendo identidad, no venta directa.',
+    ugc: 'Cercano y real: predominan tomas en contexto/uso, como fotos genuinas, menos "de estudio perfecto".',
+    engagement: 'Simple y claro: 1-2 tomas limpias que inviten a opinar/comparar.',
+    mayorista: 'Serio y corporativo: tomas de estudio prolijas que muestren durabilidad y terminación para empresas.',
+  };
+  const strategy = PILLAR_STRATEGY[pillar] || PILLAR_STRATEGY.producto;
+  const system = 'Sos DIRECTOR DE ARTE de una agencia premium de indumentaria de trabajo (BLACKS). Diseñás carruseles de Instagram que se ven como catálogo profesional real (tipo lookbook Nike/Zara), NO como plantilla repetida. Pensás cada toma como un fotógrafo de producto. Respondés SOLO con JSON válido.';
+  const prompt = `Diseñá el SHOT LIST (lista de tomas) para un carrusel de ${slideCount} slides sobre este producto.
+
+PRODUCTO: ${productName || 'producto de trabajo BLACKS'}${cleanDesc ? `\nDESCRIPCIÓN REAL (características verdaderas — elegí qué detalles/zooms mostrar SÓLO en base a esto, NO inventes features): "${cleanDesc}"` : ''}
+PILAR: ${pillar} · OBJETIVO: ${objective}
+ESTRATEGIA PARA ESTE PILAR: ${strategy}${brief ? `\nBRIEF (define el ángulo, respetalo — si menciona un detalle puntual como "sol bordado" o "bandera", dedicale una toma de zoom): "${brief}"` : ''}${occasion ? `\nOCASIÓN/FECHA: ${occasion}` : ''}
+FOTOS REALES DISPONIBLES: ${photoCount} (índices 0 a ${photoCount - 1}). Cada índice es una perspectiva distinta del producto; APROVECHALAS todas.
+
+REGLAS (cada slide con un PROPÓSITO distinto — que NO sean todas iguales):
+- Progresión: slide 1 = HERO de estudio que engancha; slides del medio = ZOOM/DETALLE de las características REALES más fuertes (de la descripción o el brief), cada uno con OTRO ángulo/foto; última = cierre coherente con el pilar.
+- Seguí la estrategia del pilar de arriba para decidir cuánto estudio vs contexto.
+- El fondo "limpio" NO es blanco plano: es estudio fotográfico profesional (ciclorama gris con degradado, sombra de contacto real). Preferilo para producto/promo.
+- photo_index: usá una foto real DISTINTA en cada slide (repartí los índices, no repitas). Elegí para cada toma la foto que MEJOR muestre ese detalle.
+- badge: casi siempre null. "NUEVO" (sólo en la hero) SÓLO si el brief habla de lanzamiento; "OFERTA" SÓLO si hay oferta real. Si no aplica, null en TODOS.
+- overlay: MÁXIMO ~4 palabras, en voseo, y TIENE QUE DESCRIBIR LO QUE SE VE en ESA foto (si la toma es zoom al sol bordado → overlay tipo "El sol bordado"; si es la suela de yute → "Suela de yute"). NUNCA un overlay genérico que no se relacione con la imagen de ese slide. Nunca repitas overlay. Puede ser null si la imagen habla sola.
+
+Devolvé SOLO este JSON:
+{"shots":[{"shot_type":"hero","focus":"qué muestra/enfatiza esta toma, concreto","photo_index":0,"background":"limpio","overlay":"texto que describe ESA foto o null","badge":null}]}`;
+
+  const schema = {
+    type: 'object',
+    properties: {
+      shots: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            shot_type: { type: 'string', enum: ['hero', 'detalle', 'contexto', 'flatlay'] },
+            focus: { type: 'string' },
+            photo_index: { type: 'integer' },
+            background: { type: 'string', enum: ['limpio', 'sutil', 'contexto'] },
+            overlay: { type: 'string', nullable: true },
+            badge: { type: 'string', nullable: true },
+          },
+          required: ['shot_type', 'focus', 'photo_index', 'background'],
+        },
+      },
+    },
+    required: ['shots'],
+  };
+
+  const result = await generateJson({ system, prompt, schema, maxTokens: 1500, temperature: 0.7 });
+  const shots = Array.isArray(result && result.shots) ? result.shots : [];
+  if (!shots.length) throw new Error('El director de arte no devolvió tomas.');
+  // Normalización: clamp de photo_index al rango real, badge sólo válido, overlay limpio.
+  return shots.slice(0, slideCount).map((s) => ({
+    shotType: ['hero', 'detalle', 'contexto', 'flatlay'].includes(s.shot_type) ? s.shot_type : 'hero',
+    focus: s.focus ? String(s.focus).slice(0, 160) : '',
+    photoIndex: Math.max(0, Math.min(photoCount - 1, Number.isInteger(s.photo_index) ? s.photo_index : 0)),
+    background: ['limpio', 'sutil', 'contexto'].includes(s.background) ? s.background : 'limpio',
+    overlay: s.overlay && String(s.overlay).trim() && String(s.overlay).toLowerCase() !== 'null' ? String(s.overlay).trim().slice(0, 60) : null,
+    badge: ['NUEVO', 'OFERTA'].includes(String(s.badge || '').toUpperCase()) ? String(s.badge).toUpperCase() : null,
+  }));
+}
+
+/**
+ * Dirección de fotografía de UNA toma. Si viene shotSpec (del director de arte con IA),
+ * arma la toma a medida (detalle/hero/flatlay/contexto + cuánto fondo); si no, usa la
+ * escena ambientada genérica de siempre.
+ */
+function shotDirection(shotSpec, scene) {
+  if (!shotSpec) {
+    return `- El producto es EL héroe y punto focal absoluto de la composición: nítido, con micro-texturas de tela/cuero ultradetalladas, ocupando la posición de máximo impacto visual en la regla de los tercios.
+- Lente Hasselblad 85mm f/1.8 prime lens, macro commercial product photography, enfoque selectivo milimétrico en los detalles y terminaciones del producto.
+${scene.describe()}
+- Utilería mínima y realista del escenario elegido, SIN competir con el producto.`;
+  }
+  const bg = shotSpec.background || 'limpio';
+  const bgLine = bg === 'contexto'
+    ? scene.describe()
+    : bg === 'sutil'
+      ? `- Fondo MUY simple: una superficie de trabajo neutra (hormigón pulido, chapa mate o madera oscura) apenas sugerida y totalmente desenfocada. Casi sin escenario — el foco absoluto es el producto.`
+      : `- Fondo de ESTUDIO FOTOGRÁFICO PROFESIONAL (no blanco plano ni recorte): ciclorama / seamless sweep sin esquinas (infinity cove) en gris medio a gris carbón, con degradado direccional suave y una viñeta sutil que enmarca el producto. El producto apoyado con SOMBRA DE CONTACTO realista (o sutil reflejo en superficie pulida). Iluminación de estudio de tres puntos con reflejo especular controlado, calidad de lookbook premium (Nike/Zara). El producto llena buena parte del cuadro — NADA de un objeto chiquito perdido en un mar de blanco.`;
+  const focus = shotSpec.focus || 'la calidad y terminación del producto';
+  const typeLine = {
+    detalle: `- TOMA DE DETALLE / MACRO: primerísimo plano de ${focus}. El producto (o esa parte puntual) LLENA el encuadre; se ven las costuras, la textura del material y las terminaciones a máximo detalle. Enfoque milimétrico, profundidad de campo mínima.`,
+    hero: `- TOMA HERO: el producto entero, centrado y protagonista absoluto, nítido de punta a punta, en la posición de máximo impacto. Enfatizá ${focus}.`,
+    flatlay: `- TOMA CENITAL (flat-lay): el producto visto desde arriba sobre una superficie limpia, prolijo y ordenado, con aire alrededor. Enfatizá ${focus}.`,
+    contexto: `- TOMA EN CONTEXTO: el producto en uso/ambiente creíble, pero SIEMPRE como protagonista nítido. Enfatizá ${focus}.`,
+  }[shotSpec.shotType] || `- El producto es el héroe absoluto. Enfatizá ${focus}.`;
+  return `${typeLine}
+- Lente Hasselblad 85mm f/1.8 prime lens, macro commercial product photography, enfoque selectivo milimétrico.
+${bgLine}`;
+}
+
+async function generateProductScene({ productImageUrl, productImageUrls = [], productName, theme, brief, occasion, format = 'feed', seed = null, shotSpec = null } = {}) {
   if (!config.ai.useAiImages || !hasGemini() || isImageQuotaCoolingDown() || (!productImageUrl && !productImageUrls.length)) return null;
 
-  // Hasta 3 fotos del MISMO producto (distintos ángulos): más referencias = menos
+  // Hasta 4 fotos del MISMO producto (distintos ángulos): más referencias = menos
   // chance de que el modelo "reinvente" costuras, color o silueta.
-  const urls = [...new Set([productImageUrl, ...productImageUrls].filter(Boolean))].slice(0, 3);
+  const urls = [...new Set([productImageUrl, ...productImageUrls].filter(Boolean))].slice(0, 4);
   const refs = [];
   for (const u of urls) {
     try {
@@ -967,16 +1073,16 @@ async function generateProductScene({ productImageUrl, productImageUrls = [], pr
 CONTEXTO DE LA PIEZA: ${theme || productName || 'indumentaria laboral y seguridad industrial'}.${briefBlock(brief)}${occasionGuidance(occasion)}
 
 DIRECCIÓN DE FOTOGRAFÍA Y ÓPTICA COMERCIAL:
-- El producto es EL héroe y punto focal absoluto de la composición: nítido, con micro-texturas de tela/cuero ultradetalladas, ocupando la posición de máximo impacto visual en la regla de los tercios.
-- Lente Hasselblad 85mm f/1.8 prime lens, macro commercial product photography, enfoque selectivo milimétrico en los detalles y terminaciones del producto.
-${scene.describe()}
-- Utilería mínima y realista del escenario elegido, SIN competir con el producto.
-- Color grading premium: ciencia de color Kodak Portra 400, fondo neutro con acentos naranja quemado (#C1440C) sutiles.
+${shotDirection(shotSpec, scene)}
+- Color grading premium: ciencia de color Kodak Portra 400, con acentos naranja quemado (#C1440C) sutiles.
 ${brandStyle ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
 
 REALISMO Y PRESERVACIÓN ESTRUCTURAL (PRODUCT-IN-CONTEXT):
 - PROHIBIDO generar alucinaciones visuales, deformaciones de la puntera/suela, o cambios en las letras y etiquetas del packaging/producto original.
-- Imperfecciones creíbles en el entorno (no en el producto): superficies con polvo o micro-rayas realistas, profundidad de campo suave con fondo desenfocado (bokeh) para resaltar la figura del producto.
+- Imperfecciones creíbles en el entorno (no en el producto): profundidad de campo suave con fondo desenfocado (bokeh) para resaltar la figura del producto.
+
+UN SOLO PRODUCTO EN CUADRO (crítico):
+- Mostrá EXACTAMENTE UN producto: el de la referencia. PROHIBIDO agregar un SEGUNDO par de calzado, otra prenda o cualquier producto extra — ni de fondo, ni en primer plano, ni desenfocado, ni "de acompañamiento". Si la referencia es un par de calzado, se ve ESE par y nada más.
 
 ARQUITECTURA DE ZONAS SEGURAS (NEGATIVE SPACE):
 - Aire limpio y desenfocado en los tercios superior e inferior para garantizar contraste absoluto al superponer titulares y precios.
@@ -1406,6 +1512,7 @@ module.exports = {
   generateJson,
   generateBackground,
   generateProductScene,
+  planCarouselShots,
   generateStudioScene,
   buildStudioVideoPrompt,
   generateDiagram,
