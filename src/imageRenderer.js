@@ -516,8 +516,6 @@ function buildEducativoHtml(opts) {
   return `${headHtml(g.w, g.h)}</head><body>
     <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#111113; overflow:hidden;
       background:radial-gradient(130% 100% at 50% 0%, #ffffff 0%, #f0f0f4 55%, #e0e0e6 100%);">
-      <!-- Faded grid watermark -->
-      <div style="position:absolute; top:42%; left:-5%; width:110%; text-align:center; font-family:'Anton',sans-serif; font-size:${g.isStory ? 240 : 190}px; color:rgba(0,0,0,.03); letter-spacing:24px; transform:rotate(-12deg); pointer-events:none; z-index:0;">SAFETY</div>
       <div style="position:absolute; top:350px; left:50%; transform:translateX(-50%); width:650px; height:650px; background:radial-gradient(circle, rgba(232,93,27,.12) 0%, rgba(255,255,255,0) 65%); pointer-events:none; z-index:0;"></div>
       <div style="position:absolute; top:0; left:0; bottom:0; width:16px; background:linear-gradient(180deg, #FF6B1A 0%, #C1440C 100%); box-shadow:0 0 25px rgba(232,93,27,.4); z-index:4;"></div>
       <div style="position:absolute; top:${g.wmTop}px; left:${g.padX + 24}px; display:flex; align-items:center; gap:16px; z-index:4;">
@@ -551,7 +549,6 @@ function buildMayoristaHtml(opts) {
   return `${headHtml(g.w, g.h)}</head><body>
     <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#fff; overflow:hidden;
       background:linear-gradient(165deg, #0a0b0e 0%, #13161c 55%, #1c2029 100%);">
-      <div style="position:absolute; top:38%; left:-5%; width:110%; text-align:center; font-family:'Anton',sans-serif; font-size:${g.isStory ? 240 : 190}px; color:rgba(255,255,255,.025); letter-spacing:22px; transform:rotate(-12deg); pointer-events:none; z-index:0;">MAYORISTA</div>
       <div style="position:absolute; top:350px; left:50%; transform:translateX(-50%); width:650px; height:650px; background:radial-gradient(circle, rgba(232,93,27,.18) 0%, rgba(0,0,0,0) 65%); pointer-events:none; z-index:0;"></div>
       ${hero.html}
       ${hero.fullBleed ? scrimHtml({ dark: true }) : ''}

@@ -26,22 +26,39 @@ async function pickForcedProduct(productId) {
   return rows[0] || null;
 }
 
-/** Producto mayorista: stock infinito (null) o sin precio ("Consultar precio"). */
+/**
+ * Producto mayorista: SOLO si el ángulo del slot nombra un producto/categoría puntual
+ * (ej. "Uniformes cargo para tu equipo"), igual de exigente que productFromDetail para
+ * producto/promo. Si el ángulo es institucional/genérico ("condiciones mayoristas",
+ * "pedí tu presupuesto", "personalización y descuentos"), NO forzamos ningún producto:
+ * mejor una pieza institucional que una elegida al azar sin relación con el copy.
+ * (Bug real, jul-2026: una pieza de "condiciones mayoristas" eligió al azar un
+ * respirador que la marca ni siquiera vende, y el copy terminó siendo sobre eso.)
+ */
 async function pickMayoristaProduct(slot, excludeIds = []) {
-  const brand = config.brand.knownBrands.find((b) => (slot.pillar_detail || '').toLowerCase().includes(b.toLowerCase()));
   const cond = `image_url IS NOT NULL AND (stock IS NULL OR price IS NULL OR price <= 0)`;
-  const notRecent = `AND NOT (id = ANY($EXC))`;
+  const patterns = keywordsFromText(slot.pillar_detail);
+  const mentionedBrand = mentionedBrandIn(slot.pillar_detail);
+  if (patterns.length < 2 && !mentionedBrand) return null;
+
+  const norm = (col) => `translate(lower(${col}), 'áéíóúñü', 'aeiounu')`;
   // Primero sin repetir productos recientes; si el catálogo mayorista es chico, se permite repetir.
   for (const exc of [excludeIds, []]) {
-    if (brand) {
-      const { rows } = await pool.query(
-        `SELECT * FROM products_cache WHERE ${cond} AND brand ILIKE $1 ${notRecent.replace('$EXC', '$2')} ORDER BY random() LIMIT 1`,
-        [`%${brand}%`, exc]);
-      if (rows[0]) return rows[0];
-    }
     const { rows } = await pool.query(
-      `SELECT * FROM products_cache WHERE ${cond} ${notRecent.replace('$EXC', '$1')} ORDER BY random() LIMIT 1`, [exc]);
-    if (rows[0]) return rows[0];
+      `SELECT * FROM (
+         SELECT *,
+           ((CASE WHEN ${norm('name')} LIKE ANY($1) THEN 4 ELSE 0 END) +
+            (CASE WHEN ${norm(`COALESCE(category, '')`)} LIKE ANY($1) THEN 2 ELSE 0 END)) AS match_score
+         FROM products_cache
+         WHERE ${cond} AND NOT (id = ANY($2))
+       ) t
+       WHERE match_score >= 4
+       ORDER BY match_score DESC, sales_30d DESC NULLS LAST
+       LIMIT 15`,
+      [patterns.length ? patterns : ['%__never_match__%'], exc]
+    );
+    const picked = rankByRelevance(rows, { patterns, mentionedBrand });
+    if (picked) return picked;
   }
   return null;
 }
@@ -207,16 +224,24 @@ function keywordsFromText(text) {
     .map((w) => `%${w}%`);
 }
 
-function topicVisualRules(slot) {
+function topicVisualRules(slot, rawWords = []) {
   const text = `${slot.pillar_detail || ''} ${slot.theme_title || ''}`.toLowerCase();
   const include = [];
   const exclude = [];
+  const rawStems = rawWords.map((w) => stripAccents(String(w).replace(/%/g, '')));
 
   const add = (...words) => {
     for (const word of words) include.push(`%${word}%`);
   };
+  // No baneamos una categoría si el tema la nombra explícitamente (bug real, jul-2026:
+  // una pieza sobre cuidado de manos/guantes térmicos baneaba "guante" por la regla de
+  // frío/invierno de más abajo, y terminó mostrando la foto de un calzado).
   const ban = (...words) => {
-    for (const word of words) exclude.push(`%${word}%`);
+    for (const word of words) {
+      const stem = stripAccents(word);
+      const namedExplicitly = rawStems.some((rw) => rw.includes(stem) || stem.includes(rw));
+      if (!namedExplicitly) exclude.push(`%${word}%`);
+    }
   };
 
   // Los patrones van SIN acentos: la comparación en SQL también se hace sin acentos.
@@ -252,7 +277,7 @@ function uniquePatterns(patterns) {
  */
 async function pickRelevantVisualProduct(slot) {
   const rawWords = [...keywordsFromText(slot.pillar_detail), ...keywordsFromText(slot.theme_title)];
-  const rules = topicVisualRules(slot);
+  const rules = topicVisualRules(slot, rawWords);
   const include = uniquePatterns([...rawWords, ...rules.include]);
   if (!include.length) return null;
 
