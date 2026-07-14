@@ -838,6 +838,12 @@ function buildMagazineHtml(opts) {
   const g = sharedGeometry(opts.format);
   const accent = opts.accent || config.brand.colors.darkOrange;
   const img = opts.bgImageUrl || opts.productImageUrl;
+  // Sin foto y con puntos reales (storyPoints): checklist debajo del titular — la
+  // portada editorial queda con contenido útil en vez de aire muerto.
+  const points = Array.isArray(opts.storyPoints) ? opts.storyPoints.filter(Boolean).slice(0, 3) : [];
+  const pointsHtml = !img && points.length
+    ? `<div style="margin-top:${g.isStory ? 48 : 34}px; max-width:${g.isStory ? '92%' : '80%'};">${pointsChecklistHtml(points, g, accent)}</div>`
+    : '';
 
   return `${headHtml(g.w, g.h)}</head><body>
     <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#fff; overflow:hidden; background:#0d0d0f;">
@@ -848,6 +854,7 @@ function buildMagazineHtml(opts) {
         <div style="font-size:${g.isStory ? 22 : 20}px; font-weight:800; letter-spacing:4px; color:${accent}; text-transform:uppercase; margin-bottom:18px;">${esc(opts.kicker || 'BLACKS INDUMENTARIA')}</div>
         <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 108 : 88}px; line-height:.92; letter-spacing:-.5px; text-transform:uppercase; color:#fff; text-shadow:0 8px 40px rgba(0,0,0,.6);">${esc(opts.overlayTitle || '')}</div>
         ${opts.bodyText ? `<div style="font-size:${g.isStory ? 30 : 26}px; font-weight:500; line-height:1.4; color:rgba(255,255,255,.8); margin-top:26px; max-width:80%;">${esc(opts.bodyText)}</div>` : ''}
+        ${pointsHtml}
       </div>
       ${img ? `<div style="position:absolute; bottom:${g.footBottom}px; right:${g.padX}px; width:${g.isStory ? 300 : 260}px; height:${g.isStory ? 380 : 320}px; border-radius:18px; overflow:hidden; box-shadow:0 30px 60px rgba(0,0,0,.5); border:2px solid rgba(255,255,255,.15); z-index:2;">
         <img src="${esc(img)}" style="width:100%; height:100%; object-fit:cover;"/>

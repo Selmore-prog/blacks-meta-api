@@ -280,6 +280,14 @@ const BANNED_PATTERNS = [
   { re: /marca la diferencia/i, label: 'usa "marca la diferencia" (frase de IA)' },
   { re: /soluci[oó]n perfecta|opci[oó]n perfecta/i, label: 'usa "solución/opción perfecta" (frase de IA)' },
   { re: /es m[aá]s que (un|una)\b/i, label: 'usa "es más que un/una..." (frase de IA)' },
+  // Relleno corporativo vacío (bug real, jul-2026: pieza de marca sin material concreto
+  // salió "la confianza y la calidad son nuestra prioridad" — no dice NADA). Una pieza
+  // que no puede afirmar algo específico no se salva con frases institucionales huecas.
+  { re: /(la |nuestra )?(confianza|calidad|seguridad)( y (la |nuestra )?(calidad|confianza|seguridad))* (es|son) (nuestra|nuestro|la|el) (prioridad|compromiso|norte|esencia|pilar)/i, label: 'relleno corporativo ("la calidad es nuestra prioridad") — decí algo CONCRETO o no lo digas' },
+  { re: /tu socio (en|de|para)/i, label: 'usa "tu socio en..." (relleno corporativo)' },
+  { re: /comprometid[oa]s? con (la|el|tu)/i, label: 'usa "comprometidos con..." (relleno corporativo)' },
+  { re: /nos apasiona|nuestra pasi[oó]n/i, label: 'usa "nos apasiona" (relleno corporativo)' },
+  { re: /te acompa[ñn]amos (con|en|desde)/i, label: 'usa "te acompañamos" (relleno corporativo, no dice nada concreto)' },
 ];
 
 // Venta encubierta en piezas EDUCATIVAS: lo educativo no vende ni nombra el catálogo
@@ -792,7 +800,14 @@ async function generateCopy(opts) {
   if (problems.length) {
     console.warn(`[ai] Copy rechazado por QA (${problems.join(' · ')}). Regenero con feedback.`);
     try {
-      const retry = await generateCopyOnce(opts, problems);
+      // Si el problema es de la familia "relleno corporativo", el reintento suele
+      // esquivar la frase exacta y pisar una prima ("tu socio" → "tu aliado").
+      // Se bloquea la familia entera y se le dice QUÉ poner en su lugar.
+      const feedback = [...problems];
+      if (problems.some((p) => /relleno corporativo|socio|aliad|frase de IA/.test(p))) {
+        feedback.push('PROHIBIDA también cualquier variante o sinónimo de esas frases ("tu aliado", "tu compañero", "tu partner", "estamos para vos", eslóganes vacíos). En su lugar, decí QUÉ HACE u OFRECE la empresa en concreto (rubro, servicio, condición real).');
+      }
+      const retry = await generateCopyOnce(opts, feedback);
       const retryProblems = lintCopy(retry.copy, opts);
       // Gana la versión con menos problemas (el reintento suele salir limpio).
       if (retryProblems.length <= problems.length) { attempt = retry; problems = retryProblems; }

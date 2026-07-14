@@ -408,6 +408,13 @@ const TEMPLATE_REQUIREMENTS = {
   overlap: { minImages: 2 },
   specsheet: { minImages: 1, needsDescription: true },
   polaroidstrip: { minImages: 2, storyOnly: true },
+  // Plantillas con zona de foto que NO saben quedar vacías: sin foto real quedan con
+  // un hueco/watermark muerto (bug real: pieza de marca 'minimal' sin foto = tarjeta
+  // vacía). Sin foto, el pool cae a las que sí se adaptan (fullbleed/mayorista/
+  // magazine/educativo/stackedcards/blueprint re-arman su layout).
+  minimal: { minImages: 1 },
+  promo: { minImages: 1 },
+  splitscreen: { minImages: 1 },
 };
 
 // Qué estilos tienen sentido para cada pilar — variedad real por pilar, filtrada

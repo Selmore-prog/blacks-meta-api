@@ -185,6 +185,8 @@ CÓMO DECIDIR (pensá en este orden):
    - "ilustracion": pieza educativa que se explica mejor con un dibujo didáctico que con una foto.
 4. "template": la plantilla de la lista que MEJOR comunica este mensaje (respetá su descripción; una plantilla que requiere varias fotos no sirve para un candidato con 1 foto).
 5. "copy_angle": el ángulo concreto para el copy en 1-2 frases — SOLO con los datos dados arriba (condiciones reales, datos verificados, producto elegido). PROHIBIDO inventar datos, cifras o características. Español argentino directo y profesional, sin frases de marketing de IA ("descubrí", "eleva tu", "no te lo pierdas").
+   - TEMA SIN MATERIAL: si el ángulo del plan pide datos que NO figuran en el contexto (ej. "nuestra historia", trayectoria, hitos, cifras de la empresa), NO armes una pieza genérica de relleno — PIVOTEÁ el ángulo a algo CONCRETO del material disponible: qué hace la empresa (los datos verificados de arriba), condiciones reales, tipos de producto reales, o una pregunta específica a la audiencia. Una pieza que no dice nada específico no genera nada en la audiencia.
+   - El copy_angle tiene que contener al menos UN elemento específico (un dato real, una condición, un tipo de producto, una pregunta concreta). PROHIBIDO el relleno corporativo: "la calidad es nuestra prioridad", "tu socio en seguridad", "te acompañamos", "comprometidos con la excelencia".
 6. "image_note": 1 frase de dirección visual (escena/clima/qué transmitir), sin texto en imagen, sin datos inventados. null si visual es tarjeta_sin_foto.
 
 Devolvé SOLO este JSON:
@@ -282,7 +284,9 @@ ${(copy.story_points || []).map((p, i) => `${3 + i}. punto: "${p}"`).join('\n')}
 
 REGLAS:
 - Una afirmación es INVENTADA sólo si es un dato CONCRETO y no figura en los datos de arriba. Frases generales de beneficio ("resistente", "cómodo", "rinde") NO son datos concretos: dejalas.
-- Si detectás algo inventado, reescribí SOLO ese texto quitando o generalizando la afirmación (mismo tono, voseo argentino, mismo largo aproximado). NO agregues datos nuevos.
+- Si detectás algo inventado en caption/overlay, reescribí SOLO ese texto quitando la afirmación (mismo tono, voseo argentino, mismo largo aproximado).
+- Si corregís "story_points": devolvé la MISMA CANTIDAD de puntos, reemplazando CADA punto inventado por un dato REAL tomado de los datos de arriba (una condición, un beneficio verificado, un rubro concreto). PROHIBIDO devolver menos puntos o puntos genéricos tipo "calidad en nuestros productos" — cada punto tiene que ser específico y verificable.
+- Las correcciones SIEMPRE salen del contexto dado: nunca agregues datos de tu conocimiento general.
 - Si todo está respaldado: {"passed": true}.
 
 Devolvé SOLO este JSON:

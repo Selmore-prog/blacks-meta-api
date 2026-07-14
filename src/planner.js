@@ -126,6 +126,7 @@ REGLAS DEL PLAN (obligatorias):
 - carousel: true sólo en 1-2 feed educativos/mayoristas por mes.
 - pillar_detail: concreto y accionable en español argentino profesional, sin lunfardo (qué producto/tema/ángulo). theme_title: título corto del día.
 - PROHIBIDO INVENTAR DATOS en pillar_detail/theme_title: nada de años de fundación ("desde 1993"), años de trayectoria, cantidad de clientes, premios ni cifras que no tengas confirmadas. Los ángulos de marca van por el valor/beneficio real, no por datos falsos.
+- NO propongas ángulos que DEPENDEN de datos institucionales que no están en este contexto ("nuestra historia", "evolución en el mercado", "hitos de la empresa"): el generador no tiene ese material y la pieza saldría vacía/genérica. Para el pilar 'marca' usá ángulos concretos y ejecutables: cómo se trabaja el rubro, qué ofrece la empresa (personalización, uniformes, envíos), detrás de escena del trabajo, casos de uso reales por oficio.
 
 Devolvé SOLO este JSON:
 {"days":[{"date":"${monthStr}-01","post_type":"...","format":"...","pillar":"...","pillar_detail":"...","theme_title":"...","objective":"venta","automation_level":"auto","interaction_hint":null,"scheduled_time":"HH:MM","carousel":false}, ...]}`;
