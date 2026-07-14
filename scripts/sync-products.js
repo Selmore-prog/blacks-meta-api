@@ -36,8 +36,30 @@ async function syncProducts() {
     );
   }
 
+  // Productos FANTASMA: Tiendanube sólo devuelve los publicados (published=true en el
+  // fetch), así que todo lo que quedó en el cache y NO vino en esta corrida está
+  // despublicado o eliminado en la tienda. Se marca published=false para que ningún
+  // pool de selección lo ofrezca (no se borra: hay piezas viejas que lo referencian).
+  // Guard: si el fetch vino sospechosamente corto (falla parcial de la API), no
+  // despublicamos nada — mejor un cache viejo que despublicar el catálogo entero.
+  let unpublished = 0;
+  if (products.length >= 50) {
+    const ids = products.map((p) => p.id);
+    const res = await pool.query(
+      `UPDATE products_cache SET published = false, synced_at = now()
+       WHERE NOT (id = ANY($1)) AND published IS NOT FALSE`,
+      [ids]
+    );
+    // Y los que reaparecen (se volvieron a publicar) vuelven a estar disponibles.
+    await pool.query(`UPDATE products_cache SET published = true WHERE id = ANY($1) AND published IS FALSE`, [ids]);
+    unpublished = res.rowCount || 0;
+    if (unpublished) console.log(`[sync] ${unpublished} producto(s) ya no están en Tiendanube: marcados como no publicados.`);
+  } else {
+    console.warn(`[sync] Fetch corto (${products.length} productos): no marco fantasmas por seguridad.`);
+  }
+
   console.log('[sync] Listo.');
-  return { count: products.length };
+  return { count: products.length, unpublished };
 }
 
 if (require.main === module) {

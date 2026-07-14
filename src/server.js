@@ -619,7 +619,7 @@ app.get('/api/products', wrap(async (req, res) => {
   const search = req.query.q ? `%${req.query.q}%` : '%';
   const { rows } = await pool.query(
     `SELECT id, name, brand, category, price, stock, image_url
-     FROM products_cache WHERE name ILIKE $1 ORDER BY synced_at DESC LIMIT 50`,
+     FROM products_cache WHERE published IS NOT FALSE AND name ILIKE $1 ORDER BY synced_at DESC LIMIT 50`,
     [search]
   );
   res.json(rows);

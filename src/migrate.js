@@ -218,6 +218,11 @@ ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS sticker JSONB;
 ALTER TABLE products_cache ADD COLUMN IF NOT EXISTS sizes_total INTEGER;    -- variantes/talles del producto
 ALTER TABLE products_cache ADD COLUMN IF NOT EXISTS sizes_in_stock INTEGER; -- variantes/talles con stock
 ALTER TABLE products_cache ADD COLUMN IF NOT EXISTS size_coverage NUMERIC;  -- sizes_in_stock / sizes_total (0-1)
+-- Productos fantasma (jul-2026): el sync hace upsert pero Tiendanube deja de devolver
+-- los despublicados/eliminados, y quedaban vivos en el cache — una pieza mayorista
+-- mostró un producto que la tienda ya no vende. published=false los saca de TODOS los
+-- pools de selección (no se borran: generated_assets.product_id los referencia).
+ALTER TABLE products_cache ADD COLUMN IF NOT EXISTS published BOOLEAN DEFAULT true;
 
 -- Rellenar 'format' en filas viejas segun post_type (feed=4:5, reel/story=9:16).
 UPDATE content_calendar SET format = CASE WHEN post_type = 'feed' THEN 'feed' ELSE 'story' END WHERE format IS NULL;

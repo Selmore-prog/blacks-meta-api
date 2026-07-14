@@ -18,7 +18,7 @@ const REPEAT_WINDOW_DAYS = 14; // no repetir el mismo producto como protagonista
  */
 function eligibleSQL(alias = '') {
   const p = alias ? `${alias}.` : '';
-  return `${p}image_url IS NOT NULL AND ${p}price > 0 AND ${p}stock >= ${MIN_STOCK}
+  return `${p}published IS NOT FALSE AND ${p}image_url IS NOT NULL AND ${p}price > 0 AND ${p}stock >= ${MIN_STOCK}
     AND (${p}size_coverage IS NULL OR ${p}size_coverage >= ${MIN_COVERAGE} OR ${p}sizes_in_stock >= ${MIN_SIZES_IN_STOCK})`;
 }
 
@@ -28,6 +28,7 @@ function eligibleSQL(alias = '') {
  */
 function contentEligibility(p) {
   if (!p) return { ok: false, reason: 'no encontrado' };
+  if (p.published === false) return { ok: false, reason: 'ya no está publicado en Tiendanube' };
   if (!p.image_url) return { ok: false, reason: 'sin foto' };
   if (p.stock === null || p.price === null || Number(p.price) <= 0) {
     return { ok: false, reason: 'catálogo mayorista (sin precio o stock infinito)' };

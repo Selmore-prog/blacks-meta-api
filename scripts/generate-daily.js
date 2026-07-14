@@ -37,7 +37,11 @@ async function pickForcedProduct(productId) {
  * respirador que la marca ni siquiera vende, y el copy terminó siendo sobre eso.)
  */
 async function pickMayoristaProduct(slot, excludeIds = []) {
-  const cond = `image_url IS NOT NULL AND (stock IS NULL OR price IS NULL OR price <= 0)`;
+  // Ángulo institucional (condiciones/descuentos/personalización sin prenda nombrada):
+  // sin producto — la pieza es sobre el SERVICIO, no sobre una prenda puntual.
+  if (isInstitutionalTopic(slot)) return null;
+
+  const cond = `published IS NOT FALSE AND image_url IS NOT NULL AND (stock IS NULL OR price IS NULL OR price <= 0)`;
   const patterns = keywordsFromText(slot.pillar_detail);
   const mentionedBrand = mentionedBrandIn(slot.pillar_detail);
   if (patterns.length < 2 && !mentionedBrand) return null;
@@ -89,7 +93,7 @@ function seasonKeywords(date = new Date()) {
  * `excludeIds`: productos que ya protagonizaron piezas hace poco (anti-repetición).
  */
 async function topInStock({ brand, seasonal, excludeIds = [], relaxed = false } = {}) {
-  const conds = relaxed ? ['stock > 0', 'price IS NOT NULL', 'price > 0'] : [eligibleSQL()];
+  const conds = relaxed ? ['published IS NOT FALSE', 'stock > 0', 'price IS NOT NULL', 'price > 0'] : [eligibleSQL()];
   const params = [];
   if (brand) { params.push(`%${brand}%`); conds.push(`brand ILIKE $${params.length}`); }
   if (seasonal && seasonal.length) {
@@ -259,11 +263,29 @@ function topicVisualRules(slot, rawWords = []) {
     add('campera', 'buzo', 'polar', 'softshell', 'termica', 'chaleco');
     ban('pasamont', 'balaclava', 'gorro', 'guante', 'cuello', 'bufanda');
   }
-  if (/(uniform|empresa|corporativ|mayorista)/i.test(text)) {
-    add('camisa', 'pantalon', 'chomba', 'remera', 'mameluco', 'campera');
+  // SOLO si el tema nombra "uniformes" explícitamente. Antes bastaba "empresa" o
+  // "mayorista" para inyectar prendas genéricas como candidatas — así una pieza
+  // institucional de "condiciones mayoristas" terminó con la foto de un pantalón
+  // suelto sin relación (bug real, jul-2026).
+  if (/uniform/i.test(text)) {
+    add('camisa', 'chomba', 'mameluco', 'conjunto');
   }
 
   return { include, exclude };
+}
+
+/**
+ * Tema INSTITUCIONAL: la pieza habla del servicio/las condiciones de la empresa
+ * (descuentos, presupuesto, personalización, envíos, quiénes somos), no de una
+ * prenda. Ahí NO va foto de producto elegida por keywords: la tarjeta institucional
+ * limpia de la marca comunica mejor que una prenda suelta sin relación.
+ */
+function isInstitutionalTopic(slot) {
+  const text = `${slot.pillar_detail || ''} ${slot.theme_title || ''}`;
+  const institutional = /(condicion|descuento|beneficio|presupuesto|personalizaci|bordado|estampado|factura|env[ií]o|cuota|financiaci|quienes somos|qui[eé]nes somos|trayectoria|devoluci|cambio)/i.test(text);
+  // Si además nombra una prenda/calzado puntual, el producto SÍ es parte del mensaje.
+  const namesGarment = /(camper|buzo|remera|chomba|camisa|pantal|mameluco|chaleco|botin|bot[ií]n|zapato|calzado|alpargata|guante|uniform)/i.test(text);
+  return institutional && !namesGarment;
 }
 
 function uniquePatterns(patterns) {
@@ -277,6 +299,10 @@ function uniquePatterns(patterns) {
  * de marca que mostrar un producto cualquiera que contradiga el copy.
  */
 async function pickRelevantVisualProduct(slot) {
+  // Piezas institucionales (condiciones/beneficios/servicio) sin prenda nombrada:
+  // sin foto. Mejor la tarjeta limpia que un producto random matcheado por keywords.
+  if (isInstitutionalTopic(slot)) return null;
+
   const rawWords = [...keywordsFromText(slot.pillar_detail), ...keywordsFromText(slot.theme_title)];
   const rules = topicVisualRules(slot, rawWords);
   const include = uniquePatterns([...rawWords, ...rules.include]);
@@ -302,7 +328,8 @@ async function pickRelevantVisualProduct(slot) {
          ((CASE WHEN ${norm('name')} LIKE ANY($1) THEN 4 ELSE 0 END) +
           (CASE WHEN ${norm(`COALESCE(category, '')`)} LIKE ANY($1) THEN 3 ELSE 0 END)) AS relevance_score
        FROM products_cache
-       WHERE image_url IS NOT NULL
+       WHERE published IS NOT FALSE
+         AND image_url IS NOT NULL
          AND ${poolFilter}
          AND NOT (${norm('name')} LIKE ANY($2) OR ${norm(`COALESCE(category, '')`)} LIKE ANY($2))
      ) t
@@ -580,14 +607,6 @@ async function generateForSlot(slot, overrides = {}) {
     .test(pillarDetail || '');
 
   const isMayorista = slot.pillar === 'mayorista';
-  // Producto fijado a mano desde el panel: manda sobre cualquier selección automática.
-  const product = noProductBrief ? null
-    : slot.forced_product_id
-      ? await pickForcedProduct(slot.forced_product_id)
-      : isMayorista
-        ? await pickMayoristaProduct(effectiveSlot, await recentlyFeaturedIds().catch(() => []))
-        : (PRODUCT_PILLARS.includes(slot.pillar) ? await pickProductForSlot(effectiveSlot) : null);
-  const visualProduct = noProductBrief ? null : (product || await pickRelevantVisualProduct(effectiveSlot));
   const wholesale = isMayorista ? wholesaleContext(await getWholesaleSettings()) : null;
   // Datos verificados de la web oficial: entran a TODOS los pilares como fuente de verdad
   // (envíos, cuotas, plazos, mínimos). Best-effort: si aún no se sincronizó, va vacío y
@@ -598,6 +617,74 @@ async function generateForSlot(slot, overrides = {}) {
   // Ocasión = fechas comerciales de ESE día puntual (ej: Día de la Independencia),
   // para que la imagen refleje el festivo (bandera, colores) — no todo el rango.
   const occasion = await getCommercialContextForDate(slot.scheduled_date, { daysAhead: 0 }).catch(() => null);
+  const recentIds = await recentlyFeaturedIds().catch(() => []);
+  const recentPieces = await recentPieceSummaries().catch(() => []);
+  const isCarousel = Boolean(slot.carousel) && format === 'feed'; // los carruseles de la API de Meta son de feed
+
+  // ============ DIRECTOR CREATIVO (análisis previo de la pieza) ============
+  // Antes de elegir producto/foto/plantilla con heurísticas, una IA analiza QUÉ ES la
+  // pieza (producto / institucional / tema), decide si lleva producto y CUÁL exacto
+  // (validado contra el catálogo real), el tratamiento visual y la plantilla. Es una
+  // llamada de texto (gratis). Best-effort: si falla, plan = null y sigue la lógica
+  // clásica de siempre. Ver el flujo completo en src/creativeDirector.js.
+  let directorPlan = null;
+  if (!noProductBrief && !slot.forced_product_id) {
+    try {
+      const { planPiece } = require('../src/creativeDirector');
+      const planTemplateOptions = (!isCarousel && slot.post_type !== 'reel' && !overrides.template)
+        ? (PILLAR_TEMPLATE_POOL[slot.pillar] || ['fullbleed', 'minimal']).map((t) => ({ name: t, desc: TEMPLATE_INFO[t] || '' }))
+        : [];
+      directorPlan = await planPiece({
+        slot: effectiveSlot, wholesale, companyFacts, recentPieces,
+        templateOptions: planTemplateOptions, occasion, excludeIds: recentIds,
+      });
+      if (directorPlan) {
+        console.log(`[generate-daily] Director creativo · slot #${slot.id}: focus=${directorPlan.focus} visual=${directorPlan.visual} producto=${directorPlan.product ? `#${directorPlan.product.id} "${directorPlan.product.name}"` : 'ninguno'} plantilla=${directorPlan.template || '(rota)'}${directorPlan.reason ? ` · ${directorPlan.reason}` : ''}`);
+      }
+    } catch (err) {
+      console.warn(`[generate-daily] Director creativo no disponible (sigo con heurísticas): ${err.message}`);
+    }
+  }
+
+  // Producto protagonista:
+  //  - fijado a mano desde el panel: manda sobre todo.
+  //  - director: su elección validada, refrescada EN VIVO de Tiendanube.
+  //  - fallback heurístico clásico. En pilar 'producto' el producto es obligatorio:
+  //    si el director no eligió, caemos a la heurística (el pilar existe para mostrar).
+  let product = null;
+  if (!noProductBrief) {
+    if (slot.forced_product_id) {
+      product = await pickForcedProduct(slot.forced_product_id);
+    } else if (directorPlan && directorPlan.product && (isMayorista || PRODUCT_PILLARS.includes(slot.pillar))) {
+      product = await pickForcedProduct(directorPlan.product.id); // refresca precio/stock en vivo
+    } else if (!directorPlan || slot.pillar === 'producto') {
+      product = isMayorista
+        ? await pickMayoristaProduct(effectiveSlot, recentIds)
+        : (PRODUCT_PILLARS.includes(slot.pillar) ? await pickProductForSlot(effectiveSlot) : null);
+    }
+    // director válido sin producto para promo/mayorista => pieza institucional a propósito.
+  }
+
+  // Ancla visual: qué foto acompaña la pieza.
+  //  - director 'tarjeta_sin_foto' / 'ilustracion': SIN foto de producto (una tarjeta
+  //    institucional limpia comunica mejor que una prenda sin relación — bug real).
+  //  - director con producto para pilares de tema: esa foto como ilustración.
+  //  - sin director: heurística clásica (match fuerte o nada).
+  let visualProduct = null;
+  if (!noProductBrief) {
+    if (directorPlan && ['tarjeta_sin_foto', 'ilustracion'].includes(directorPlan.visual)) {
+      visualProduct = null;
+    } else if (product) {
+      visualProduct = product;
+    } else if (directorPlan && directorPlan.product) {
+      // Pilar de tema (educativo/marca/ugc/engagement): el producto del director es
+      // sólo ancla visual. Fila completa de la DB (el plan trae la versión liviana).
+      const { rows } = await pool.query('SELECT * FROM products_cache WHERE id = $1', [directorPlan.product.id]);
+      visualProduct = rows[0] || null;
+    } else if (!directorPlan) {
+      visualProduct = await pickRelevantVisualProduct(effectiveSlot);
+    }
+  }
 
   // Foto REAL y coherente: producto principal o producto visual con match fuerte.
   // No usamos fallback estacional/random porque puede contradecir el copy.
@@ -605,13 +692,11 @@ async function generateForSlot(slot, overrides = {}) {
 
   const logos = await getLogos().catch(() => ({ onLight: null, onDark: null }));
 
-  const isCarousel = Boolean(slot.carousel) && format === 'feed'; // los carruseles de la API de Meta son de feed
-
   // Plantillas candidatas para que el cerebro elija la que mejor le queda a ESTA pieza
   // (formato de imagen según el mensaje). Sólo aplica a piezas simples (no carrusel, no
   // reel: esos tienen tratamiento propio) y sin override manual. Es gratis: viaja en la
-  // misma llamada del copy. La elección se valida contra estas candidatas al renderizar.
-  const canPickTemplate = !isCarousel && slot.post_type !== 'reel' && !overrides.template;
+  // misma llamada del copy. Si el director YA eligió plantilla, no se vuelve a pedir.
+  const canPickTemplate = !isCarousel && slot.post_type !== 'reel' && !overrides.template && !(directorPlan && directorPlan.template);
   const templateOptions = canPickTemplate
     ? templateCandidates(effectiveSlot, { visualProduct }).map((t) => ({ name: t, desc: TEMPLATE_INFO[t] || '' }))
     : null;
@@ -633,28 +718,30 @@ async function generateForSlot(slot, overrides = {}) {
     companyFacts,
     // El cerebro elige la plantilla entre estas candidatas (o null = rota por seed).
     templateOptions,
+    // Ángulo decidido por el director creativo: el copy lo desarrolla.
+    directorNotes: directorPlan ? directorPlan.copyAngle : null,
     carousel: isCarousel,
     // Educativo/mayorista: el carrusel es una guía paso a paso (más slides).
     slideCount: isCarousel && ['educativo', 'mayorista'].includes(slot.pillar) ? 5 : 3,
     commercialContext,
     topCaptions: await topPerformingCaptions().catch(() => []),
-    recentPieces: await recentPieceSummaries().catch(() => []),
+    recentPieces,
   });
 
   const badgeText = slot.pillar === 'mayorista' ? 'MAYORISTA' : null;
   const overlayTitle = copy.overlay || (product ? product.name : pillarDetail || slot.theme_title || slot.pillar);
   // Cupón detectado en el brief o el copy (ej: ARGENTINA10) -> va como texto en la plantilla.
   const couponCode = extractCoupon(`${pillarDetail || ''} \n ${copy.caption || ''} \n ${copy.cta || ''}`);
-  // Brief para la imagen IA: indicaciones del plan + gancho del copy, para que la
-  // escena tenga sentido con el mensaje (y no sea una foto genérica).
-  const imageBrief = [pillarDetail, copy.overlay].filter(Boolean).join(' — ').slice(0, 500);
+  // Brief para la imagen IA: indicaciones del plan + nota visual del director + gancho
+  // del copy, para que la escena tenga sentido con el mensaje (no una foto genérica).
+  const imageBrief = [pillarDetail, directorPlan && directorPlan.imageNote, copy.overlay].filter(Boolean).join(' — ').slice(0, 500);
   // REGLA: el precio va sólo en HISTORIAS (efímeras). El feed queda evergreen (sin precio
   // que envejezca). Reels tampoco llevan precio en el copy visual.
   const showPrice = format === 'story' && slot.post_type !== 'reel';
 
-  // Plantilla visual: override manual > elección del cerebro (copy.template) > pool del
-  // pilar filtrado por fotos/descripción reales > variedad por seed.
-  const template = chooseTemplate(effectiveSlot, { override: overrides.template, visualProduct, aiPick: copy.template });
+  // Plantilla visual: override manual > elección del director creativo > elección del
+  // cerebro del copy > pool del pilar filtrado por fotos reales > variedad por seed.
+  const template = chooseTemplate(effectiveSlot, { override: overrides.template, visualProduct, aiPick: (directorPlan && directorPlan.template) || copy.template });
 
   let imagePath;
   let slidesJson = null;
@@ -819,11 +906,15 @@ async function generateForSlot(slot, overrides = {}) {
       logos,
       layoutSeed: Number(slot.id),
       useAiProductScene: !isReel && Boolean(visualImageUrl) && slot.pillar !== 'repost',
-      // Educativo sin guía real ni foto visual: ilustración didáctica en vez de foto de catálogo.
-      useAiDiagram: isEducativo && !realSizeChart && !visualImageUrl,
+      // Ilustración didáctica: educativo sin guía real ni foto, o cuando el director
+      // creativo decidió que el tema se explica mejor dibujado que fotografiado.
+      useAiDiagram: (isEducativo || (directorPlan && directorPlan.visual === 'ilustracion')) && !realSizeChart && !visualImageUrl,
       diagramTopic: pillarDetail || slot.theme_title,
-      // Piezas SIN foto de catálogo: fondo original generado con IA (para marca, engagement, confianza, etc.).
-      useAiBackground: !isReel && !visualImageUrl && !isEducativo && slot.pillar !== 'repost',
+      // Piezas SIN foto de catálogo: fondo original generado con IA (marca, engagement...).
+      // Si el director pidió TARJETA limpia, NO se gasta en fondo IA: la tarjeta
+      // tipográfica de la marca ya comunica (nada se genera "porque sí").
+      useAiBackground: !isReel && !visualImageUrl && !isEducativo && slot.pillar !== 'repost'
+        && !(directorPlan && directorPlan.visual === 'tarjeta_sin_foto'),
       // Para escenas de producto el tema es EL PRODUCTO (nunca el texto de venta del slot:
       // el modelo lo "hornea" en la imagen y puede contradecir la foto). Para fondos, el concepto.
       bgTheme: product

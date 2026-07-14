@@ -120,7 +120,7 @@ function productPriceText(product) {
   return regular ? `, precio ${fmt(regular)}` : '';
 }
 
-function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visualProduct, brandProfile, interactionHint, wantSticker, carousel, slideCount = 3, wholesale, commercialContext, topCaptions, objective, recentPieces, companyFacts, templateOptions }) {
+function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visualProduct, brandProfile, interactionHint, wantSticker, carousel, slideCount = 3, wholesale, commercialContext, topCaptions, objective, recentPieces, companyFacts, templateOptions, directorNotes }) {
   let productInfo = product
     ? `Producto a destacar: ${product.name}${product.brand ? ` (marca ${product.brand})` : ''}${productPriceText(product)}${typeof product.stock === 'number' ? `, stock ${product.stock}` : ''}.`
     : 'No hay un producto puntual; el foco es la marca/línea en general.';
@@ -220,10 +220,16 @@ La pregunta y las opciones tienen que ser concretas y fáciles de contestar en 2
     ? `\n\nFORMATO DE IMAGEN (elegí el que MEJOR comunica ESTA pieza según su mensaje y objetivo; devolvé "template" con el nombre exacto):\n${templateOptions.map((t) => `- ${t.name}: ${t.desc}`).join('\n')}`
     : '';
 
+  // Ángulo decidido por el director creativo (el análisis previo de la pieza):
+  // el copy lo desarrolla, no lo contradice.
+  const director = directorNotes
+    ? `\nÁNGULO DEL DIRECTOR CREATIVO (desarrollalo, es la línea de esta pieza): ${directorNotes}`
+    : '';
+
   return `${formatGuidance(postType, format)}
 
 Pilar de contenido: ${pillar}${OBJECTIVE_GUIDE[objective] ? `\n${OBJECTIVE_GUIDE[objective]}` : ''}
-Ángulo/detalle: ${pillarDetail || 'sin detalle adicional'}
+Ángulo/detalle: ${pillarDetail || 'sin detalle adicional'}${director}
 ${productInfo}${wholesaleInfo}${educationalGuard}${facts}
 Temporada: ${seasonLine}${commercial}${winners}${noRepeat}${interaction}${stickerSpec}${templates}${voice}
 
