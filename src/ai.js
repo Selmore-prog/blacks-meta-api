@@ -33,7 +33,12 @@ REGLAS DURAS PARA QUE NO SUENE A IA (si rompés esto, está mal):
 
 SITIO WEB: es ${config.brand.site}. NUNCA menciones "blackshop.com.ar" ni ningún dominio viejo: ese sitio ya no existe.
 
-HASHTAGS: 4 a 6, mezclando marca (#BlacksIndumentaria), rubro (#RopaDeTrabajo #CalzadoDeSeguridad #IndumentariaLaboral), la marca/producto puntual y algo local cuando aplique (#Argentina). Nada de #instagood ni genéricos vacíos.`;
+HASHTAGS: 4 a 6, mezclando marca (#BlacksIndumentaria), rubro (#RopaDeTrabajo #CalzadoDeSeguridad #IndumentariaLaboral), la marca/producto puntual y algo local cuando aplique (#Argentina). Nada de #instagood ni genéricos vacíos.
+
+REGLA DE ORO — PROHIBIDO INVENTAR DATOS (romperla es el peor error posible, peor que un caption flojo):
+- NUNCA inventes años de fundación/trayectoria ("desde 19XX", "hace X años que..."), cantidad de clientes/sucursales/empleados, premios, cifras de ventas, ni ninguna estadística. Si no tenés el dato EXACTO en el contexto que te pasaron (DATOS VERIFICADOS DE LA EMPRESA, ficha del producto, condiciones mayoristas), NO LO MENCIONES — hablá en general ("con trayectoria en el rubro", "elegidos por empresas de todo el país") sin poner un número que no te dieron.
+- Lo mismo con políticas concretas: plazos de devolución/cambio, envío gratis a partir de qué monto, cuotas sin interés, mínimos de compra mayorista, medios de pago. Si el dato está en "DATOS VERIFICADOS DE LA EMPRESA" usalo TAL CUAL viene (no lo redondees ni lo cambies); si no está ahí, no lo afirmes.
+- Ante la duda entre sonar más vendedor con un dato lindo pero no confirmado, y sonar más simple pero 100% cierto: SIEMPRE gana lo cierto.`;
 
 /** Reemplaza dominios viejos por el sitio actual en cualquier texto generado. */
 function sanitizeText(text) {
@@ -60,6 +65,7 @@ function sanitizeCopy(copy) {
           correct_index: copy.sticker.correct_index,
         }
       : null,
+    template: copy.template || null,
   };
 }
 
@@ -114,7 +120,7 @@ function productPriceText(product) {
   return regular ? `, precio ${fmt(regular)}` : '';
 }
 
-function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visualProduct, brandProfile, interactionHint, wantSticker, carousel, slideCount = 3, wholesale, commercialContext, topCaptions, objective, recentPieces }) {
+function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visualProduct, brandProfile, interactionHint, wantSticker, carousel, slideCount = 3, wholesale, commercialContext, topCaptions, objective, recentPieces, companyFacts, templateOptions }) {
   let productInfo = product
     ? `Producto a destacar: ${product.name}${product.brand ? ` (marca ${product.brand})` : ''}${productPriceText(product)}${typeof product.stock === 'number' ? `, stock ${product.stock}` : ''}.`
     : 'No hay un producto puntual; el foco es la marca/línea en general.';
@@ -203,18 +209,29 @@ La pregunta y las opciones tienen que ser concretas y fáciles de contestar en 2
     ? `${seasonContext().split('—')[0].trim()} — podés usar el clima como contexto del consejo, sin listar prendas del catálogo.`
     : seasonContext();
 
+  // Datos verificados de la web oficial: la ÚNICA fuente de verdad para hechos de la
+  // empresa (envíos, cuotas, plazos, mínimos, trayectoria). Fuera de acá, no se afirma.
+  const facts = companyFacts ? `\n\n${companyFacts}` : '';
+
+  // El cerebro elige el FORMATO DE IMAGEN (plantilla) que mejor le queda a esta pieza,
+  // entre las candidatas válidas para el producto/pilar. Va en la misma respuesta del
+  // copy (gratis). Si no elige, se rota por seed.
+  const templates = (Array.isArray(templateOptions) && templateOptions.length)
+    ? `\n\nFORMATO DE IMAGEN (elegí el que MEJOR comunica ESTA pieza según su mensaje y objetivo; devolvé "template" con el nombre exacto):\n${templateOptions.map((t) => `- ${t.name}: ${t.desc}`).join('\n')}`
+    : '';
+
   return `${formatGuidance(postType, format)}
 
 Pilar de contenido: ${pillar}${OBJECTIVE_GUIDE[objective] ? `\n${OBJECTIVE_GUIDE[objective]}` : ''}
 Ángulo/detalle: ${pillarDetail || 'sin detalle adicional'}
-${productInfo}${wholesaleInfo}${educationalGuard}
-Temporada: ${seasonLine}${commercial}${winners}${noRepeat}${interaction}${stickerSpec}${voice}
+${productInfo}${wholesaleInfo}${educationalGuard}${facts}
+Temporada: ${seasonLine}${commercial}${winners}${noRepeat}${interaction}${stickerSpec}${templates}${voice}
 
 ${carousel ? (['educativo', 'mayorista'].includes(pillar)
     ? `\nCARRUSEL PASO A PASO: devolvé "slides": un array de ${slideCount} objetos {"title","text"}. Es una GUÍA accionable, no un folleto: (1) portada con gancho que promete el resultado ("Guía de talles sin equivocarte", "Cómo comprar al por mayor"), (2-${slideCount - 1}) PASOS numerados y concretos — "title" tipo "PASO 1 — MEDÍ TU CINTURA" y "text" con la instrucción exacta (qué hacer, con qué, qué número anotar), (${slideCount}) cierre con el beneficio + CTA${pillar === 'educativo' ? ' (CTA educativo: guardar/compartir/comentar — nunca comprar)' : ''}. Cada paso tiene que poder hacerse EN EL MOMENTO. Nada repetido entre slides.${pillar === 'educativo' ? ' NINGÚN slide nombra productos/prendas propias como solución.' : ''}\n`
     : `\nCARRUSEL: además, devolvé "slides": un array de ${slideCount} objetos {"title","text"} para un carrusel deslizable. Cada slide UN punto distinto, con progresión: (1) gancho, (2-${slideCount - 1}) beneficios/datos concretos, (${slideCount}) cierre + CTA. "title" cortísimo (2-4 palabras, va grande en pantalla), "text" 1 línea corta. Nada repetido entre slides.\n`) : ''}
 Escribí el copy siguiendo la voz de marca y las reglas. Devolvé SOLO un JSON válido con esta forma exacta:
-{"overlay": "...", "caption": "...", "hashtags": "...", "cta": "..."${carousel ? ', "slides": [{"title":"...","text":"..."}]' : ''}${wantSticker ? ', "sticker": {"type":"encuesta","question":"...","options":["...","..."],"correct_index":null}' : ''}}`;
+{"overlay": "...", "caption": "...", "hashtags": "...", "cta": "..."${carousel ? ', "slides": [{"title":"...","text":"..."}]' : ''}${wantSticker ? ', "sticker": {"type":"encuesta","question":"...","options":["...","..."],"correct_index":null}' : ''}${(Array.isArray(templateOptions) && templateOptions.length) ? ', "template": "nombre_de_la_plantilla_elegida"' : ''}}`;
 }
 
 /* =========================================================================
@@ -259,6 +276,17 @@ const EDU_SELLING_PATTERNS = [
   { re: /(buzos?|camperas?|ropa)\s+(polar(es)?|softshell|t[eé]rmica)[^.]{0,80}\b(te|los?|las?)\s+(mantien|proteg|abriga|cuida)/i, label: 'pieza educativa recomienda prendas del catálogo como solución (venta encubierta) — reformular en genérico ("ropa de abrigo adecuada")' },
 ];
 
+// Datos inventados (bug real, jul-2026: una pieza de marca dijo "Desde 1993" sin que
+// ese año exista en ningún lado — la IA lo inventó porque sonaba creíble). Se chequea
+// SIEMPRE, en los 8 pilares: ningún ángulo necesita una cifra falsa para funcionar.
+const FABRICATION_PATTERNS = [
+  { re: /\bdesde\s+(19|20)\d{2}\b/i, label: 'menciona un año de fundación/trayectoria ("desde 19XX/20XX") — dato no verificado, no lo inventes' },
+  { re: /\b(hace\s+m[aá]s de\s+\d+\s+a[ñn]os|\d+\s*\+?\s*a[ñn]os\s+(de\s+)?(trayectoria|experiencia|en\s+el\s+mercado))/i, label: 'menciona una cantidad de años de trayectoria — dato no verificado, no lo inventes' },
+  { re: /\+?\d[\d.,]*\s*(mil\s+)?(clientes|empresas|sucursales|locales|empleados)\b/i, label: 'menciona una cifra de clientes/empresas/sucursales — dato no verificado, no lo inventes' },
+  { re: /\bmiles de (clientes|empresas)\b/i, label: 'menciona "miles de clientes/empresas" — cifra no verificada, no la inventes' },
+  { re: /l[ií]der(es)?\s+(del|en el)\s+mercado|somos\s+(los\s+)?(n[uú]mero uno|m[aá]s elegidos)|el\s+(m[aá]s|mejor)\s+elegido/i, label: 'afirmación de liderazgo/superlativo sin dato que la respalde' },
+];
+
 const STICKER_TYPES = ['encuesta', 'quiz', 'pregunta', 'slider'];
 
 /** Valida la especificación de sticker de una pieza semi. Devuelve problemas (vacía = pasa). */
@@ -294,6 +322,10 @@ function lintCopy(copy, { format = 'feed', postType = 'feed', pillar = null, wan
   if (wantSticker) problems.push(...lintSticker(copy.sticker));
 
   for (const { re, label } of BANNED_PATTERNS) {
+    if (re.test(all)) problems.push(label);
+  }
+
+  for (const { re, label } of FABRICATION_PATTERNS) {
     if (re.test(all)) problems.push(label);
   }
 
@@ -344,6 +376,8 @@ function parseCopyJson(text) {
             ? Number(obj.sticker.correct_index) : null,
         }
       : null,
+    // Plantilla elegida por el cerebro (se valida contra las candidatas al renderizar).
+    template: obj.template ? String(obj.template).trim().toLowerCase() : null,
   };
 }
 
@@ -691,10 +725,13 @@ async function generateCopyOnce(opts, feedback = null) {
                   required: ['type', 'question', 'options'],
                 },
               } : {}),
+              ...((Array.isArray(opts.templateOptions) && opts.templateOptions.length)
+                ? { template: { type: 'string', enum: opts.templateOptions.map((t) => t.name) } }
+                : {}),
             },
             // En carrusel las slides son OBLIGATORIAS: sin ellas la pieza sale simple.
-            // En piezas semi, el sticker también.
-            required: ['overlay', 'caption', 'hashtags', 'cta', ...(opts.carousel ? ['slides'] : []), ...(opts.wantSticker ? ['sticker'] : [])],
+            // En piezas semi, el sticker también. La plantilla, si se ofrecieron opciones.
+            required: ['overlay', 'caption', 'hashtags', 'cta', ...(opts.carousel ? ['slides'] : []), ...(opts.wantSticker ? ['sticker'] : []), ...((Array.isArray(opts.templateOptions) && opts.templateOptions.length) ? ['template'] : [])],
           },
         },
       });

@@ -14,6 +14,8 @@ on:
     - cron: '0 10-23 * * *'
     # Sincronización semanal de métricas e insights los lunes a las 12:00 UTC
     - cron: '0 12 * * 1'
+    # Datos verificados de la empresa (web oficial -> IA): domingos 11:00 UTC
+    - cron: '0 11 * * 0'
     # Análisis de estilo automático cada 48 h (06:00 UTC / 03:00 ARG)
     - cron: '0 6 */2 * *'
     # Plan mensual IA: el día 25 deja armado el plan del mes siguiente (12:00 UTC)
@@ -33,6 +35,7 @@ on:
           - sync-insights
           - analyze-style
           - generate-plan
+          - sync-company-info
 
 jobs:
   # Trae precios/stock actualizados de Tiendanube al cache.
@@ -166,6 +169,19 @@ jobs:
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
             "${{ secrets.PUBLIC_BASE_URL }}/api/cron/generate-plan"
+
+  # Datos verificados de la empresa: lee la web oficial y sintetiza con IA (liviano:
+  # fetch + una llamada a Gemini desde Render). Mantiene company_facts al día.
+  sync-company-info:
+    if: github.event.schedule == '0 11 * * 0' || github.event.inputs.job == 'sync-company-info'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Refrescar datos de la empresa
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            "${{ secrets.PUBLIC_BASE_URL }}/api/cron/sync-company-info"
 
   # Análisis de estilo automático cada 48 h (piezas + cuenta -> brand_profile).
   analyze-style:

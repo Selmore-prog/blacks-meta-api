@@ -83,6 +83,25 @@ function esc(s) {
 const TEMPLATES = ['fullbleed', 'minimal', 'promo', 'educativo', 'mayorista',
   'grid', 'overlap', 'specsheet', 'splitscreen', 'blueprint', 'magazine', 'stackedcards', 'polaroidstrip'];
 
+// Descripción CORTA de cada plantilla, para que el cerebro (IA de copy) elija la que
+// mejor le queda a la pieza según su mensaje/objetivo. Sólo texto informativo — la
+// disponibilidad real la filtra generate-daily (fotos/descripción que hay).
+const TEMPLATE_INFO = {
+  fullbleed: 'Foto del producto a pantalla completa con el texto encima. Impactante, la foto es la protagonista.',
+  minimal: 'Mucho aire, producto flotando sobre fondo claro, titular sobrio. Elegante y prolijo; bueno para marca/producto premium.',
+  promo: 'Oscura y vendedora, con % OFF / precio gigante. Para ofertas y promos con descuento real.',
+  educativo: 'Tarjeta tipográfica: kicker + titular + texto explicativo y foto chica de apoyo. Para enseñar/dar un consejo.',
+  mayorista: 'Corporativa oscura con CTA "Pedí tu presupuesto". Para empresas / venta mayorista.',
+  grid: 'Collage bento de 3-4 fotos reales (ángulos o variantes de color). Necesita varias fotos.',
+  overlap: 'Dos fotos superpuestas con profundidad, editorial y moderno. Necesita 2+ fotos.',
+  specsheet: 'Ficha técnica: specs reales pinneados sobre la foto. Para destacar características/materiales concretos.',
+  splitscreen: 'Pantalla dividida (foto + bloque de color con titular). Dinámico; bueno para promo/engagement.',
+  blueprint: 'Estilo plano técnico/infográfico (líneas, medidas). Para educativo técnico (cómo elegir, guía de talles).',
+  magazine: 'Portada editorial: eyebrow + titular gigante + foto chica. Aspiracional; para marca / historias de clientes (ugc).',
+  stackedcards: 'Bento de tarjetas (foto + highlight + dato de marca). Moderno; bueno para mayorista/marca.',
+  polaroidstrip: 'Tira de polaroids, cercano y genuino. Sólo historias. Para contenido tipo cliente real (ugc).',
+};
+
 /**
  * Extrae 2-3 frases técnicas CORTAS de la descripción real de Tiendanube (nunca
  * inventa nada) para pinearlas como specs en la plantilla 'specsheet'. Prioriza
@@ -766,7 +785,7 @@ function buildMagazineHtml(opts) {
       ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: false, heightPx: g.isStory ? 86 : 70, top: g.wmTop, left: g.padX })}
       <div style="position:absolute; top:${g.wmTop}px; right:${g.padX}px; font-size:${g.isStory ? 20 : 18}px; font-weight:700; letter-spacing:3px; color:rgba(255,255,255,.55); z-index:4;">${esc((config.brand.instagram || '').toUpperCase())}</div>
       <div style="position:absolute; top:${g.isStory ? 300 : 200}px; left:${g.padX}px; right:${g.padX}px; z-index:3;">
-        <div style="font-size:${g.isStory ? 22 : 20}px; font-weight:800; letter-spacing:4px; color:${accent}; text-transform:uppercase; margin-bottom:18px;">${esc(opts.kicker || 'NOTA DE TAPA')}</div>
+        <div style="font-size:${g.isStory ? 22 : 20}px; font-weight:800; letter-spacing:4px; color:${accent}; text-transform:uppercase; margin-bottom:18px;">${esc(opts.kicker || 'BLACKS INDUMENTARIA')}</div>
         <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 108 : 88}px; line-height:.92; letter-spacing:-.5px; text-transform:uppercase; color:#fff; text-shadow:0 8px 40px rgba(0,0,0,.6);">${esc(opts.overlayTitle || '')}</div>
         ${opts.bodyText ? `<div style="font-size:${g.isStory ? 30 : 26}px; font-weight:500; line-height:1.4; color:rgba(255,255,255,.8); margin-top:26px; max-width:80%;">${esc(opts.bodyText)}</div>` : ''}
       </div>
@@ -963,4 +982,4 @@ async function renderPostImage(options) {
   return url;
 }
 
-module.exports = { renderPostImage, renderPostBuffer, buildHtml, DIMS, TEMPLATES };
+module.exports = { renderPostImage, renderPostBuffer, buildHtml, DIMS, TEMPLATES, TEMPLATE_INFO };

@@ -17,6 +17,7 @@ const { analyzeAccountPerformance } = require('./accountAnalyzer');
 const { hasGemini, buildVideoPrompt } = require('./ai');
 const { transcribeVideo } = require('./transcribe');
 const { getWholesaleSettings, saveWholesaleSettings } = require('./wholesale');
+const { syncCompanyInfo, getCompanyFacts } = require('./companyInfo');
 const { listCommercialDates } = require('./commercialDates');
 const { notifyPublishResult, notifyWeeklyReport } = require('./notifier');
 const { generateMonthlyPlan, getPlan, nextPlannableMonth } = require('./planner');
@@ -184,6 +185,11 @@ app.post('/api/cron/sync-insights', authCron, wrap(async (req, res) => {
   const report = await analyzePerformance().catch(() => null);
   if (report) await notifyWeeklyReport(report).catch(() => {});
   res.json({ ok: true });
+}));
+
+// Refresca los datos verificados de la empresa desde la web oficial (cron semanal).
+app.post('/api/cron/sync-company-info', authCron, wrap(async (req, res) => {
+  res.json({ ok: true, ...(await syncCompanyInfo()) });
 }));
 
 app.get('/api/publish-queue', wrap(async (req, res) => {
@@ -657,6 +663,18 @@ app.get('/api/wholesale', wrap(async (req, res) => {
 app.post('/api/wholesale', wrap(async (req, res) => {
   const { min_qty, conditions, discount_note, contact } = req.body || {};
   res.json(await saveWholesaleSettings({ min_qty: min_qty ? Number(min_qty) : null, conditions, discount_note, contact }));
+}));
+
+// Datos verificados de la empresa (de la web oficial): se inyectan a TODOS los copys
+// como fuente de verdad para que la IA no invente trayectoria/envíos/plazos/cuotas.
+app.get('/api/company-info', wrap(async (req, res) => {
+  const cf = await getCompanyFacts();
+  let noData = cf.no_data;
+  if (typeof noData === 'string') { try { noData = JSON.parse(noData); } catch (_) { noData = null; } }
+  res.json({ facts_summary: cf.facts_summary, no_data: noData, updated_at: cf.updated_at });
+}));
+app.post('/api/company-info/sync', wrap(async (req, res) => {
+  res.json(await syncCompanyInfo());
 }));
 
 /* ----------------------- Generación / Assets ----------------------- */

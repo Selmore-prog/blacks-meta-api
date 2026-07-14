@@ -2103,7 +2103,43 @@ async function loadStyle() {
       document.getElementById('analyze-btn').insertAdjacentHTML('afterend',
         '<p class="hint" id="gemini-warn" style="color:var(--muted); margin-top:10px;">Cargá tu GEMINI_API_KEY para poder analizar el estilo.</p>');
     }
+    loadCompanyInfo();
   } catch (e) { toast(e.message, 'err'); }
+}
+
+/** Datos verificados de la empresa (leídos de la web oficial). */
+async function loadCompanyInfo() {
+  const el = document.getElementById('company-facts');
+  if (!el) return;
+  try {
+    const d = await api('/api/company-info');
+    if (!d.facts_summary) {
+      el.innerHTML = '<p class="hint" style="margin:12px 0 0;">Todavía no se leyeron los datos de la web. Tocá “Actualizar datos de la web ahora”.</p>';
+      return;
+    }
+    const last = d.updated_at
+      ? new Date(d.updated_at).toLocaleString('es-AR', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })
+      : null;
+    const facts = String(d.facts_summary).split('\n').map((l) => l.replace(/^-\s*/, '').trim()).filter(Boolean);
+    const noData = Array.isArray(d.no_data) ? d.no_data : [];
+    el.innerHTML = `<div class="voice-out" style="margin-top:12px;">
+        ${last ? `<div style="margin-bottom:8px;"><b>Última lectura:</b> ${esc(last)}</div>` : ''}
+        <ul style="margin:0; padding-left:18px; line-height:1.6;">${facts.map((f) => `<li>${esc(f)}</li>`).join('')}</ul>
+        ${noData.length ? `<div style="margin-top:10px; color:var(--muted); font-size:12px;"><b>No figura en la web (la IA NO lo inventa):</b> ${noData.map(esc).join(', ')}.</div>` : ''}
+      </div>`;
+  } catch (e) { el.innerHTML = `<p class="hint" style="margin:12px 0 0; color:var(--muted);">No pude cargar los datos: ${esc(e.message)}</p>`; }
+}
+
+async function syncCompanyInfo() {
+  const btn = document.getElementById('company-sync-btn');
+  const original = btn.innerHTML;
+  btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Leyendo la web… (~20-40s)`;
+  try {
+    const d = await api('/api/company-info/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    toast(`Datos actualizados: ${d.facts_count} dato(s) de ${d.pages_read}/${d.pages_total} página(s)`, 'ok');
+    loadCompanyInfo();
+  } catch (e) { toast(e.message, 'err'); }
+  finally { btn.disabled = false; btn.innerHTML = original; }
 }
 
 function renderProfile(profile) {

@@ -77,6 +77,19 @@ CREATE TABLE IF NOT EXISTS style_references (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Datos verificados de la empresa, sintetizados desde la web oficial (quienes-somos,
+-- políticas, devoluciones, FAQ...). Fila única id = 1. Se refresca por cron semanal
+-- y a mano desde el panel. facts_summary = bloque listo para inyectar en los prompts
+-- de copy; sources = texto crudo por URL + metadata (para re-sintetizar/depurar).
+CREATE TABLE IF NOT EXISTS company_facts (
+  id              INTEGER PRIMARY KEY DEFAULT 1,
+  facts_summary   TEXT,                           -- bloque de hechos verificados (va al prompt)
+  no_data         JSONB,                          -- datos típicos que NO están en la web (ej. año de fundación)
+  sources         JSONB,                          -- [{url, chars, fetched_at}] + texto crudo por página
+  updated_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  CONSTRAINT company_facts_singleton CHECK (id = 1)
+);
+
 -- Condiciones mayoristas editables (fila única id = 1).
 CREATE TABLE IF NOT EXISTS wholesale_settings (
   id              INTEGER PRIMARY KEY DEFAULT 1,
@@ -244,6 +257,8 @@ async function migrate() {
   await pool.query(ALTER_SQL);
   // Asegurar la fila unica del perfil de marca.
   await pool.query(`INSERT INTO brand_profile (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
+  // Fila unica de datos verificados de la empresa (se llena con el primer sync).
+  await pool.query(`INSERT INTO company_facts (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
   await seedCommercialDates({ fromYear: new Date().getFullYear(), years: 2 });
   await backfillSizeCoverage();
   console.log('[migrate] Listo.');

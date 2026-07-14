@@ -10,6 +10,7 @@
     "sync": "node scripts/sync-products.js",
     "sync:sales": "node scripts/sync-sales.js",
     "generate:daily": "node scripts/generate-daily.js",
+    "sync:company": "node scripts/sync-company-info.js",
     "render:reels": "node scripts/render-pending-reels.js",
     "render:edits": "node scripts/render-video-edits.js",
     "analyze:style": "node scripts/analyze-style.js"

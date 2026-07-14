@@ -6,6 +6,7 @@ const { fetchProduct } = require('../src/tiendanube');
 const { getBrandProfile } = require('../src/brandProfile');
 const { getLogos } = require('../src/styleService');
 const { getWholesaleSettings, wholesaleContext } = require('../src/wholesale');
+const { getCompanyFacts, companyFactsContext } = require('../src/companyInfo');
 const { getCommercialContextForDate } = require('../src/commercialDates');
 const { eligibleSQL, recentlyFeaturedIds } = require('../src/productScore');
 const config = require('../src/config');
@@ -369,7 +370,7 @@ function descriptionImages(product) {
     .filter((u) => /^https?:\/\//i.test(u));
 }
 
-const { TEMPLATES: VALID_TEMPLATES } = require('../src/imageRenderer');
+const { TEMPLATES: VALID_TEMPLATES, TEMPLATE_INFO } = require('../src/imageRenderer');
 
 // Requisitos mínimos de cada estilo nuevo (cuántas fotos reales del producto
 // necesita, si necesita descripción real de Tiendanube para specs, si es sólo
@@ -398,21 +399,29 @@ const PILLAR_TEMPLATE_POOL = {
   engagement: ['fullbleed', 'splitscreen', 'minimal'],
 };
 
-/**
- * Plantilla visual: override manual > pool del pilar (filtrado por lo que el
- * producto puede sostener) > fullbleed. Rota entre el catálogo de estilos por
- * seed del slot, así la misma combinación pilar+producto no repite diseño.
- */
-function chooseTemplate(slot, { override, visualProduct } = {}) {
-  if (VALID_TEMPLATES.includes(override)) return override;
-  // La plantilla 'educativo' es una tarjeta tipográfica CON MUCHO texto y una foto
-  // chica de apoyo: pensada para feed/carrusel estático. En un Reel (post_type='reel')
-  // se ve casi vacía (el video ocupa toda la pantalla, no una tarjeta) — ahí conviene
-  // una plantilla de foto a pantalla completa, sin importar el pilar.
-  if (slot.post_type === 'reel') {
-    return slot.pillar === 'mayorista' ? 'mayorista' : (Number(slot.id) % 2 === 0 ? 'fullbleed' : 'promo');
-  }
+// Eyebrow (kicker) por pilar: la etiqueta chica en mayúscula que va ARRIBA del titular
+// en las plantillas editoriales (magazine/stackedcards/blueprint). Sin esto, 'magazine'
+// caía al default 'NOTA DE TAPA', que en una pieza de marca/ugc/mayorista queda fuera de
+// lugar (feedback real, jul-2026). Son etiquetas de CATEGORÍA, nunca afirmaciones (no
+// dicen "líderes" ni cifras). educativo se omite a propósito: sus plantillas ya traen
+// un default contextual bueno ('PARA SABER' / 'GUÍA TÉCNICA').
+const PILLAR_KICKER = {
+  producto: 'DESTACADO',
+  promo: 'APROVECHÁ',
+  marca: 'BLACKS INDUMENTARIA',
+  ugc: 'BLACKS EN ACCIÓN',
+  engagement: 'PARTICIPÁ',
+  mayorista: 'PARA EMPRESAS',
+};
 
+/**
+ * Plantillas CANDIDATAS para el slot: el pool del pilar filtrado por lo que el producto
+ * puede sostener (fotos/descripción reales disponibles). Lo usa tanto la rotación por
+ * seed como el cerebro (IA de copy), que elige entre estas la que mejor le queda.
+ * Devuelve [] para reels (tienen tratamiento propio en chooseTemplate).
+ */
+function templateCandidates(slot, { visualProduct } = {}) {
+  if (slot.post_type === 'reel') return [];
   const images = (visualProduct && Array.isArray(visualProduct.images) && visualProduct.images.length)
     ? visualProduct.images
     : (visualProduct && visualProduct.image_url ? [visualProduct.image_url] : []);
@@ -427,7 +436,27 @@ function chooseTemplate(slot, { override, visualProduct } = {}) {
     if (req.storyOnly && !isStory) return false;
     return true;
   });
-  const candidates = pool.length ? pool : ['fullbleed'];
+  return pool.length ? pool : ['fullbleed'];
+}
+
+/**
+ * Plantilla visual: override manual > elección del cerebro (aiPick, si es una candidata
+ * válida) > rotación por seed del slot > fullbleed. La rotación garantiza que, sin
+ * elección de IA, la misma combinación pilar+producto no repita siempre el mismo diseño.
+ */
+function chooseTemplate(slot, { override, visualProduct, aiPick } = {}) {
+  if (VALID_TEMPLATES.includes(override)) return override;
+  // La plantilla 'educativo' es una tarjeta tipográfica CON MUCHO texto y una foto
+  // chica de apoyo: pensada para feed/carrusel estático. En un Reel (post_type='reel')
+  // se ve casi vacía (el video ocupa toda la pantalla, no una tarjeta) — ahí conviene
+  // una plantilla de foto a pantalla completa, sin importar el pilar.
+  if (slot.post_type === 'reel') {
+    return slot.pillar === 'mayorista' ? 'mayorista' : (Number(slot.id) % 2 === 0 ? 'fullbleed' : 'promo');
+  }
+
+  const candidates = templateCandidates(slot, { visualProduct });
+  // El cerebro eligió una plantilla entre las candidatas válidas: la respetamos.
+  if (aiPick && candidates.includes(aiPick)) return aiPick;
   return candidates[Number(slot.id) % candidates.length];
 }
 
@@ -560,6 +589,10 @@ async function generateForSlot(slot, overrides = {}) {
         : (PRODUCT_PILLARS.includes(slot.pillar) ? await pickProductForSlot(effectiveSlot) : null);
   const visualProduct = noProductBrief ? null : (product || await pickRelevantVisualProduct(effectiveSlot));
   const wholesale = isMayorista ? wholesaleContext(await getWholesaleSettings()) : null;
+  // Datos verificados de la web oficial: entran a TODOS los pilares como fuente de verdad
+  // (envíos, cuotas, plazos, mínimos). Best-effort: si aún no se sincronizó, va vacío y
+  // la regla anti-invención del prompt igual evita que se inventen datos.
+  const companyFacts = companyFactsContext(await getCompanyFacts().catch(() => null));
   const format = slot.format === 'story' ? 'story' : 'feed';
   const commercialContext = await getCommercialContextForDate(slot.scheduled_date).catch(() => null);
   // Ocasión = fechas comerciales de ESE día puntual (ej: Día de la Independencia),
@@ -573,6 +606,16 @@ async function generateForSlot(slot, overrides = {}) {
   const logos = await getLogos().catch(() => ({ onLight: null, onDark: null }));
 
   const isCarousel = Boolean(slot.carousel) && format === 'feed'; // los carruseles de la API de Meta son de feed
+
+  // Plantillas candidatas para que el cerebro elija la que mejor le queda a ESTA pieza
+  // (formato de imagen según el mensaje). Sólo aplica a piezas simples (no carrusel, no
+  // reel: esos tienen tratamiento propio) y sin override manual. Es gratis: viaja en la
+  // misma llamada del copy. La elección se valida contra estas candidatas al renderizar.
+  const canPickTemplate = !isCarousel && slot.post_type !== 'reel' && !overrides.template;
+  const templateOptions = canPickTemplate
+    ? templateCandidates(effectiveSlot, { visualProduct }).map((t) => ({ name: t, desc: TEMPLATE_INFO[t] || '' }))
+    : null;
+
   const copy = await generateCopy({
     pillar: slot.pillar,
     pillarDetail,
@@ -587,6 +630,9 @@ async function generateForSlot(slot, overrides = {}) {
     // respuesta correcta) para copiarlo tal cual al publicar desde la app.
     wantSticker: slot.automation_level === 'semi',
     wholesale,
+    companyFacts,
+    // El cerebro elige la plantilla entre estas candidatas (o null = rota por seed).
+    templateOptions,
     carousel: isCarousel,
     // Educativo/mayorista: el carrusel es una guía paso a paso (más slides).
     slideCount: isCarousel && ['educativo', 'mayorista'].includes(slot.pillar) ? 5 : 3,
@@ -606,9 +652,9 @@ async function generateForSlot(slot, overrides = {}) {
   // que envejezca). Reels tampoco llevan precio en el copy visual.
   const showPrice = format === 'story' && slot.post_type !== 'reel';
 
-  // Plantilla visual: override manual > pool del pilar (filtrado por fotos/descripción
-  // reales disponibles) > variedad por seed.
-  const template = chooseTemplate(effectiveSlot, { override: overrides.template, visualProduct });
+  // Plantilla visual: override manual > elección del cerebro (copy.template) > pool del
+  // pilar filtrado por fotos/descripción reales > variedad por seed.
+  const template = chooseTemplate(effectiveSlot, { override: overrides.template, visualProduct, aiPick: copy.template });
 
   let imagePath;
   let slidesJson = null;
@@ -760,6 +806,8 @@ async function generateForSlot(slot, overrides = {}) {
       promoPrice: showPrice && product ? product.promo_price : null,
       cta: copy.cta,
       badgeText,
+      // Eyebrow por pilar (magazine/stackedcards): evita el 'NOTA DE TAPA' fuera de lugar.
+      kicker: PILLAR_KICKER[slot.pillar],
       productImageUrl: realSizeChart || visualImageUrl,
       // Fotos extra del mismo producto (otros ángulos) para anclar la fidelidad
       // de la escena IA: menos chance de que el modelo reinvente el producto.
