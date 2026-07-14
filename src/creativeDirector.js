@@ -62,55 +62,76 @@ function seasonLine(date = new Date()) {
   return 'primavera (templado: media estación)';
 }
 
+const CANDIDATE_STOPWORDS = new Set(['para', 'como', 'sobre', 'este', 'esta', 'todo', 'toda', 'todos', 'todas',
+  'con', 'sin', 'los', 'las', 'del', 'una', 'que', 'por', 'mas', 'tus', 'sus', 'empresa', 'empresas',
+  'mayorista', 'mayoristas', 'condiciones', 'descuento', 'descuentos', 'presupuesto', 'trabajo', 'blacks']);
+
+/** Filtro SQL de disponibilidad por pilar (qué productos PUEDEN aparecer en la pieza). */
+function pillarPoolSQL(pillar) {
+  const { eligibleSQL } = require('./productScore');
+  if (pillar === 'mayorista') {
+    return `published IS NOT FALSE AND image_url IS NOT NULL AND (stock IS NULL OR price IS NULL OR price <= 0)`;
+  }
+  if (['producto', 'promo'].includes(pillar)) return eligibleSQL();
+  // Pilares sin venta directa: el producto sería sólo ancla visual — retail con foto.
+  return `published IS NOT FALSE AND image_url IS NOT NULL AND stock > 0 AND price > 0`;
+}
+
 /**
- * Candidatos REALES de producto para el slot, según el pilar. Sólo publicados,
- * sin protagonistas recientes. Devuelve filas livianas (sin raw) para el prompt.
+ * Candidatos REALES de producto para el slot, en DOS pasadas (embudo híbrido):
+ *  1º los que MATCHEAN el tema del día (palabras del título/ángulo contra nombre y
+ *     categoría, sin acentos) — si el brief pide "camisas oxford" y esa camisa está
+ *     en el puesto #40 de ventas, igual entra al prompt del director;
+ *  2º se completa con los top por ventas/fotos del pool del pilar (variedad).
+ * Sólo publicados, sin protagonistas recientes, sin raw (filas livianas).
+ * NOTA: los keywords NO se buscan en description a propósito — la descripción
+ * menciona de todo y hacía elegir productos sin relación (bug ya conocido).
  */
 async function gatherCandidates(slot, excludeIds = []) {
-  const { eligibleSQL } = require('./productScore');
   const exc = excludeIds.length ? excludeIds : [0];
   const fields = `id, name, brand, category, price, promo_price, stock, sales_30d,
     COALESCE(jsonb_array_length(images), CASE WHEN image_url IS NULL THEN 0 ELSE 1 END) AS photos,
     LEFT(COALESCE(description, ''), 140) AS descr`;
+  const poolSQL = pillarPoolSQL(slot.pillar);
+  const norm = (col) => `translate(lower(${col}), 'áéíóúñü', 'aeiounu')`;
 
-  if (slot.pillar === 'mayorista') {
-    // Pool mayorista: stock infinito (null) o "Consultar precio". Los más fotografiados
-    // primero (una pieza B2B con 1 foto mala no luce).
+  // 1) Relevantes al tema del día (título + ángulo del plan).
+  const rawText = `${slot.theme_title || ''} ${slot.pillar_detail || ''}`;
+  const keywords = String(rawText).normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase()
+    .replace(/[^a-z0-9 ]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 4 && !CANDIDATE_STOPWORDS.has(w))
+    .slice(0, 8)
+    .map((w) => `%${w}%`);
+
+  let topical = [];
+  if (keywords.length) {
     const { rows } = await pool.query(
       `SELECT ${fields} FROM products_cache
-       WHERE published IS NOT FALSE AND image_url IS NOT NULL
-         AND (stock IS NULL OR price IS NULL OR price <= 0)
-         AND NOT (id = ANY($1))
-       ORDER BY COALESCE(jsonb_array_length(images), 1) DESC, sales_30d DESC NULLS LAST
-       LIMIT 30`,
-      [exc]
+       WHERE ${poolSQL} AND NOT (id = ANY($1))
+         AND (${norm('name')} LIKE ANY($2) OR ${norm(`COALESCE(category, '')`)} LIKE ANY($2))
+       ORDER BY sales_30d DESC NULLS LAST, COALESCE(jsonb_array_length(images), 1) DESC
+       LIMIT 12`,
+      [exc, keywords]
     );
-    return rows;
+    topical = rows;
   }
 
-  if (['producto', 'promo'].includes(slot.pillar)) {
-    // Retail publicable: precio y stock reales + curva de talles sana.
-    const { rows } = await pool.query(
-      `SELECT ${fields} FROM products_cache
-       WHERE ${eligibleSQL()} AND NOT (id = ANY($1))
-       ORDER BY sales_30d DESC NULLS LAST, stock DESC
-       LIMIT 25`,
-      [exc]
-    );
-    return rows;
-  }
-
-  // Pilares sin venta directa (educativo/marca/ugc/engagement): el producto sería
-  // sólo ancla visual — candidatos retail con foto, por ventas.
-  const { rows } = await pool.query(
+  // 2) Completar con los top del pool (sin repetir los ya encontrados).
+  const excAll = [...exc, ...topical.map((r) => Number(r.id))];
+  const order = slot.pillar === 'mayorista'
+    ? `COALESCE(jsonb_array_length(images), 1) DESC, sales_30d DESC NULLS LAST` // B2B: los más fotografiados lucen
+    : `sales_30d DESC NULLS LAST, stock DESC NULLS LAST`;
+  const { rows: top } = await pool.query(
     `SELECT ${fields} FROM products_cache
-     WHERE published IS NOT FALSE AND image_url IS NOT NULL AND stock > 0 AND price > 0
-       AND NOT (id = ANY($1))
-     ORDER BY sales_30d DESC NULLS LAST
-     LIMIT 25`,
-    [exc]
+     WHERE ${poolSQL} AND NOT (id = ANY($1))
+     ORDER BY ${order}
+     LIMIT $2`,
+    [excAll, Math.max(8, 28 - topical.length)]
   );
-  return rows;
+
+  // Los relevantes al tema van PRIMERO (el director los ve arriba de la lista).
+  return [...topical, ...top];
 }
 
 function candidateLine(p) {
@@ -228,4 +249,67 @@ async function planPiece({ slot, wholesale = null, companyFacts = null, recentPi
   };
 }
 
-module.exports = { planPiece, gatherCandidates };
+/* =========================================================================
+ * AUDITORÍA FACTUAL POST-COPY (fase QA del director)
+ * El lint determinístico (lintCopy) atrapa frases de IA y cifras de trayectoria,
+ * pero NO puede saber si "suela de kevlar" o "10% por transferencia" es cierto
+ * para ESTE producto/empresa. Acá un auditor IA compara cada afirmación concreta
+ * del copy contra los datos reales y corrige lo inventado. Best-effort: si el
+ * auditor falla, la pieza sigue (ya pasó el lint y la regla anti-invención).
+ * ========================================================================= */
+
+async function reviewCopyFacts({ copy, product, wholesale = null, companyFacts = null } = {}) {
+  const texts = [copy && copy.caption, copy && copy.overlay, ...((copy && copy.story_points) || [])].filter(Boolean);
+  if (!texts.length) return { ok: true };
+  // Sin NINGUNA fuente contra la que verificar no hay auditoría posible.
+  if (!product && !wholesale && !companyFacts) return { ok: true };
+
+  const productBlock = product
+    ? `PRODUCTO REAL: "${product.name}"${product.brand ? ` (marca ${product.brand})` : ''}${product.price ? ` · precio $${Number(product.price).toLocaleString('es-AR')}` : ' · precio: consultar'}${product.promo_price ? ` · oferta $${Number(product.promo_price).toLocaleString('es-AR')}` : ''}
+DESCRIPCIÓN REAL (única fuente válida de características): "${String(product.description || '(sin descripción)').slice(0, 600)}"`
+    : 'SIN PRODUCTO (pieza institucional/tema).';
+
+  const prompt = `Sos AUDITOR FACTUAL de una marca. Compará el texto de esta pieza contra los ÚNICOS datos verdaderos disponibles y detectá afirmaciones concretas INVENTADAS (materiales, características técnicas, precios, cuotas, descuentos, plazos, certificaciones, montos) que NO estén respaldadas.
+
+${productBlock}
+${wholesale ? `CONDICIONES MAYORISTAS REALES: ${wholesale}` : ''}
+${companyFacts || ''}
+
+TEXTOS DE LA PIEZA:
+1. caption: "${copy.caption || ''}"
+2. overlay: "${copy.overlay || ''}"
+${(copy.story_points || []).map((p, i) => `${3 + i}. punto: "${p}"`).join('\n')}
+
+REGLAS:
+- Una afirmación es INVENTADA sólo si es un dato CONCRETO y no figura en los datos de arriba. Frases generales de beneficio ("resistente", "cómodo", "rinde") NO son datos concretos: dejalas.
+- Si detectás algo inventado, reescribí SOLO ese texto quitando o generalizando la afirmación (mismo tono, voseo argentino, mismo largo aproximado). NO agregues datos nuevos.
+- Si todo está respaldado: {"passed": true}.
+
+Devolvé SOLO este JSON:
+{"passed": false, "issues": ["qué estaba inventado"], "caption": "corregido o null", "overlay": "corregido o null", "story_points": ["corregidos"] o null}`;
+
+  try {
+    const result = await generateJson({
+      system: 'Auditor factual de marketing. Estricto con los datos, conservador con el estilo. Respondés SOLO JSON válido.',
+      prompt,
+      maxTokens: 700,
+      temperature: 0.1,
+    });
+    if (!result || result.passed === true) return { ok: true };
+
+    const fixed = {};
+    if (result.caption && String(result.caption).trim() && result.caption !== 'null') fixed.caption = String(result.caption).trim();
+    if (result.overlay && String(result.overlay).trim() && result.overlay !== 'null') fixed.overlay = String(result.overlay).trim();
+    if (Array.isArray(result.story_points) && result.story_points.length) {
+      fixed.story_points = result.story_points.map((p) => String(p || '').trim()).filter(Boolean).slice(0, 3);
+    }
+    const issues = Array.isArray(result.issues) ? result.issues.map((i) => String(i).slice(0, 120)) : [];
+    if (!Object.keys(fixed).length) return { ok: true };
+    return { ok: false, fixed, issues };
+  } catch (err) {
+    console.warn(`[creativeDirector] Auditoría factual no disponible (sigo): ${err.message}`);
+    return { ok: true };
+  }
+}
+
+module.exports = { planPiece, gatherCandidates, reviewCopyFacts };

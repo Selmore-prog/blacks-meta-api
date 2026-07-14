@@ -315,6 +315,17 @@ function buildFullbleedHtml(opts) {
       </div>`
     : '';
 
+  // Puntos con datos reales (storyPoints): en piezas SIN foto llenan el centro como
+  // checklist; con foto van como línea compacta arriba del titular (sin saturar).
+  const points = Array.isArray(opts.storyPoints) ? opts.storyPoints.filter(Boolean).slice(0, 3) : [];
+  const g = sharedGeometry(format);
+  const pointsBlock = points.length && !hasCover ? pointsChecklistHtml(points, g, accent) : '';
+  const pointsLine = points.length && hasCover
+    ? `<div style="display:inline-flex; align-items:center; flex-wrap:wrap; gap:10px 18px; margin-bottom:22px; background:rgba(10,11,14,.55); border:1px solid rgba(255,255,255,.14); border-radius:100px; padding:12px 26px; font-size:${isStory ? 26 : 22}px; font-weight:700; color:rgba(255,255,255,.92);">
+        ${points.map((p) => `<span style="display:inline-flex; align-items:center; gap:8px;"><span style="color:#FF6B1A; font-weight:800;">✓</span>${esc(p)}</span>`).join('')}
+      </div>`
+    : '';
+
   let content = '';
   if (opts.ctaHeadline) {
     content = ctaHtml;
@@ -326,7 +337,7 @@ function buildFullbleedHtml(opts) {
       ${transfer ? `<div class="transfer"><span class="lightning">⚡</span> ${esc(transfer)}</div>` : ''}
     </div>${couponHtml}`;
   } else if (overlayTitle) {
-    content = `<div class="headline">${esc(overlayTitle)}</div>${couponHtml}`;
+    content = `${pointsLine}<div class="headline">${esc(overlayTitle)}</div>${pointsBlock}${couponHtml}`;
   }
 
   const fullbleedLogoUrl = (logos && typeof logos === 'object') ? (logos.onDark || logos.fallback) : logos;
@@ -336,7 +347,10 @@ function buildFullbleedHtml(opts) {
   const badgeHtml = badgeText ? `<div class="badge">${esc(badgeText)}</div>` : '';
   const interactionHtml = interactionLabel ? `<div class="interaction">${esc(interactionLabel)}</div>` : '';
 
-  const bgFallback = 'radial-gradient(130% 100% at 50% 0%, #ffffff 0%, #eeeef0 55%, #e2e2e6 100%)';
+  // Sin foto: fondo OSCURO de marca (el texto de esta plantilla es blanco — el viejo
+  // fondo claro dejaba la pieza ilegible cuando no había cover) y contenido CENTRADO
+  // verticalmente para que no quede un hueco muerto en el medio.
+  const bgFallback = 'linear-gradient(165deg, #0a0b0e 0%, #13161c 55%, #1c2029 100%)';
 
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -372,7 +386,9 @@ function buildFullbleedHtml(opts) {
     .cpn-lbl { font-size:${isStory ? 22 : 19}px; font-weight:800; letter-spacing:3px; color:#6b6b70;
       text-transform:uppercase; padding-right:14px; border-right:2px dashed #c9c9cf; }
     .cpn-code { font-family:'Anton',sans-serif; font-size:${isStory ? 48 : 42}px; letter-spacing:2px; color:#141416; }
-    .foot { position:absolute; left:${padX}px; right:${padX}px; ${footPos}; text-align:${L.a}; z-index:4; }
+    .foot { position:absolute; left:${padX}px; right:${padX}px; ${hasCover
+      ? `${footPos}; text-align:${L.a};`
+      : `top:${isStory ? 420 : 230}px; bottom:${footBottom + (isStory ? 40 : 20)}px; display:flex; flex-direction:column; justify-content:center; align-items:flex-start; gap:${isStory ? 48 : 34}px; text-align:left;`} z-index:4; }
     .headline { display:inline-block; font-family:'Anton',sans-serif; font-size:${isStory ? 80 : 66}px; line-height:.96;
       letter-spacing:.5px; text-transform:uppercase; color:#fff; max-width:94%; text-shadow:0 6px 30px rgba(0,0,0,.7); }
     /* Cápsula de precio Glassmorphic editorial Apple/SaaS */
@@ -406,7 +422,7 @@ function buildFullbleedHtml(opts) {
           : (opts.coverImage
             ? `<img src="${esc(productImageUrl)}" alt="" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:0;"/><div class="scrim"></div>`
             : `<img class="bg" src="${esc(productImageUrl)}" alt=""/>${heroPhotoHtml({ bgImageUrl: null, productImageUrl, box: { top: heroTop, bottom: heroBottom, left: padX, right: padX }, shadow: 'rgba(0,0,0,.6)', darkBg: true }).html}`)
-      ) : ''}
+      ) : '<div class="glow"></div>'}
       ${showBrand ? `<div class="wm">${brandMark}</div>` : ''}
       ${badgeHtml}
       ${interactionHtml}
@@ -553,10 +569,54 @@ function buildEducativoHtml(opts) {
   </body></html>`;
 }
 
+/**
+ * Checklist de puntos con datos REALES (storyPoints del copy) para piezas sin foto:
+ * tarjetas apiladas con check naranja. Llena el centro con información útil en vez
+ * de dejar un hueco (feedback real, jul-2026).
+ */
+function pointsChecklistHtml(points, g, accent) {
+  if (!points.length) return '';
+  return `<div style="display:flex; flex-direction:column; gap:${g.isStory ? 22 : 16}px;">
+    ${points.map((p) => `<div style="display:flex; align-items:center; gap:${g.isStory ? 24 : 18}px; background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.13); border-radius:${g.isStory ? 24 : 20}px; padding:${g.isStory ? '26px 34px' : '20px 26px'};">
+      <span style="flex:0 0 auto; width:${g.isStory ? 52 : 42}px; height:${g.isStory ? 52 : 42}px; border-radius:50%; background:linear-gradient(135deg, #FF6B1A 0%, ${accent} 100%); display:flex; align-items:center; justify-content:center; font-size:${g.isStory ? 28 : 23}px; font-weight:800; color:#fff; box-shadow:0 8px 20px rgba(232,93,27,.4);">✓</span>
+      <span style="font-size:${g.isStory ? 36 : 29}px; font-weight:700; color:rgba(255,255,255,.94); letter-spacing:.3px;">${esc(p)}</span>
+    </div>`).join('')}
+  </div>`;
+}
+
 /** MAYORISTA: corporativa oscura con detalles dorados/naranjas, cápsulas de prestigio y CTA de presupuesto. */
 function buildMayoristaHtml(opts) {
   const g = sharedGeometry(opts.format);
   const accent = opts.accent || config.brand.colors.darkOrange;
+  const hasPhoto = Boolean(opts.bgImageUrl || opts.productImageUrl);
+  const points = Array.isArray(opts.storyPoints) ? opts.storyPoints.filter(Boolean).slice(0, 3) : [];
+
+  const shellOpen = `${headHtml(g.w, g.h)}</head><body>
+    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#fff; overflow:hidden;
+      background:linear-gradient(165deg, #0a0b0e 0%, #13161c 55%, #1c2029 100%);">
+      <div style="position:absolute; top:350px; left:50%; transform:translateX(-50%); width:650px; height:650px; background:radial-gradient(circle, rgba(232,93,27,.18) 0%, rgba(0,0,0,0) 65%); pointer-events:none; z-index:0;"></div>`;
+  const chrome = `
+      <div style="position:absolute; top:0; left:0; right:0; height:16px; background:linear-gradient(90deg, #FF6B1A 0%, #C1440C 100%); box-shadow:0 0 25px rgba(232,93,27,.6); z-index:4;"></div>
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: false, heightPx: g.isStory ? 92 : 76, top: g.wmTop, left: g.padX })}
+      <div style="position:absolute; top:${g.wmTop}px; right:${g.padX}px; background:rgba(232,93,27,.15); border:1.5px solid ${accent}; color:${accent}; font-weight:800; font-size:18px; padding:10px 22px; border-radius:100px; text-transform:uppercase; letter-spacing:3px; box-shadow:0 8px 24px rgba(232,93,27,.3); z-index:4;">MAYORISTA</div>`;
+  const ctaBtn = `<div style="display:inline-flex; align-items:center; gap:14px; background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); color:#fff; font-weight:800; font-size:${g.isStory ? 32 : 28}px; letter-spacing:2px; padding:18px 38px; border-radius:100px; text-transform:uppercase; box-shadow:0 15px 35px rgba(232,93,27,.5); border:1px solid rgba(255,255,255,.28);">PEDÍ TU PRESUPUESTO <span style="font-size:26px;">→</span></div>`;
+
+  // SIN FOTO (pieza institucional): nada de hueco en el medio — el título va arriba y
+  // el centro se llena con el checklist de condiciones/beneficios REALES (storyPoints).
+  if (!hasPhoto) {
+    return `${shellOpen}${chrome}
+      <div style="position:absolute; top:${g.isStory ? 400 : 230}px; bottom:${g.footBottom + (g.isStory ? 160 : 130)}px; left:${g.padX}px; right:${g.padX}px; display:flex; flex-direction:column; justify-content:center; gap:${g.isStory ? 56 : 40}px; z-index:3;">
+        ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 92 : 72}px; line-height:.98; text-transform:uppercase; color:#fff; text-shadow:0 4px 25px rgba(0,0,0,.8); letter-spacing:.5px;">${esc(opts.overlayTitle)}</div>` : ''}
+        ${pointsChecklistHtml(points, g, accent)}
+      </div>
+      <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">${ctaBtn}</div>
+      ${domainHtml(g, { accent })}
+    </div>
+  </body></html>`;
+  }
+
+  // CON FOTO: layout clásico (hero al centro, título+CTA abajo) + línea compacta de
+  // puntos reales arriba del título (sólo si hay — no satura la foto).
   const hero = heroPhotoHtml({
     bgImageUrl: opts.bgImageUrl,
     productImageUrl: opts.productImageUrl,
@@ -564,19 +624,19 @@ function buildMayoristaHtml(opts) {
     shadow: 'rgba(0,0,0,.65)',
     darkBg: true,
   });
+  const pointsLine = points.length
+    ? `<div style="display:inline-flex; align-items:center; flex-wrap:wrap; gap:10px 18px; margin-bottom:22px; background:rgba(10,11,14,.55); border:1px solid rgba(255,255,255,.14); border-radius:100px; padding:12px 26px; font-size:${g.isStory ? 26 : 22}px; font-weight:700; color:rgba(255,255,255,.92);">
+        ${points.map((p) => `<span style="display:inline-flex; align-items:center; gap:8px;"><span style="color:#FF6B1A; font-weight:800;">✓</span>${esc(p)}</span>`).join('')}
+      </div>`
+    : '';
 
-  return `${headHtml(g.w, g.h)}</head><body>
-    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#fff; overflow:hidden;
-      background:linear-gradient(165deg, #0a0b0e 0%, #13161c 55%, #1c2029 100%);">
-      <div style="position:absolute; top:350px; left:50%; transform:translateX(-50%); width:650px; height:650px; background:radial-gradient(circle, rgba(232,93,27,.18) 0%, rgba(0,0,0,0) 65%); pointer-events:none; z-index:0;"></div>
+  return `${shellOpen}
       ${hero.html}
-      ${hero.fullBleed ? scrimHtml({ dark: true }) : ''}
-      <div style="position:absolute; top:0; left:0; right:0; height:16px; background:linear-gradient(90deg, #FF6B1A 0%, #C1440C 100%); box-shadow:0 0 25px rgba(232,93,27,.6); z-index:4;"></div>
-      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: false, heightPx: g.isStory ? 92 : 76, top: g.wmTop, left: g.padX })}
-      <div style="position:absolute; top:${g.wmTop}px; right:${g.padX}px; background:rgba(232,93,27,.15); border:1.5px solid ${accent}; color:${accent}; font-weight:800; font-size:18px; padding:10px 22px; border-radius:100px; text-transform:uppercase; letter-spacing:3px; box-shadow:0 8px 24px rgba(232,93,27,.3); z-index:4;">MAYORISTA</div>
+      ${hero.fullBleed ? scrimHtml({ dark: true }) : ''}${chrome}
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
+        ${pointsLine}
         ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 78 : 64}px; line-height:.96; text-transform:uppercase; color:#fff; max-width:94%; text-shadow:0 4px 25px rgba(0,0,0,.8); letter-spacing:.5px;">${esc(opts.overlayTitle)}</div>` : ''}
-        <div style="display:inline-flex; align-items:center; gap:14px; background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); color:#fff; font-weight:800; font-size:${g.isStory ? 32 : 28}px; letter-spacing:2px; padding:18px 38px; border-radius:100px; margin-top:30px; text-transform:uppercase; box-shadow:0 15px 35px rgba(232,93,27,.5); border:1px solid rgba(255,255,255,.28);">PEDÍ TU PRESUPUESTO <span style="font-size:26px;">→</span></div>
+        <div style="margin-top:30px;">${ctaBtn}</div>
       </div>
       ${domainHtml(g, { accent })}
     </div>

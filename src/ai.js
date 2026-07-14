@@ -65,6 +65,7 @@ function sanitizeCopy(copy) {
           correct_index: copy.sticker.correct_index,
         }
       : null,
+    story_points: (copy.story_points || []).map(sanitizeText),
     template: copy.template || null,
   };
 }
@@ -188,6 +189,14 @@ function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visu
 - "correct_index": SOLO para quiz, el índice (desde 0) de la respuesta correcta. En el resto, null.
 La pregunta y las opciones tienen que ser concretas y fáciles de contestar en 2 segundos (nada genérico tipo "¿Te gusta?"). El overlay de la imagen y el sticker deben complementarse, no repetirse textual.`
     : '';
+
+  // Historias: el caption casi no se ve (va abajo, chiquito) — la información tiene que
+  // estar EN la imagen. Se piden 2-3 puntos cortos con datos REALES que la plantilla
+  // imprime sobre la historia (chips). Nada inventado: salen del contexto de arriba.
+  const wantStoryPoints = format === 'story' && postType !== 'reel';
+  const storyPointsSpec = wantStoryPoints
+    ? `\n\nPUNTOS DE LA HISTORIA (obligatorio): devolvé también "story_points": 2 o 3 puntos CORTÍSIMOS (máx ~4 palabras cada uno) que se imprimen SOBRE la imagen de la historia como texto. Son la información clave que el espectador tiene que llevarse en 3 segundos: beneficios/condiciones/datos REALES tomados SOLO del contexto de esta pieza (producto, condiciones mayoristas, datos verificados). Ej: ["Mínimo 10 unidades", "Personalización con logo", "Envío gratis al país"]. PROHIBIDO inventar datos y PROHIBIDO repetir textual el overlay.`
+    : '';
   const commercial = commercialContext
     ? `\n\nCALENDARIO COMERCIAL CERCANO:\n${commercialContext}\nSi alguna fecha encaja con el producto/pilar, usala como ángulo de venta natural. Si queda forzada, ignorala.`
     : '';
@@ -231,13 +240,13 @@ La pregunta y las opciones tienen que ser concretas y fáciles de contestar en 2
 Pilar de contenido: ${pillar}${OBJECTIVE_GUIDE[objective] ? `\n${OBJECTIVE_GUIDE[objective]}` : ''}
 Ángulo/detalle: ${pillarDetail || 'sin detalle adicional'}${director}
 ${productInfo}${wholesaleInfo}${educationalGuard}${facts}
-Temporada: ${seasonLine}${commercial}${winners}${noRepeat}${interaction}${stickerSpec}${templates}${voice}
+Temporada: ${seasonLine}${commercial}${winners}${noRepeat}${interaction}${stickerSpec}${storyPointsSpec}${templates}${voice}
 
 ${carousel ? (['educativo', 'mayorista'].includes(pillar)
     ? `\nCARRUSEL PASO A PASO: devolvé "slides": un array de ${slideCount} objetos {"title","text"}. Es una GUÍA accionable, no un folleto: (1) portada con gancho que promete el resultado ("Guía de talles sin equivocarte", "Cómo comprar al por mayor"), (2-${slideCount - 1}) PASOS numerados y concretos — "title" tipo "PASO 1 — MEDÍ TU CINTURA" y "text" con la instrucción exacta (qué hacer, con qué, qué número anotar), (${slideCount}) cierre con el beneficio + CTA${pillar === 'educativo' ? ' (CTA educativo: guardar/compartir/comentar — nunca comprar)' : ''}. Cada paso tiene que poder hacerse EN EL MOMENTO. Nada repetido entre slides.${pillar === 'educativo' ? ' NINGÚN slide nombra productos/prendas propias como solución.' : ''}\n`
     : `\nCARRUSEL: además, devolvé "slides": un array de ${slideCount} objetos {"title","text"} para un carrusel deslizable. Cada slide UN punto distinto, con progresión: (1) gancho, (2-${slideCount - 1}) beneficios/datos concretos, (${slideCount}) cierre + CTA. "title" cortísimo (2-4 palabras, va grande en pantalla), "text" 1 línea corta. Nada repetido entre slides.\n`) : ''}
 Escribí el copy siguiendo la voz de marca y las reglas. Devolvé SOLO un JSON válido con esta forma exacta:
-{"overlay": "...", "caption": "...", "hashtags": "...", "cta": "..."${carousel ? ', "slides": [{"title":"...","text":"..."}]' : ''}${wantSticker ? ', "sticker": {"type":"encuesta","question":"...","options":["...","..."],"correct_index":null}' : ''}${(Array.isArray(templateOptions) && templateOptions.length) ? ', "template": "nombre_de_la_plantilla_elegida"' : ''}}`;
+{"overlay": "...", "caption": "...", "hashtags": "...", "cta": "..."${carousel ? ', "slides": [{"title":"...","text":"..."}]' : ''}${wantSticker ? ', "sticker": {"type":"encuesta","question":"...","options":["...","..."],"correct_index":null}' : ''}${wantStoryPoints ? ', "story_points": ["...","..."]' : ''}${(Array.isArray(templateOptions) && templateOptions.length) ? ', "template": "nombre_de_la_plantilla_elegida"' : ''}}`;
 }
 
 /* =========================================================================
@@ -322,6 +331,7 @@ function lintCopy(copy, { format = 'feed', postType = 'feed', pillar = null, wan
   const problems = [];
   const all = [copy.overlay, copy.caption, copy.cta,
     ...(copy.slides || []).map((s) => `${s.title} ${s.text}`),
+    ...(copy.story_points || []),
     ...(copy.sticker ? [copy.sticker.question, ...(copy.sticker.options || [])] : [])]
     .filter(Boolean).join('\n');
 
@@ -359,6 +369,11 @@ function lintCopy(copy, { format = 'feed', postType = 'feed', pillar = null, wan
   const tags = String(copy.hashtags || '').match(/#[^\s#]+/g) || [];
   if (tags.length > 8) problems.push(`demasiados hashtags (${tags.length}, van 4-6)`);
 
+  // Puntos de historia: van impresos SOBRE la imagen — cortos o no entran.
+  const points = Array.isArray(copy.story_points) ? copy.story_points : [];
+  const longPoint = points.find((p) => String(p).length > 32);
+  if (longPoint) problems.push(`punto de historia muy largo ("${String(longPoint).slice(0, 32)}…"): máx ~4 palabras`);
+
   return problems;
 }
 
@@ -382,6 +397,10 @@ function parseCopyJson(text) {
             ? Number(obj.sticker.correct_index) : null,
         }
       : null,
+    // Puntos cortos que la plantilla imprime SOBRE la historia (info que el caption no muestra).
+    story_points: Array.isArray(obj.story_points)
+      ? obj.story_points.map((p) => String(p || '').trim()).filter(Boolean).slice(0, 3)
+      : [],
     // Plantilla elegida por el cerebro (se valida contra las candidatas al renderizar).
     template: obj.template ? String(obj.template).trim().toLowerCase() : null,
   };
@@ -658,12 +677,13 @@ async function checkImageQuality(img) {
  * GROQ (fallback de copy)
  * ========================================================================= */
 
-async function groqCopy(promptUser, wantSlides = false, wantSticker = false) {
+async function groqCopy(promptUser, wantSlides = false, wantSticker = false, wantStoryPoints = false) {
   if (!config.groq.apiKey) throw new Error('No hay GROQ_API_KEY ni GEMINI_API_KEY configuradas para generar copy.');
   const stickerShape = wantSticker ? ',"sticker":{"type","question","options":[...],"correct_index"} — "sticker" es OBLIGATORIO' : '';
+  const pointsShape = wantStoryPoints ? ',"story_points":["...","..."] — "story_points" (2-3 puntos cortos) es OBLIGATORIO' : '';
   const shape = wantSlides
-    ? `{"overlay","caption","hashtags","cta","slides":[{"title","text"},...]${stickerShape}} — "slides" es OBLIGATORIO`
-    : `{"overlay","caption","hashtags","cta"${stickerShape}}`;
+    ? `{"overlay","caption","hashtags","cta","slides":[{"title","text"},...]${stickerShape}${pointsShape}} — "slides" es OBLIGATORIO`
+    : `{"overlay","caption","hashtags","cta"${stickerShape}${pointsShape}}`;
   const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.groq.apiKey}` },
@@ -698,6 +718,8 @@ async function generateCopyOnce(opts, feedback = null) {
   if (feedback && feedback.length) {
     promptUser += `\n\nIMPORTANTE: una versión anterior de este copy se rechazó por estos problemas. Corregilos TODOS:\n${feedback.map((p) => `- ${p}`).join('\n')}`;
   }
+  // Historias (no reel): además del caption se piden los puntos que van SOBRE la imagen.
+  const wantStoryPoints = opts.format === 'story' && opts.postType !== 'reel';
 
   if (preferGemini()) {
     try {
@@ -731,13 +753,16 @@ async function generateCopyOnce(opts, feedback = null) {
                   required: ['type', 'question', 'options'],
                 },
               } : {}),
+              ...(wantStoryPoints ? {
+                story_points: { type: 'array', minItems: 2, maxItems: 3, items: { type: 'string' } },
+              } : {}),
               ...((Array.isArray(opts.templateOptions) && opts.templateOptions.length)
                 ? { template: { type: 'string', enum: opts.templateOptions.map((t) => t.name) } }
                 : {}),
             },
             // En carrusel las slides son OBLIGATORIAS: sin ellas la pieza sale simple.
             // En piezas semi, el sticker también. La plantilla, si se ofrecieron opciones.
-            required: ['overlay', 'caption', 'hashtags', 'cta', ...(opts.carousel ? ['slides'] : []), ...(opts.wantSticker ? ['sticker'] : []), ...((Array.isArray(opts.templateOptions) && opts.templateOptions.length) ? ['template'] : [])],
+            required: ['overlay', 'caption', 'hashtags', 'cta', ...(opts.carousel ? ['slides'] : []), ...(opts.wantSticker ? ['sticker'] : []), ...(wantStoryPoints ? ['story_points'] : []), ...((Array.isArray(opts.templateOptions) && opts.templateOptions.length) ? ['template'] : [])],
           },
         },
       });
@@ -750,7 +775,7 @@ async function generateCopyOnce(opts, feedback = null) {
       console.warn(`[ai] Gemini copy falló, caigo a Groq: ${err.message}`);
     }
   }
-  return { copy: sanitizeCopy(await groqCopy(promptUser, Boolean(opts.carousel), Boolean(opts.wantSticker))), model: 'groq' };
+  return { copy: sanitizeCopy(await groqCopy(promptUser, Boolean(opts.carousel), Boolean(opts.wantSticker), wantStoryPoints)), model: 'groq' };
 }
 
 /**

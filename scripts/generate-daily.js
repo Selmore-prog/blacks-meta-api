@@ -649,20 +649,24 @@ async function generateForSlot(slot, overrides = {}) {
   // Producto protagonista:
   //  - fijado a mano desde el panel: manda sobre todo.
   //  - director: su elección validada, refrescada EN VIVO de Tiendanube.
-  //  - fallback heurístico clásico. En pilar 'producto' el producto es obligatorio:
-  //    si el director no eligió, caemos a la heurística (el pilar existe para mostrar).
+  //  - REGLA DE ORO: si el director ANALIZÓ el slot y decidió "ningún candidato coincide"
+  //    (product null), se respeta A RAJATABLA — en TODOS los pilares. Prohibido caer a la
+  //    heurística ciega (ventas/keywords): elegiría justo el producto sin relación que el
+  //    director descartó (el bug del pantalón). La pieza sale institucional/limpia.
+  //  - la heurística clásica queda SOLO para cuando el director en sí falló (red/API).
   let product = null;
   if (!noProductBrief) {
     if (slot.forced_product_id) {
       product = await pickForcedProduct(slot.forced_product_id);
     } else if (directorPlan && directorPlan.product && (isMayorista || PRODUCT_PILLARS.includes(slot.pillar))) {
       product = await pickForcedProduct(directorPlan.product.id); // refresca precio/stock en vivo
-    } else if (!directorPlan || slot.pillar === 'producto') {
+    } else if (directorPlan && !directorPlan.product) {
+      product = null; // decisión del director: mejor sin producto que con el equivocado
+    } else if (!directorPlan) {
       product = isMayorista
         ? await pickMayoristaProduct(effectiveSlot, recentIds)
         : (PRODUCT_PILLARS.includes(slot.pillar) ? await pickProductForSlot(effectiveSlot) : null);
     }
-    // director válido sin producto para promo/mayorista => pieza institucional a propósito.
   }
 
   // Ancla visual: qué foto acompaña la pieza.
@@ -727,6 +731,32 @@ async function generateForSlot(slot, overrides = {}) {
     topCaptions: await topPerformingCaptions().catch(() => []),
     recentPieces,
   });
+
+  // ============ AUDITORÍA FACTUAL (fase QA del director) ============
+  // El lint atrapa frases de IA; esto atrapa DATOS inventados (materiales, cuotas,
+  // plazos, montos) comparando el copy contra el producto/condiciones/web reales.
+  // Corrige el texto en el momento y lo deja registrado en qa_notes. Best-effort.
+  try {
+    const { reviewCopyFacts } = require('../src/creativeDirector');
+    const audit = await reviewCopyFacts({
+      copy,
+      // El ancla visual también cuenta: su descripción real es la fuente contra la
+      // que se chequea cualquier característica que el copy le atribuya.
+      product: product || visualProduct,
+      wholesale,
+      companyFacts,
+    });
+    if (!audit.ok && audit.fixed) {
+      if (audit.fixed.caption) copy.caption = audit.fixed.caption;
+      if (audit.fixed.overlay) copy.overlay = audit.fixed.overlay;
+      if (audit.fixed.story_points) copy.story_points = audit.fixed.story_points;
+      const note = `auditoría factual corrigió: ${(audit.issues || []).join(' · ') || 'afirmaciones sin respaldo'}`;
+      copy.qa_notes = copy.qa_notes ? `${copy.qa_notes} · ${note}` : note;
+      console.warn(`[generate-daily] ${note} (slot #${slot.id})`);
+    }
+  } catch (err) {
+    console.warn(`[generate-daily] Auditoría factual falló (sigo): ${err.message}`);
+  }
 
   const badgeText = slot.pillar === 'mayorista' ? 'MAYORISTA' : null;
   const overlayTitle = copy.overlay || (product ? product.name : pillarDetail || slot.theme_title || slot.pillar);
@@ -895,6 +925,9 @@ async function generateForSlot(slot, overrides = {}) {
       badgeText,
       // Eyebrow por pilar (magazine/stackedcards): evita el 'NOTA DE TAPA' fuera de lugar.
       kicker: PILLAR_KICKER[slot.pillar],
+      // Historias: puntos cortos con datos reales impresos SOBRE la imagen (el caption
+      // de una historia casi no se ve — la info tiene que estar en la pieza).
+      storyPoints: format === 'story' && !isReel && Array.isArray(copy.story_points) ? copy.story_points.slice(0, 3) : null,
       productImageUrl: realSizeChart || visualImageUrl,
       // Fotos extra del mismo producto (otros ángulos) para anclar la fidelidad
       // de la escena IA: menos chance de que el modelo reinvente el producto.
