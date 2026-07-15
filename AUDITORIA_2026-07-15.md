@@ -43,6 +43,37 @@ Al llegar al tope del día (día calendario ARG, medido contra `ai_usage`), el r
 - `deriveLessonFromEdit` produce reglas generales sensatas
 - Panel verificado en el navegador: modal de descarte con motivo, panel de lecciones con toggle, stat de presupuesto
 
+---
+
+# RONDA 2 (mismo día): FLUJO DE PENSAMIENTO FOTOGRÁFICO PROFESIONAL
+
+## 6. DIRECTOR DE FOTOGRAFÍA para piezas simples — `planHeroShot()` en ai.js
+
+Hasta ahora sólo los carruseles miraban las fotos reales; las piezas simples (la mayoría) usaban a ciegas la PRIMERA foto de Tiendanube con una toma genérica, y el copy iba por otro camino. Ahora el flujo por pieza es el de un profesional:
+
+1. Director creativo decide QUÉ es la pieza y el producto exacto (ya existía).
+2. **NUEVO — el sistema VE todas las fotos del producto** (visión: qué muestra cada una, si es detalle, color) y lee la ficha técnica real.
+3. **NUEVO — elige LA foto y LA toma**: si el ángulo habla de la suela y hay una foto de la suela → toma 'detalle' de ESA foto (verificado en vivo con el caso "suela de yute" → eligió la foto correcta con overlay respaldado). Si ninguna foto muestra el detalle, NO lo fuerza (verificado: "forro térmico" inexistente → hero).
+4. **NUEVO — el copy se escribe DESPUÉS**, recibiendo `imageContext` (qué muestra exactamente la imagen elegida): overlay y caption hablan de ESO, prohibido destacar lo que no se ve.
+5. Render: toma 'detalle'/'flatlay' = **foto real a pantalla completa (GRATIS, cero riesgo de alucinación IA)**; 'hero'/'contexto' = escena IA dirigida por la spec de la toma (como los carruseles).
+6. QA visual final (ronda 1).
+
+Bonus: los carruseles reutilizan el análisis de fotos ya hecho (una sola llamada de visión por pieza).
+
+## 7. FIN DE LAS "IMÁGENES DE CUALQUIER COSA" — visual `fondo_ambiental` explícito
+
+El fondo IA ambiental se generaba POR DEFECTO en toda pieza sin foto (incluso con el director caído) → escenas genéricas sin relación con el mensaje. Ahora es una decisión EXPLÍCITA del cerebro: nuevo tratamiento visual `fondo_ambiental` que exige una `image_note` concreta (qué escena, qué transmite). Sin esa dirección → tarjeta tipográfica de marca (gratis y coherente). Director caído → nunca más una escena random.
+
+## 8. HISTORIAS: todo el mensaje EN la pieza
+
+El caption de una historia casi nadie lo ve. Ahora la pieza se cuenta sola: overlay (gancho) + `story_points` (datos reales) + **CTA impreso como botón** sobre la imagen (fullbleed y minimal; si la pieza es semi, el chip de interacción manda y no se duplica). El prompt del copy lo exige ("lo que no esté en la imagen, no existe") y pide CTAs cortos accionables. También: con precio y sin foto, el titular y el checklist llenan la pieza (antes quedaba un hueco).
+
+## Verificado (ronda 2)
+
+- planHeroShot en vivo: caso suela ✓, venta general → hero ✓, detalle inexistente → no lo fuerza ✓
+- Render de historia con CTA + puntos + precio: completo, sin pisarse, y el QA visual lo aprueba ✓
+- `node --check` + cadena de requires ✓
+
 ## Para el deploy en Render
 
 1. `npm run migrate` corre solo si está en el build/start command (ya crea `qa_lessons`).

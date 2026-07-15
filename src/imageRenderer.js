@@ -352,13 +352,14 @@ function buildFullbleedHtml(opts) {
   } else if (price) {
     // Los puntos con datos reales (story_points) también van cuando hay precio — antes
     // se perdían en las historias de producto/promo (bug real: la info clave que el
-    // caption no muestra desaparecía justo en las piezas de venta).
-    content = `${pointsLine}<div class="pblock">
+    // caption no muestra desaparecía justo en las piezas de venta). Y sin foto de
+    // fondo, el titular y el checklist llenan la pieza en vez de dejar un hueco.
+    content = `${pointsLine}${!hasCover && overlayTitle ? `<div class="headline" style="font-size:${isStory ? 62 : 52}px;">${esc(overlayTitle)}</div>` : ''}<div class="pblock">
       ${hasPromo ? `<div class="pheader"><span class="antes">$${formatPrice(price)}</span><span class="off">-${off}% OFF</span></div>` : ''}
       <div class="lbl">${hasPromo ? 'AHORA' : 'PRECIO'}</div>
       <div class="now">$${formatPrice(now)}</div>
       ${transfer ? `<div class="transfer"><span class="lightning">⚡</span> ${esc(transfer)}</div>` : ''}
-    </div>${couponHtml}`;
+    </div>${!hasCover ? pointsBlock : ''}${couponHtml}`;
   } else if (overlayTitle) {
     content = `${pointsLine}<div class="headline">${esc(overlayTitle)}</div>${pointsBlock}${couponHtml}`;
   }
@@ -369,6 +370,11 @@ function buildFullbleedHtml(opts) {
     : `<div class="wordmark">BLACKS</div>`;
   const badgeHtml = badgeText ? `<div class="badge">${esc(badgeText)}</div>` : '';
   const interactionHtml = interactionLabel ? `<div class="interaction">${esc(interactionLabel)}</div>` : '';
+  // CTA impreso (historias): el caption de una historia casi nadie lo ve, así que el
+  // llamado a la acción va como botón SOBRE la pieza, en el hueco entre el bloque de
+  // contenido y el dominio. Si hay chip de interacción (pieza semi), ese lugar es suyo.
+  const ctaPillHtml = !interactionLabel && opts.ctaLabel
+    ? `<div class="ctapill">${esc(opts.ctaLabel)}</div>` : '';
 
   // Sin foto: fondo OSCURO de marca (el texto de esta plantilla es blanco — el viejo
   // fondo claro dejaba la pieza ilegible cuando no había cover) y contenido CENTRADO
@@ -430,6 +436,10 @@ function buildFullbleedHtml(opts) {
     .interaction { position:absolute; left:50%; bottom:${(isStory ? 360 : 140) + 30}px; transform:translateX(-50%);
       background:rgba(255,255,255,.18); border:1px solid rgba(255,255,255,.5); backdrop-filter:blur(8px);
       padding:16px 32px; border-radius:100px; font-size:26px; font-weight:700; color:#fff; white-space:nowrap; box-shadow:0 12px 30px rgba(0,0,0,.4); z-index:4; }
+    .ctapill { position:absolute; left:50%; bottom:${isStory ? 288 : 82}px; transform:translateX(-50%);
+      background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); border:1px solid rgba(255,255,255,.3);
+      padding:${isStory ? '16px 34px' : '12px 26px'}; border-radius:100px; font-size:${isStory ? 26 : 21}px; font-weight:800;
+      color:#fff; white-space:nowrap; box-shadow:0 12px 30px rgba(232,93,27,.45); z-index:4; }
     .domain { position:absolute; left:0; right:0; bottom:${domainBottom}px; display:flex; align-items:center;
       justify-content:center; gap:12px; z-index:4; }
     .tick { width:13px; height:13px; background:${accent}; border-radius:3px; box-shadow:0 0 12px ${accent}; }
@@ -449,6 +459,7 @@ function buildFullbleedHtml(opts) {
       ${showBrand ? `<div class="wm">${brandMark}</div>` : ''}
       ${badgeHtml}
       ${interactionHtml}
+      ${ctaPillHtml}
       <div class="foot">${content}</div>
       <div class="domain"><span class="tick"></span><span class="site">${esc(site)}</span></div>
     </div>
@@ -489,6 +500,7 @@ function buildMinimalHtml(opts) {
         ${price}
         ${couponTag(opts.couponCode, { isStory: g.isStory })}
       </div>
+      ${opts.ctaLabel ? `<div style="position:absolute; left:50%; bottom:${g.isStory ? 288 : 82}px; transform:translateX(-50%); background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); border:1px solid rgba(255,255,255,.35); padding:${g.isStory ? '16px 34px' : '12px 26px'}; border-radius:100px; font-size:${g.isStory ? 26 : 21}px; font-weight:800; color:#fff; white-space:nowrap; box-shadow:0 12px 30px rgba(232,93,27,.4); z-index:4;">${esc(opts.ctaLabel)}</div>` : ''}
       ${domainHtml(g, { dark: !hero.fullBleed, accent })}
     </div>
   </body></html>`;

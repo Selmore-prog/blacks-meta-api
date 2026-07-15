@@ -72,9 +72,11 @@ function sanitizeCopy(copy) {
 
 function formatGuidance(postType, format) {
   if (format === 'story' && postType !== 'reel') {
-    return `FORMATO: Historia de Instagram (vertical 9:16, se ve pocos segundos).
-- "overlay" = texto MUY corto y con gancho para poner ARRIBA de la imagen (máx ~6 palabras).
-- "caption" = 1 línea corta y al grano. Nada largo.`;
+    return `FORMATO: Historia de Instagram (vertical 9:16, se ve pocos segundos y EL CAPTION CASI NADIE LO VE).
+- REGLA CLAVE: TODO el mensaje tiene que estar EN la imagen — el "overlay" (gancho), los "story_points" (la información concreta) y el "cta" SE IMPRIMEN SOBRE la pieza. Lo que no esté ahí, no existe para el espectador.
+- "overlay" = gancho MUY corto (máx ~6 palabras).
+- "cta" = acción concreta y CORTA (máx ~6 palabras, se imprime como botón en la pieza; ej: "Escribinos por WhatsApp", "Buscanos: link en bio").
+- "caption" = 1 línea corta y al grano (es secundario: casi nadie lo lee).`;
   }
   if (postType === 'reel') {
     return `FORMATO: Reel (video vertical 9:16).
@@ -121,7 +123,7 @@ function productPriceText(product) {
   return regular ? `, precio ${fmt(regular)}` : '';
 }
 
-function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visualProduct, brandProfile, interactionHint, wantSticker, carousel, slideCount = 3, wholesale, commercialContext, topCaptions, objective, recentPieces, companyFacts, templateOptions, directorNotes, lessons }) {
+function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visualProduct, brandProfile, interactionHint, wantSticker, carousel, slideCount = 3, wholesale, commercialContext, topCaptions, objective, recentPieces, companyFacts, templateOptions, directorNotes, lessons, imageContext }) {
   let productInfo = product
     ? `Producto a destacar: ${product.name}${product.brand ? ` (marca ${product.brand})` : ''}${productPriceText(product)}${typeof product.stock === 'number' ? `, stock ${product.stock}` : ''}.`
     : 'No hay un producto puntual; el foco es la marca/línea en general.';
@@ -235,10 +237,18 @@ La pregunta y las opciones tienen que ser concretas y fáciles de contestar en 2
     ? `\nÁNGULO DEL DIRECTOR CREATIVO (desarrollalo, es la línea de esta pieza): ${directorNotes}`
     : '';
 
+  // La IMAGEN ya está decidida por el director de fotografía (qué foto real y qué
+  // toma): el copy y el overlay tienen que hablar de ESO que se ve. Antes copy e
+  // imagen se decidían por separado y podían contradecirse (bug real, jul-2026:
+  // overlay sobre "puntera de acero" con una foto que mostraba la suela).
+  const imageCtx = imageContext
+    ? `\nIMAGEN YA DECIDIDA PARA ESTA PIEZA (director de fotografía): ${imageContext}. El "overlay" describe/refuerza exactamente ESO que la foto muestra, y el copy desarrolla ese mismo foco — PROHIBIDO destacar una característica que la imagen no muestra.`
+    : '';
+
   return `${formatGuidance(postType, format)}
 
 Pilar de contenido: ${pillar}${OBJECTIVE_GUIDE[objective] ? `\n${OBJECTIVE_GUIDE[objective]}` : ''}
-Ángulo/detalle: ${pillarDetail || 'sin detalle adicional'}${director}
+Ángulo/detalle: ${pillarDetail || 'sin detalle adicional'}${director}${imageCtx}
 ${productInfo}${wholesaleInfo}${educationalGuard}${facts}
 Temporada: ${seasonLine}${commercial}${winners}${noRepeat}${lessons || ''}${interaction}${stickerSpec}${storyPointsSpec}${templates}${voice}
 
@@ -1284,6 +1294,85 @@ Devolvé SOLO este JSON:
 }
 
 /**
+ * DIRECTOR DE FOTOGRAFÍA para PIEZAS SIMPLES (una sola imagen). Es el paso que hace
+ * que la pieza deje de ser "una foto cualquiera del producto" (bug real, jul-2026):
+ * hasta ahora sólo los carruseles miraban las fotos; las piezas simples usaban a
+ * ciegas la primera foto de Tiendanube con una toma genérica. Acá el sistema VE qué
+ * muestra cada foto real (visión), lee la ficha/descripción verdadera y el ángulo
+ * decidido por el director creativo, y elige LA foto y LA toma para ESTA pieza:
+ *  - si el ángulo habla de la suela y hay una foto de la suela → toma 'detalle' de ESA foto
+ *    (que además se renderiza con la FOTO REAL a pantalla completa: gratis y sin alucinación);
+ *  - si no hay detalle puntual → 'hero' con la foto que mejor presenta el producto.
+ * El copy se escribe DESPUÉS, sabiendo qué muestra la imagen — pieza e imagen dejan
+ * de ir por caminos separados. Best-effort: si falla, se sigue como siempre.
+ * Devuelve { shotType, focus, photoIndex, background, overlay, badge } o null.
+ */
+async function planHeroShot({ productName, productDescription, brief, pillar = 'producto', objective = 'venta', occasion = null, photoDescriptions = [], photoCount = 1, format = 'feed', brandName = null } = {}) {
+  const cleanDesc = productDescription
+    ? String(productDescription).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 700)
+    : '';
+  const photosBlock = (photoDescriptions && photoDescriptions.length)
+    ? `QUÉ MUESTRA CADA FOTO REAL DISPONIBLE (elegí por CONTENIDO, no por orden):\n${photoDescriptions.map((p) => `- foto ${p.index}: ${p.shows}${p.color ? ` (color: ${p.color})` : ''}${p.isDetail ? ' [DETALLE/ZOOM]' : ''}`).join('\n')}`
+    : `(No hay descripción de las fotos: hay ${photoCount} foto(s), índices 0 a ${photoCount - 1}. Elegí photo_index 0 y una toma 'hero' genérica-pero-verdadera.)`;
+
+  const system = 'Sos DIRECTOR DE FOTOGRAFÍA de una agencia premium de indumentaria de trabajo (BLACKS). Para cada pieza única de Instagram decidís QUÉ foto real usar y QUÉ toma armar, como un profesional que estudia el brief y el material antes de disparar. Respondés SOLO con JSON válido.';
+  const prompt = `Decidí LA toma para UNA pieza de Instagram (una sola imagen) de este producto.
+
+PRODUCTO: ${productName || 'producto de trabajo BLACKS'}${brandName ? ` (marca ${brandName})` : ''}
+${cleanDesc ? `FICHA REAL (única fuente válida de características — nada fuera de esto existe): "${cleanDesc}"` : '(sin descripción disponible: no afirmes ninguna característica técnica)'}
+PILAR: ${pillar} · OBJETIVO: ${objective} · FORMATO: ${format === 'story' ? 'historia 9:16' : 'feed 4:5'}${occasion ? `\nOCASIÓN/FECHA: ${occasion}` : ''}
+${brief ? `ÁNGULO DE LA PIEZA (el mensaje ya decidido — la foto tiene que CONTARLO): "${brief}"` : ''}
+
+${photosBlock}
+
+CÓMO DECIDIR (pensalo como un profesional, en este orden):
+1. ¿El ángulo nombra o gira alrededor de un DETALLE puntual (suela, puntera, costura, bordado, tela, etiqueta)? → buscá la foto que MUESTRA ese detalle y armá shot_type "detalle" con focus en eso, respaldado por la ficha real. Si NINGUNA foto lo muestra, NO fuerces el detalle: hero del producto entero.
+2. ¿El ángulo es de uso/contexto (obra, taller, clima)? → "contexto" con la foto más natural.
+3. ¿Es presentación/venta general? → "hero" con la foto que mejor presenta el producto ENTERO (frontal o 3/4, el color con mejor foto).
+4. "background": "limpio" (estudio) para producto/promo/mayorista; "sutil" para detalle; "contexto" sólo si el ángulo lo pide.
+5. "overlay": QUÉ diría un titular de máx ~5 palabras sobre LO QUE SE VE en esa foto, con datos reales (voseo argentino). Es un respaldo: si no aporta, null.
+6. "badge": "OFERTA" sólo si el ángulo habla de una oferta real; "NUEVO" sólo si habla de lanzamiento; si no, null.
+REGLA DE ORO: el focus tiene que estar RESPALDADO por la ficha real y VISIBLE en la foto elegida. Prohibido inventar materiales o características.
+
+Devolvé SOLO este JSON:
+{"shot_type":"hero|detalle|contexto|flatlay","focus":"qué enfatiza, concreto y real","photo_index":0,"background":"limpio|sutil|contexto","overlay":"máx 5 palabras o null","badge":null,"reason":"por qué esa foto/toma en 1 frase"}`;
+
+  const schema = {
+    type: 'object',
+    properties: {
+      shot_type: { type: 'string', enum: ['hero', 'detalle', 'contexto', 'flatlay'] },
+      focus: { type: 'string' },
+      photo_index: { type: 'integer' },
+      background: { type: 'string', enum: ['limpio', 'sutil', 'contexto'] },
+      overlay: { type: 'string', nullable: true },
+      badge: { type: 'string', nullable: true },
+      reason: { type: 'string' },
+    },
+    required: ['shot_type', 'focus', 'photo_index', 'background'],
+  };
+
+  const s = await generateJson({ system, prompt, schema, maxTokens: 400, temperature: 0.4 });
+  if (!s || typeof s !== 'object') return null;
+  const pi = Math.max(0, Math.min(photoCount - 1, Number.isInteger(Number(s.photo_index)) ? Number(s.photo_index) : 0));
+  // Validación dura: una toma 'detalle' sólo vale si la foto elegida ES un detalle
+  // real (según la visión) — si no, degrada a hero (mejor entero que un falso zoom).
+  const desc = (photoDescriptions || []).find((p) => p.index === pi);
+  let shotType = ['hero', 'detalle', 'contexto', 'flatlay'].includes(s.shot_type) ? s.shot_type : 'hero';
+  if (shotType === 'detalle' && desc && !desc.isDetail) shotType = 'hero';
+  return {
+    shotType,
+    focus: s.focus ? String(s.focus).slice(0, 160) : '',
+    photoIndex: pi,
+    extraPhotos: [],
+    background: ['limpio', 'sutil', 'contexto'].includes(s.background) ? s.background : 'limpio',
+    overlay: s.overlay && String(s.overlay).trim() && String(s.overlay).toLowerCase() !== 'null' ? String(s.overlay).trim().slice(0, 60) : null,
+    badge: ['NUEVO', 'OFERTA'].includes(String(s.badge || '').toUpperCase()) ? String(s.badge).toUpperCase() : null,
+    reason: s.reason ? String(s.reason).slice(0, 200) : null,
+    photoShows: desc ? desc.shows : null, // qué muestra la foto elegida (para el copy)
+  };
+}
+
+/**
  * Dirección de fotografía de UNA toma. Si viene shotSpec (del director de arte con IA),
  * arma la toma a medida (detalle/hero/flatlay/contexto + cuánto fondo); si no, usa la
  * escena ambientada genérica de siempre.
@@ -1791,6 +1880,7 @@ module.exports = {
   generateBackground,
   generateProductScene,
   planCarouselShots,
+  planHeroShot,
   describeProductPhotos,
   generateStudioScene,
   buildStudioVideoPrompt,

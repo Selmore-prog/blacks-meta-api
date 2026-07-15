@@ -661,13 +661,14 @@ async function generateForSlot(slot, overrides = {}) {
   }
 
   // Ancla visual: qué foto acompaña la pieza.
-  //  - director 'tarjeta_sin_foto' / 'ilustracion': SIN foto de producto (una tarjeta
-  //    institucional limpia comunica mejor que una prenda sin relación — bug real).
+  //  - director 'tarjeta_sin_foto' / 'ilustracion' / 'fondo_ambiental': SIN foto de
+  //    producto (tarjeta limpia, dibujo didáctico o escena ambiental — nunca una
+  //    prenda sin relación con el mensaje).
   //  - director con producto para pilares de tema: esa foto como ilustración.
   //  - sin director: heurística clásica (match fuerte o nada).
   let visualProduct = null;
   if (!noProductBrief) {
-    if (directorPlan && ['tarjeta_sin_foto', 'ilustracion'].includes(directorPlan.visual)) {
+    if (directorPlan && ['tarjeta_sin_foto', 'ilustracion', 'fondo_ambiental'].includes(directorPlan.visual)) {
       visualProduct = null;
     } else if (product) {
       visualProduct = product;
@@ -684,6 +685,53 @@ async function generateForSlot(slot, overrides = {}) {
   // Foto REAL y coherente: producto principal o producto visual con match fuerte.
   // No usamos fallback estacional/random porque puede contradecir el copy.
   const visualImageUrl = visualProduct ? visualProduct.image_url : null;
+
+  // ============ DIRECTOR DE FOTOGRAFÍA (mira TODAS las fotos reales) ============
+  // Antes de escribir el copy, el sistema VE qué muestra cada foto del producto en
+  // Tiendanube (visión) y decide LA foto y LA toma para esta pieza según el ángulo
+  // del director y la ficha real: si el ángulo habla de la suela y hay una foto de
+  // la suela, la pieza ES sobre la suela. Hasta ahora sólo los carruseles miraban
+  // las fotos; las piezas simples usaban a ciegas la primera foto de Tiendanube y
+  // el copy iba por otro camino (bug real, jul-2026). Best-effort: si falla, la
+  // pieza sale como siempre.
+  const refImgsAll = (visualProduct && Array.isArray(visualProduct.images) && visualProduct.images.length)
+    ? visualProduct.images
+    : (visualImageUrl ? [visualImageUrl] : []);
+  let photoDescriptions = [];
+  let heroShot = null;
+  if (refImgsAll.length && slot.post_type !== 'reel') {
+    try {
+      const { describeProductPhotos, planHeroShot } = require('../src/ai');
+      photoDescriptions = await describeProductPhotos(refImgsAll.slice(0, 10)).catch(() => []);
+      if (!isCarousel) {
+        heroShot = await planHeroShot({
+          productName: (visualProduct && visualProduct.name) || null,
+          productDescription: visualProduct && visualProduct.description,
+          brief: [directorPlan && directorPlan.copyAngle, pillarDetail || slot.theme_title].filter(Boolean).join(' — ').slice(0, 400),
+          pillar: slot.pillar,
+          objective,
+          occasion,
+          photoDescriptions,
+          photoCount: refImgsAll.length,
+          format,
+          brandName: mentionedBrandIn(visualProduct && visualProduct.name),
+        });
+        if (heroShot) {
+          console.log(`[generate-daily] Director de fotografía · slot #${slot.id}: toma=${heroShot.shotType} foto=#${heroShot.photoIndex}${heroShot.photoShows ? ` ("${heroShot.photoShows}")` : ''} foco="${heroShot.focus}"${heroShot.reason ? ` · ${heroShot.reason}` : ''}`);
+        }
+      }
+    } catch (err) {
+      console.warn(`[generate-daily] Director de fotografía no disponible (sigo con la foto principal): ${err.message}`);
+    }
+  }
+  // Qué va a mostrar la imagen (para que el copy hable de ESO y no de otra cosa).
+  const heroImageContext = heroShot
+    ? [
+        heroShot.shotType === 'detalle' ? 'primer plano/detalle' : `toma ${heroShot.shotType}`,
+        heroShot.photoShows ? `la foto muestra: ${heroShot.photoShows}` : null,
+        heroShot.focus ? `énfasis en: ${heroShot.focus}` : null,
+      ].filter(Boolean).join(' — ')
+    : null;
 
   const logos = await getLogos().catch(() => ({ onLight: null, onDark: null }));
 
@@ -715,6 +763,8 @@ async function generateForSlot(slot, overrides = {}) {
     templateOptions,
     // Ángulo decidido por el director creativo: el copy lo desarrolla.
     directorNotes: directorPlan ? directorPlan.copyAngle : null,
+    // Qué muestra la imagen ya elegida (director de fotografía): el copy habla de ESO.
+    imageContext: heroImageContext,
     carousel: isCarousel,
     // Educativo/mayorista: el carrusel es una guía paso a paso (más slides).
     slideCount: isCarousel && ['educativo', 'mayorista'].includes(slot.pillar) ? 5 : 3,
@@ -859,8 +909,11 @@ async function generateForSlot(slot, overrides = {}) {
       const { planCarouselShots, describeProductPhotos } = require('../src/ai');
       // Visión: el cerebro VE qué muestra cada foto real (ángulo, detalle, COLOR) antes de
       // planificar — elige la foto correcta para cada slide, mantiene el color consistente
-      // y arma el bento de variantes con los otros colores.
-      const photoDescriptions = await describeProductPhotos(refImgs.slice(0, 10)).catch(() => []);
+      // y arma el bento de variantes con los otros colores. Si la fase de análisis
+      // fotográfico ya corrió (arriba), se reutiliza sin llamar a la visión de nuevo.
+      if (!photoDescriptions.length) {
+        photoDescriptions = await describeProductPhotos(refImgs.slice(0, 10)).catch(() => []);
+      }
       // Cuántas tomas: hero + 2 detalle + cierre CTA, +1 si hay 2+ colores (slide bento).
       const distinctColors = new Set(photoDescriptions.map((d) => d.color).filter(Boolean)).size;
       const targetShots = Math.min(6, 4 + (distinctColors >= 2 ? 1 : 0));
@@ -919,6 +972,12 @@ async function generateForSlot(slot, overrides = {}) {
     // el video real conviene generarlo a mano en Gemini/Veo con el botón
     // "Prompt video IA" (o subir filmación propia), así la imagen IA no se tira.
     const isReel = slot.post_type === 'reel';
+    // Toma decidida por el director de fotografía: 'detalle'/'flatlay' = FOTO REAL a
+    // pantalla completa (gratis y sin riesgo de alucinación IA); 'hero'/'contexto' =
+    // escena IA dirigida por la spec de la toma (si AI_IMAGES está activo).
+    const heroIsRealDetail = Boolean(heroShot && ['detalle', 'flatlay'].includes(heroShot.shotType)) && !realSizeChart;
+    const heroImageUrl = heroShot ? (refImgsAll[heroShot.photoIndex] || visualImageUrl) : visualImageUrl;
+    const interactionLabel = interactionChip(slot, copy.sticker);
     const renderOpts = {
       format,
       template,
@@ -926,32 +985,44 @@ async function generateForSlot(slot, overrides = {}) {
       price: showPrice && product ? product.price : null,
       promoPrice: showPrice && product ? product.promo_price : null,
       cta: copy.cta,
-      badgeText,
+      badgeText: badgeText || (heroShot && heroShot.badge) || null,
+      // HISTORIAS: el caption casi nadie lo ve — el CTA va IMPRESO en la pieza como
+      // botón (pedido real, jul-2026). Si la pieza es semi, el chip de interacción
+      // ocupa ese lugar y manda (no se duplican pills).
+      ctaLabel: format === 'story' && !isReel && !interactionLabel && copy.cta
+        ? String(copy.cta).slice(0, 60) : null,
       // Eyebrow por pilar (magazine/stackedcards): evita el 'NOTA DE TAPA' fuera de lugar.
       kicker: PILLAR_KICKER[slot.pillar],
       // Historias: puntos cortos con datos reales impresos SOBRE la imagen (el caption
       // de una historia casi no se ve — la info tiene que estar en la pieza).
       storyPoints: format === 'story' && !isReel && Array.isArray(copy.story_points) ? copy.story_points.slice(0, 3) : null,
-      productImageUrl: realSizeChart || visualImageUrl,
+      // LA foto elegida por el director de fotografía (no la primera a ciegas).
+      productImageUrl: realSizeChart || heroImageUrl,
       // Fotos extra del mismo producto (otros ángulos) para anclar la fidelidad
       // de la escena IA: menos chance de que el modelo reinvente el producto.
-      productImageUrls: (visualProduct && Array.isArray(visualProduct.images))
-        ? visualProduct.images.slice(0, 4) : [],
+      productImageUrls: refImgsAll.filter((u) => u !== heroImageUrl).slice(0, 4),
+      // Spec de la toma (tipo/foco/fondo): dirige la escena IA como en los carruseles.
+      shotSpec: heroShot || null,
+      // Detalle/flatlay: la foto real se ve completa a pantalla (no recorte en tarjeta).
+      coverImage: heroIsRealDetail,
       // Descripción REAL de Tiendanube: la plantilla 'specsheet' pinea specs
       // técnicos reales (material, feature) tomados de acá, nunca inventados.
       productDescription: (product && product.description) || (visualProduct && visualProduct.description) || null,
       logos,
       layoutSeed: Number(slot.id),
-      useAiProductScene: !isReel && Boolean(visualImageUrl) && slot.pillar !== 'repost',
+      // Detalle real: NO se gasta en escena IA — la foto macro real ya es la pieza.
+      useAiProductScene: !isReel && Boolean(heroImageUrl) && slot.pillar !== 'repost' && !heroIsRealDetail,
       // Ilustración didáctica: educativo sin guía real ni foto, o cuando el director
       // creativo decidió que el tema se explica mejor dibujado que fotografiado.
       useAiDiagram: (isEducativo || (directorPlan && directorPlan.visual === 'ilustracion')) && !realSizeChart && !visualImageUrl,
       diagramTopic: pillarDetail || slot.theme_title,
-      // Piezas SIN foto de catálogo: fondo original generado con IA (marca, engagement...).
-      // Si el director pidió TARJETA limpia, NO se gasta en fondo IA: la tarjeta
-      // tipográfica de la marca ya comunica (nada se genera "porque sí").
+      // FONDO IA sólo por decisión EXPLÍCITA del cerebro: visual 'fondo_ambiental'
+      // + nota visual concreta. Antes, si el director fallaba o no pedía nada, igual
+      // se generaba una escena genérica — de ahí salían las "imágenes de cualquier
+      // cosa" sin relación con el mensaje (bug real, jul-2026). Director caído o sin
+      // dirección visual = tarjeta tipográfica de marca (gratis y coherente).
       useAiBackground: !isReel && !visualImageUrl && !isEducativo && slot.pillar !== 'repost'
-        && !(directorPlan && directorPlan.visual === 'tarjeta_sin_foto'),
+        && Boolean(directorPlan && directorPlan.visual === 'fondo_ambiental' && directorPlan.imageNote),
       // Para escenas de producto el tema es EL PRODUCTO (nunca el texto de venta del slot:
       // el modelo lo "hornea" en la imagen y puede contradecir la foto). Para fondos, el concepto.
       bgTheme: product
@@ -961,7 +1032,7 @@ async function generateForSlot(slot, overrides = {}) {
       bgBrief: imageBrief,
       bgOccasion: occasion,
       couponCode,
-      interactionLabel: interactionChip(slot, copy.sticker),
+      interactionLabel,
     };
     let render = await renderPostBuffer(renderOpts);
     pieceCostUsd += render.costUsd || 0;

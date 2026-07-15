@@ -51,7 +51,11 @@ const { generateJson } = require('./ai');
  */
 
 const FOCUS_VALUES = ['producto', 'institucional', 'tema'];
-const VISUAL_VALUES = ['foto_producto', 'tarjeta_sin_foto', 'ilustracion'];
+// 'fondo_ambiental' (jul-2026): escena fotográfica de clima/marca SIN producto puntual.
+// Existe como opción EXPLÍCITA para que el fondo IA sólo se genere cuando el cerebro
+// lo pide con una dirección visual concreta — antes se generaba por defecto en toda
+// pieza sin foto y salían "imágenes de cualquier cosa" sin relación con el mensaje.
+const VISUAL_VALUES = ['foto_producto', 'tarjeta_sin_foto', 'ilustracion', 'fondo_ambiental'];
 
 /** Temporada del hemisferio sur en una línea (para que el director no proponga abrigo en enero). */
 function seasonLine(date = new Date()) {
@@ -179,10 +183,11 @@ CÓMO DECIDIR (pensá en este orden):
    - Si el mensaje nombra un tipo de prenda ("uniformes" → chombas/camisas/mamelucos/conjuntos de trabajo; "calzado" → botines/zapatos), buscá un candidato de ESE tipo. Si NINGÚN candidato coincide bien: product_id null. SIN producto queda mejor que con el producto equivocado.
    - Entre candidatos igual de coherentes: priorizá más ventas y 2+ fotos.
    - Piezas institucionales generales (condiciones/beneficios/quiénes somos): normalmente product_id null.
-3. Tratamiento visual "visual":
+3. Tratamiento visual "visual" (cada imagen generada cuesta dinero — elegí el MÍNIMO tratamiento que comunica el mensaje):
    - "foto_producto": hay producto elegido y merece protagonismo visual.
-   - "tarjeta_sin_foto": pieza institucional/de texto — la plantilla tipográfica limpia de la marca.
+   - "tarjeta_sin_foto": pieza institucional/de texto — la plantilla tipográfica limpia de la marca. Es el default para condiciones/beneficios/anuncios: comunica mejor que una foto sin relación.
    - "ilustracion": pieza educativa que se explica mejor con un dibujo didáctico que con una foto.
+   - "fondo_ambiental": pieza de marca/clima/comunidad SIN producto puntual que GANA con una escena fotográfica de ambiente (taller, obra, textura de trabajo). Elegila SOLO si la escena aporta al mensaje concreto — y si la elegís, "image_note" es OBLIGATORIA y específica (qué escena, qué clima, qué transmite). Sin una dirección visual concreta, tarjeta_sin_foto.
 4. "template": la plantilla de la lista que MEJOR comunica este mensaje (respetá su descripción; una plantilla que requiere varias fotos no sirve para un candidato con 1 foto).
 5. "copy_angle": el ángulo concreto para el copy en 1-2 frases — SOLO con los datos dados arriba (condiciones reales, datos verificados, producto elegido). PROHIBIDO inventar datos, cifras o características. Español argentino directo y profesional, sin frases de marketing de IA ("descubrí", "eleva tu", "no te lo pierdas").
    - TEMA SIN MATERIAL: si el ángulo del plan pide datos que NO figuran en el contexto (ej. "nuestra historia", trayectoria, hitos, cifras de la empresa), NO armes una pieza genérica de relleno — PIVOTEÁ el ángulo a algo CONCRETO del material disponible: qué hace la empresa (los datos verificados de arriba), condiciones reales, tipos de producto reales, o una pregunta específica a la audiencia. Una pieza que no dice nada específico no genera nada en la audiencia.
@@ -239,7 +244,12 @@ async function planPiece({ slot, wholesale = null, companyFacts = null, recentPi
 
   // Coherencia: si el tratamiento es foto de producto pero no hay producto válido,
   // degradamos a tarjeta (nunca al revés: no forzamos una foto que el director no pidió).
-  const finalVisual = visual === 'foto_producto' && !product ? 'tarjeta_sin_foto' : visual;
+  let finalVisual = visual === 'foto_producto' && !product ? 'tarjeta_sin_foto' : visual;
+  // Fondo ambiental SIN dirección visual concreta = gasto sin justificar → tarjeta.
+  // (La nota es lo que evita que salga "una escena de cualquier cosa".)
+  if (finalVisual === 'fondo_ambiental' && !(result.image_note && String(result.image_note).trim())) {
+    finalVisual = 'tarjeta_sin_foto';
+  }
 
   // Plantilla: además de existir entre las opciones, tiene que SOSTENERSE con el
   // producto elegido (fotos reales suficientes, descripción si pide specs, formato).
