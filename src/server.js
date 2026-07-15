@@ -432,7 +432,17 @@ app.get('/api/ai-usage', wrap(async (req, res) => {
   const daysInMonth = new Date(now.getFullYear(), now.getMonth() + 1, 0).getDate();
   const usd = Number(rows[0].usd);
   const projection = dayOfMonth >= 2 ? Number(((usd / dayOfMonth) * daysInMonth).toFixed(2)) : null;
-  res.json({ month: now.toISOString().slice(0, 7), images: rows[0].images, usd, projection, byModel, enabled: config.ai.useAiImages });
+  // Tope de gasto diario: cuánto va gastado HOY contra el techo configurado
+  // (AI_IMAGE_DAILY_BUDGET_USD). Al llegar al tope, el pipeline sigue con plantilla.
+  const { imageSpendTodayUsd } = require('./ai');
+  const todayUsd = Number((await imageSpendTodayUsd().catch(() => 0)).toFixed(2));
+  res.json({
+    month: now.toISOString().slice(0, 7), images: rows[0].images, usd, projection, byModel,
+    enabled: config.ai.useAiImages,
+    today_usd: todayUsd,
+    daily_budget_usd: Number(config.ai.imageDailyBudgetUsd) || null,
+    budget_reached: Boolean(config.ai.imageDailyBudgetUsd) && todayUsd >= Number(config.ai.imageDailyBudgetUsd),
+  });
 }));
 
 app.get('/api/commercial-dates', wrap(async (req, res) => {
@@ -838,12 +848,26 @@ app.post('/api/assets/:assetId/edit', wrap(async (req, res) => {
   const id = intParam(req.params.assetId);
   if (!id) return res.status(400).json({ error: 'assetId inválido' });
   const { caption, hashtags, cta } = req.body || {};
+  // Estado ANTES de la edición: el diff con la corrección manual es la mejor señal
+  // de aprendizaje que existe (el dueño marcando exactamente qué estaba mal).
+  const { rows: prevRows } = await pool.query(
+    `SELECT a.caption, c.pillar FROM generated_assets a
+     JOIN content_calendar c ON c.id = a.calendar_id WHERE a.id = $1`, [id]
+  );
   await pool.query(
     `UPDATE generated_assets SET caption = COALESCE($2, caption), hashtags = COALESCE($3, hashtags),
        cta = COALESCE($4, cta), updated_at = now() WHERE id = $1`,
     [id, caption, hashtags, cta]
   );
   res.json({ ok: true });
+  // MEMORIA DE ERRORES: derivar la regla general del diff, en segundo plano
+  // (ya respondimos; best-effort — si la IA no está, no pasa nada).
+  const prev = prevRows[0];
+  if (prev && typeof caption === 'string' && caption.trim() && prev.caption
+      && caption.trim() !== String(prev.caption).trim()) {
+    const { deriveLessonFromEdit } = require('./learning');
+    deriveLessonFromEdit({ before: prev.caption, after: caption, pillar: prev.pillar }).catch(() => {});
+  }
 }));
 
 app.post('/api/assets/:assetId/discard', wrap(async (req, res) => {
@@ -853,6 +877,39 @@ app.post('/api/assets/:assetId/discard', wrap(async (req, res) => {
   // Si estaba encolada para publicarse, se cancela: descartada = no sale.
   await cancelQueuedForAsset(id).catch(() => {});
   res.json({ ok: true });
+  // MEMORIA DE ERRORES: si el dueño contó POR QUÉ la descarta, eso queda como
+  // lección para el director creativo y el copy (en segundo plano, best-effort).
+  const reason = req.body && typeof req.body.reason === 'string' ? req.body.reason.trim() : '';
+  if (reason) {
+    (async () => {
+      const { rows } = await pool.query(
+        `SELECT c.pillar, c.theme_title FROM generated_assets a
+         JOIN content_calendar c ON c.id = a.calendar_id WHERE a.id = $1`, [id]
+      );
+      const { recordLesson } = require('./learning');
+      await recordLesson({
+        source: 'user_discard',
+        scope: (rows[0] && rows[0].pillar) || 'global',
+        lesson: `El dueño descartó una pieza por esto: ${reason}. No repetirlo.`,
+        detail: rows[0] && rows[0].theme_title ? `pieza: "${rows[0].theme_title}"` : null,
+      });
+    })().catch((err) => console.warn(`[server] No pude registrar la lección del descarte: ${err.message}`));
+  }
+}));
+
+// MEMORIA DE ERRORES: lecciones aprendidas (de QA automático y del propio usuario).
+// El panel las lista y permite apagar las que quedaron viejas (sin borrarlas).
+app.get('/api/lessons', wrap(async (req, res) => {
+  const { listLessons } = require('./learning');
+  res.json({ lessons: await listLessons({ limit: Number(req.query.limit) || 100 }) });
+}));
+
+app.post('/api/lessons/:id/toggle', wrap(async (req, res) => {
+  const id = intParam(req.params.id);
+  if (!id) return res.status(400).json({ error: 'id inválido' });
+  const { setLessonActive } = require('./learning');
+  const ok = await setLessonActive(id, Boolean(req.body && req.body.active));
+  res.json({ ok });
 }));
 
 // Vuelve a dejar una pieza YA PUBLICADA como aprobada, para republicarla — por si el

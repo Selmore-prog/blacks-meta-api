@@ -142,7 +142,7 @@ function candidateLine(p) {
   return `- id ${p.id}: "${p.name}"${p.brand ? ` · marca ${p.brand}` : ''}${p.category ? ` · categoría ${p.category}` : ''} · ${price} · stock ${stock} · ${p.sales_30d || 0} ventas/30d · ${p.photos} foto(s)${p.descr ? ` · "${p.descr}"` : ''}`;
 }
 
-function buildDirectorPrompt({ slot, candidates, wholesale, companyFacts, recentPieces, templateOptions, occasion }) {
+function buildDirectorPrompt({ slot, candidates, wholesale, companyFacts, recentPieces, templateOptions, occasion, lessons }) {
   const candidatesTxt = candidates.length
     ? candidates.map(candidateLine).join('\n')
     : '(no hay candidatos de producto disponibles para este pilar)';
@@ -167,7 +167,7 @@ ${candidatesTxt}
 
 PLANTILLAS VISUALES DISPONIBLES:
 ${templatesTxt}
-${recentTxt}
+${recentTxt}${lessons || ''}
 
 CÓMO DECIDIR (pensá en este orden):
 1. ¿Qué ES la pieza? "focus":
@@ -201,9 +201,14 @@ async function planPiece({ slot, wholesale = null, companyFacts = null, recentPi
   const candidates = await gatherCandidates(slot, excludeIds);
   const byId = new Map(candidates.map((c) => [Number(c.id), c]));
 
+  // MEMORIA DE ERRORES: los fallos ya cometidos (y marcados por el dueño o el QA)
+  // entran al análisis del director para que su plan no los repita. Best-effort.
+  let lessons = '';
+  try { lessons = await require('./learning').lessonsContext({ pillar: slot.pillar, audience: 'director' }); } catch (_) {}
+
   const result = await generateJson({
     system: 'Sos el DIRECTOR CREATIVO de una marca argentina de indumentaria de trabajo. Analizás cada pieza en profundidad antes de producirla: qué comunica, si lleva producto (y CUÁL exactamente), qué tratamiento visual y qué plantilla. Sos estricto: nunca forzás un producto que no coincide con el mensaje y nunca inventás datos. Respondés SOLO con JSON válido.',
-    prompt: buildDirectorPrompt({ slot, candidates, wholesale, companyFacts, recentPieces, templateOptions, occasion }),
+    prompt: buildDirectorPrompt({ slot, candidates, wholesale, companyFacts, recentPieces, templateOptions, occasion, lessons }),
     maxTokens: 700,
     temperature: 0.3,
     schema: {
@@ -236,8 +241,26 @@ async function planPiece({ slot, wholesale = null, companyFacts = null, recentPi
   // degradamos a tarjeta (nunca al revés: no forzamos una foto que el director no pidió).
   const finalVisual = visual === 'foto_producto' && !product ? 'tarjeta_sin_foto' : visual;
 
+  // Plantilla: además de existir entre las opciones, tiene que SOSTENERSE con el
+  // producto elegido (fotos reales suficientes, descripción si pide specs, formato).
+  // Antes esta coherencia dependía sólo del prompt y una elección incoherente recién
+  // se corregía silenciosamente al renderizar — plan y diseño podían divergir.
   const templateName = result.template ? String(result.template).trim().toLowerCase() : null;
-  const validTemplate = (templateOptions || []).some((t) => t.name === templateName) ? templateName : null;
+  let validTemplate = (templateOptions || []).some((t) => t.name === templateName) ? templateName : null;
+  if (validTemplate) {
+    const { TEMPLATE_REQUIREMENTS } = require('./imageRenderer');
+    const req = TEMPLATE_REQUIREMENTS[validTemplate];
+    // Si la pieza no muestra foto de producto (tarjeta/ilustración), cuenta como 0 fotos.
+    const photos = finalVisual === 'foto_producto' && product ? Number(product.photos) || 0 : 0;
+    if (req) {
+      if (req.minImages && photos < req.minImages) validTemplate = null;
+      if (validTemplate && req.needsDescription && !(product && product.descr)) validTemplate = null;
+      if (validTemplate && req.storyOnly && slot.format !== 'story') validTemplate = null;
+    }
+    if (!validTemplate) {
+      console.log(`[creativeDirector] Plantilla '${templateName}' descartada: el producto elegido no la sostiene (fotos/descripción/formato). Rota la del pool.`);
+    }
+  }
 
   return {
     focus,

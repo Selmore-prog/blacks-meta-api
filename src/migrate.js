@@ -149,6 +149,23 @@ CREATE TABLE IF NOT EXISTS ai_usage (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- MEMORIA DE ERRORES (aprendizaje, jul-2026): cada error detectado — por el sistema
+-- (lint, auditoría factual, QA de imagen/render) o por el usuario (edición manual,
+-- descarte con motivo) — queda registrado como una lección. Las más frecuentes se
+-- inyectan en los prompts para que el mismo error NO se repita. Ver src/learning.js.
+CREATE TABLE IF NOT EXISTS qa_lessons (
+  id              SERIAL PRIMARY KEY,
+  source          TEXT NOT NULL,                  -- 'lint'|'factual'|'image'|'render'|'user_edit'|'user_discard'
+  scope           TEXT NOT NULL DEFAULT 'global', -- pilar ('producto','mayorista',...) o 'global'
+  lesson          TEXT NOT NULL,                  -- la regla en imperativo (va al prompt)
+  detail          TEXT,                           -- ejemplo/contexto del error puntual
+  times_seen      INTEGER NOT NULL DEFAULT 1,     -- cuántas veces se repitió (peso en el contexto)
+  active          BOOLEAN NOT NULL DEFAULT true,  -- el usuario puede apagar lecciones viejas
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now(),
+  last_seen_at    TIMESTAMPTZ NOT NULL DEFAULT now(),
+  UNIQUE (source, scope, lesson)
+);
+
 -- Estudio creativo: imágenes/videos generados aparte de las piezas del calendario,
 -- con uno o varios productos (combo). path = URL pública en Supabase Storage.
 CREATE TABLE IF NOT EXISTS studio_assets (
@@ -164,6 +181,7 @@ CREATE TABLE IF NOT EXISTS studio_assets (
 );
 
 CREATE INDEX IF NOT EXISTS idx_ai_usage_created ON ai_usage (created_at);
+CREATE INDEX IF NOT EXISTS idx_qa_lessons_active ON qa_lessons (active, scope);
 CREATE INDEX IF NOT EXISTS idx_calendar_date ON content_calendar (scheduled_date);
 CREATE INDEX IF NOT EXISTS idx_publish_queue_status ON publish_queue (status, next_attempt_at);
 CREATE INDEX IF NOT EXISTS idx_commercial_dates_date ON commercial_dates (event_date);

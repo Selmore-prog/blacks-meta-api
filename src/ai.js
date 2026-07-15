@@ -121,7 +121,7 @@ function productPriceText(product) {
   return regular ? `, precio ${fmt(regular)}` : '';
 }
 
-function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visualProduct, brandProfile, interactionHint, wantSticker, carousel, slideCount = 3, wholesale, commercialContext, topCaptions, objective, recentPieces, companyFacts, templateOptions, directorNotes }) {
+function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visualProduct, brandProfile, interactionHint, wantSticker, carousel, slideCount = 3, wholesale, commercialContext, topCaptions, objective, recentPieces, companyFacts, templateOptions, directorNotes, lessons }) {
   let productInfo = product
     ? `Producto a destacar: ${product.name}${product.brand ? ` (marca ${product.brand})` : ''}${productPriceText(product)}${typeof product.stock === 'number' ? `, stock ${product.stock}` : ''}.`
     : 'No hay un producto puntual; el foco es la marca/línea en general.';
@@ -240,7 +240,7 @@ La pregunta y las opciones tienen que ser concretas y fáciles de contestar en 2
 Pilar de contenido: ${pillar}${OBJECTIVE_GUIDE[objective] ? `\n${OBJECTIVE_GUIDE[objective]}` : ''}
 Ángulo/detalle: ${pillarDetail || 'sin detalle adicional'}${director}
 ${productInfo}${wholesaleInfo}${educationalGuard}${facts}
-Temporada: ${seasonLine}${commercial}${winners}${noRepeat}${interaction}${stickerSpec}${storyPointsSpec}${templates}${voice}
+Temporada: ${seasonLine}${commercial}${winners}${noRepeat}${lessons || ''}${interaction}${stickerSpec}${storyPointsSpec}${templates}${voice}
 
 ${carousel ? (['educativo', 'mayorista'].includes(pillar)
     ? `\nCARRUSEL PASO A PASO: devolvé "slides": un array de ${slideCount} objetos {"title","text"}. Es una GUÍA accionable, no un folleto: (1) portada con gancho que promete el resultado ("Guía de talles sin equivocarte", "Cómo comprar al por mayor"), (2-${slideCount - 1}) PASOS numerados y concretos — "title" tipo "PASO 1 — MEDÍ TU CINTURA" y "text" con la instrucción exacta (qué hacer, con qué, qué número anotar), (${slideCount}) cierre con el beneficio + CTA${pillar === 'educativo' ? ' (CTA educativo: guardar/compartir/comentar — nunca comprar)' : ''}. Cada paso tiene que poder hacerse EN EL MOMENTO. Nada repetido entre slides.${pillar === 'educativo' ? ' NINGÚN slide nombra productos/prendas propias como solución.' : ''}\n`
@@ -504,6 +504,47 @@ function markImageQuotaHit() {
   imageQuotaHitUntil = Date.now() + IMAGE_QUOTA_COOLDOWN_MS;
 }
 
+/* =========================================================================
+ * TOPE DE GASTO DIARIO (control de plata, jul-2026)
+ * Cada imagen IA cuesta dinero real. Con AI_IMAGE_DAILY_BUDGET_USD (default US$3)
+ * se fija un techo por día calendario argentino: al llegar, las piezas del resto
+ * del día salen con plantilla (gratis) en vez de escena IA. La generación NUNCA
+ * se corta — sólo el gasto. Cache de 60s para no consultar la DB en cada slide.
+ * ========================================================================= */
+
+let budgetCache = { at: 0, spent: 0 };
+
+/** Gasto de HOY (día calendario ARG) en imágenes IA, en USD. Best-effort: 0 si falla. */
+async function imageSpendTodayUsd() {
+  if (Date.now() - budgetCache.at < 60 * 1000) return budgetCache.spent;
+  try {
+    const pool = require('./db');
+    const { rows } = await pool.query(
+      `SELECT COALESCE(SUM(est_cost_usd), 0)::float AS spent
+       FROM ai_usage
+       WHERE kind = 'image' AND (created_at AT TIME ZONE $1)::date = (now() AT TIME ZONE $1)::date`,
+      [config.timezone]
+    );
+    budgetCache = { at: Date.now(), spent: Number(rows[0].spent) || 0 };
+  } catch (err) {
+    console.warn(`[ai] No pude leer el gasto del día (asumo 0 y sigo): ${err.message}`);
+    budgetCache = { at: Date.now(), spent: 0 };
+  }
+  return budgetCache.spent;
+}
+
+/** true si generar UNA imagen más pasaría el tope diario (y conviene usar plantilla). */
+async function imageBudgetExceeded() {
+  const budget = Number(config.ai.imageDailyBudgetUsd) || 0;
+  if (budget <= 0) return false; // sin tope configurado
+  const spent = await imageSpendTodayUsd();
+  if (spent + currentImagePriceUsd() > budget) {
+    console.warn(`[ai] Tope de gasto diario alcanzado (US$${spent.toFixed(2)} de US$${budget}): esta pieza sale con plantilla (gratis).`);
+    return true;
+  }
+  return false;
+}
+
 // Precio estimado en USD por imagen generada, por modelo (referencia jul-2026;
 // ajustar si Google cambia tarifas). Sólo para MOSTRAR consumo, no factura nada.
 const IMAGE_PRICE_USD = {
@@ -558,6 +599,7 @@ async function logImageUsage(purpose) {
       `INSERT INTO ai_usage (kind, model, purpose, est_cost_usd) VALUES ('image', $1, $2, $3)`,
       [config.gemini.imageModel, purpose, cost]
     );
+    budgetCache.spent += cost; // el tope diario ve el gasto al instante (sin esperar el cache)
   } catch (err) {
     console.warn('[ai] No pude registrar el consumo de imagen:', err.message);
   }
@@ -681,6 +723,57 @@ async function checkImageQuality(img) {
   }
 }
 
+/**
+ * QA VISUAL POST-RENDER (el "Director de Arte" que da la aprobación final).
+ * A diferencia de checkImageQuality (que revisa la imagen IA cruda), esto mira la
+ * PIEZA TERMINADA — plantilla renderizada con títulos, precio y logo estampados — y
+ * detecta SOLO roturas graves de diseño que hasta ahora nadie veía antes de publicar:
+ *   1. texto cortado/truncado o que se sale del canvas,
+ *   2. elementos que se PISAN entre sí (logo sobre el título, precio sobre el producto),
+ *   3. texto ilegible por falta de contraste con el fondo,
+ *   4. zonas rotas (foto que no cargó: bloque gris/blanco vacío, ícono de imagen rota).
+ * NO opina de gustos/estética: sólo roturas objetivas. Es una llamada de visión al
+ * modelo de texto (gratis). Best-effort: si el chequeo falla, se asume OK para no
+ * trabar el pipeline por un problema del verificador y no de la pieza.
+ */
+async function reviewRenderedPiece({ buffer, mimeType = 'image/jpeg', overlayText = null } = {}) {
+  if (!buffer || !hasGemini()) return { ok: true, issues: [] };
+  try {
+    let small = buffer;
+    // 1024 y no menos: con 768 el texto chico (la URL del pie) se veía borroso y el
+    // modelo lo marcaba "cortado" sin estarlo (falso positivo real, jul-2026).
+    small = await resizeImage(small, 1024).catch(() => small);
+    const data = await geminiGenerateContent(config.gemini.visionModel, {
+      contents: [{
+        role: 'user',
+        parts: [
+          { text: `Sos el DIRECTOR DE ARTE que da la aprobación FINAL de una pieza de Instagram ya diseñada (plantilla con textos y logo estampados). Revisala y respondé SOLO un JSON: {"ok": bool, "issues": ["problema concreto en español", ...]}.
+
+Marcá ok=false SOLO si estás COMPLETAMENTE SEGURO de una ROTURA OBJETIVA e inequívoca:
+1. Texto CORTADO: se ven letras por la MITAD (mutiladas por el borde de la imagen o por otro elemento), o una palabra que claramente sigue pero desaparece. Que un texto esté CERCA del borde o toque los márgenes NO es cortado: cortado = faltan pedazos de letras a la vista.${overlayText ? ` El titular esperado es: "${String(overlayText).slice(0, 90)}" — compará letra por letra: sólo está cortado si le FALTAN caracteres visibles.` : ''}
+2. Elementos SUPERPUESTOS que se pisan al punto de no poder leerse (un texto arriba de otro texto, el logo tapando el titular).
+3. Texto ILEGIBLE por contraste casi nulo con el fondo (mismo tono; no alcanza con "podría tener más contraste").
+4. Zona ROTA: bloque gris/blanco plano donde claramente debía ir una foto, ícono de imagen rota del navegador.
+
+ELEMENTOS NORMALES DEL DISEÑO (NUNCA son problema): el pie centrado con la URL "${config.brand.site}" — si se lee entera, está perfecta; el wordmark/logo BLACKS arriba; mucho aire/espacio negativo (es intencional); texto chico pero completo; fotos de catálogo con fondo blanco; marcas de agua gigantes muy tenues de fondo; degradados oscuros sobre la foto.
+
+REGLA DE ORO: ante la MÍNIMA duda, ok=true. Un falso rechazo frena una pieza sana y cuesta trabajo humano; sólo rechazá lo que un cliente señalaría como "esto salió mal" al primer vistazo.` },
+          { inlineData: { data: small.toString('base64'), mimeType } },
+        ],
+      }],
+      generationConfig: { temperature: 0, maxOutputTokens: 300, thinkingConfig: { thinkingBudget: 0 } },
+    });
+    const raw = textFromResponse(data).replace(/```json|```/g, '').trim();
+    const match = raw.match(/\{[\s\S]*\}/);
+    const obj = JSON.parse(match ? match[0] : raw);
+    const issues = Array.isArray(obj.issues) ? obj.issues.map((i) => String(i).slice(0, 140)).filter(Boolean) : [];
+    return { ok: obj.ok !== false, issues };
+  } catch (err) {
+    console.warn(`[ai] QA visual de la pieza falló (sigo, asumo OK): ${err.message}`);
+    return { ok: true, issues: [] };
+  }
+}
+
 /* =========================================================================
  * GROQ (fallback de copy)
  * ========================================================================= */
@@ -793,7 +886,18 @@ async function generateCopyOnce(opts, feedback = null) {
  *  - gen_model: 'gemini' | 'groq' (con qué modelo salió — groq es el respaldo)
  *  - qa_notes: problemas que quedaron sin resolver (null = pasó limpio)
  */
+/** Registra una lección en la memoria de errores (fire-and-forget, jamás rompe). */
+function learnFrom(source, scope, lesson, detail = null) {
+  try { require('./learning').recordLesson({ source, scope, lesson, detail }); } catch (_) { /* nunca rompe */ }
+}
+
 async function generateCopy(opts) {
+  // MEMORIA DE ERRORES: las lecciones aprendidas de fallos anteriores (del sistema y
+  // de las correcciones del dueño en el panel) entran al prompt para no repetirlos.
+  let lessons = '';
+  try { lessons = await require('./learning').lessonsContext({ pillar: opts.pillar, audience: 'copy' }); } catch (_) {}
+  opts = { ...opts, lessons };
+
   let attempt = await generateCopyOnce(opts);
   let problems = lintCopy(attempt.copy, opts);
 
@@ -814,6 +918,14 @@ async function generateCopy(opts) {
     } catch (err) {
       console.warn(`[ai] El reintento de copy falló (queda la 1a versión): ${err.message}`);
     }
+  }
+
+  // Problema que NI el reintento con feedback pudo limpiar = patrón que se repite:
+  // queda como lección para que las próximas generaciones lo eviten de entrada.
+  // (Se normalizan los números para que "overlay muy largo (12 palabras)" y
+  // "(9 palabras)" cuenten como LA MISMA lección y sumen frecuencia.)
+  for (const p of problems) {
+    learnFrom('lint', opts.pillar || 'global', `No repetir este error de copy: ${String(p).replace(/\d+/g, 'N')}`);
   }
 
   return {
@@ -952,6 +1064,7 @@ async function describeProductPhotos(imageUrls = []) {
 
 async function generateBackground({ theme, brief, occasion, format = 'feed', referenceImages = [], seed = null } = {}) {
   if (!config.ai.useAiImages || !hasGemini() || isImageQuotaCoolingDown()) return null;
+  if (await imageBudgetExceeded()) return null; // tope diario: sigue con plantilla (gratis)
 
   const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
   const brandStyle = await brandStyleForImages();
@@ -1001,6 +1114,7 @@ ${noTextNoLogoRule(strict)}
       const check = hasRefs ? { ok: true } : await checkImageQuality(img);
       if (!check.ok) {
         console.warn(`[ai] generateBackground: descartada por control de calidad (texto=${check.hasText} logo=${check.hasLogo} ${check.notes || ''}), reintentando más estricto...`);
+        learnFrom('image', 'global', `El modelo de imagen coló ${check.hasText ? 'texto' : 'un logo'} en un fondo generado (plata tirada): reforzar la regla anti-texto/anti-logo`, check.notes);
         continue;
       }
       img.costUsd = spent;
@@ -1021,6 +1135,7 @@ ${noTextNoLogoRule(strict)}
  */
 async function generateDiagram({ topic, format = 'feed' } = {}) {
   if (!config.ai.useAiImages || !hasGemini() || isImageQuotaCoolingDown()) return null;
+  if (await imageBudgetExceeded()) return null; // tope diario: sigue con plantilla (gratis)
 
   const buildPrompt = (strict) => `Actuás como ILUSTRADOR TÉCNICO EDITORIAL de una marca de indumentaria de trabajo. Generá UNA ilustración didáctica (NO una fotografía) que ENSEÑE visualmente este tema: "${topic || 'cómo elegir ropa de trabajo'}".
 
@@ -1049,6 +1164,7 @@ Composición centrada con aire alrededor, formato ${format === 'story' ? 'vertic
       const check = await checkImageQuality(img);
       if (!check.ok) {
         console.warn(`[ai] generateDiagram: descartada por control de calidad (texto=${check.hasText} logo=${check.hasLogo} ${check.notes || ''}), reintentando más estricto...`);
+        learnFrom('image', 'global', `El modelo de imagen coló ${check.hasText ? 'texto' : 'un logo'} en una ilustración didáctica (plata tirada): reforzar la regla anti-texto/anti-logo`, check.notes);
         continue;
       }
       img.costUsd = spent;
@@ -1199,6 +1315,10 @@ ${bgLine}`;
 
 async function generateProductScene({ productImageUrl, productImageUrls = [], productName, theme, brief, occasion, format = 'feed', seed = null, shotSpec = null } = {}) {
   if (!config.ai.useAiImages || !hasGemini() || isImageQuotaCoolingDown() || (!productImageUrl && !productImageUrls.length)) return null;
+  // Tope diario de gasto: la pieza sale con la foto real del catálogo (gratis).
+  // NOTA: el Estudio (generateStudioScene) NO pasa por el tope — es una acción manual
+  // y deliberada del usuario desde el panel, no gasto automático del pipeline.
+  if (await imageBudgetExceeded()) return null;
 
   // Hasta 4 fotos del MISMO producto (distintos ángulos): más referencias = menos
   // chance de que el modelo "reinvente" costuras, color o silueta.
@@ -1259,6 +1379,7 @@ ${noTextNoLogoRule(strict)}
       const check = await checkImageQuality(img);
       if (!check.ok) {
         console.warn(`[ai] generateProductScene: descartada por control de calidad (texto=${check.hasText} logo=${check.hasLogo} ${check.notes || ''}), reintentando más estricto...`);
+        learnFrom('image', 'global', `El modelo de imagen coló ${check.hasText ? 'texto' : 'un logo'} en una escena de producto (plata tirada): reforzar la regla anti-texto/anti-logo`, check.notes);
         continue;
       }
       img.costUsd = spent;
@@ -1679,6 +1800,8 @@ module.exports = {
   sanitizeText,
   hasGemini,
   currentImagePriceUsd,
+  imageSpendTodayUsd,
+  reviewRenderedPiece,
   lintCopy,
   VOICE_CORE,
 };

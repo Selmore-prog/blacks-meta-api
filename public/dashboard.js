@@ -382,6 +382,26 @@ function confirmModal(title, message, confirmLabel = 'Confirmar') {
   });
 }
 
+/**
+ * Descartar con motivo OPCIONAL: si el usuario cuenta por qué, el motivo queda como
+ * lección aprendida y el sistema evita repetir ese error en las próximas piezas.
+ * Devuelve el motivo ('' si no puso nada) o null si canceló.
+ */
+function discardReasonModal() {
+  return new Promise((resolve) => {
+    const overlay = showInfoModal('Descartar pieza', `
+      <p style="margin:0 0 10px; color:var(--muted); font-size:14px; line-height:1.5;">¿Por qué la descartás? <b>Opcional</b> — si lo contás, el sistema lo aprende y no lo repite.</p>
+      <textarea id="dm-reason" class="input" rows="2" placeholder="Ej: el producto no tiene relación con el tema / el título salió cortado…" style="width:100%; margin-bottom:14px; resize:vertical;"></textarea>
+      <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <button class="btn-discard" id="dm-cancel">Cancelar</button>
+        <button class="btn-primary" id="dm-yes">Descartar</button>
+      </div>`);
+    const done = (v) => { overlay.remove(); resolve(v); };
+    overlay.querySelector('#dm-cancel').addEventListener('click', () => done(null));
+    overlay.querySelector('#dm-yes').addEventListener('click', () => done(overlay.querySelector('#dm-reason').value.trim()));
+  });
+}
+
 function getFiltered() {
   return calItems.filter((it) => {
     if (filters.status !== 'all' && statusOf(it) !== filters.status) return false;
@@ -1051,7 +1071,13 @@ async function handleAction(act, id, btn, card, item) {
     } else if (act === 'approve') {
       await api(`/api/assets/${id}/approve`, { method: 'POST' }); toast('Aprobada', 'ok'); reloadKeepScroll();
     } else if (act === 'discard') {
-      await api(`/api/assets/${id}/discard`, { method: 'POST' }); toast('Descartada'); reloadKeepScroll();
+      const reason = await discardReasonModal();
+      if (reason === null) return; // canceló
+      await api(`/api/assets/${id}/discard`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ reason }),
+      });
+      toast(reason ? 'Descartada — el sistema lo aprende' : 'Descartada'); reloadKeepScroll();
     } else if (act === 'edit') {
       openEdit(id);
     } else if (act === 'regen') {
@@ -2253,12 +2279,52 @@ async function loadAiUsage() {
   try {
     const u = await api('/api/ai-usage');
     const fmt = (n) => `US$ ${Number(n).toFixed(2)}`;
+    // Tope diario: cuánto va gastado HOY contra el techo (al llegar, sigue con plantilla gratis).
+    const budget = u.daily_budget_usd
+      ? `<div class="stat"><b style="${u.budget_reached ? 'color:var(--orange,#ff6b1a);' : ''}">${fmt(u.today_usd || 0)} / ${fmt(u.daily_budget_usd)}</b><span>Gasto de hoy vs tope diario${u.budget_reached ? ' — tope alcanzado: hoy sale con plantilla' : ''}</span></div>`
+      : '';
     el.innerHTML = `
       <div class="stat"><b>${u.images}</b><span>Imágenes IA este mes</span></div>
       <div class="stat"><b>${fmt(u.usd)}</b><span>Gasto estimado (${esc(u.month)})</span></div>
       <div class="stat"><b>${u.projection === null ? '—' : fmt(u.projection)}</b><span>Proyección a fin de mes</span></div>
+      ${budget}
       <div class="stat"><b>${u.enabled ? 'ON' : 'OFF'}</b><span>Imágenes IA (AI_IMAGES)</span></div>`;
   } catch (_) { el.innerHTML = ''; }
+}
+
+/* Lecciones aprendidas (memoria de errores): errores ya cometidos — detectados por el
+   QA o marcados por el usuario — que el sistema ahora evita en cada pieza nueva. */
+async function loadLessons() {
+  const el = document.getElementById('lessons-panel');
+  if (!el) return;
+  try {
+    const { lessons } = await api('/api/lessons');
+    if (!lessons || !lessons.length) { el.innerHTML = ''; return; }
+    const SRC = {
+      lint: 'QA de copy', factual: 'auditoría factual', image: 'QA de imagen',
+      render: 'QA visual', user_edit: 'corrección tuya', user_discard: 'descarte tuyo',
+    };
+    el.innerHTML = `<div class="panel" style="margin-bottom:20px;">
+      <h3>Lecciones aprendidas (memoria de errores)</h3>
+      <p class="hint">Errores que el sistema ya cometió y ahora evita en cada pieza nueva. Vienen del control de calidad automático y de tus correcciones/descartes. Apagá las que ya no apliquen.</p>
+      ${lessons.slice(0, 30).map((l) => `
+        <div class="prod-row" style="${l.active ? '' : 'opacity:.45;'}">
+          <div class="prod-info"><div class="prod-name" style="font-weight:500;">${esc(l.lesson)}</div>
+            <div class="prod-sub">${esc(SRC[l.source] || l.source)} · ${esc(l.scope)}${l.times_seen > 1 ? ` · pasó ${l.times_seen} veces` : ''}</div></div>
+          <button class="btn-discard btn-sm" onclick="toggleLesson(${Number(l.id)}, ${l.active ? 'false' : 'true'})">${l.active ? 'Apagar' : 'Reactivar'}</button>
+        </div>`).join('')}
+    </div>`;
+  } catch (_) { el.innerHTML = ''; }
+}
+
+async function toggleLesson(id, active) {
+  try {
+    await api(`/api/lessons/${id}/toggle`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active }),
+    });
+    loadLessons();
+  } catch (e) { toast(e.message, 'err'); }
 }
 
 /* Google Analytics de la tienda: sesiones, tráfico desde IG y productos más vistos. */
@@ -2656,6 +2722,7 @@ async function loadMetrics() {
   loadConversionAudit();
   loadAttribution();
   loadAiUsage();
+  loadLessons();
   loadReachChart();
   const body = document.getElementById('metrics-body');
   body.innerHTML = skeleton('rows', 4);

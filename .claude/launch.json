@@ -4,8 +4,11 @@
     {
       "name": "blacks",
       "runtimeExecutable": "npm",
-      "runtimeArgs": ["start"],
-      "port": 8080
+      "runtimeArgs": [
+        "start"
+      ],
+      "port": 8080,
+      "autoPort": true
     }
   ]
 }

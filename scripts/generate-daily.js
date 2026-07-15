@@ -397,25 +397,9 @@ function descriptionImages(product) {
     .filter((u) => /^https?:\/\//i.test(u));
 }
 
-const { TEMPLATES: VALID_TEMPLATES, TEMPLATE_INFO } = require('../src/imageRenderer');
-
-// Requisitos mínimos de cada estilo nuevo (cuántas fotos reales del producto
-// necesita, si necesita descripción real de Tiendanube para specs, si es sólo
-// para historias). Los 5 clásicos (fullbleed/minimal/promo/educativo/mayorista)
-// no tienen requisitos: siempre están disponibles.
-const TEMPLATE_REQUIREMENTS = {
-  grid: { minImages: 3 },
-  overlap: { minImages: 2 },
-  specsheet: { minImages: 1, needsDescription: true },
-  polaroidstrip: { minImages: 2, storyOnly: true },
-  // Plantillas con zona de foto que NO saben quedar vacías: sin foto real quedan con
-  // un hueco/watermark muerto (bug real: pieza de marca 'minimal' sin foto = tarjeta
-  // vacía). Sin foto, el pool cae a las que sí se adaptan (fullbleed/mayorista/
-  // magazine/educativo/stackedcards/blueprint re-arman su layout).
-  minimal: { minImages: 1 },
-  promo: { minImages: 1 },
-  splitscreen: { minImages: 1 },
-};
+// TEMPLATE_REQUIREMENTS vive en imageRenderer (única fuente de verdad): lo usan
+// este filtro de candidatas Y la validación dura del director creativo.
+const { TEMPLATES: VALID_TEMPLATES, TEMPLATE_INFO, TEMPLATE_REQUIREMENTS } = require('../src/imageRenderer');
 
 // Qué estilos tienen sentido para cada pilar — variedad real por pilar, filtrada
 // después por lo que el producto puede sostener (fotos/descripción disponibles).
@@ -760,6 +744,14 @@ async function generateForSlot(slot, overrides = {}) {
       const note = `auditoría factual corrigió: ${(audit.issues || []).join(' · ') || 'afirmaciones sin respaldo'}`;
       copy.qa_notes = copy.qa_notes ? `${copy.qa_notes} · ${note}` : note;
       console.warn(`[generate-daily] ${note} (slot #${slot.id})`);
+      // MEMORIA DE ERRORES: cada dato inventado queda como lección para que las
+      // próximas piezas del pilar no vuelvan a afirmarlo sin respaldo.
+      try {
+        const { recordLesson } = require('../src/learning');
+        for (const issue of audit.issues || []) {
+          recordLesson({ source: 'factual', scope: slot.pillar, lesson: `Dato inventado detectado antes: ${issue}. Afirmá SOLO lo que figura en el contexto.` });
+        }
+      } catch (_) { /* el aprendizaje nunca rompe la generación */ }
     }
   } catch (err) {
     console.warn(`[generate-daily] Auditoría factual falló (sigo): ${err.message}`);
@@ -784,6 +776,8 @@ async function generateForSlot(slot, overrides = {}) {
   let slidesJson = null;
   let slidesMetaJson = null; // receta de cada slide del carrusel (para regenerar uno solo)
   let pieceCostUsd = 0; // lo que costó ESTA pieza en imágenes IA (0 = gratis)
+  let coverBuffer = null; // portada del carrusel, para el QA visual final
+  let coverOverlay = null; // texto esperado en esa portada (para detectar truncados)
 
   // Piezas educativas: la imagen tiene que ENSEÑAR el tema, no decorar.
   // 1º la guía de talles real de Tiendanube (gratis y exacta), 2º ilustración
@@ -806,7 +800,7 @@ async function generateForSlot(slot, overrides = {}) {
 
     const urls = [];
     for (let i = 0; i < slides.length; i += 1) {
-      const { url, costUsd } = await renderPostBuffer({
+      const { url, costUsd, buffer } = await renderPostBuffer({
         format,
         template: 'educativo',
         overlayTitle: slides[i].title || overlayTitle,
@@ -822,6 +816,7 @@ async function generateForSlot(slot, overrides = {}) {
       });
       urls.push(url);
       pieceCostUsd += costUsd || 0;
+      if (i === 0) { coverBuffer = buffer; coverOverlay = slides[0].title || overlayTitle; }
     }
 
     // Slide final: la guía de talles REAL del producto (ya viene diseñada con la marca).
@@ -913,6 +908,8 @@ async function generateForSlot(slot, overrides = {}) {
     const slideResults = await Promise.all(plan.map((shot, i) => renderCarouselShot(shot, i, ctx)));
     const urls = slideResults.map((r) => r.url);
     pieceCostUsd += slideResults.reduce((sum, r) => sum + (r.costUsd || 0), 0);
+    coverBuffer = slideResults[0] ? slideResults[0].buffer : null;
+    coverOverlay = plan[0] ? (plan[0].overlay || overlayTitle) : null;
 
     imagePath = urls[0];
     slidesJson = JSON.stringify(urls);
@@ -922,7 +919,7 @@ async function generateForSlot(slot, overrides = {}) {
     // el video real conviene generarlo a mano en Gemini/Veo con el botón
     // "Prompt video IA" (o subir filmación propia), así la imagen IA no se tira.
     const isReel = slot.post_type === 'reel';
-    const { url, costUsd } = await renderPostBuffer({
+    const renderOpts = {
       format,
       template,
       overlayTitle,
@@ -965,9 +962,75 @@ async function generateForSlot(slot, overrides = {}) {
       bgOccasion: occasion,
       couponCode,
       interactionLabel: interactionChip(slot, copy.sticker),
-    });
-    imagePath = url;
-    pieceCostUsd += costUsd || 0;
+    };
+    let render = await renderPostBuffer(renderOpts);
+    pieceCostUsd += render.costUsd || 0;
+
+    // ============ QA VISUAL POST-RENDER + SELF-HEALING (fase final) ============
+    // Hasta acá nadie miraba la pieza TERMINADA: si la plantilla truncó el título o
+    // el logo pisó un texto, se descubría publicada. Ahora un director de arte IA
+    // (visión, gratis) revisa el render final; si está roto, se re-renderiza UNA vez
+    // con la plantilla más robusta (fullbleed) REUSANDO la escena IA ya pagada — cero
+    // gasto extra. Si ni así queda bien, la pieza guarda el problema en qa_notes
+    // (el badge del panel + AUTO_APPROVE la frenan hasta revisión manual).
+    if (!isReel) {
+      try {
+        const { reviewRenderedPiece } = require('../src/ai');
+        const check = await reviewRenderedPiece({ buffer: render.buffer, overlayText: overlayTitle });
+        if (!check.ok) {
+          console.warn(`[generate-daily] QA visual rechazó el render del slot #${slot.id} (plantilla ${template}): ${check.issues.join(' · ')}. Re-renderizo con plantilla segura...`);
+          const { recordLesson } = require('../src/learning');
+          recordLesson({ source: 'render', scope: slot.pillar, lesson: `La plantilla '${template}' salió rota (${String(check.issues[0] || 'defecto visual').replace(/\d+/g, 'N')}) — revisar esa combinación de plantilla/contenido`, detail: check.issues.join(' · ') });
+
+          // La escena IA ya generada (data URI) se reusa tal cual; nunca se paga dos veces.
+          const aiScene = render.cleanImageUrl && String(render.cleanImageUrl).startsWith('data:') ? render.cleanImageUrl : null;
+          const healed = await renderPostBuffer({
+            ...renderOpts,
+            template: 'fullbleed', // la plantilla más robusta: se adapta con y sin foto
+            layoutSeed: Number(slot.id) + 31, // otro layout, por si el problema era de posición
+            ...(aiScene ? { bgImageUrl: aiScene } : {}),
+            useAiProductScene: false, useAiDiagram: false, useAiBackground: false, // cero gasto nuevo
+          });
+          pieceCostUsd += healed.costUsd || 0;
+          const recheck = await reviewRenderedPiece({ buffer: healed.buffer, overlayText: overlayTitle });
+          const keepHealed = recheck.ok || recheck.issues.length <= check.issues.length;
+          if (keepHealed) render = healed;
+          if (!recheck.ok) {
+            // La nota refleja los problemas del render que QUEDÓ (curado u original).
+            const worst = (keepHealed ? recheck.issues : check.issues).join(' · ');
+            const note = `QA visual: ${worst}`;
+            copy.qa_notes = copy.qa_notes ? `${copy.qa_notes} · ${note}` : note;
+            console.warn(`[generate-daily] QA visual: la pieza del slot #${slot.id} queda para revisión manual (${worst}).`);
+          } else {
+            console.log(`[generate-daily] QA visual: pieza del slot #${slot.id} auto-corregida con plantilla fullbleed.`);
+          }
+        }
+      } catch (err) {
+        console.warn(`[generate-daily] QA visual no disponible (sigo con el render original): ${err.message}`);
+      }
+    }
+
+    imagePath = render.url;
+  }
+
+  // ============ QA VISUAL DE LA PORTADA DEL CARRUSEL ============
+  // La portada es lo que se ve en el feed. Acá no hay self-healing automático (cada
+  // slide se corrige puntual desde el panel con "regenerar slide"): si está rota,
+  // queda en qa_notes — el panel la marca para revisar y AUTO_APPROVE no la publica.
+  if (slides && coverBuffer) {
+    try {
+      const { reviewRenderedPiece } = require('../src/ai');
+      const check = await reviewRenderedPiece({ buffer: coverBuffer, overlayText: coverOverlay });
+      if (!check.ok) {
+        const note = `QA visual (portada del carrusel): ${check.issues.join(' · ')}`;
+        copy.qa_notes = copy.qa_notes ? `${copy.qa_notes} · ${note}` : note;
+        console.warn(`[generate-daily] ${note} (slot #${slot.id}) — corregila con "regenerar slide" desde el panel.`);
+        const { recordLesson } = require('../src/learning');
+        recordLesson({ source: 'render', scope: slot.pillar, lesson: `Portada de carrusel rota: ${String(check.issues[0] || 'defecto visual').replace(/\d+/g, 'N')}`, detail: check.issues.join(' · ') });
+      }
+    } catch (err) {
+      console.warn(`[generate-daily] QA visual de portada no disponible (sigo): ${err.message}`);
+    }
   }
 
   // Historia de refuerzo (9:16) para posts de FEED: se pre-renderiza acá (donde hay
@@ -1001,7 +1064,10 @@ async function generateForSlot(slot, overrides = {}) {
   await pool.query(
     `INSERT INTO generated_assets (calendar_id, product_id, caption, hashtags, cta, image_path, video_path, format, slides, status, template, story_teaser_path, est_cost_usd, gen_model, qa_notes, sticker, slides_meta)
      VALUES ($1, $2, $3, $4, $5, $6, NULL, $7, $8, 'draft', $9, $10, $11, $12, $13, $14, $15)`,
-    [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson, slides ? 'educativo' : template, storyTeaserPath, pieceCostUsd, copy.gen_model || null, copy.qa_notes || null, copy.sticker ? JSON.stringify(copy.sticker) : null, slidesMetaJson]
+    // BUG REAL (jul-2026): TODO carrusel quedaba etiquetado 'educativo', aunque los
+    // carruseles fotográficos renderizan slides fullbleed/grid — el panel mostraba una
+    // plantilla que no era. La etiqueta ahora refleja lo que se renderizó de verdad.
+    [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson, slides ? (isStepCarousel ? 'educativo' : 'fullbleed') : template, storyTeaserPath, pieceCostUsd, copy.gen_model || null, copy.qa_notes || null, copy.sticker ? JSON.stringify(copy.sticker) : null, slidesMetaJson]
   );
 
   // Si el slot ya tenía versiones encoladas para publicar (se está regenerando una

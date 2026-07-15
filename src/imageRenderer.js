@@ -102,6 +102,26 @@ const TEMPLATE_INFO = {
   polaroidstrip: 'Tira de polaroids, cercano y genuino. Sólo historias. Para contenido tipo cliente real (ugc).',
 };
 
+// Requisitos mínimos de cada plantilla (cuántas fotos reales del producto necesita,
+// si necesita descripción real de Tiendanube para specs, si es sólo para historias).
+// ÚNICA fuente de verdad: la usan generate-daily (filtrado de candidatas) y el
+// director creativo (validación dura de su elección) — antes vivía duplicada en
+// generate-daily y el director podía elegir una plantilla que el producto no
+// sostenía. Los clásicos sin zona de foto obligatoria no figuran: siempre valen.
+const TEMPLATE_REQUIREMENTS = {
+  grid: { minImages: 3 },
+  overlap: { minImages: 2 },
+  specsheet: { minImages: 1, needsDescription: true },
+  polaroidstrip: { minImages: 2, storyOnly: true },
+  // Plantillas con zona de foto que NO saben quedar vacías: sin foto real quedan con
+  // un hueco/watermark muerto (bug real: pieza de marca 'minimal' sin foto = tarjeta
+  // vacía). Sin foto, el pool cae a las que sí se adaptan (fullbleed/mayorista/
+  // magazine/educativo/stackedcards/blueprint re-arman su layout).
+  minimal: { minImages: 1 },
+  promo: { minImages: 1 },
+  splitscreen: { minImages: 1 },
+};
+
 /**
  * Extrae 2-3 frases técnicas CORTAS de la descripción real de Tiendanube (nunca
  * inventa nada) para pinearlas como specs en la plantilla 'specsheet'. Prioriza
@@ -330,7 +350,10 @@ function buildFullbleedHtml(opts) {
   if (opts.ctaHeadline) {
     content = ctaHtml;
   } else if (price) {
-    content = `<div class="pblock">
+    // Los puntos con datos reales (story_points) también van cuando hay precio — antes
+    // se perdían en las historias de producto/promo (bug real: la info clave que el
+    // caption no muestra desaparecía justo en las piezas de venta).
+    content = `${pointsLine}<div class="pblock">
       ${hasPromo ? `<div class="pheader"><span class="antes">$${formatPrice(price)}</span><span class="off">-${off}% OFF</span></div>` : ''}
       <div class="lbl">${hasPromo ? 'AHORA' : 'PRECIO'}</div>
       <div class="now">$${formatPrice(now)}</div>
@@ -1049,4 +1072,4 @@ async function renderPostImage(options) {
   return url;
 }
 
-module.exports = { renderPostImage, renderPostBuffer, buildHtml, DIMS, TEMPLATES, TEMPLATE_INFO };
+module.exports = { renderPostImage, renderPostBuffer, buildHtml, DIMS, TEMPLATES, TEMPLATE_INFO, TEMPLATE_REQUIREMENTS };

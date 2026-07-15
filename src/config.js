@@ -51,6 +51,10 @@ module.exports = {
     // las piezas se arman con la plantilla profesional (gratis). Activá AI_IMAGES=true sólo
     // si habilitaste facturación en Google y querés escenas generadas con IA.
     useAiImages: bool('AI_IMAGES', false),
+    // TOPE DE GASTO DIARIO en imágenes IA (USD). Al llegar al tope, el resto del día
+    // se generan piezas con plantilla (gratis) — nunca se corta la generación, sólo el
+    // gasto. 0 = sin tope. Se mide contra la tabla ai_usage (día calendario argentino).
+    imageDailyBudgetUsd: Number(process.env.AI_IMAGE_DAILY_BUDGET_USD) || 3,
   },
 
   supabase: {
