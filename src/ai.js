@@ -709,7 +709,14 @@ REINTENTO ESTRICTO: el intento anterior violó esta regla. Es la instrucción M�
  * en la foto). Best-effort — si el chequeo en sí falla (cuota, red), se asume OK para
  * no trabar todo el pipeline por un problema de la verificación y no de la imagen.
  */
-async function checkImageQuality(img) {
+async function checkImageQuality(img, { productHasBranding = false } = {}) {
+  // En escenas de PRODUCTO real, la prenda/calzado trae SU marca puesta (etiqueta
+  // "Pampero", "Ombú" bordada, etc.) — eso es fidelidad, no un logo inventado.
+  // Sin esta excepción el QA descartaba escenas legítimas YA PAGADAS y la pieza caía
+  // a la plantilla sin foto de estudio (bug real, jul-2026: plata tirada + pieza fea).
+  const brandingException = productHasBranding
+    ? `\n- EXCEPCIÓN IMPORTANTE (escena de producto real): la marca/etiqueta que el producto trae PUESTA (bordado, etiqueta cosida, sello en la suela, marquilla en la cintura) NO cuenta como logo NI como texto — es parte del producto real y DEBE estar. Sólo marcá hasLogo/hasText si hay un logo o texto AGREGADO FUERA del producto: sello flotante, marca de agua, cartel, titular, wordmark en el fondo o en el piso.`
+    : '';
   try {
     const data = await geminiGenerateContent(config.gemini.visionModel, {
       contents: [{
@@ -717,7 +724,7 @@ async function checkImageQuality(img) {
         parts: [
           { text: `Sos control de calidad de una agencia de publicidad. Mirá esta imagen y respondé SOLO un JSON, sin explicación adicional: {"hasText": bool, "hasLogo": bool, "notes": "breve, en español"}.
 - "hasText": true si aparece CUALQUIER letra, palabra, número, título, cartel, código de cupón o tipografía visible en la foto, en cualquier idioma, sin importar cuán chica, borrosa o parcial.
-- "hasLogo": true SOLO si aparece un logo, isotipo o wordmark de MARCA COMERCIAL (inventada o real: por ejemplo un logo de ropa, de calzado, o cualquier isotipo tipo "sello de marca"). NO cuenta como logo: banderas nacionales (incluida la bandera Argentina con su sol), escudos patrios, ni símbolos religiosos, deportivos o culturales genéricos — esos SÍ pueden estar si el contexto de la escena los pide.` },
+- "hasLogo": true SOLO si aparece un logo, isotipo o wordmark de MARCA COMERCIAL (inventada o real: por ejemplo un logo de ropa, de calzado, o cualquier isotipo tipo "sello de marca"). NO cuenta como logo: banderas nacionales (incluida la bandera Argentina con su sol), escudos patrios, ni símbolos religiosos, deportivos o culturales genéricos — esos SÍ pueden estar si el contexto de la escena los pide.${brandingException}` },
           { inlineData: { data: img.buffer.toString('base64'), mimeType: img.mimeType } },
         ],
       }],
@@ -1465,7 +1472,9 @@ ${noTextNoLogoRule(strict)}
       const img = inlineImageFromResponse(data);
       if (!img) continue;
       spent += await logImageUsage('escena de producto');
-      const check = await checkImageQuality(img);
+      // La marca propia del producto (etiqueta Pampero/Ombú real) NO es motivo de
+      // descarte: sólo logos/texto agregados FUERA del producto.
+      const check = await checkImageQuality(img, { productHasBranding: true });
       if (!check.ok) {
         console.warn(`[ai] generateProductScene: descartada por control de calidad (texto=${check.hasText} logo=${check.hasLogo} ${check.notes || ''}), reintentando más estricto...`);
         learnFrom('image', 'global', `El modelo de imagen coló ${check.hasText ? 'texto' : 'un logo'} en una escena de producto (plata tirada): reforzar la regla anti-texto/anti-logo`, check.notes);
@@ -1543,7 +1552,8 @@ Aire limpio y desenfocado arriba y abajo para futura superposición tipográfica
       const img = inlineImageFromResponse(data);
       if (!img) continue;
       spent += await logImageUsage('estudio');
-      const check = await checkImageQuality(img);
+      // Productos reales con su marca puesta: la etiqueta propia no es descarte.
+      const check = await checkImageQuality(img, { productHasBranding: true });
       if (!check.ok) {
         console.warn(`[ai] generateStudioScene: descartada por control de calidad (texto=${check.hasText} logo=${check.hasLogo} ${check.notes || ''}), reintentando más estricto...`);
         continue;

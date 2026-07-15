@@ -246,15 +246,24 @@ function heroPhotoHtml({ bgImageUrl, productImageUrl, box, shadow = 'rgba(0,0,0,
   }
   if (productImageUrl) {
     if (darkBg) {
+      // SET DE ESTUDIO (fallback sin escena IA): ciclorama con degradado direccional
+      // (sin "caja blanca" plana), luz cenital, sombra de contacto en el piso y el
+      // producto GRANDE. Rediseñado por feedback real del dueño (jul-2026): la
+      // tarjeta anterior parecía "un cuadrado con el pantalón ahí".
       return {
         fullBleed: false,
         html: `<div style="position:absolute; top:${box.top}px; bottom:${box.bottom}px; left:${box.left}px; right:${box.right}px;
           display:flex; align-items:center; justify-content:center; z-index:1;
-          background:radial-gradient(circle at 50% 0%, #ffffff 0%, #f4f4f7 100%);
-          border:1px solid rgba(255,255,255,.35); border-radius:36px;
-          box-shadow:0 35px 80px rgba(0,0,0,.65), inset 0 2px 6px rgba(255,255,255,.9); padding:32px; overflow:hidden;">
-          <div style="position:absolute; top:0; left:15%; right:15%; height:4px; background:linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,.8) 50%, rgba(255,255,255,0) 100%);"></div>
-          <img src="${esc(productImageUrl)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 25px 40px rgba(0,0,0,.18)); mix-blend-mode:multiply; -webkit-mask-image:radial-gradient(circle at center, black 65%, transparent 98%); mask-image:radial-gradient(circle at center, black 65%, transparent 98%);"/>
+          background:
+            radial-gradient(140% 100% at 50% -20%, #ffffff 0%, #f2f4f7 40%, #e2e6ec 75%, #d3d8e0 100%);
+          border-radius:44px;
+          box-shadow:0 50px 100px rgba(0,0,0,.72), inset 0 2px 10px rgba(255,255,255,.95), inset 0 -24px 50px rgba(20,25,35,.10);
+          padding:38px 34px 54px; overflow:hidden;">
+          <!-- Haz de luz cenital de estudio -->
+          <div style="position:absolute; top:-12%; left:22%; right:22%; height:55%; background:radial-gradient(50% 60% at 50% 0%, rgba(255,255,255,.9) 0%, rgba(255,255,255,0) 100%); pointer-events:none;"></div>
+          <!-- Sombra de contacto en el piso del ciclorama -->
+          <div style="position:absolute; left:16%; right:16%; bottom:30px; height:34px; background:radial-gradient(50% 100% at 50% 100%, rgba(15,20,30,.22) 0%, rgba(15,20,30,0) 72%); filter:blur(7px); pointer-events:none;"></div>
+          <img src="${esc(productImageUrl)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 30px 48px rgba(10,15,25,.24)) saturate(1.04) contrast(1.02); mix-blend-mode:multiply; -webkit-mask-image:radial-gradient(circle at center, black 68%, transparent 99%); mask-image:radial-gradient(circle at center, black 68%, transparent 99%);"/>
         </div>`,
       };
     }
@@ -312,10 +321,16 @@ function buildFullbleedHtml(opts) {
   const footTop = isStory ? 330 : 175;
   const domainBottom = isStory ? 250 : 54;
   const heroTop = isStory ? 270 : 165;
-  const heroBottom = isStory ? 480 : 300;
+  // La tarjeta-estudio deja SIEMPRE aire libre abajo para el bloque de texto: con
+  // precio (bloque alto) o título de 2 líneas, el texto se montaba sobre la tarjeta.
+  const heroBottom = price ? (isStory ? 700 : 440) : (isStory ? 600 : 340);
 
+  // El layout con título ARRIBA sólo vale con foto A SANGRE (escena IA o foto real
+  // cover): con la tarjeta-estudio contenida —que arranca arriba— el título quedaba
+  // esquinado contra la tarjeta, casi cortado (feedback real del dueño, jul-2026).
+  const fullBleedCover = Boolean(bgImageUrl || (productImageUrl && opts.coverImage));
   const LAYOUTS = [{ a: 'left', v: 'bottom' }, { a: 'center', v: 'bottom' }, { a: 'left', v: 'top' }];
-  const L = price ? { a: 'left', v: 'bottom' } : LAYOUTS[(Number(opts.layoutSeed) || 0) % LAYOUTS.length];
+  const L = (price || !fullBleedCover) ? { a: 'left', v: 'bottom' } : LAYOUTS[(Number(opts.layoutSeed) || 0) % LAYOUTS.length];
   const footPos = L.v === 'top' ? `top:${footTop}px` : `bottom:${footBottom}px`;
 
   const hasPromo = price && promoPrice && Number(promoPrice) < Number(price);

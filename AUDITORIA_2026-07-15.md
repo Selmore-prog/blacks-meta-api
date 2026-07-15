@@ -74,6 +74,21 @@ El caption de una historia casi nadie lo ve. Ahora la pieza se cuenta sola: over
 - Render de historia con CTA + puntos + precio: completo, sin pisarse, y el QA visual lo aprueba ✓
 - `node --check` + cadena de requires ✓
 
+---
+
+# RONDA 3 (mismo día): FIX DE LA PIEZA FEA DEL SÁBADO 18 (feedback directo del dueño)
+
+La pieza "Pampero Cargo Slim Fit Elastizado" salió con el título esquinado casi cortado y "un cuadrado con el pantalón ahí". Tres causas, tres fixes:
+
+## 9. Colisión título/tarjeta en `fullbleed`
+El layout con título ARRIBA (una de las 3 variantes por seed) chocaba contra la tarjeta-hero cuando la pieza usaba foto de catálogo contenida (sin escena IA). Ahora ese layout sólo vale con foto a sangre; con tarjeta, el título va SIEMPRE abajo. Además la tarjeta reserva aire dinámicamente (más espacio si hay bloque de precio).
+
+## 10. Fallback sin IA rediseñado como SET DE ESTUDIO
+Cuando la escena IA no se genera (cuota 429, presupuesto, error), la pieza caía a una "caja blanca" plana. Ahora el fallback es un set de estudio: ciclorama con degradado direccional, haz de luz cenital, sombra de contacto en el piso y el producto GRANDE (verificado con la pieza real del sábado re-renderizada: pasa el QA visual).
+
+## 11. QA de imagen ya no descarta escenas por la marca PROPIA del producto
+`checkImageQuality` marcaba "logo detectado" cuando la prenda traía su etiqueta real (Pampero/Ombú) → descartaba escenas legítimas YA PAGADAS y la pieza caía al fallback. Ahora en escenas de producto (`productHasBranding: true`) la marca puesta EN el producto es fidelidad, no descarte; sólo se rechazan logos/textos agregados FUERA del producto. Aplica a `generateProductScene` y al Estudio.
+
 ## Para el deploy en Render
 
 1. `npm run migrate` corre solo si está en el build/start command (ya crea `qa_lessons`).
