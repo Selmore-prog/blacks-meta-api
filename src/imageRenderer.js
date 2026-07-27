@@ -899,11 +899,25 @@ function buildMagazineHtml(opts) {
   const g = sharedGeometry(opts.format);
   const accent = opts.accent || config.brand.colors.darkOrange;
   const img = opts.bgImageUrl || opts.productImageUrl;
-  // Sin foto y con puntos reales (storyPoints): checklist debajo del titular — la
-  // portada editorial queda con contenido útil en vez de aire muerto.
+  const hasImg = Boolean(img);
   const points = Array.isArray(opts.storyPoints) ? opts.storyPoints.filter(Boolean).slice(0, 3) : [];
-  const pointsHtml = !img && points.length
+  // Sin foto: checklist con datos reales debajo del titular (portada editorial con
+  // contenido útil en vez de aire muerto). Con foto, la foto llena el espacio.
+  const pointsHtml = !hasImg && points.length
     ? `<div style="margin-top:${g.isStory ? 48 : 34}px; max-width:${g.isStory ? '92%' : '80%'};">${pointsChecklistHtml(points, g, accent)}</div>`
+    : '';
+
+  // CON foto: layout editorial PARTIDO — texto a la izquierda, foto GRANDE a la derecha
+  // que llena de arriba a abajo (antes la foto iba chiquita abajo-derecha y dejaba un
+  // hueco negro enorme en el medio — el "mucho vacío" que reportó el dueño, jul-2026).
+  const imgW = Math.round(g.w * (g.isStory ? 0.48 : 0.44));
+  const imgLeft = g.w - g.padX - imgW;
+  const textW = hasImg ? (imgLeft - g.padX - 40) : (g.w - g.padX * 2);
+  const titleFont = hasImg ? (g.isStory ? 72 : 56) : (g.isStory ? 108 : 88);
+  const imgBlock = hasImg
+    ? `<div style="position:absolute; top:${g.wmTop + (g.isStory ? 170 : 130)}px; bottom:${g.footBottom}px; right:${g.padX}px; width:${imgW}px; border-radius:22px; overflow:hidden; box-shadow:0 30px 70px rgba(0,0,0,.55); border:2px solid rgba(255,255,255,.14); z-index:2;">
+        <img src="${esc(img)}" style="width:100%; height:100%; object-fit:cover;"/>
+      </div>`
     : '';
 
   return `${headHtml(g.w, g.h)}</head><body>
@@ -911,15 +925,13 @@ function buildMagazineHtml(opts) {
       <div style="position:absolute; top:-10%; left:-10%; width:120%; height:60%; background:radial-gradient(ellipse at 30% 20%, rgba(232,93,27,.16) 0%, rgba(0,0,0,0) 65%); z-index:0;"></div>
       ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: false, heightPx: logoHeightPx(g.isStory), top: g.wmTop, left: g.padX })}
       <div style="position:absolute; top:${g.wmTop}px; right:${g.padX}px; font-size:${g.isStory ? 20 : 18}px; font-weight:700; letter-spacing:3px; color:rgba(255,255,255,.55); z-index:4;">${esc((config.brand.instagram || '').toUpperCase())}</div>
-      <div style="position:absolute; top:${g.isStory ? 300 : 200}px; left:${g.padX}px; right:${g.padX}px; z-index:3;">
+      ${imgBlock}
+      <div style="position:absolute; top:${g.isStory ? 300 : 200}px; left:${g.padX}px; width:${textW}px; z-index:3;">
         <div style="font-size:${g.isStory ? 22 : 20}px; font-weight:800; letter-spacing:4px; color:${accent}; text-transform:uppercase; margin-bottom:18px;">${esc(opts.kicker || 'BLACKS INDUMENTARIA')}</div>
-        <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 108 : 88}px; line-height:.92; letter-spacing:-.5px; text-transform:uppercase; color:#fff; text-shadow:0 8px 40px rgba(0,0,0,.6);">${esc(opts.overlayTitle || '')}</div>
-        ${opts.bodyText ? `<div style="font-size:${g.isStory ? 30 : 26}px; font-weight:500; line-height:1.4; color:rgba(255,255,255,.8); margin-top:26px; max-width:80%;">${esc(opts.bodyText)}</div>` : ''}
+        <div style="font-family:'Anton',sans-serif; font-size:${titleFont}px; line-height:.94; letter-spacing:-.5px; text-transform:uppercase; color:#fff; text-shadow:0 8px 40px rgba(0,0,0,.6);">${esc(opts.overlayTitle || '')}</div>
+        ${opts.bodyText ? `<div style="font-size:${g.isStory ? 30 : 26}px; font-weight:500; line-height:1.4; color:rgba(255,255,255,.8); margin-top:26px; max-width:100%;">${esc(opts.bodyText)}</div>` : ''}
         ${pointsHtml}
       </div>
-      ${img ? `<div style="position:absolute; bottom:${g.footBottom}px; right:${g.padX}px; width:${g.isStory ? 300 : 260}px; height:${g.isStory ? 380 : 320}px; border-radius:18px; overflow:hidden; box-shadow:0 30px 60px rgba(0,0,0,.5); border:2px solid rgba(255,255,255,.15); z-index:2;">
-        <img src="${esc(img)}" style="width:100%; height:100%; object-fit:cover;"/>
-      </div>` : ''}
       ${domainHtml(g, { accent })}
     </div>
   </body></html>`;
