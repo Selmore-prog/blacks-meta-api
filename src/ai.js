@@ -1,5 +1,6 @@
 const config = require('./config');
 const { resizeImage } = require('./imageUtils');
+const { stripEmoji, fixSpelling } = require('./textUtils');
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
@@ -22,6 +23,7 @@ ESCRIBÍS EN ESPAÑOL ARGENTINO PROFESIONAL (formal pero cercano):
 - Sos la voz de una MARCA SERIA del rubro: profesional, clara y confiable. Argentino sí, pero SIN lunfardo ni jerga excesiva.
 - PROHIBIDO el lunfardo: "laburo", "laburante", "laburás", "pifiarla", "la banca", "canchero", "aguanta los trapos", "posta", "una masa", "de una". En su lugar: "trabajo", "quienes trabajan", "equivocarte", "resiste", "rinde".
 - Vocabulario correcto del rubro: "ropa de trabajo", "indumentaria laboral", "calzado de seguridad", "puntera de acero", "en cuotas", "por transferencia", "envío a todo el país", "retiro por el local", "presupuesto para tu empresa".
+- ORTOGRAFÍA: la tela del interior del buzo se escribe "frisa" / "algodón con frisa" (NUNCA "friza").
 - PLURALES DE MARCA: el tejido/tecnología NO se pluraliza. Correcto: "buzos polar", "camperas softshell". INCORRECTO: "buzos polares", "camperas softshells".
 - Tono: directo y concreto, sin vueltas. Le hablás a alguien que trabaja con las manos y valora la durabilidad y el rendimiento de su inversión. Nunca grandilocuente ni motivacional vacío. Profesional no significa acartonado: frases simples, cero solemnidad.
 
@@ -40,32 +42,39 @@ REGLA DE ORO — PROHIBIDO INVENTAR DATOS (romperla es el peor error posible, pe
 - Lo mismo con políticas concretas: plazos de devolución/cambio, envío gratis a partir de qué monto, cuotas sin interés, mínimos de compra mayorista, medios de pago. Si el dato está en "DATOS VERIFICADOS DE LA EMPRESA" usalo TAL CUAL viene (no lo redondees ni lo cambies); si no está ahí, no lo afirmes.
 - Ante la duda entre sonar más vendedor con un dato lindo pero no confirmado, y sonar más simple pero 100% cierto: SIEMPRE gana lo cierto.`;
 
-/** Reemplaza dominios viejos por el sitio actual en cualquier texto generado. */
+/** Reemplaza dominios viejos por el sitio actual y corrige la ortografía de marca. */
 function sanitizeText(text) {
   if (!text) return text;
   let out = String(text);
   for (const old of config.brand.oldSites || []) {
     out = out.replace(new RegExp(old.replace(/[.]/g, '\\.'), 'gi'), config.brand.site);
   }
-  return out;
+  return fixSpelling(out);
+}
+
+// Campos que se HORNEAN sobre la imagen: además de sanitizar, se les sacan los emojis
+// (el server no tiene fuente de emoji → salían como cuadraditos). El caption y los
+// hashtags NO pasan por acá: son texto de Instagram y ahí el emoji sí se ve bien.
+function sanitizeBurned(text) {
+  return stripEmoji(sanitizeText(text));
 }
 
 function sanitizeCopy(copy) {
   return {
-    overlay: sanitizeText(copy.overlay),
+    overlay: sanitizeBurned(copy.overlay),
     caption: sanitizeText(copy.caption),
     hashtags: sanitizeText(copy.hashtags),
-    cta: sanitizeText(copy.cta),
-    slides: (copy.slides || []).map((s) => ({ title: sanitizeText(s.title), text: sanitizeText(s.text) })),
+    cta: sanitizeBurned(copy.cta),
+    slides: (copy.slides || []).map((s) => ({ title: sanitizeBurned(s.title), text: sanitizeBurned(s.text) })),
     sticker: copy.sticker
       ? {
           type: copy.sticker.type,
-          question: sanitizeText(copy.sticker.question),
-          options: (copy.sticker.options || []).map(sanitizeText),
+          question: sanitizeBurned(copy.sticker.question),
+          options: (copy.sticker.options || []).map(sanitizeBurned),
           correct_index: copy.sticker.correct_index,
         }
       : null,
-    story_points: (copy.story_points || []).map(sanitizeText),
+    story_points: (copy.story_points || []).map(sanitizeBurned),
     template: copy.template || null,
   };
 }
@@ -197,7 +206,7 @@ La pregunta y las opciones tienen que ser concretas y fáciles de contestar en 2
   // imprime sobre la historia (chips). Nada inventado: salen del contexto de arriba.
   const wantStoryPoints = format === 'story' && postType !== 'reel';
   const storyPointsSpec = wantStoryPoints
-    ? `\n\nPUNTOS DE LA HISTORIA (obligatorio): devolvé también "story_points": 2 o 3 puntos CORTÍSIMOS (máx ~4 palabras cada uno) que se imprimen SOBRE la imagen de la historia como texto. Son la información clave que el espectador tiene que llevarse en 3 segundos: beneficios/condiciones/datos REALES tomados SOLO del contexto de esta pieza (producto, condiciones mayoristas, datos verificados). Ej: ["Mínimo 10 unidades", "Personalización con logo", "Envío gratis al país"]. PROHIBIDO inventar datos y PROHIBIDO repetir textual el overlay.`
+    ? `\n\nPUNTOS DE LA HISTORIA (obligatorio): devolvé también "story_points": 2 o 3 puntos CORTÍSIMOS (máx ~4 palabras cada uno) que se imprimen SOBRE la imagen de la historia como texto. Son la información clave que el espectador tiene que llevarse en 3 segundos: beneficios/condiciones/datos REALES tomados SOLO del contexto de esta pieza (producto, condiciones mayoristas, datos verificados). Ej: ["Mínimo 10 unidades", "Personalización con logo", "Envío gratis al país"]. PROHIBIDO inventar datos y PROHIBIDO repetir textual el overlay. SIN emojis ni íconos (se imprimen como texto y los emojis no se ven).`
     : '';
   const commercial = commercialContext
     ? `\n\nCALENDARIO COMERCIAL CERCANO:\n${commercialContext}\nSi alguna fecha encaja con el producto/pilar, usala como ángulo de venta natural. Si queda forzada, ignorala.`
@@ -686,6 +695,20 @@ function sceneVariation(seed = null) {
 - LUZ de esta pieza: ${v.luz}.
 - CÁMARA/ENCUADRE de esta pieza: ${v.camara}.`;
   return v;
+}
+
+/**
+ * Reglas de realismo y dinámica para las escenas de imagen. Buscan el look editorial
+ * "con vida" que pidió el dueño (foto real, no render), respetando la fidelidad del
+ * producto y sin reconstruir caras (regla que evita los morphs de modelo inventado).
+ */
+function photoRealismRules() {
+  return `REALISMO FOTOGRÁFICO Y DINÁMICA (que se sienta una FOTO real de campaña, no un render 3D):
+- Textura auténtica: si hay piel, con poros y micro-relieve real; la tela con fibras, frisa y caída natural del tejido; grano de película sutil (Kodak Portra). NADA de acabado plástico/CGI ni "piel de cera".
+- Luz creíble e imperfecta: una fuente principal coherente, sombras suaves reales, y —si el escenario lo pide— un leve flare, halo o polvo en suspensión. Evitá la luz plana de catálogo muerto.
+- ENERGÍA Y MOVIMIENTO: buscá una toma con vida — un pliegue de tela en movimiento, una pose natural a medio gesto, peso real sobre el cuerpo o la superficie. Dinámica y con profundidad, NUNCA un maniquí rígido ni acartonado.
+- PRENDA PUESTA vs SUELTA: si la referencia muestra la prenda VESTIDA sobre una persona, mantené ese enfoque editorial (prenda puesta, caída real), encuadrando de los hombros/torso hacia abajo o de 3/4 de espaldas — NUNCA muestres ni reconstruyas la CARA (recortá por encima del mentón o dejala totalmente fuera de cuadro/foco). Si la referencia es la prenda SUELTA (sin persona), NO inventes una persona ni un modelo: quedate en bodegón/estudio.
+- Referencia de estilo: lookbook editorial premium (Carhartt / Zara / Nike), dinámico y creíble.`;
 }
 
 /**
@@ -1335,7 +1358,7 @@ ${photosBlock}
 CÓMO DECIDIR (pensalo como un profesional, en este orden):
 1. ¿El ángulo nombra o gira alrededor de un DETALLE puntual (suela, puntera, costura, bordado, tela, etiqueta)? → buscá la foto que MUESTRA ese detalle y armá shot_type "detalle" con focus en eso, respaldado por la ficha real. Si NINGUNA foto lo muestra, NO fuerces el detalle: hero del producto entero.
 2. ¿El ángulo es de uso/contexto (obra, taller, clima)? → "contexto" con la foto más natural.
-3. ¿Es presentación/venta general? → "hero" con la foto que mejor presenta el producto ENTERO (frontal o 3/4, el color con mejor foto).
+3. ¿Es presentación/venta general? → "hero" con la foto que mejor presenta el producto ENTERO (frontal o 3/4, el color con mejor foto). Si es una PRENDA y hay una foto donde se ve PUESTA/con caída real, preferila (queda más editorial y con vida que la prenda colgada plana).
 4. "background": "limpio" (estudio) para producto/promo/mayorista; "sutil" para detalle; "contexto" sólo si el ángulo lo pide.
 5. "overlay": QUÉ diría un titular de máx ~5 palabras sobre LO QUE SE VE en esa foto, con datos reales (voseo argentino). Es un respaldo: si no aporta, null.
 6. "badge": "OFERTA" sólo si el ángulo habla de una oferta real; "NUEVO" sólo si habla de lanzamiento; si no, null.
@@ -1447,6 +1470,8 @@ ${shotDirection(shotSpec, scene)}
 - Color grading premium: ciencia de color Kodak Portra 400, con acentos naranja quemado (#C1440C) sutiles.
 ${brandStyle && allowScenery ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
 
+${photoRealismRules()}
+
 REALISMO Y PRESERVACIÓN ESTRUCTURAL (PRODUCT-IN-CONTEXT):
 - PROHIBIDO generar alucinaciones visuales, deformaciones de la puntera/suela, o cambios en las letras y etiquetas del packaging/producto original.
 - Imperfecciones creíbles en el entorno (no en el producto): profundidad de campo suave con fondo desenfocado (bokeh) para resaltar la figura del producto.
@@ -1536,6 +1561,8 @@ ${scene.describe()}
 - Lente Hasselblad 85mm prime lens f/1.8, enfoque selectivo milimétrico en las texturas del tejido y cuero, profundidad de campo con bokeh arquitectónico en el fondo.
 - Color grading premium: Kodak Portra 400, base sobria con acentos naranja quemado (#C1440C) sutiles.
 - REALISMO ANTI-IA: Imperfecciones creíbles en el entorno (desgaste en piso o herramientas), una sola fuente de luz coherente. Manos anatómicamente perfectas si aparecen.
+
+${photoRealismRules()}
 
 ${noTextNoLogoRule(strict)}
 Aire limpio y desenfocado arriba y abajo para futura superposición tipográfica.`;
@@ -1884,9 +1911,65 @@ ${videoRealismRules()}
   };
 }
 
+/**
+ * "Corregir la historia": el usuario describe UNA corrección puntual sobre una pieza YA
+ * generada; el cerebro devuelve el set corregido de los textos que se imprimen, cambiando
+ * SÓLO lo pedido y dejando el resto idéntico. No toca la foto (la escena se reusa aparte).
+ * current = { overlayTitle, storyPoints[], cta, badge, hasPrice }.
+ */
+async function parseCorrection({ instruction, current = {}, caption = '', pillar = '' }) {
+  const points = Array.isArray(current.storyPoints) ? current.storyPoints : [];
+  const system = 'Sos editor de una pieza de Instagram YA diseñada de BLACKS (indumentaria de trabajo argentina, voseo). El usuario pide UNA corrección puntual. Respondés SOLO JSON con el set corregido de textos, cambiando EXCLUSIVAMENTE lo que el usuario pide y dejando TODO lo demás EXACTAMENTE IGUAL. Nunca inventás datos ni precios.';
+  const prompt = `TEXTOS ACTUALES DE LA PIEZA (los que se ven impresos sobre la imagen):
+- titulo (overlay): ${JSON.stringify(current.overlayTitle || '')}
+- puntos (chips): ${JSON.stringify(points)}
+- boton (cta): ${JSON.stringify(current.cta || '')}
+- badge/sello: ${JSON.stringify(current.badge || '')}
+- ¿muestra precio?: ${current.hasPrice ? 'sí' : 'no'}${pillar ? `\n- pilar: ${pillar}` : ''}${caption ? `\n- caption (texto de IG, secundario): ${JSON.stringify(String(caption).slice(0, 200))}` : ''}
+
+PEDIDO DEL USUARIO (la ÚNICA corrección a aplicar): "${String(instruction).slice(0, 400)}"
+
+REGLAS:
+- Devolvé cada campo con su valor FINAL. Los campos que el pedido NO menciona los devolvés IDÉNTICOS carácter por carácter (mismo texto, mismo orden, misma cantidad de puntos, mismos signos $ / paréntesis / mayúsculas). PROHIBIDO reformatear, acortar o "mejorar" un texto que el usuario no mencionó.
+- Cambiá EXCLUSIVAMENTE lo que el pedido nombra. Si el pedido toca UN punto de la lista, los demás puntos vuelven exactamente igual.
+- Voseo argentino, sin emojis, sin inventar datos ni precios.
+- Si es corregir una palabra/ortografía, cambiala donde aparezca en esos textos.
+- Si el pedido pide sacar/ocultar el precio, poné "hide_price": true (si no, false).
+- "targets_photo": true SÓLO si el pedido es sobre la FOTO en sí (fondo, escena, color de la prenda, recorte) y no sobre un texto.
+- "note": 1 frase corta en español diciendo qué corregiste.
+
+Devolvé SOLO este JSON:
+{"overlayTitle":"...","story_points":["..."],"cta":"...","badge":"...","hide_price":false,"targets_photo":false,"note":"..."}`;
+  const schema = {
+    type: 'object',
+    properties: {
+      overlayTitle: { type: 'string', nullable: true },
+      story_points: { type: 'array', items: { type: 'string' } },
+      cta: { type: 'string', nullable: true },
+      badge: { type: 'string', nullable: true },
+      hide_price: { type: 'boolean' },
+      targets_photo: { type: 'boolean' },
+      note: { type: 'string' },
+    },
+    required: ['note'],
+  };
+  const s = await generateJson({ system, prompt, schema, maxTokens: 700, temperature: 0.1 });
+  if (!s || typeof s !== 'object') throw new Error('No pude interpretar la corrección. Probá reformulando el pedido.');
+  return {
+    overlayTitle: 'overlayTitle' in s ? (s.overlayTitle || null) : undefined,
+    storyPoints: Array.isArray(s.story_points) ? s.story_points : undefined,
+    cta: 'cta' in s ? (s.cta || null) : undefined,
+    badge: 'badge' in s ? (s.badge || null) : undefined,
+    hidePrice: s.hide_price === true,
+    targetsPhoto: s.targets_photo === true,
+    note: s.note ? String(s.note).slice(0, 160) : '',
+  };
+}
+
 module.exports = {
   generateCopy,
   generateJson,
+  parseCorrection,
   generateBackground,
   generateProductScene,
   planCarouselShots,

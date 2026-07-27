@@ -2,6 +2,7 @@ const puppeteer = require('puppeteer');
 const config = require('./config');
 const { uploadAsset } = require('./storage');
 const { generateBackground, generateProductScene, generateDiagram } = require('./ai');
+const { stripEmoji, fixSpelling } = require('./textUtils');
 
 const DIMS = {
   feed: { w: 1080, h: 1350 },   // 4:5
@@ -64,10 +65,15 @@ function formatPrice(price) {
 }
 
 function esc(s) {
-  return String(s || '')
+  return stripEmoji(String(s || ''))
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
     .replace(/>/g, '&gt;');
+}
+
+/** Ícono de rayo vectorial (reemplaza el emoji ⚡, que salía como cuadradito). */
+function boltSvg(color = '#FF8B4D', size = 26) {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="${color}" style="display:inline-block; vertical-align:middle; flex:0 0 auto;"><path d="M13 2L4.5 13.2c-.4.5 0 1.3.7 1.3H11l-1.2 7.2c-.1.8.9 1.2 1.4.6L20 11.1c.4-.5 0-1.3-.7-1.3H14l1.1-6.9c.1-.8-.9-1.2-1.4-.6z"/></svg>`;
 }
 
 /* =========================================================================
@@ -135,7 +141,7 @@ function extractSpecTags(description, max = 3) {
   const featureWords = /(cuero|acero|algod[oó]n|poli[eé]ster|impermeable|transpirable|reforzad|resistente|antideslizante|certificad|t[eé]rmic|softshell|grafa|ripstop|cordura|costura|puntera|antiest[aá]tic|diel[eé]ctric)/i;
   const featured = parts.filter((p) => featureWords.test(p));
   const rest = parts.filter((p) => !featureWords.test(p));
-  return [...featured, ...rest].slice(0, max);
+  return [...featured, ...rest].slice(0, max).map((p) => fixSpelling(p));
 }
 
 function sharedGeometry(format) {
@@ -167,10 +173,10 @@ function headHtml(w, h) {
  * Acepta el par {logoOnLight, logoOnDark} (selección automática) o un logoUrl único
  * (compat vieja, sin distinción de fondo).
  */
-function brandMarkHtml(logos, { dark = false, heightPx = 64 } = {}) {
+function brandMarkHtml(logos, { dark = false, heightPx = 104 } = {}) {
   const logoUrl = typeof logos === 'string' ? logos : (dark ? logos?.onLight : logos?.onDark) || logos?.fallback;
   if (logoUrl) {
-    return `<img class="logo" style="height:${heightPx}px; max-width:68%; object-fit:contain;
+    return `<img class="logo" style="height:${heightPx}px; max-width:74%; object-fit:contain;
       filter:drop-shadow(0 1px 2px ${dark ? 'rgba(0,0,0,.25)' : 'rgba(255,255,255,.35)'}) drop-shadow(0 4px 12px ${dark ? 'rgba(255,255,255,.2)' : 'rgba(0,0,0,.55)'});" src="${esc(logoUrl)}" alt="BLACKS"/>`;
   }
   return `<div style="font-family:'Anton',sans-serif; font-size:${Math.round(heightPx * 0.62)}px; letter-spacing:8px; color:${dark ? '#111' : '#fff'};">BLACKS</div>`;
@@ -200,6 +206,11 @@ function couponTag(code, { isStory, marginTop = 22 } = {}) {
     <span style="font-family:'Anton',sans-serif; font-size:${isStory ? 46 : 40}px; letter-spacing:2px; color:#141416;">${esc(code)}</span>
   </div>`;
 }
+
+// Alto del logo esquinado. Se agrandó (antes 92/76) porque el dueño lo veía "casi
+// imperceptible" arriba a la izquierda. Fuente única para que TODAS las plantillas
+// lo muestren del mismo tamaño y bien visible.
+function logoHeightPx(isStory) { return isStory ? 128 : 104; }
 
 /** Logo/wordmark esquinado arriba-izquierda (posición común entre plantillas). */
 function cornerBrand(logos, { showBrand, dark, heightPx, top, left }) {
@@ -373,7 +384,7 @@ function buildFullbleedHtml(opts) {
       ${hasPromo ? `<div class="pheader"><span class="antes">$${formatPrice(price)}</span><span class="off">-${off}% OFF</span></div>` : ''}
       <div class="lbl">${hasPromo ? 'AHORA' : 'PRECIO'}</div>
       <div class="now">$${formatPrice(now)}</div>
-      ${transfer ? `<div class="transfer"><span class="lightning">⚡</span> ${esc(transfer)}</div>` : ''}
+      ${transfer ? `<div class="transfer">${boltSvg('#FF8B4D', 26)} ${esc(transfer)}</div>` : ''}
     </div>${!hasCover ? pointsBlock : ''}${couponHtml}`;
   } else if (overlayTitle) {
     content = `${pointsLine}<div class="headline">${esc(overlayTitle)}</div>${pointsBlock}${couponHtml}`;
@@ -417,9 +428,9 @@ function buildFullbleedHtml(opts) {
       radial-gradient(circle at 50% 40%, rgba(0,0,0,0) 40%, rgba(0,0,0,.45) 100%),
       linear-gradient(to bottom, rgba(0,0,0,.65) 0%, rgba(0,0,0,0) 25%, rgba(0,0,0,0) 55%, rgba(10,10,12,.88) 100%); }
     .wm { position:absolute; top:${wmTop}px; left:${padX}px; display:flex; justify-content:flex-start; z-index:4; }
-    .wordmark { font-family:'Anton',sans-serif; font-size:${isStory ? 48 : 42}px; letter-spacing:8px;
+    .wordmark { font-family:'Anton',sans-serif; font-size:${isStory ? 64 : 54}px; letter-spacing:8px;
       color:#fff; text-shadow:0 4px 20px rgba(0,0,0,.8); }
-    .logo { height:${isStory ? 92 : 76}px; max-width:56%; object-fit:contain;
+    .logo { height:${logoHeightPx(isStory)}px; max-width:64%; object-fit:contain;
       filter:drop-shadow(0 1px 2px rgba(255,255,255,.3)) drop-shadow(0 4px 16px rgba(0,0,0,.7)); }
     /* Badge editorial metálico/naranja */
     .badge { position:absolute; top:${wmTop}px; right:${padX}px; background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); color:#fff;
@@ -508,7 +519,7 @@ function buildMinimalHtml(opts) {
       ${!hero.fullBleed ? `<div style="position:absolute; top:280px; left:50%; transform:translateX(-50%); width:650px; height:650px; background:radial-gradient(circle, rgba(232,93,27,.11) 0%, rgba(255,255,255,0) 65%); pointer-events:none; z-index:0;"></div>` : ''}
       ${hero.html}
       ${hero.fullBleed ? scrimHtml({ dark: true }) : ''}
-      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: !hero.fullBleed, heightPx: g.isStory ? 92 : 76, top: g.wmTop, left: g.padX })}
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: !hero.fullBleed, heightPx: logoHeightPx(g.isStory), top: g.wmTop, left: g.padX })}
       ${opts.badgeText ? badgeTag(opts.badgeText, { accent, top: g.wmTop, right: g.padX }) : ''}
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
         ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 76 : 64}px; line-height:.96; text-transform:uppercase; color:${hero.fullBleed ? '#fff' : '#111113'}; max-width:94%; letter-spacing:.5px; ${hero.fullBleed ? 'text-shadow:0 4px 20px rgba(0,0,0,.7);' : 'text-shadow:0 2px 10px rgba(0,0,0,.04);'}">${esc(opts.overlayTitle)}</div>` : ''}
@@ -540,7 +551,7 @@ function buildPromoHtml(opts) {
       <span style="background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); color:#fff; font-family:'Anton',sans-serif; font-size:${g.isStory ? 54 : 46}px; padding:6px 24px; border-radius:14px; box-shadow:0 12px 30px rgba(232,93,27,.5); border:1px solid rgba(255,255,255,.3); transform:rotate(-2deg);">-${off}% OFF</span>
     </div>` : ''}
     <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 132 : 112}px; color:#fff; line-height:.86; letter-spacing:-2px; text-shadow:0 6px 35px rgba(0,0,0,.8);">$${formatPrice(now)}</div>
-    ${transfer ? `<div style="font-size:22px; font-weight:600; letter-spacing:1px; color:rgba(255,255,255,.92); margin-top:16px; max-width:560px; display:flex; align-items:center; gap:8px;"><span style="color:#FF8B4D;">⚡</span> ${esc(transfer)}</div>` : ''}`
+    ${transfer ? `<div style="font-size:22px; font-weight:600; letter-spacing:1px; color:rgba(255,255,255,.92); margin-top:16px; max-width:560px; display:flex; align-items:center; gap:8px;">${boltSvg('#FF8B4D', 26)} ${esc(transfer)}</div>` : ''}`
     : (opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 88 : 74}px; line-height:.94; text-transform:uppercase; color:#fff; text-shadow:0 4px 26px rgba(0,0,0,.8);">${esc(opts.overlayTitle)}</div>` : '');
 
   return `${headHtml(g.w, g.h)}</head><body>
@@ -557,7 +568,7 @@ function buildPromoHtml(opts) {
         radial-gradient(90% 60% at 78% 18%, rgba(232,93,27,.35) 0%, rgba(232,93,27,0) 60%),
         radial-gradient(120% 80% at 20% 100%, rgba(232,93,27,.16) 0%, rgba(0,0,0,0) 55%); pointer-events:none;"></div>`}
       <div style="position:absolute; top:0; left:0; right:0; height:16px; background:linear-gradient(90deg, #FF6B1A 0%, #C1440C 100%); box-shadow:0 0 25px rgba(232,93,27,.6); z-index:4;"></div>
-      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: false, heightPx: g.isStory ? 92 : 76, top: g.wmTop, left: g.padX })}
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: false, heightPx: logoHeightPx(g.isStory), top: g.wmTop, left: g.padX })}
       ${badgeTag(opts.badgeText || 'OFERTA', { accent, top: g.wmTop, right: g.padX })}
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
         ${opts.overlayTitle && opts.price ? `<div style="font-size:${g.isStory ? 34 : 30}px; font-weight:800; letter-spacing:3px; text-transform:uppercase; color:#FF8B4D; margin-bottom:14px; text-shadow:0 2px 10px rgba(0,0,0,.6);">${esc(opts.overlayTitle)}</div>` : ''}
@@ -585,7 +596,7 @@ function buildEducativoHtml(opts) {
           linear-gradient(180deg, rgba(10,10,12,.88) 0%, rgba(10,10,12,.38) 45%, rgba(10,10,12,.94) 100%);"></div>
         <div style="position:absolute; top:0; left:0; bottom:0; width:16px; background:linear-gradient(180deg, #FF6B1A 0%, #C1440C 100%); box-shadow:0 0 25px rgba(232,93,27,.6); z-index:4;"></div>
         <div style="position:absolute; top:${g.wmTop}px; left:${g.padX + 24}px; display:flex; align-items:center; gap:16px; z-index:4;">
-          ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: false, heightPx: g.isStory ? 92 : 76 }) : ''}
+          ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: false, heightPx: logoHeightPx(g.isStory) }) : ''}
         </div>
         <div style="position:absolute; top:${g.isStory ? 340 : 220}px; left:${g.padX + 24}px; right:${g.padX}px; z-index:3;">
           <div style="display:inline-flex; align-items:center; gap:10px; background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); color:#fff; font-weight:800; font-size:${g.isStory ? 22 : 20}px; letter-spacing:3px; text-transform:uppercase; padding:10px 24px; border-radius:100px; box-shadow:0 8px 24px rgba(232,93,27,.45); margin-bottom:26px;"><span style="width:8px;height:8px;border-radius:50%;background:#fff;"></span> ${esc(opts.kicker || 'PARA SABER')}</div>
@@ -604,7 +615,7 @@ function buildEducativoHtml(opts) {
       <div style="position:absolute; top:350px; left:50%; transform:translateX(-50%); width:650px; height:650px; background:radial-gradient(circle, rgba(232,93,27,.12) 0%, rgba(255,255,255,0) 65%); pointer-events:none; z-index:0;"></div>
       <div style="position:absolute; top:0; left:0; bottom:0; width:16px; background:linear-gradient(180deg, #FF6B1A 0%, #C1440C 100%); box-shadow:0 0 25px rgba(232,93,27,.4); z-index:4;"></div>
       <div style="position:absolute; top:${g.wmTop}px; left:${g.padX + 24}px; display:flex; align-items:center; gap:16px; z-index:4;">
-        ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: true, heightPx: g.isStory ? 92 : 76 }) : ''}
+        ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: true, heightPx: logoHeightPx(g.isStory) }) : ''}
       </div>
       <div style="position:absolute; top:${g.isStory ? 280 : 180}px; left:${g.padX + 24}px; right:${g.padX}px; z-index:3;">
         <div style="display:inline-flex; align-items:center; gap:10px; background:#111113; color:#fff; font-weight:800; font-size:${g.isStory ? 22 : 20}px; letter-spacing:3px; text-transform:uppercase; padding:10px 24px; border-radius:100px; box-shadow:0 12px 28px rgba(0,0,0,.15); margin-bottom:24px;"><span style="width:8px;height:8px;border-radius:50%;background:${accent}; box-shadow:0 0 10px ${accent};"></span> ${esc(opts.kicker || 'PARA SABER')}</div>
@@ -647,7 +658,7 @@ function buildMayoristaHtml(opts) {
       <div style="position:absolute; top:350px; left:50%; transform:translateX(-50%); width:650px; height:650px; background:radial-gradient(circle, rgba(232,93,27,.18) 0%, rgba(0,0,0,0) 65%); pointer-events:none; z-index:0;"></div>`;
   const chrome = `
       <div style="position:absolute; top:0; left:0; right:0; height:16px; background:linear-gradient(90deg, #FF6B1A 0%, #C1440C 100%); box-shadow:0 0 25px rgba(232,93,27,.6); z-index:4;"></div>
-      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: false, heightPx: g.isStory ? 92 : 76, top: g.wmTop, left: g.padX })}
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: false, heightPx: logoHeightPx(g.isStory), top: g.wmTop, left: g.padX })}
       <div style="position:absolute; top:${g.wmTop}px; right:${g.padX}px; background:rgba(232,93,27,.15); border:1.5px solid ${accent}; color:${accent}; font-weight:800; font-size:18px; padding:10px 22px; border-radius:100px; text-transform:uppercase; letter-spacing:3px; box-shadow:0 8px 24px rgba(232,93,27,.3); z-index:4;">MAYORISTA</div>`;
   const ctaBtn = `<div style="display:inline-flex; align-items:center; gap:14px; background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); color:#fff; font-weight:800; font-size:${g.isStory ? 32 : 28}px; letter-spacing:2px; padding:18px 38px; border-radius:100px; text-transform:uppercase; box-shadow:0 15px 35px rgba(232,93,27,.5); border:1px solid rgba(255,255,255,.28);">PEDÍ TU PRESUPUESTO <span style="font-size:26px;">→</span></div>`;
 
@@ -716,7 +727,7 @@ function buildGridHtml(opts) {
     <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#111113; overflow:hidden;
       background:radial-gradient(130% 100% at 50% 0%, #ffffff 0%, #f0f0f4 55%, #e2e2e8 100%);">
       ${cellsHtml}
-      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: g.isStory ? 92 : 76, top: g.wmTop, left: g.padX })}
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: logoHeightPx(g.isStory), top: g.wmTop, left: g.padX })}
       ${opts.badgeText ? badgeTag(opts.badgeText, { accent, top: g.wmTop, right: g.padX }) : ''}
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; top:${headTop}px; z-index:4;">
         ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 60 : 48}px; line-height:.98; text-transform:uppercase; color:#111113; max-width:90%; letter-spacing:.5px;">${esc(opts.overlayTitle)}</div>` : ''}
@@ -751,7 +762,7 @@ function buildOverlapHtml(opts) {
     <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#111113; overflow:hidden;
       background:radial-gradient(130% 100% at 50% 0%, #ffffff 0%, #eeeef1 55%, #dfdfe6 100%);">
       <div style="position:absolute; top:38%; left:-8%; width:116%; text-align:center; font-family:'Anton',sans-serif; font-size:${g.isStory ? 200 : 160}px; color:rgba(0,0,0,.03); letter-spacing:16px; transform:rotate(-9deg); pointer-events:none; z-index:0;">BLACKS</div>
-      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: g.isStory ? 92 : 76, top: g.wmTop, left: g.padX })}
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: logoHeightPx(g.isStory), top: g.wmTop, left: g.padX })}
       ${opts.badgeText ? badgeTag(opts.badgeText, { accent, top: g.wmTop, right: g.padX }) : ''}
       ${cards}
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:5;">
@@ -792,7 +803,7 @@ function buildSpecsheetHtml(opts) {
   return `${headHtml(g.w, g.h)}</head><body>
     <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#111113; overflow:hidden;
       background:radial-gradient(130% 100% at 50% 0%, #ffffff 0%, #f2f2f6 55%, #e5e5eb 100%);">
-      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: g.isStory ? 92 : 76, top: g.wmTop, left: g.padX })}
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: logoHeightPx(g.isStory), top: g.wmTop, left: g.padX })}
       <div style="position:absolute; top:${headTop}px; left:${g.padX}px; right:${g.padX}px; z-index:3;">
         <div style="display:inline-flex; align-items:center; gap:10px; background:#111113; color:#fff; font-weight:800; font-size:${g.isStory ? 20 : 18}px; letter-spacing:3px; text-transform:uppercase; padding:9px 20px; border-radius:100px; margin-bottom:20px;">
           <span style="width:8px;height:8px;border-radius:50%;background:${accent};"></span> FICHA TÉCNICA
@@ -841,7 +852,7 @@ function buildSplitscreenHtml(opts) {
         </div>` : ''}
         ${couponTag(opts.couponCode, { isStory: g.isStory })}
       </div>
-      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: false, heightPx: g.isStory ? 84 : 68, top: g.wmTop, left: g.padX })}
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: false, heightPx: logoHeightPx(g.isStory), top: g.wmTop, left: g.padX })}
       ${opts.badgeText ? badgeTag(opts.badgeText, { accent, top: g.wmTop, right: g.padX }) : ''}
       ${domainHtml(g, { accent })}
     </div>
@@ -868,7 +879,7 @@ function buildBlueprintHtml(opts) {
     <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#111113; overflow:hidden; background:#fafafa;">
       <div style="position:absolute; inset:0; background:${gridBg}; z-index:0;"></div>
       ${corners}
-      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: g.isStory ? 86 : 70, top: g.wmTop, left: g.padX })}
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: logoHeightPx(g.isStory), top: g.wmTop, left: g.padX })}
       <div style="position:absolute; top:${g.wmTop}px; right:${g.padX}px; font-family:'Inter',monospace; font-size:${g.isStory ? 18 : 16}px; font-weight:700; letter-spacing:2px; color:#9a9aa0; z-index:4;">FIG. ${String((Number(opts.layoutSeed) || 1) % 20 + 1).padStart(2, '0')}</div>
       <div style="position:absolute; top:${g.isStory ? 260 : 180}px; left:${g.padX + 20}px; right:${g.padX + 20}px; z-index:3;">
         <div style="display:inline-flex; align-items:center; gap:10px; border:1.5px solid #111113; color:#111113; font-weight:800; font-size:${g.isStory ? 20 : 18}px; letter-spacing:3px; text-transform:uppercase; padding:8px 20px; margin-bottom:22px;">${esc(opts.kicker || 'GUÍA TÉCNICA')}</div>
@@ -898,7 +909,7 @@ function buildMagazineHtml(opts) {
   return `${headHtml(g.w, g.h)}</head><body>
     <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#fff; overflow:hidden; background:#0d0d0f;">
       <div style="position:absolute; top:-10%; left:-10%; width:120%; height:60%; background:radial-gradient(ellipse at 30% 20%, rgba(232,93,27,.16) 0%, rgba(0,0,0,0) 65%); z-index:0;"></div>
-      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: false, heightPx: g.isStory ? 86 : 70, top: g.wmTop, left: g.padX })}
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: false, heightPx: logoHeightPx(g.isStory), top: g.wmTop, left: g.padX })}
       <div style="position:absolute; top:${g.wmTop}px; right:${g.padX}px; font-size:${g.isStory ? 20 : 18}px; font-weight:700; letter-spacing:3px; color:rgba(255,255,255,.55); z-index:4;">${esc((config.brand.instagram || '').toUpperCase())}</div>
       <div style="position:absolute; top:${g.isStory ? 300 : 200}px; left:${g.padX}px; right:${g.padX}px; z-index:3;">
         <div style="font-size:${g.isStory ? 22 : 20}px; font-weight:800; letter-spacing:4px; color:${accent}; text-transform:uppercase; margin-bottom:18px;">${esc(opts.kicker || 'BLACKS INDUMENTARIA')}</div>
@@ -946,7 +957,7 @@ function buildStackedcardsHtml(opts) {
   return `${headHtml(g.w, g.h)}</head><body>
     <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#111113; overflow:hidden;
       background:radial-gradient(130% 100% at 50% 0%, #f4f4f6 0%, #e8e8ee 100%);">
-      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: g.isStory ? 84 : 68, top: g.wmTop, left: g.padX })}
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: logoHeightPx(g.isStory), top: g.wmTop, left: g.padX })}
       ${opts.overlayTitle && opts.productImageUrl ? `<div style="position:absolute; top:${g.wmTop + 12}px; left:${g.padX + 200}px; right:${g.padX}px; text-align:right; font-family:'Anton',sans-serif; font-size:${g.isStory ? 36 : 30}px; text-transform:uppercase; color:#111113; z-index:2;">${esc(opts.overlayTitle)}</div>` : ''}
       ${bigCard}
       ${card2}
@@ -979,7 +990,7 @@ function buildPolaroidStripHtml(opts) {
   return `${headHtml(g.w, g.h)}</head><body>
     <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#111113; overflow:hidden;
       background:radial-gradient(130% 100% at 50% 0%, #f4f4f6 0%, #e2e2e8 100%);">
-      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: 88, top: g.wmTop, left: g.padX })}
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: logoHeightPx(true), top: g.wmTop, left: g.padX })}
       ${opts.overlayTitle ? `<div style="position:absolute; top:${g.wmTop + 6}px; left:${g.padX + 200}px; right:${g.padX}px; text-align:right; font-family:'Anton',sans-serif; font-size:30px; text-transform:uppercase; color:#111113; z-index:4;">${esc(opts.overlayTitle)}</div>` : ''}
       ${frames}
       ${domainHtml(g, { dark: true, accent })}
@@ -1099,4 +1110,4 @@ async function renderPostImage(options) {
   return url;
 }
 
-module.exports = { renderPostImage, renderPostBuffer, buildHtml, DIMS, TEMPLATES, TEMPLATE_INFO, TEMPLATE_REQUIREMENTS };
+module.exports = { renderPostImage, renderPostBuffer, buildHtml, DIMS, TEMPLATES, TEMPLATE_INFO, TEMPLATE_REQUIREMENTS, stripEmoji, fixSpelling };

@@ -842,6 +842,55 @@ function openPreview(item) {
       });
     }
   }
+
+  // Pieza SIMPLE (no carrusel): botón para corregir con lenguaje natural sólo lo pedido,
+  // reusando la misma imagen (no toca el resto). Reels quedan afuera (su imagen es base).
+  if (item.asset_id && (!slides || slides.length <= 1) && img && !isReel) {
+    const box = overlay.querySelector('.preview-box');
+    box.insertAdjacentHTML('beforeend',
+      `<div class="slide-fix-bar"><button class="btn-ghost btn-sm piece-fix-btn">${icon('wand')} Corregir la historia</button></div>`);
+    box.querySelector('.piece-fix-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      openPieceCorrect(item, overlay);
+    });
+  }
+}
+
+/** Corrige una pieza simple con lenguaje natural: aplica SÓLO lo pedido sobre la misma imagen. */
+function openPieceCorrect(item, previewOverlay) {
+  const body = `
+    <p class="hint" style="margin-top:0;">Escribí <b>qué corregir</b> y la IA lo aplica <b>sólo a eso</b>, sobre la misma imagen (no cambia el resto). Ej: «cambiá friza por frisa», «sacá el precio», «título más corto», «poné el botón: Escribinos por WhatsApp».</p>
+    <div class="field"><label>¿Qué hay que corregir?</label>
+      <textarea class="input" id="pc-inst" rows="3" placeholder="Ej: corregí la palabra friza y en el segundo punto poné Abrigo de invierno"></textarea></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end;">
+      <button class="btn-discard" id="pc-cancel">Cancelar</button>
+      <button class="btn-primary" id="pc-go">${icon('wand')} Corregir</button>
+    </div>`;
+  const ov = showInfoModal('Corregir la historia', body);
+  ov.querySelector('#pc-cancel').addEventListener('click', () => ov.remove());
+  ov.querySelector('#pc-go').addEventListener('click', async () => {
+    const go = ov.querySelector('#pc-go');
+    const instruction = ov.querySelector('#pc-inst').value.trim();
+    if (!instruction) { toast('Escribí qué corregir', 'err'); return; }
+    go.disabled = true; go.innerHTML = `${icon('refresh', 'spin')} Corrigiendo…`;
+    try {
+      const r = await api(`/api/assets/${item.asset_id}/correct`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ instruction }),
+      });
+      // Actualizá la imagen del preview en vivo (cache-bust) sin recargar todo.
+      if (r.image_path && previewOverlay) {
+        const imgEl = previewOverlay.querySelector('.ig-media img, .ig-story > img');
+        if (imgEl) imgEl.src = `${r.image_path}?t=${Date.now()}`;
+      }
+      ov.remove();
+      toast(r.note || 'Historia corregida', 'ok');
+      reloadKeepScroll();
+    } catch (e) {
+      toast(e.message, 'err');
+      go.disabled = false; go.innerHTML = `${icon('wand')} Corregir`;
+    }
+  });
 }
 
 /** Corrige/regenera UN slide del carrusel: texto exacto y/o indicación para la imagen. */

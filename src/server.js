@@ -5,7 +5,7 @@ const multer = require('multer');
 const config = require('./config');
 const pool = require('./db');
 const { seedCalendar, calendarIsEmpty } = require('./calendar');
-const { generateForSlot, VALID_TEMPLATES, regenerateSlide } = require('../scripts/generate-daily');
+const { generateForSlot, VALID_TEMPLATES, regenerateSlide, correctPiece } = require('../scripts/generate-daily');
 const { generateDaily } = require('../scripts/generate-daily');
 const { publishAssetById, publishDailyAuto, getPublishQueueStatus, cancelQueuedForAsset, cancelQueuedForCalendar } = require('./publishService');
 const { syncPostInsights, analyzePerformance } = require('./insights');
@@ -834,6 +834,19 @@ app.post('/api/assets/:assetId/regenerate-slide', wrap(async (req, res) => {
     overlay: typeof body.overlay === 'string' ? body.overlay : undefined,
     instructions: typeof body.instructions === 'string' ? body.instructions : undefined,
   });
+  res.json({ ok: true, ...result });
+}));
+
+// "Corregir la historia": para piezas SIMPLES (no carrusel). El usuario describe qué
+// corregir y se aplica SÓLO ese cambio sobre los textos, reusando la misma escena ya
+// generada (cero gasto de IA, la foto no se toca). Requiere receta guardada (piezas
+// nuevas); las viejas hay que regenerarlas una vez.
+app.post('/api/assets/:assetId/correct', wrap(async (req, res) => {
+  const id = intParam(req.params.assetId);
+  if (!id) return res.status(400).json({ error: 'assetId inválido' });
+  const instruction = typeof req.body?.instruction === 'string' ? req.body.instruction : '';
+  if (!instruction.trim()) return res.status(400).json({ error: 'Escribí qué hay que corregir.' });
+  const result = await correctPiece({ assetId: id, instruction });
   res.json({ ok: true, ...result });
 }));
 
