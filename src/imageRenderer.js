@@ -137,11 +137,27 @@ const TEMPLATE_REQUIREMENTS = {
 function extractSpecTags(description, max = 3) {
   if (!description) return [];
   const plain = String(description).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-  const parts = plain.split(/[.;•\n]+/).map((s) => s.trim()).filter((s) => s.length >= 6 && s.length <= 70);
-  const featureWords = /(cuero|acero|algod[oó]n|poli[eé]ster|impermeable|transpirable|reforzad|resistente|antideslizante|certificad|t[eé]rmic|softshell|grafa|ripstop|cordura|costura|puntera|antiest[aá]tic|diel[eé]ctric)/i;
+  // Segmenta por puntos, comas, punto y coma, viñetas, guiones de lista y saltos —
+  // muchas descripciones de Tiendanube son un párrafo corrido con comas (sin puntos)
+  // o listas con guiones; antes salían 0 specs y la 'ficha técnica' quedaba vacía.
+  const parts = plain
+    .split(/[.;•\n]+|\s[-–—]\s|,/)
+    .map((s) => s.replace(/^[\s\-–—•*:]+/, '').trim()) // saca viñeta/guion/dos-puntos inicial
+    .filter((s) => s.length >= 6 && s.length <= 70 && /[a-záéíóúñ]{3,}/i.test(s)); // descarta puros números/símbolos
+  const featureWords = /(cuero|acero|algod[oó]n|poli[eé]ster|impermeable|transpirable|reforzad|resistente|antideslizante|certificad|t[eé]rmic|softshell|grafa|ripstop|cordura|costura|puntera|antiest[aá]tic|diel[eé]ctric|polar|abrigo|elastano|elastizad|frisa|forrad|capucha|bolsillo|ajustable|liviano|térmico)/i;
   const featured = parts.filter((p) => featureWords.test(p));
   const rest = parts.filter((p) => !featureWords.test(p));
-  return [...featured, ...rest].slice(0, max).map((p) => fixSpelling(p));
+  // De-duplica por prefijo normalizado (evita 3× "Composición: ..." de cada color).
+  const seen = new Set();
+  const out = [];
+  for (const p of [...featured, ...rest]) {
+    const key = p.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 14);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(fixSpelling(p));
+    if (out.length >= max) break;
+  }
+  return out;
 }
 
 function sharedGeometry(format) {
@@ -830,7 +846,9 @@ function buildSplitscreenHtml(opts) {
 
   const photoAreaStyle = isVertical
     ? `position:absolute; top:0; bottom:0; right:0; width:${g.w - splitAt}px;`
-    : `position:absolute; left:0; right:0; bottom:0; height:${g.h - splitAt}px;`;
+    // Historia: la foto va de la mitad hasta ARRIBA del dominio (antes llegaba al borde
+    // inferior y el dominio quedaba encima de la foto, ilegible — bug jul-2026).
+    : `position:absolute; left:0; right:0; top:${splitAt}px; bottom:${g.footBottom}px;`;
   const colorAreaStyle = isVertical
     ? `position:absolute; top:0; bottom:0; left:0; width:${splitAt}px;`
     : `position:absolute; left:0; right:0; top:0; height:${splitAt}px;`;
