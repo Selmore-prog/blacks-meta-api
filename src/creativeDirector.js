@@ -245,6 +245,15 @@ async function planPiece({ slot, wholesale = null, companyFacts = null, recentPi
   // Coherencia: si el tratamiento es foto de producto pero no hay producto válido,
   // degradamos a tarjeta (nunca al revés: no forzamos una foto que el director no pidió).
   let finalVisual = visual === 'foto_producto' && !product ? 'tarjeta_sin_foto' : visual;
+  // PILAR DE VENTA (producto/promo) CON PRODUCTO REAL ⇒ SIEMPRE foto del producto. Una
+  // pieza que vende un producto puntual tiene que MOSTRARLO: no puede salir como tarjeta
+  // tipográfica sin la prenda (feedback real jul-2026: una historia del buzo Pampero
+  // salió sin foto). El director sigue eligiendo QUÉ producto y qué plantilla, pero no
+  // puede esconder el producto de un pilar de venta. En pilares de tema/marca/mayorista,
+  // en cambio, tarjeta_sin_foto sigue siendo válido (institucional > prenda sin relación).
+  if (['producto', 'promo'].includes(slot.pillar) && product) {
+    finalVisual = 'foto_producto';
+  }
   // Fondo ambiental SIN dirección visual concreta = gasto sin justificar → tarjeta.
   // (La nota es lo que evita que salga "una escena de cualquier cosa".)
   if (finalVisual === 'fondo_ambiental' && !(result.image_note && String(result.image_note).trim())) {

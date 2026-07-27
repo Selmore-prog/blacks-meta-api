@@ -210,7 +210,7 @@ function couponTag(code, { isStory, marginTop = 22 } = {}) {
 // Alto del logo esquinado. Se agrandó (antes 92/76) porque el dueño lo veía "casi
 // imperceptible" arriba a la izquierda. Fuente única para que TODAS las plantillas
 // lo muestren del mismo tamaño y bien visible.
-function logoHeightPx(isStory) { return isStory ? 128 : 104; }
+function logoHeightPx(isStory) { return isStory ? 150 : 120; }
 
 /** Logo/wordmark esquinado arriba-izquierda (posición común entre plantillas). */
 function cornerBrand(logos, { showBrand, dark, heightPx, top, left }) {

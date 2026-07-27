@@ -670,7 +670,13 @@ async function generateForSlot(slot, overrides = {}) {
   //  - sin director: heurística clásica (match fuerte o nada).
   let visualProduct = null;
   if (!noProductBrief) {
-    if (directorPlan && ['tarjeta_sin_foto', 'ilustracion', 'fondo_ambiental'].includes(directorPlan.visual)) {
+    // Pilar de VENTA (producto/promo) con un producto concreto: SIEMPRE se muestra el
+    // producto, aunque el director haya dicho tarjeta_sin_foto (defensa por si el plan
+    // viene viejo o el director falla). Una historia/post de producto sin la prenda es
+    // el "extremo" que reportó el dueño (jul-2026).
+    if (PRODUCT_PILLARS.includes(slot.pillar) && product) {
+      visualProduct = product;
+    } else if (directorPlan && ['tarjeta_sin_foto', 'ilustracion', 'fondo_ambiental'].includes(directorPlan.visual)) {
       visualProduct = null;
     } else if (product) {
       visualProduct = product;
