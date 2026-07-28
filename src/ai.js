@@ -1902,13 +1902,112 @@ Devolvé SOLO un JSON válido con esta forma:
  * Arma un súper-prompt listo para pegar en Gemini/Veo (Omni) y generar una escena
  * de video a medida. No llama a la API (es texto): la generación la hace el usuario a mano.
  */
-function buildVideoPrompt({ productName, productDescription, productImages = [], productImageUrl, theme, format = 'story', caption, pillar = 'producto' } = {}) {
+/* =========================================================================
+ * ESTILOS DE VIDEO (presets para tener a mano y variar)
+ * Cada estilo produce un prompt distinto compartiendo las reglas de fidelidad y
+ * anti-artefacto. Los que NO tienen persona son los que menos se rompen en Veo
+ * (la persona/rostro/acción es lo que más falla). Cada .build() devuelve las
+ * secciones que cambian; buildVideoPrompt arma el marco común alrededor.
+ * ========================================================================= */
+const VIDEO_STYLES = {
+  lookbook: {
+    label: 'Modelo quieto (lookbook)',
+    desc: 'Persona con la prenda puesta, casi inmóvil; el movimiento lo hace la cámara. Premium, tipo catálogo.',
+    person: true,
+    build: ({ name, theme }) => {
+      const scene = videoSceneFor(name);
+      return {
+        sceneLine: `[ESCENA]: ${theme ? `${theme} — ambientado así: ` : ''}${scene.escenario}. Ambiente real argentino, no set de estudio artificial.`,
+        subject: `[PERSONA Y POSTURA] (quietud, no actuación): ${productActionFor(name)}`,
+        optica: cinematographyPlan().optica,
+        camera: `RACK FOCUS o PUSH-IN lento y CONTINUO hacia el producto (una sola pasada, sin saltos). Todo el movimiento lo aporta la cámara; el sujeto está quieto. Encuadre: ${scene.camara}.`,
+        luz: scene.luz,
+        rhythm: `- 0-1.5s: el producto ya en cuadro, nítido y reconocible.\n- 1.5-6s: quietud con micro-movimiento de tela/aire.\n- 6-8s: plano hero limpio y estable (portada).`,
+      };
+    },
+  },
+  producto_solo: {
+    label: 'Solo el producto (sin persona)',
+    desc: 'La prenda sola, sin nadie. La opción que MENOS se rompe en Veo.',
+    person: false,
+    build: () => ({
+      sceneLine: `[ESCENA]: estudio limpio de fondo neutro (gris a hormigón) o una superficie de trabajo prolija, con muy poca utilería. Sin obra ni herramientas.`,
+      subject: `[SUJETO]: SOLO el producto, SIN ninguna persona en cuadro. La prenda se presenta con su caída natural (apoyada, colgada o como si la sostuviera un maniquí invisible), en su forma real. PROHIBIDO que aparezca una persona, manos, un rostro o partes del cuerpo.`,
+      optica: 'lente prime 50mm f/2.8, bokeh cremoso y compresión natural',
+      camera: `PUSH-IN lento y continuo hacia el producto, o una órbita MUY suave (máx 20°) alrededor de la prenda. Velocidad pareja, sin sacudidas ni giros de 360°.`,
+      luz: 'luz de estudio suave y direccional con un contraluz que recorta el contorno del producto, tonos cálidos sobrios',
+      rhythm: `- 0-1.5s: el producto ya en cuadro, completo y nítido.\n- 1.5-6s: la cámara se acerca o rodea lento; la tela apenas se mueve con el aire.\n- 6-8s: plano hero final limpio (portada).`,
+    }),
+  },
+  macro: {
+    label: 'Detalle macro',
+    desc: 'Primerísimo plano de la tela, costuras, cierre, etiqueta. Enfoca la calidad; casi no se rompe.',
+    person: false,
+    build: () => ({
+      sceneLine: `[ESCENA]: fondo neutro totalmente desenfocado; sólo importa el detalle del producto.`,
+      subject: `[SUJETO]: PRIMERÍSIMO PLANO / MACRO de un detalle REAL del producto — la textura de la tela, una costura, el cierre, el puño o la etiqueta (usá SOLO detalles visibles en la referencia). NO se ve el producto entero ni ninguna persona. Ese detalle llena el cuadro, con profundidad de campo mínima.`,
+      optica: 'lente macro 100mm f/2.8, profundidad de campo mínima y muy selectiva',
+      camera: `RACK FOCUS macro: el foco viaja suave por el detalle en una sola pasada; o un PUSH-IN macro lentísimo. Cero movimiento brusco.`,
+      luz: 'luz rasante suave que revela la textura y el relieve del material, con sombras delicadas',
+      rhythm: `- 0-2s: el detalle ya nítido y reconocible.\n- 2-6s: micro-recorrido de foco/acercamiento sobre la textura.\n- 6-8s: se asienta en el detalle más lindo (portada).`,
+    }),
+  },
+  flatlay: {
+    label: 'Flat-lay cenital',
+    desc: 'La prenda apoyada y filmada desde arriba, prolija. Estilo e-commerce, muy estable.',
+    person: false,
+    build: () => ({
+      sceneLine: `[ESCENA]: una superficie limpia y prolija (madera, hormigón o mesa de trabajo), vista DESDE ARRIBA. Sin obra ni herramientas.`,
+      subject: `[SUJETO]: la prenda apoyada PLANA sobre la superficie, vista CENITAL (desde arriba, 90°), ordenada y con aire alrededor. SIN persona.`,
+      optica: 'lente 35mm en cenital, encuadre parejo sin distorsión',
+      camera: `Cámara cenital: PUSH-IN vertical lentísimo hacia la prenda, o un leve deslizamiento lateral (parallax) muy suave. Nada de rotaciones bruscas.`,
+      luz: 'luz difusa pareja desde arriba con una sombra suave de contacto, tono neutro editorial',
+      rhythm: `- 0-1.5s: la prenda completa ya en cuadro, prolija.\n- 1.5-6s: acercamiento o deslizamiento lento.\n- 6-8s: plano cenital final estable (portada).`,
+    }),
+  },
+  percha: {
+    label: 'En percha',
+    desc: 'La prenda colgada de una percha, con un balanceo leve. Simple y elegante, sin persona.',
+    person: false,
+    build: () => ({
+      sceneLine: `[ESCENA]: la prenda colgada de una PERCHA contra una pared limpia (cemento, madera o fondo neutro). Sin obra ni herramientas.`,
+      subject: `[SUJETO]: la prenda en la percha con su caída natural. El único movimiento es un balanceo MUY leve de la percha, o el aire moviendo apenas la tela. SIN persona.`,
+      optica: 'lente prime 50mm f/2.8, bokeh cremoso',
+      camera: `TILT-REVEAL vertical: arranca abajo (el ruedo) y sube lento hasta el cuello/hombro; o un push-in frontal lento. Un solo movimiento continuo.`,
+      luz: 'luz lateral suave de ventana con sombra larga en la pared, tono cálido sereno',
+      rhythm: `- 0-1.5s: la prenda ya reconocible.\n- 1.5-6s: el tilt o acercamiento revela la prenda con el balanceo leve.\n- 6-8s: plano hero estable de la prenda colgada (portada).`,
+    }),
+  },
+  ambiente: {
+    label: 'Ambiente / marca',
+    desc: 'El producto protagonista en un entorno real, atmosférico y quieto. B-roll de marca.',
+    person: false,
+    build: ({ name, theme }) => {
+      const scene = videoSceneFor(name);
+      return {
+        sceneLine: `[ESCENA]: ${theme ? `${theme} — ambientado así: ` : ''}${scene.escenario}. Ambiente real argentino con desgaste creíble.`,
+        subject: `[SUJETO]: el producto es el protagonista en su entorno, quieto y con presencia — un plano de MARCA (b-roll), más atmósfera que venta. Puede haber una persona SÓLO de fondo, desenfocada o fuera de cuadro, nunca en foco ni "trabajando".`,
+        optica: cinematographyPlan().optica,
+        camera: `PLANO FIJO con respiro (trípode) o TRACKING lateral lentísimo; el interés lo dan la luz, el polvo en el aire y la textura. Cero acción, cero golpes. Encuadre: ${scene.camara}.`,
+        luz: scene.luz,
+        rhythm: `- 0-2s: el producto ya en cuadro, reconocible.\n- 2-6s: quietud atmosférica (polvo, luz, tela).\n- 6-8s: se asienta en un plano hero de marca (portada).`,
+      };
+    },
+  },
+};
+const VIDEO_STYLE_ORDER = ['lookbook', 'producto_solo', 'macro', 'flatlay', 'percha', 'ambiente'];
+
+/** Lista de estilos disponibles (para el selector del panel). */
+function listVideoStyles() {
+  return VIDEO_STYLE_ORDER.map((id) => ({ id, label: VIDEO_STYLES[id].label, desc: VIDEO_STYLES[id].desc }));
+}
+
+function buildVideoPrompt({ productName, productDescription, productImages = [], productImageUrl, theme, format = 'story', caption, pillar = 'producto', style = 'lookbook' } = {}) {
   const imgs = (productImages && productImages.length ? productImages : [productImageUrl]).filter(Boolean);
   const ratio = format === 'feed' ? '4:5' : '9:16 vertical';
   const anchor = productAnchorLines([{ name: productName || 'producto de trabajo', description: productDescription }]);
-  const scene = videoSceneFor(productName);
-  const cine = cinematographyPlan();
-  const action = productActionFor(productName);
+  const st = VIDEO_STYLES[style] || VIDEO_STYLES.lookbook;
+  const s = st.build({ name: productName, theme });
   const prompt = `Un director de fotografía profesional filma este plano para BLACKS, marca argentina de ropa de trabajo y calzado de seguridad. Formato ${ratio}, ~8 segundos, UNA SOLA TOMA CONTINUA — sin cortes de edición, sin distintos ángulos empalmados.
 
 [TONO DE LA PIEZA]: ${pillarVideoTone(pillar)}
@@ -1918,24 +2017,19 @@ ${anchor}
 
 ${videoFidelityRules(false)}
 
-[ESCENA]: ${theme ? `${theme} — ambientado así: ` : ''}${scene.escenario}. Ambiente real argentino con desgaste creíble, no set de estudio artificial.
+${s.sceneLine}
 
-[PERSONA Y POSTURA] (quietud, no actuación — ver por qué abajo): ${action}
-
-${FACE_RULE}
-
-[ÓPTICA Y TÉCNICA DE CÁMARA] (vocabulario de rodaje profesional, un solo movimiento fluido de principio a fin):
-- Óptica: ${cine.optica}.
-- Técnica: ${cine.tecnica}.
-- Encuadre de esta escena: ${scene.camara}.
+${s.subject}
+${st.person ? `\n${FACE_RULE}\n` : ''}
+[ÓPTICA Y TÉCNICA DE CÁMARA] (un solo movimiento fluido de principio a fin):
+- Óptica: ${s.optica}.
+- Técnica: ${s.camera}
 - La cámara se opera con estabilizador/gimbal o rieles de dolly: el movimiento es CONTINUO y a velocidad constante, sin aceleraciones ni sacudidas. PROHIBIDO: órbitas de 360°, giros bruscos, paneos rápidos, cortes de edición o distintos planos empalmados.
 
 [RITMO] (~8s dentro de esa misma toma):
-- 0-1.5s: el producto ya está en cuadro, nítido y reconocible desde el primer frame (en Reels se decide seguir mirando en el primer segundo).
-- 1.5-6s: la quietud/micro-movimiento descripto arriba. Nada teatral ni "de publicidad".
-- 6-8s: la cámara se asienta en un plano hero limpio y estable del producto (último frame usable como portada).
+${s.rhythm}
 
-[LUZ Y ATMÓSFERA]: ${scene.luz}.
+[LUZ Y ATMÓSFERA]: ${s.luz}.
 ${videoRealismRules()}
 
 [AUDIO] (si el modelo genera sonido, ej. Veo 3): sólo sonido ambiente suave y diegético del lugar (viento leve, un murmullo lejano, el roce de la tela). SIN música, SIN voces en off, SIN efectos "whoosh" publicitarios y SIN golpes, martillazos ni herramientas en primer plano.
@@ -1949,12 +2043,24 @@ ${videoRealismRules()}
   ];
   const platformNote = 'ESTRATEGIA DE VIDEO PUBLICITARIO: Si generas video desde texto puro o solo con fotos sueltas, los modelos suelen alucinar o alterar costuras y logos. El método profesional es Image-to-Video (i2v): toma el PNG final de alta calidad logrado en la pieza estática (donde el calzado/indumentaria ya está en contexto) y anímalo en Runway Gen-3 Alpha, Kling AI o Gemini Veo i2v usando las directrices cinemáticas de este prompt.';
   return {
+    style,
+    label: st.label,
     prompt: caption ? `${prompt}\n\nCONTEXTO DEL POSTEO (para el tono, NO para poner texto): ${caption}` : prompt,
     instructions,
     productImages: imgs,
     productImageUrl: imgs[0] || null,
     platformNote,
   };
+}
+
+/** Todos los estilos de video de una (para el modal: poder variar sin recargar). */
+function buildVideoPromptSet(ctx = {}) {
+  const styles = VIDEO_STYLE_ORDER.map((id) => {
+    const r = buildVideoPrompt({ ...ctx, style: id });
+    return { id, label: r.label, desc: VIDEO_STYLES[id].desc, prompt: r.prompt };
+  });
+  const base = buildVideoPrompt(ctx);
+  return { styles, instructions: base.instructions, productImages: base.productImages, productImageUrl: base.productImageUrl, platformNote: base.platformNote };
 }
 
 /**
