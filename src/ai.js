@@ -681,20 +681,63 @@ const SCENE_POOL = {
  * Elige una combinación de escena determinística por seed (o aleatoria sin seed).
  * Devuelve { escenario, luz, camara, describe() }.
  */
-function sceneVariation(seed = null) {
+// Escenarios URBANOS/EDITORIALES para prendas CASUAL/versátiles (jean, chomba, remera,
+// buzo, short, anteojos): SIN obra ni herramientas. Feedback real (2026-07-27): un video
+// de un jean ambientado en una obra salía con "golpes de la nada" (Veo interpretaba
+// "persona + herramientas en obra" como que tenía que trabajar/martillar) — incoherente
+// con el producto. Estos escenarios no tienen props de acción, así que no invitan a nada.
+const URBAN_SCENE_POOL = {
+  escenario: [
+    'estudio fotográfico limpio de fondo neutro (gris medio a hormigón), sin props, foco total en la prenda',
+    'loft industrial reciclado y prolijo: ladrillo visto, ventanales grandes, piso de cemento pulido, mínimo mobiliario',
+    'vereda de barrio con pared de textura y algo de vegetación urbana, fondo desenfocado editorial',
+    'calle de ciudad con arquitectura moderna totalmente desenfocada de fondo (bokeh), tono lookbook',
+    'patio interno con pared de cemento y una planta, ambiente sereno de media tarde',
+    'garage urbano ordenado con luz natural entrando de costado, SIN herramientas a la vista',
+  ],
+  luz: [
+    'luz natural de media tarde, suave y direccional, con sombras largas cálidas',
+    'luz difusa y envolvente de un ventanal grande, tono neutro editorial',
+    'atardecer dorado suave entrando de costado, contraste medio y bordes cálidos',
+    'día nublado de luz pareja, colores naturales contenidos tipo documental de moda',
+  ],
+  camara: [
+    'cámara a la altura de la cintura, encuadre frontal en tres cuartos, naturalidad editorial',
+    'plano medio lateral con capas de profundidad y fondo desenfocado',
+    'leve contrapicado que le da presencia a la silueta, encuadre limpio',
+    'cámara a la altura del pecho, composición centrada y prolija de lookbook',
+  ],
+};
+
+function sceneFromPool(pool, seed = null) {
   const n = seed !== null && Number.isFinite(Number(seed))
     ? Math.abs(Math.trunc(Number(seed)))
     : Math.floor(Math.random() * 99991);
   const pick = (arr, salt) => arr[(n * 7 + salt) % arr.length];
   const v = {
-    escenario: pick(SCENE_POOL.escenario, 0),
-    luz: pick(SCENE_POOL.luz, 3),
-    camara: pick(SCENE_POOL.camara, 5),
+    escenario: pick(pool.escenario, 0),
+    luz: pick(pool.luz, 3),
+    camara: pick(pool.camara, 5),
   };
   v.describe = () => `- ESCENARIO de esta pieza (usalo, no lo cambies por el genérico de siempre): ${v.escenario}.
 - LUZ de esta pieza: ${v.luz}.
 - CÁMARA/ENCUADRE de esta pieza: ${v.camara}.`;
   return v;
+}
+
+function sceneVariation(seed = null) {
+  return sceneFromPool(SCENE_POOL, seed);
+}
+
+// Sólo la indumentaria claramente LABORAL/de seguridad va en escena de obra/industria
+// (le queda y es icónico). Todo lo demás (casual/versátil) va a escenario urbano/editorial:
+// una obra con herramientas invita a "actuar trabajo" y rompe la coherencia (jean, chomba…).
+const WORKWEAR_NAME_RE = /(bot[ií]n|borcegu[ií]|puntera|acero|seguridad|mameluco|overol|grafa|softshell|rompeviento|t[eé]rmic|ign(í|i)fug|diel[eé]ctric|alta visibilidad|refractari|casco|arn[eé]s|faja lumbar|guante|antiflama|cargo de trabajo)/i;
+function isWorkwearName(name) { return WORKWEAR_NAME_RE.test(name || ''); }
+
+/** Escena de VIDEO acorde al producto: laboral→industrial, casual→urbano/editorial. */
+function videoSceneFor(name, seed = null) {
+  return isWorkwearName(name) ? sceneVariation(seed) : sceneFromPool(URBAN_SCENE_POOL, seed);
 }
 
 /**
@@ -1683,7 +1726,8 @@ function productPostureFor(name) {
 
 /** Describe QUIETUD + micro-movimiento ambiental — NO una acción física dinámica. */
 function productActionFor(name) {
-  return `${productPostureFor(name)}, prácticamente QUIETO/A. El único movimiento es sutil y ambiental: la tela que se acomoda o se mueve levemente con el viento, una respiración natural, el peso del cuerpo que se asienta. PROHIBIDO actuar una acción física dinámica (caminar, agacharse, atarse cordones, gestos grandes o repetidos) — ese tipo de movimiento articulado es lo que más rompe la coherencia del video y genera cortes/artefactos. Ante la duda entre quietud y una acción vistosa, elegí SIEMPRE la quietud.`;
+  return `${productPostureFor(name)}, prácticamente QUIETO/A. El único movimiento es sutil y ambiental: la tela que se acomoda o se mueve levemente con el viento, una respiración natural, el peso del cuerpo que se asienta. PROHIBIDO actuar una acción física dinámica (caminar, agacharse, atarse cordones, gestos grandes o repetidos) — ese tipo de movimiento articulado es lo que más rompe la coherencia del video y genera cortes/artefactos. Ante la duda entre quietud y una acción vistosa, elegí SIEMPRE la quietud.
+- LA PERSONA NO TRABAJA NI USA HERRAMIENTAS: aunque el entorno tenga objetos, NO martilla, NO golpea, NO opera máquinas, NO carga ni manipula nada. Está simplemente de pie mostrando la prenda, como en una sesión de fotos. Cero golpes, impactos o acciones repetitivas de "trabajo".`;
 }
 
 /**
@@ -1723,7 +1767,9 @@ function buildStudioVideoPrompt({ products = [], theme, format = 'story', durati
   const ratio = format === 'feed' ? '4:5' : '9:16 vertical';
   const allImages = products.flatMap((p) => (Array.isArray(p.images) && p.images.length ? p.images : [p.imageUrl]).filter(Boolean));
 
-  const scene = sceneVariation();
+  // Escena acorde al/los producto(s): si ALGUNO es laboral/seguridad va industrial;
+  // si son todos casual/versátiles va urbano/editorial (evita el "actuar trabajo").
+  const scene = videoSceneFor(products.map((p) => p && p.name).filter(Boolean).join(' '));
   const cine = cinematographyPlan();
   const action = isCombo ? comboActionSequence(products) : productActionFor(products[0] && products[0].name);
 
@@ -1736,7 +1782,7 @@ ${productAnchorLines(products)}
 
 ${videoFidelityRules(isCombo)}
 
-[ESCENA]: ${theme ? `${theme} — ambientado así: ` : ''}${scene.escenario}. Ambiente laboral argentino real, con desgaste y utilería creíbles.
+[ESCENA]: ${theme ? `${theme} — ambientado así: ` : ''}${scene.escenario}. Ambiente argentino real y creíble, con desgaste natural — no set de estudio artificial.
 
 [PERSONA Y POSTURA] (quietud, no actuación — ver por qué abajo): ${action}
 
@@ -1755,7 +1801,7 @@ ${FACE_RULE}
 
 [LUZ Y ATMÓSFERA]: ${scene.luz}. Contraluz (rim lighting) para separar el contorno del producto del fondo. Color grading Kodak Portra 400, tonos sobrios con acentos naranja quemado.
 
-[AUDIO] (si el modelo genera sonido, ej. Veo 3): sonido ambiente diegético del lugar — eco de galpón, herramientas lejanas, viento suave. SIN música, SIN voces, SIN efectos de "whoosh" publicitarios.
+[AUDIO] (si el modelo genera sonido, ej. Veo 3): sólo sonido ambiente suave y diegético del lugar (viento leve, un murmullo lejano, el roce de la tela). SIN música, SIN voces, SIN efectos de "whoosh" publicitarios y SIN golpes, martillazos ni herramientas en primer plano.
 
 [REALISMO]: física de tela con caída real, sombras con caída real. SIN TEXTO en pantalla, sin placas, sin números ni marcas de agua.`;
 
@@ -1860,7 +1906,7 @@ function buildVideoPrompt({ productName, productDescription, productImages = [],
   const imgs = (productImages && productImages.length ? productImages : [productImageUrl]).filter(Boolean);
   const ratio = format === 'feed' ? '4:5' : '9:16 vertical';
   const anchor = productAnchorLines([{ name: productName || 'producto de trabajo', description: productDescription }]);
-  const scene = sceneVariation();
+  const scene = videoSceneFor(productName);
   const cine = cinematographyPlan();
   const action = productActionFor(productName);
   const prompt = `Un director de fotografía profesional filma este plano para BLACKS, marca argentina de ropa de trabajo y calzado de seguridad. Formato ${ratio}, ~8 segundos, UNA SOLA TOMA CONTINUA — sin cortes de edición, sin distintos ángulos empalmados.
@@ -1892,7 +1938,7 @@ ${FACE_RULE}
 [LUZ Y ATMÓSFERA]: ${scene.luz}.
 ${videoRealismRules()}
 
-[AUDIO] (si el modelo genera sonido, ej. Veo 3): sólo sonido ambiente diegético del lugar — eco, herramientas lejanas, viento suave. SIN música, SIN voces en off, SIN efectos "whoosh" publicitarios.
+[AUDIO] (si el modelo genera sonido, ej. Veo 3): sólo sonido ambiente suave y diegético del lugar (viento leve, un murmullo lejano, el roce de la tela). SIN música, SIN voces en off, SIN efectos "whoosh" publicitarios y SIN golpes, martillazos ni herramientas en primer plano.
 
 [ESTÉTICA]: robusta, premium, alto contraste, look de aviso moderno filmado por un director de fotografía real. SIN texto en pantalla (el texto/subtítulos los agrego después).`;
   const instructions = [
