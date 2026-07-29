@@ -2026,23 +2026,37 @@ async function studioVideoPrompt() {
   if (!studioSel.length) { toast('Elegí al menos un producto.'); return; }
   try {
     const d = await api('/api/studio/video-prompt', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(studioParams()) });
-    studioLastPrompt = d.prompt;
+    const styles = Array.isArray(d.styles) && d.styles.length
+      ? d.styles
+      : [{ id: 'default', label: 'Estándar', desc: '', prompt: d.prompt }];
+    studioLastPrompt = styles[0].prompt;
     const body = `
-      <p class="hint" style="margin-top:0;">${studioSel.length > 1 ? `Video del COMBO (${studioSel.length} productos juntos).` : 'Video del producto.'} Generalo en Gemini/Veo y subí el resultado a la biblioteca.</p>
+      <p class="hint" style="margin-top:0;">${studioSel.length > 1 ? `Video del COMBO (${studioSel.length} productos juntos).` : 'Video del producto.'} Elegí un <b>estilo</b>, generalo en Gemini/Veo y subí el resultado. Los estilos <b>sin persona</b> son los que menos se rompen.</p>
+      <div class="field"><label>Estilo de video</label>
+        <select class="input" id="svp-style">${styles.map((s, i) => `<option value="${i}">${esc(s.label)}</option>`).join('')}</select>
+        <p class="hint" id="svp-style-desc" style="margin:6px 0 0;">${esc(styles[0].desc || '')}</p></div>
       <div class="field"><label>Pasos</label>
-        <ol style="line-height:1.8; padding-left:20px; font-size:14px; margin:0;">${d.instructions.map((i) => `<li>${esc(i)}</li>`).join('')}</ol></div>
+        <ol style="line-height:1.8; padding-left:20px; font-size:14px; margin:0;">${(d.instructions || []).map((i) => `<li>${esc(i)}</li>`).join('')}</ol></div>
       ${(d.productImages && d.productImages.length) ? `<div class="field"><label>Fotos a subir como referencia (${d.productImages.length})</label>
         <div class="vp-imgs">${d.productImages.slice(0, 12).map((u) => `<a href="${esc(u)}" target="_blank"><img src="${esc(u)}"/></a>`).join('')}</div></div>` : ''}
       <div class="field"><label>Prompt (copialo y pegalo)</label>
-        <textarea class="input" readonly style="min-height:220px">${esc(d.prompt)}</textarea></div>
+        <textarea class="input" id="svp-text" readonly style="min-height:220px">${esc(styles[0].prompt)}</textarea></div>
       <div style="display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
         <button class="btn-ghost btn-sm" id="svp-upload">${icon('upload')} Ya lo generé: subir video</button>
         ${(d.productImages && d.productImages.length) ? `<button class="btn-ghost" id="svp-copy-imgs">${icon('copy')} Copiar ${Math.min(d.productImages.length, 3)} foto${Math.min(d.productImages.length, 3) > 1 ? 's' : ''}</button>` : ''}
         <button class="btn-primary" id="svp-copy">${icon('copy')} Copiar prompt</button>
       </div>`;
     const ov = showInfoModal('Prompt de video · Estudio', body);
+    const svpSel = ov.querySelector('#svp-style');
+    const svpTa = ov.querySelector('#svp-text');
+    const svpDesc = ov.querySelector('#svp-style-desc');
+    svpSel.addEventListener('change', () => {
+      const s = styles[Number(svpSel.value)] || styles[0];
+      svpTa.value = s.prompt; studioLastPrompt = s.prompt;
+      if (svpDesc) svpDesc.textContent = s.desc || '';
+    });
     ov.querySelector('#svp-copy').addEventListener('click', () =>
-      navigator.clipboard.writeText(d.prompt).then(() => toast('Prompt copiado', 'ok')));
+      navigator.clipboard.writeText(svpTa.value).then(() => toast('Prompt copiado', 'ok')));
     const svpImgsBtn = ov.querySelector('#svp-copy-imgs');
     if (svpImgsBtn) svpImgsBtn.addEventListener('click', async () => {
       const original = svpImgsBtn.innerHTML;

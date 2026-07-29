@@ -1762,16 +1762,27 @@ function pillarVideoTone(pillar) {
  * productos (combo). No llama a ninguna API: el video lo genera el usuario a mano
  * y después lo sube a la biblioteca del estudio.
  */
-function buildStudioVideoPrompt({ products = [], theme, format = 'story', duration = 8, pillar = 'producto' } = {}) {
+// Subject por estilo adaptado a un COMBO del estudio (varios productos coordinados).
+function comboStyleSubject(style, products) {
+  const map = {
+    lookbook: `[PERSONA Y POSTURA] (quietud, no actuación): ${comboActionSequence(products)}`,
+    producto_solo: `[SUJETO]: SOLO los productos del conjunto (todos juntos y coordinados), SIN ninguna persona en cuadro — presentados con su caída natural sobre una superficie o como un outfit armado sin cuerpo. PROHIBIDO que aparezca una persona, manos o un rostro.`,
+    macro: `[SUJETO]: PRIMERÍSIMO PLANO / MACRO de un detalle REAL de UNA de las prendas del conjunto (textura, costura, cierre o etiqueta visible en la referencia). NO se ve el conjunto entero ni ninguna persona.`,
+    flatlay: `[SUJETO]: las prendas del conjunto apoyadas PLANAS y ordenadas sobre la superficie, vistas CENITAL (desde arriba, 90°), coordinadas y con aire entre ellas. SIN persona.`,
+    percha: `[SUJETO]: las prendas del conjunto colgadas en perchas contra una pared limpia, coordinadas. El único movimiento es un balanceo MUY leve o el aire moviendo la tela. SIN persona.`,
+    ambiente: `[SUJETO]: el conjunto de productos es el protagonista en su entorno, quieto y coordinado — un plano de MARCA (b-roll). Una persona SÓLO de fondo, desenfocada o fuera de cuadro, nunca en foco ni "trabajando".`,
+  };
+  return map[style] || null;
+}
+
+function buildStudioVideoPrompt({ products = [], theme, format = 'story', duration = 8, pillar = 'producto', style = 'lookbook' } = {}) {
   const isCombo = products.length > 1;
   const ratio = format === 'feed' ? '4:5' : '9:16 vertical';
   const allImages = products.flatMap((p) => (Array.isArray(p.images) && p.images.length ? p.images : [p.imageUrl]).filter(Boolean));
-
-  // Escena acorde al/los producto(s): si ALGUNO es laboral/seguridad va industrial;
-  // si son todos casual/versátiles va urbano/editorial (evita el "actuar trabajo").
-  const scene = videoSceneFor(products.map((p) => p && p.name).filter(Boolean).join(' '));
-  const cine = cinematographyPlan();
-  const action = isCombo ? comboActionSequence(products) : productActionFor(products[0] && products[0].name);
+  const names = products.map((p) => p && p.name).filter(Boolean).join(' ');
+  const st = VIDEO_STYLES[style] || VIDEO_STYLES.lookbook;
+  const s = st.build({ name: names, theme });
+  const subject = isCombo ? (comboStyleSubject(style, products) || s.subject) : s.subject;
 
   const prompt = `Un director de fotografía profesional filma este plano para BLACKS, marca argentina de ropa de trabajo y calzado de seguridad. Formato ${ratio}, ~${duration} segundos, UNA SOLA TOMA CONTINUA — sin cortes de edición, sin distintos ángulos empalmados.
 
@@ -1782,30 +1793,28 @@ ${productAnchorLines(products)}
 
 ${videoFidelityRules(isCombo)}
 
-[ESCENA]: ${theme ? `${theme} — ambientado así: ` : ''}${scene.escenario}. Ambiente argentino real y creíble, con desgaste natural — no set de estudio artificial.
+${s.sceneLine}
 
-[PERSONA Y POSTURA] (quietud, no actuación — ver por qué abajo): ${action}
-
-${FACE_RULE}
-
-[ÓPTICA Y TÉCNICA DE CÁMARA] (vocabulario de rodaje profesional, un solo movimiento fluido de principio a fin):
-- Óptica: ${cine.optica}.
-- Técnica: ${cine.tecnica}.
-- Encuadre de esta escena: ${scene.camara}.
+${subject}
+${st.person ? `\n${FACE_RULE}\n` : ''}
+[ÓPTICA Y TÉCNICA DE CÁMARA] (un solo movimiento fluido de principio a fin):
+- Óptica: ${s.optica}.
+- Técnica: ${s.camera}
 - La cámara se opera con estabilizador/gimbal o rieles de dolly: el movimiento es CONTINUO y a velocidad constante, sin aceleraciones ni sacudidas. PROHIBIDO: órbitas de 360°, giros bruscos, paneos rápidos, cortes de edición o distintos planos empalmados.
 
 [RITMO] (~${duration}s dentro de esa misma toma):
-- Arranque: el/los producto(s) ya en cuadro, reconocibles desde el primer frame.
-- Desarrollo: la quietud/micro-movimiento descripto arriba — el interés lo genera la cámara, no el sujeto.
-- Cierre: la cámara termina de asentarse en un plano hero limpio y estable, ideal como último frame/portada.
+${s.rhythm}
 
-[LUZ Y ATMÓSFERA]: ${scene.luz}. Contraluz (rim lighting) para separar el contorno del producto del fondo. Color grading Kodak Portra 400, tonos sobrios con acentos naranja quemado.
+[LUZ Y ATMÓSFERA]: ${s.luz}. Color grading Kodak Portra 400, tonos sobrios con acentos naranja quemado.
+${videoRealismRules()}
 
-[AUDIO] (si el modelo genera sonido, ej. Veo 3): sólo sonido ambiente suave y diegético del lugar (viento leve, un murmullo lejano, el roce de la tela). SIN música, SIN voces, SIN efectos de "whoosh" publicitarios y SIN golpes, martillazos ni herramientas en primer plano.
+[AUDIO] (si el modelo genera sonido, ej. Veo 3): sólo sonido ambiente suave y diegético (viento leve, un murmullo lejano, el roce de la tela). SIN música, SIN voces, SIN efectos de "whoosh" publicitarios y SIN golpes, martillazos ni herramientas en primer plano.
 
-[REALISMO]: física de tela con caída real, sombras con caída real. SIN TEXTO en pantalla, sin placas, sin números ni marcas de agua.`;
+[EXTRA]: física de tela con caída real, sombras con caída real. SIN TEXTO en pantalla, sin placas, sin números ni marcas de agua.`;
 
   return {
+    style,
+    label: st.label,
     prompt,
     instructions: [
       'RECOMENDADO (Estándar Oro Image-to-Video / i2v en Runway Gen-3 / Kling / Veo): Subí como "Primer Fotograma" (Frame 0) la imagen perfecta ya renderizada en estudio. Así el video anima solo la luz y la cámara sin deformar la ropa/calzado.',
@@ -1816,6 +1825,16 @@ ${FACE_RULE}
     productImages: allImages,
     platformNote: 'Para máxima calidad sin alucinaciones, el flujo top agencia es Image-to-Video (i2v): toma la imagen fotográfica generada (donde el producto ya quedó 100% idéntico) y súbela a Runway Gen-3, Kling AI o Gemini Veo i2v junto con este prompt cinemático.',
   };
+}
+
+/** Todos los estilos de video del estudio de una (para el modal con selector). */
+function buildStudioVideoPromptSet(ctx = {}) {
+  const styles = VIDEO_STYLE_ORDER.map((id) => {
+    const r = buildStudioVideoPrompt({ ...ctx, style: id });
+    return { id, label: r.label, desc: VIDEO_STYLES[id].desc, prompt: r.prompt };
+  });
+  const base = buildStudioVideoPrompt(ctx);
+  return { styles, instructions: base.instructions, productImages: base.productImages, platformNote: base.platformNote };
 }
 
 /**
@@ -2129,6 +2148,7 @@ module.exports = {
   describeProductPhotos,
   generateStudioScene,
   buildStudioVideoPrompt,
+  buildStudioVideoPromptSet,
   generateDiagram,
   analyzeStyle,
   buildVideoPrompt,

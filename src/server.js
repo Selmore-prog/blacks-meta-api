@@ -1113,11 +1113,11 @@ app.post('/api/studio/image', wrap(async (req, res) => {
 }));
 
 app.post('/api/studio/video-prompt', wrap(async (req, res) => {
-  const { buildStudioVideoPrompt } = require('./ai');
+  const { buildStudioVideoPromptSet } = require('./ai');
   const body = req.body || {};
   const products = await studioProducts(body.productIds);
   if (!products.length) return res.status(400).json({ error: 'Elegí al menos un producto.' });
-  res.json(buildStudioVideoPrompt({
+  res.json(buildStudioVideoPromptSet({
     products,
     theme: textOrNull(body.theme),
     format: body.format === 'feed' ? 'feed' : 'story',
