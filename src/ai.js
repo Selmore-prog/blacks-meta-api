@@ -1763,67 +1763,23 @@ function pillarVideoTone(pillar) {
  * y después lo sube a la biblioteca del estudio.
  */
 // Subject por estilo adaptado a un COMBO del estudio (varios productos coordinados).
-function comboStyleSubject(style, products) {
-  const map = {
-    lookbook: `[PERSONA Y POSTURA] (quietud, no actuación): ${comboActionSequence(products)}`,
-    producto_solo: `[SUJETO]: SOLO los productos del conjunto (todos juntos y coordinados), SIN ninguna persona en cuadro — presentados con su caída natural sobre una superficie o como un outfit armado sin cuerpo. PROHIBIDO que aparezca una persona, manos o un rostro.`,
-    macro: `[SUJETO]: PRIMERÍSIMO PLANO / MACRO de un detalle REAL de UNA de las prendas del conjunto (textura, costura, cierre o etiqueta visible en la referencia). NO se ve el conjunto entero ni ninguna persona.`,
-    flatlay: `[SUJETO]: las prendas del conjunto apoyadas PLANAS y ordenadas sobre la superficie, vistas CENITAL (desde arriba, 90°), coordinadas y con aire entre ellas. SIN persona.`,
-    percha: `[SUJETO]: las prendas del conjunto colgadas en perchas contra una pared limpia, coordinadas. El único movimiento es un balanceo MUY leve o el aire moviendo la tela. SIN persona.`,
-    ambiente: `[SUJETO]: el conjunto de productos es el protagonista en su entorno, quieto y coordinado — un plano de MARCA (b-roll). Una persona SÓLO de fondo, desenfocada o fuera de cuadro, nunca en foco ni "trabajando".`,
-  };
-  return map[style] || null;
-}
-
 function buildStudioVideoPrompt({ products = [], theme, format = 'story', duration = 8, pillar = 'producto', style = 'lookbook' } = {}) {
   const isCombo = products.length > 1;
   const ratio = format === 'feed' ? '4:5' : '9:16 vertical';
   const allImages = products.flatMap((p) => (Array.isArray(p.images) && p.images.length ? p.images : [p.imageUrl]).filter(Boolean));
   const names = products.map((p) => p && p.name).filter(Boolean).join(' ');
   const st = VIDEO_STYLES[style] || VIDEO_STYLES.lookbook;
-  const s = st.build({ name: names, theme });
-  const subject = isCombo ? (comboStyleSubject(style, products) || s.subject) : s.subject;
-
-  const prompt = `Un director de fotografía profesional filma este plano para BLACKS, marca argentina de ropa de trabajo y calzado de seguridad. Formato ${ratio}, ~${duration} segundos, UNA SOLA TOMA CONTINUA — sin cortes de edición, sin distintos ángulos empalmados.
-
-[TONO DE LA PIEZA]: ${pillarVideoTone(pillar)}
-
-[PRODUCTO${isCombo ? 'S' : ''}] (fidelidad absoluta a las fotos de referencia adjuntas):
-${productAnchorLines(products)}
-
-${videoFidelityRules(isCombo)}
-
-${s.sceneLine}
-
-${subject}
-${st.person ? `\n${FACE_RULE}\n` : ''}
-[ÓPTICA Y TÉCNICA DE CÁMARA] (un solo movimiento fluido de principio a fin):
-- Óptica: ${s.optica}.
-- Técnica: ${s.camera}
-- La cámara se opera con estabilizador/gimbal o rieles de dolly: el movimiento es CONTINUO y a velocidad constante, sin aceleraciones ni sacudidas. PROHIBIDO: órbitas de 360°, giros bruscos, paneos rápidos, cortes de edición o distintos planos empalmados.
-
-[RITMO] (~${duration}s dentro de esa misma toma):
-${s.rhythm}
-
-[LUZ Y ATMÓSFERA]: ${s.luz}. Color grading Kodak Portra 400, tonos sobrios con acentos naranja quemado.
-${videoRealismRules()}
-
-[AUDIO] (si el modelo genera sonido, ej. Veo 3): sólo sonido ambiente suave y diegético (viento leve, un murmullo lejano, el roce de la tela). SIN música, SIN voces, SIN efectos de "whoosh" publicitarios y SIN golpes, martillazos ni herramientas en primer plano.
-
-[EXTRA]: física de tela con caída real, sombras con caída real. SIN TEXTO en pantalla, sin placas, sin números ni marcas de agua.`;
+  // Prompt en INGLÉS (rinde mejor en Veo), con fidelidad/continuidad reforzadas y el
+  // subject adaptado a combo (englishVideoSections maneja isCombo).
+  const prompt = buildVideoFramePromptEN({ ratio, duration, pillar, anchor: productAnchorLines(products), isCombo, imageCount: allImages.length, style, name: names, theme });
 
   return {
     style,
     label: st.label,
     prompt,
-    instructions: [
-      'RECOMENDADO (Estándar Oro Image-to-Video / i2v en Runway Gen-3 / Kling / Veo): Subí como "Primer Fotograma" (Frame 0) la imagen perfecta ya renderizada en estudio. Así el video anima solo la luz y la cámara sin deformar la ropa/calzado.',
-      `OPCIÓN GEMINI VEO (Reference-to-Video): Subí las fotos de referencia de ${isCombo ? 'TODOS los productos' : 'el producto'} (frente, espalda y detalle para máxima fidelidad).`,
-      `Pegá el prompt cinematográfico. Elegí formato ${ratio} y ~${duration}s.`,
-      'Descargá el .mp4 e ingrésalo acá con "Subir resultado" para guardarlo en la biblioteca del estudio.',
-    ],
+    instructions: videoHowToInstructions(ratio, { combo: isCombo }),
     productImages: allImages,
-    platformNote: 'Para máxima calidad sin alucinaciones, el flujo top agencia es Image-to-Video (i2v): toma la imagen fotográfica generada (donde el producto ya quedó 100% idéntico) y súbela a Runway Gen-3, Kling AI o Gemini Veo i2v junto con este prompt cinemático.',
+    platformNote: 'Para máxima fidelidad el flujo pro es Image-to-Video (i2v): subí una foto como primer fotograma. Para CAMBIOS DE ESCENA con todas tus fotos: un clip por foto (i2v) y unilos en un editor — un solo prompt no recorre todas las fotos como escenas.',
   };
 }
 
@@ -2013,12 +1969,195 @@ const VIDEO_STYLES = {
       };
     },
   },
+  secuencia: {
+    label: 'Secuencia (filmmaker)',
+    desc: 'Una sola toma coreografiada que revela varias caras del producto (detalle → plano completo → hero). Dinámico pero SIN cortes que buguean.',
+    person: false,
+    build: ({ name, theme }) => {
+      const scene = videoSceneFor(name);
+      return {
+        sceneLine: `[ESCENA]: ${theme ? `${theme} — ambientado así: ` : ''}${scene.escenario}.`,
+        subject: `[SUJETO]: el producto presentado para que la cámara revele varias de sus caras en UN solo movimiento coreografiado — los "cortes" son movimientos suaves de cámara, nunca ediciones. El producto se mantiene idéntico todo el tiempo.`,
+        optica: cinematographyPlan().optica,
+        camera: `Un "oner" coreografiado (una sola toma, sensación de filmmaker): arranca en un detalle (rack focus), sube en grúa/tilt hasta revelar el producto entero, cierra con un push lento a un plano hero. Un solo movimiento motivado, sin cortes.`,
+        luz: scene.luz,
+        rhythm: `- 0-2s: abre en un detalle (ya fiel), después revela.\n- 2-6s: el movimiento continuo recorre el producto con vida (tela, polvo, luz).\n- 6-8s: aterriza en un hero limpio (portada).`,
+      };
+    },
+  },
 };
-const VIDEO_STYLE_ORDER = ['lookbook', 'producto_solo', 'macro', 'flatlay', 'percha', 'ambiente'];
+const VIDEO_STYLE_ORDER = ['secuencia', 'lookbook', 'producto_solo', 'macro', 'flatlay', 'percha', 'ambiente'];
 
 /** Lista de estilos disponibles (para el selector del panel). */
 function listVideoStyles() {
   return VIDEO_STYLE_ORDER.map((id) => ({ id, label: VIDEO_STYLES[id].label, desc: VIDEO_STYLES[id].desc }));
+}
+
+/* =========================================================================
+ * PROMPTS DE VIDEO EN INGLÉS (Veo/Runway/Kling obedecen mejor en inglés).
+ * El PROMPT que se pega en el modelo va en inglés; las etiquetas y las
+ * instrucciones del panel siguen en español. Mismo set de estilos.
+ * ========================================================================= */
+const _rnd = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const VIDEO_SCENE_EN = {
+  urban: [
+    'a clean neutral studio (mid-grey to concrete seamless), minimal props, full focus on the garment',
+    'a reclaimed industrial loft: exposed brick, large windows, polished concrete floor, minimal furniture',
+    'a city sidewalk with a textured wall and some urban greenery, softly blurred editorial background',
+    'a modern city street fully defocused in the background (bokeh), lookbook tone',
+    'an inner courtyard with a concrete wall and a plant, calm mid-afternoon light',
+    'a tidy urban garage with natural side light, NO tools in view',
+  ],
+  industrial: [
+    'a metalworking workshop with a steel bench, a vise and tools on a pegboard',
+    'a construction site: timber formwork, rebar tied with wire, blocks and cement dust in the air',
+    'a logistics warehouse with tall loaded racks and wooden pallets',
+    'a wide industrial shed with a high sliding door open, worn polished-concrete floor',
+    'an open materials yard with rusted containers, corrugated metal and chains',
+  ],
+};
+const VIDEO_LIGHT_EN = [
+  'soft directional late-afternoon light with long warm shadows',
+  'diffused wrap-around window light, neutral editorial tone',
+  'soft golden-hour light raking from the side, medium contrast',
+  'even overcast light, restrained natural colors, fashion-documentary look',
+];
+function videoSceneEN(name) { return _rnd(isWorkwearName(name) ? VIDEO_SCENE_EN.industrial : VIDEO_SCENE_EN.urban); }
+function videoLightEN() { return _rnd(VIDEO_LIGHT_EN); }
+
+function videoToneEN(pillar) {
+  const t = {
+    producto: 'Premium catalog tone: full focus on the detail and quality of the product, calm and confident pace.',
+    promo: 'Commercial tone with contained energy: subtle urgency (grab the offer now), no exaggerated gestures or fast cuts.',
+    marca: 'Brand tone: atmospheric, more feeling than selling — a real work moment, not an ad.',
+    mayorista: 'Corporate team tone: a real, coordinated work crew, professional seriousness, no gimmicks.',
+    educativo: 'Clear, calm, almost documentary: showing the product so it reads well, unhurried.',
+    ugc: 'Close and spontaneous: genuine content shot on location, not a polished commercial.',
+    engagement: 'Close, conversational, simple and direct.',
+  };
+  return t[pillar] || t.producto;
+}
+function videoFidelityEN(isCombo, imageCount) {
+  const which = isCombo ? 'Each product' : 'The product';
+  return `PRODUCT FIDELITY (the single most important rule — a clip that adds seams, zippers, pockets, textures or details NOT present in the reference photos is discarded, even if the rest looks great):
+- Use ALL ${imageCount > 1 ? `${imageCount} ` : ''}attached reference image(s) to reconstruct the product faithfully from every angle. ${which} must stay IDENTICAL to the references for the ENTIRE clip: exact same color, cut, silhouette, stitching, labels and hardware. Do NOT invent, add, move, enlarge or "improve" anything.
+- Absolute CONTINUITY: zero morphing between frames, zero logo/label mutation, no drifting proportions. If a part is not clearly visible in the references (e.g. the back), keep it ambiguous or out of focus — never invent new geometry.
+- ONE SINGLE CONTINUOUS TAKE: no hard cuts, no jump cuts, no different angles spliced together. Any change of framing happens WITHIN the same shot, driven by camera movement — never by an edit.
+- If forced to choose between a flashy move and keeping the product identical in one take, ALWAYS choose the latter.`;
+}
+const FACE_RULE_EN = `[FACE]: if a reference shows a person's face, the video must NOT show or reconstruct it. Frame from the neck down, from behind, head out of frame, turned away, in shadow or out of focus — never sharp and frontal.`;
+const VIDEO_REALISM_EN = `ANTI-AI REALISM (must NOT look generated): real imperfections (natural wear, a little dust, cloth wrinkles with believable physics, surfaces with real use), one coherent light source with shadows falling the same way, subtle film grain, restrained documentary saturation. FORBIDDEN: perfect plastic surfaces, floating unreal motion, an impossibly stable camera, vibrant render colors, magic transitions. If people appear: from behind or out of focus, hands with perfect anatomy.`;
+const VIDEO_AUDIO_EN = `[AUDIO] (if the model outputs sound, e.g. Veo 3): only soft diegetic ambience (light wind, a distant murmur, fabric rustle). NO music, NO voice-over, NO advertising "whoosh" SFX, and NO hits, hammering or tools in the foreground.`;
+const VIDEO_AESTHETIC_EN = `[AESTHETIC]: rugged, premium, high-contrast, a modern ad shot by a real cinematographer. NO on-screen text (captions are added later).`;
+const CAMERA_TAIL_EN = `The camera does ALL the movement on a gimbal/dolly at a slow, constant speed — motivated and cinematic, one fluid move from start to finish. FORBIDDEN: 360° orbits, whip pans, sudden jerks, edit cuts or spliced shots.`;
+
+function englishVideoSections(style, { name, theme, isCombo }) {
+  const item = isCombo ? 'the coordinated set of garments' : 'the garment';
+  const sceneTop = (s, tail) => `[SCENE]: ${theme ? `${theme} — set in: ` : ''}${s}. ${tail}`;
+  switch (style) {
+    case 'producto_solo': return {
+      scene: `[SCENE]: a clean neutral studio (mid-grey to concrete) or a tidy work surface, very few props. No construction, no tools.`,
+      subject: `[SUBJECT]: ONLY ${item}, with NO person in frame — presented with its natural drape (laid down, hung, or as if held by an invisible mannequin), in its real shape. FORBIDDEN: any person, hands, face or body parts.`,
+      optica: 'a 50mm prime f/2.8, creamy bokeh, natural compression',
+      camera: `A slow continuous PUSH-IN toward the product, or a very gentle 20°-max arc around it. ${CAMERA_TAIL_EN}`,
+      light: 'soft directional studio light with a rim light separating the product from the background, sober warm tones',
+      rhythm: `- 0-1.5s: product already in frame, complete and sharp.\n- 1.5-6s: the camera moves in/around slowly; the fabric barely shifts with the air.\n- 6-8s: clean final hero frame (usable as cover).`,
+    };
+    case 'macro': return {
+      scene: `[SCENE]: a fully defocused neutral background; only the product detail matters.`,
+      subject: `[SUBJECT]: EXTREME CLOSE-UP / MACRO of a REAL detail of ${isCombo ? 'one of the garments' : 'the product'} — the fabric weave, a seam, the zipper, the cuff or the label (use ONLY details visible in the references). The full product and any person are NOT shown. That detail fills the frame with minimal depth of field.`,
+      optica: 'a 100mm macro f/2.8, minimal and very selective depth of field',
+      camera: `A macro RACK FOCUS gliding across the detail in a single pass, or a very slow macro PUSH-IN. ${CAMERA_TAIL_EN}`,
+      light: 'soft raking light that reveals the material texture and relief, with delicate shadows',
+      rhythm: `- 0-2s: the detail already sharp and recognizable.\n- 2-6s: a micro focus/push across the texture.\n- 6-8s: settles on the nicest detail (cover).`,
+    };
+    case 'flatlay': return {
+      scene: `[SCENE]: a clean, tidy surface (wood, concrete or a work table), seen FROM ABOVE. No construction, no tools.`,
+      subject: `[SUBJECT]: ${isCombo ? 'the garments of the set laid FLAT and neatly arranged, coordinated with air between them' : 'the garment laid FLAT on the surface'}, TOP-DOWN (90° overhead), tidy with breathing room. NO person.`,
+      optica: 'a 35mm overhead, even framing without distortion',
+      camera: `Overhead camera: a very slow vertical PUSH-IN toward the garment, or a very gentle lateral slide (parallax). ${CAMERA_TAIL_EN}`,
+      light: 'even diffuse light from above with a soft contact shadow, neutral editorial tone',
+      rhythm: `- 0-1.5s: the full garment already in frame, tidy.\n- 1.5-6s: slow push or slide.\n- 6-8s: stable final overhead frame (cover).`,
+    };
+    case 'percha': return {
+      scene: `[SCENE]: the garment on a HANGER against a clean wall (concrete, wood or neutral). No construction, no tools.`,
+      subject: `[SUBJECT]: ${isCombo ? 'the garments of the set on hangers against a clean wall, coordinated' : 'the garment on the hanger with its natural drape'}. The only motion is a VERY slight sway of the hanger, or the air barely moving the fabric. NO person.`,
+      optica: 'a 50mm prime f/2.8, creamy bokeh',
+      camera: `A vertical TILT-REVEAL: start low (the hem) and rise slowly to the collar/shoulder; or a slow frontal push-in. One continuous move. ${CAMERA_TAIL_EN}`,
+      light: 'soft side window light with a long shadow on the wall, calm warm tone',
+      rhythm: `- 0-1.5s: the garment already recognizable.\n- 1.5-6s: the tilt/push reveals the garment with the slight sway.\n- 6-8s: stable hero frame of the hanging garment (cover).`,
+    };
+    case 'secuencia': return {
+      scene: sceneTop(videoSceneEN(name), 'A real, lived-in Argentine setting, not an artificial studio.'),
+      subject: `[SUBJECT]: ${item} presented so the camera can reveal several of its facets in ONE continuous choreographed move — the "cuts" are smooth camera moves, never edits.${isCombo ? '' : ' It may rest on an invisible mannequin or a still model seen from behind.'} The product stays perfectly consistent throughout.`,
+      optica: _rnd(['a 35mm on a gimbal, natural perspective', 'an anamorphic 40mm with subtle horizontal flares', 'a 50mm prime f/2, creamy bokeh']),
+      camera: `A choreographed continuous "oner" (single take, filmmaker feel): begin on a close detail (rack focus in), then crane/tilt up to reveal the full product, then a slow push to a clean hero — one motivated move, no edit cuts. Shot variety happens WITHIN a single take. ${CAMERA_TAIL_EN}`,
+      light: videoLightEN(),
+      rhythm: `- 0-2s: open on a detail (already faithful), then reveal.\n- 2-6s: the continuous move travels across the product with life (fabric, dust, light).\n- 6-8s: lands on a clean hero (cover).`,
+    };
+    case 'ambiente': return {
+      scene: sceneTop(videoSceneEN(name), 'A real, lived-in Argentine setting with believable wear.'),
+      subject: `[SUBJECT]: ${item} is the hero in its environment, still and with presence — a BRAND b-roll shot, more atmosphere than sell. A person may appear ONLY in the background, defocused or out of frame, never in focus and never "working".`,
+      optica: _rnd(['a 50mm prime f/2, creamy bokeh', 'an anamorphic 40mm with subtle flares']),
+      camera: `A locked-off tripod shot with "breathing", or a very slow lateral TRACKING; the interest comes from light, airborne dust and texture. Zero action, zero hits. ${CAMERA_TAIL_EN}`,
+      light: videoLightEN(),
+      rhythm: `- 0-2s: product already in frame, recognizable.\n- 2-6s: atmospheric stillness (dust, light, fabric).\n- 6-8s: settles on a brand hero frame (cover).`,
+    };
+    case 'lookbook':
+    default: return {
+      scene: sceneTop(videoSceneEN(name), 'A real, lived-in Argentine setting, not an artificial studio.'),
+      subject: `[SUBJECT & POSE] (stillness, not acting): a person wearing ${item}, standing, essentially STILL. The only motion is subtle and ambient: fabric settling or moving lightly with the air, a natural breath, the body's weight settling. FORBIDDEN: any dynamic physical action (walking, crouching, tying laces, big or repeated gestures) — that articulated motion is what breaks coherence and creates artifacts. The person NEVER works or uses tools: no hammering, no operating machines — they just present the garment like a photo shoot. When in doubt, choose stillness.`,
+      optica: _rnd(['a 50mm prime f/2, creamy bokeh, natural compression', 'a 35mm on a gimbal with subtle organic micro-shake (controlled handheld)']),
+      camera: `A slow, continuous RACK FOCUS or PUSH-IN toward the product (single pass, no jumps). The camera provides all the movement; the subject is still. ${CAMERA_TAIL_EN}`,
+      light: videoLightEN(),
+      rhythm: `- 0-1.5s: product already in frame, sharp and recognizable.\n- 1.5-6s: stillness with micro fabric/air movement.\n- 6-8s: clean, stable hero frame (cover).`,
+    };
+  }
+}
+
+/** Arma el prompt de video completo EN INGLÉS para un estilo. */
+function buildVideoFramePromptEN({ ratio, duration = 8, pillar, anchor, isCombo, imageCount, style, name, theme, caption }) {
+  const st = VIDEO_STYLES[style] || VIDEO_STYLES.lookbook;
+  const sec = englishVideoSections(style, { name, theme, isCombo });
+  const prompt = `A professional cinematographer shoots this take for BLACKS, an Argentine workwear and safety-footwear brand. Format ${ratio}, ~${duration}s, ONE SINGLE CONTINUOUS TAKE — no edit cuts, no spliced angles.
+
+[TONE]: ${videoToneEN(pillar)}
+
+[PRODUCT${isCombo ? 'S' : ''}] (use EXACTLY the one(s) in the attached reference images):
+${anchor}
+
+${videoFidelityEN(isCombo, imageCount)}
+
+${sec.scene}
+
+${sec.subject}
+${st.person ? `\n${FACE_RULE_EN}\n` : ''}
+[OPTICS & CAMERA] (one fluid move from start to finish):
+- Optics: ${sec.optica}.
+- Move: ${sec.camera}
+
+[PACING] (~${duration}s within the same take):
+${sec.rhythm}
+
+[LIGHT & MOOD]: ${sec.light}. Kodak Portra 400 grade, sober tones with subtle burnt-orange accents.
+${VIDEO_REALISM_EN}
+
+${VIDEO_AUDIO_EN}
+
+${VIDEO_AESTHETIC_EN}`;
+  return caption ? `${prompt}\n\nPOST CONTEXT (for tone only, do NOT render any text): ${caption}` : prompt;
+}
+
+// Instrucciones (en español, para el usuario) — incluyen el flujo multi-clip i2v.
+function videoHowToInstructions(ratio, { combo = false } = {}) {
+  return [
+    'RECOMENDADO — i2v (image-to-video): subí UNA de tus fotos como "Primer fotograma" (Frame 0 / Input Image). Es lo que MÁS fija el producto (cero deformación).',
+    `CAMBIOS DE ESCENA reales usando TODAS tus fotos: generá un clip corto (i2v) por CADA foto y unilos en un editor (CapCut/Premiere/DaVinci). Un solo prompt NO recorre todas tus fotos como escenas — las usa de referencia. Así conseguís el "estilo filmmaker" con fidelidad perfecta.`,
+    'El prompt está en INGLÉS a propósito: Veo/Runway/Kling obedecen mucho mejor en inglés.',
+    `Elegí formato ${ratio} y ~8s por clip.`,
+    combo ? 'Subí las fotos de TODOS los productos (frente, espalda, detalle) para máxima fidelidad.' : 'Subí varias fotos del producto (frente, espalda, detalle) para máxima fidelidad.',
+    'Descargá el/los .mp4 y subilo con "Subir video".',
+  ];
 }
 
 function buildVideoPrompt({ productName, productDescription, productImages = [], productImageUrl, theme, format = 'story', caption, pillar = 'producto', style = 'lookbook' } = {}) {
@@ -2026,46 +2165,15 @@ function buildVideoPrompt({ productName, productDescription, productImages = [],
   const ratio = format === 'feed' ? '4:5' : '9:16 vertical';
   const anchor = productAnchorLines([{ name: productName || 'producto de trabajo', description: productDescription }]);
   const st = VIDEO_STYLES[style] || VIDEO_STYLES.lookbook;
-  const s = st.build({ name: productName, theme });
-  const prompt = `Un director de fotografía profesional filma este plano para BLACKS, marca argentina de ropa de trabajo y calzado de seguridad. Formato ${ratio}, ~8 segundos, UNA SOLA TOMA CONTINUA — sin cortes de edición, sin distintos ángulos empalmados.
-
-[TONO DE LA PIEZA]: ${pillarVideoTone(pillar)}
-
-[PRODUCTO] (usá EXACTAMENTE el de las imágenes de referencia adjuntas):
-${anchor}
-
-${videoFidelityRules(false)}
-
-${s.sceneLine}
-
-${s.subject}
-${st.person ? `\n${FACE_RULE}\n` : ''}
-[ÓPTICA Y TÉCNICA DE CÁMARA] (un solo movimiento fluido de principio a fin):
-- Óptica: ${s.optica}.
-- Técnica: ${s.camera}
-- La cámara se opera con estabilizador/gimbal o rieles de dolly: el movimiento es CONTINUO y a velocidad constante, sin aceleraciones ni sacudidas. PROHIBIDO: órbitas de 360°, giros bruscos, paneos rápidos, cortes de edición o distintos planos empalmados.
-
-[RITMO] (~8s dentro de esa misma toma):
-${s.rhythm}
-
-[LUZ Y ATMÓSFERA]: ${s.luz}.
-${videoRealismRules()}
-
-[AUDIO] (si el modelo genera sonido, ej. Veo 3): sólo sonido ambiente suave y diegético del lugar (viento leve, un murmullo lejano, el roce de la tela). SIN música, SIN voces en off, SIN efectos "whoosh" publicitarios y SIN golpes, martillazos ni herramientas en primer plano.
-
-[ESTÉTICA]: robusta, premium, alto contraste, look de aviso moderno filmado por un director de fotografía real. SIN texto en pantalla (el texto/subtítulos los agrego después).`;
-  const instructions = [
-    'RECOMENDADO (Estándar Oro Image-to-Video / i2v en Runway Gen-3 / Kling / Luma / Veo): Subí como "Primer Fotograma" (Frame 0 / Input Image) la foto estática generada por el sistema. Eso garantiza 100% cero deformación del producto.',
-    'OPCIÓN GEMINI VEO (Reference-to-Video): Subí VARIAS fotos del producto desde distintos ángulos (frente, espalda, detalle) y pegá el prompt.',
-    `Elegí formato ${ratio} y duración ~8s.`,
-    'Descargá el video .mp4 y subilo al panel (botón "Subir video") para publicarlo en Instagram.',
-  ];
-  const platformNote = 'ESTRATEGIA DE VIDEO PUBLICITARIO: Si generas video desde texto puro o solo con fotos sueltas, los modelos suelen alucinar o alterar costuras y logos. El método profesional es Image-to-Video (i2v): toma el PNG final de alta calidad logrado en la pieza estática (donde el calzado/indumentaria ya está en contexto) y anímalo en Runway Gen-3 Alpha, Kling AI o Gemini Veo i2v usando las directrices cinemáticas de este prompt.';
+  // El prompt que se pega en Veo va en INGLÉS (obedece mejor). Reglas de fidelidad,
+  // continuidad y "usar TODAS las fotos" reforzadas.
+  const prompt = buildVideoFramePromptEN({ ratio, duration: 8, pillar, anchor, isCombo: false, imageCount: imgs.length, style, name: productName, theme, caption });
+  const platformNote = 'Para máxima fidelidad el flujo pro es Image-to-Video (i2v): subí una foto como primer fotograma. Para CAMBIOS DE ESCENA usando todas tus fotos: un clip por foto (i2v) y unilos en un editor — un solo prompt no recorre todas las fotos como escenas.';
   return {
     style,
     label: st.label,
-    prompt: caption ? `${prompt}\n\nCONTEXTO DEL POSTEO (para el tono, NO para poner texto): ${caption}` : prompt,
-    instructions,
+    prompt,
+    instructions: videoHowToInstructions(ratio, { combo: false }),
     productImages: imgs,
     productImageUrl: imgs[0] || null,
     platformNote,
