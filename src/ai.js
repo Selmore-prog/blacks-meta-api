@@ -1664,7 +1664,7 @@ function videoFidelityRules(isCombo) {
 }
 
 function videoRealismRules() {
-  return `REALISMO ANTI-IA (que NO parezca video generado): imperfecciones reales (desgaste, polvo, arrugas de tela con física creíble, piso sucio de obra), una sola fuente de luz coherente con sombras hacia el mismo lado, leve grano fílmico, saturación contenida tipo documental. PROHIBIDO: superficies plásticas perfectas, movimientos flotantes irreales, cámara imposiblemente estable, colores vibrantes de render, transiciones mágicas. Si hay personas: de espaldas o fuera de foco, manos con anatomía perfecta.`;
+  return `REALISMO ANTI-IA (que NO parezca video generado): imperfecciones reales (desgaste natural, algo de polvo, arrugas de tela con física creíble, superficies con uso real), una sola fuente de luz coherente con sombras hacia el mismo lado, leve grano fílmico, saturación contenida tipo documental. PROHIBIDO: superficies plásticas perfectas, movimientos flotantes irreales, cámara imposiblemente estable, colores vibrantes de render, transiciones mágicas. Si hay personas: de espaldas o fuera de foco, manos con anatomía perfecta.`;
 }
 
 /* =========================================================================
@@ -2132,6 +2132,8 @@ module.exports = {
   generateDiagram,
   analyzeStyle,
   buildVideoPrompt,
+  buildVideoPromptSet,
+  listVideoStyles,
   sanitizeText,
   hasGemini,
   currentImagePriceUsd,

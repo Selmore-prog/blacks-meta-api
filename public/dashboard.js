@@ -1518,23 +1518,38 @@ async function copyImagesToClipboard(urls) {
 async function openVideoPrompt(assetId) {
   try {
     const d = await api(`/api/assets/${assetId}/video-prompt`);
+    // Compat: si el server viejo devuelve un solo prompt, lo envolvemos como un estilo.
+    const styles = Array.isArray(d.styles) && d.styles.length
+      ? d.styles
+      : [{ id: 'default', label: 'Estándar', desc: '', prompt: d.prompt }];
     const firstImgs = (d.productImages || []).slice(0, 3);
     const body = `
-      <p class="hint" style="margin-top:0;">Para una escena de video a medida (fábrica, calle, obra…) generala a mano en Gemini/Veo con esto:</p>
+      <p class="hint" style="margin-top:0;">Elegí un <b>estilo de video</b> y generalo en Gemini/Veo con el prompt. Los estilos <b>sin persona</b> (producto solo, macro, flat-lay, percha) son los que menos se rompen.</p>
+      <div class="field"><label>Estilo de video</label>
+        <select class="input" id="vp-style">${styles.map((s, i) => `<option value="${i}">${esc(s.label)}</option>`).join('')}</select>
+        <p class="hint" id="vp-style-desc" style="margin:6px 0 0;">${esc(styles[0].desc || '')}</p></div>
       <div class="field"><label>Pasos</label>
-        <ol style="line-height:1.8; padding-left:20px; font-size:14px; margin:0;">${d.instructions.map((i) => `<li>${esc(i)}</li>`).join('')}</ol></div>
+        <ol style="line-height:1.8; padding-left:20px; font-size:14px; margin:0;">${(d.instructions || []).map((i) => `<li>${esc(i)}</li>`).join('')}</ol></div>
       ${(d.productImages && d.productImages.length) ? `<div class="field"><label>Fotos del producto a mandar (${d.productImages.length}) — subí varias perspectivas</label>
         <div class="vp-imgs">${d.productImages.map((u, i) => `<a href="${esc(u)}" target="_blank" title="foto ${i + 1}"><img src="${esc(u)}"/></a>`).join('')}</div>
         <p class="hint" style="margin:6px 0 0;">1) Copiá las fotos y pegalas en Gemini Omni. 2) Copiá el prompt y pegalo en el chat. No se pueden pegar juntas en una sola acción — el portapapeles sólo lleva un tipo de contenido a la vez.</p></div>` : ''}
       <div class="field"><label>Prompt (copialo y pegalo)</label>
-        <textarea class="input" id="vp-text" readonly style="min-height:200px">${esc(d.prompt)}</textarea></div>
+        <textarea class="input" id="vp-text" readonly style="min-height:200px">${esc(styles[0].prompt)}</textarea></div>
       ${d.platformNote ? `<p class="hint" style="margin:0 0 12px;">${icon('info')} ${esc(d.platformNote)}</p>` : ''}
       <div style="display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
         ${firstImgs.length ? `<button class="btn-ghost" id="vp-copy-imgs">${icon('copy')} Copiar ${firstImgs.length} foto${firstImgs.length > 1 ? 's' : ''}</button>` : ''}
         <button class="btn-primary" id="vp-copy">${icon('copy')} Copiar prompt</button></div>`;
     const ov = showInfoModal('Prompt para video con IA', body);
+    const sel = ov.querySelector('#vp-style');
+    const ta = ov.querySelector('#vp-text');
+    const descEl = ov.querySelector('#vp-style-desc');
+    sel.addEventListener('change', () => {
+      const s = styles[Number(sel.value)] || styles[0];
+      ta.value = s.prompt;
+      if (descEl) descEl.textContent = s.desc || '';
+    });
     ov.querySelector('#vp-copy').addEventListener('click', () =>
-      navigator.clipboard.writeText(d.prompt).then(() => toast('Prompt copiado', 'ok')));
+      navigator.clipboard.writeText(ta.value).then(() => toast('Prompt copiado', 'ok')));
     const imgsBtn = ov.querySelector('#vp-copy-imgs');
     if (imgsBtn) imgsBtn.addEventListener('click', async () => {
       const original = imgsBtn.innerHTML;

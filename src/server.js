@@ -14,7 +14,7 @@ const { uploadAsset } = require('./storage');
 const styleService = require('./styleService');
 const { importDriveFolder } = require('./driveService');
 const { analyzeAccountPerformance } = require('./accountAnalyzer');
-const { hasGemini, buildVideoPrompt } = require('./ai');
+const { hasGemini, buildVideoPrompt, buildVideoPromptSet } = require('./ai');
 const { transcribeVideo } = require('./transcribe');
 const { getWholesaleSettings, saveWholesaleSettings } = require('./wholesale');
 const { syncCompanyInfo, getCompanyFacts } = require('./companyInfo');
@@ -960,7 +960,7 @@ app.get('/api/assets/:assetId/video-prompt', wrap(async (req, res) => {
   if (!r) return res.status(404).json({ error: 'No existe el asset' });
   const productImages = Array.isArray(r.product_images) && r.product_images.length
     ? r.product_images : [r.product_image_url || r.image_path].filter(Boolean);
-  res.json(buildVideoPrompt({
+  res.json(buildVideoPromptSet({
     productName: r.product_name,
     productDescription: r.product_description,
     productImages,
