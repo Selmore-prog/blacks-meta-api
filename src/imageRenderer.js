@@ -2,7 +2,7 @@ const puppeteer = require('puppeteer');
 const config = require('./config');
 const { uploadAsset } = require('./storage');
 const { generateBackground, generateProductScene, generateDiagram } = require('./ai');
-const { stripEmoji, fixSpelling } = require('./textUtils');
+const { stripEmoji, fixSpelling, compactFact } = require('./textUtils');
 
 const DIMS = {
   feed: { w: 1080, h: 1350 },   // 4:5
@@ -926,9 +926,20 @@ function buildPosterHtml(opts) {
     rows.push(`<div style="white-space:nowrap; font-family:'Anton',sans-serif; font-size:${isStory ? 96 : 84}px; letter-spacing:20px; color:rgba(255,255,255,.016); line-height:1.55; transform:translateX(${i % 2 ? -90 : 0}px);">${tileText} ${tileText} ${tileText} ${tileText}</div>`);
   }
 
+  // FOTO DE CONTEXTO (opcional). Un afiche 100% tipográfico funciona en historias y en
+  // anuncios, pero en el FEED una pieza con producto real engancha más. Cuando hay una
+  // foto disponible entra como capa de fondo muy oscurecida: da contexto y calidez sin
+  // pelearle protagonismo al número, que sigue siendo el elemento dominante.
+  const backdrop = opts.bgImageUrl || opts.productImageUrl || null;
+
   return `${headHtml(w, h)}</head><body>
     <div style="position:relative; width:${w}px; height:${h}px; overflow:hidden; color:#fff;
       background:linear-gradient(168deg, #101216 0%, #0a0b0e 45%, #16110d 100%);">
+
+      ${backdrop ? `<img src="${esc(backdrop)}" alt="" style="position:absolute; inset:0; width:100%; height:100%;
+        object-fit:cover; z-index:0; opacity:.5; filter:brightness(.55) saturate(.8) contrast(1.05);"/>
+      <div style="position:absolute; inset:0; z-index:0; pointer-events:none;
+        background:linear-gradient(175deg, rgba(10,11,14,.72) 0%, rgba(10,11,14,.5) 42%, rgba(10,11,14,.88) 100%);"></div>` : ''}
 
       <!-- Trama de marca -->
       <div data-deco="1" style="position:absolute; inset:-8%; z-index:0; transform:rotate(-16deg); pointer-events:none;">${rows.join('')}</div>
@@ -965,7 +976,7 @@ function buildPosterHtml(opts) {
           <div>
             ${kicker ? `<div style="display:inline-flex; align-items:center; gap:12px; margin-bottom:${isStory ? 26 : 20}px;
               border:1px solid rgba(255,255,255,.26); border-radius:100px; padding:${isStory ? '11px 24px' : '9px 20px'};
-              font-size:${isStory ? 22 : 19}px; font-weight:800; letter-spacing:4px; text-transform:uppercase; color:rgba(255,255,255,.86);">
+              font-size:${isStory ? 25 : 23}px; font-weight:800; letter-spacing:4px; text-transform:uppercase; color:rgba(255,255,255,.86);">
               <span style="width:9px; height:9px; border-radius:50%; background:${accent}; box-shadow:0 0 12px ${accent};"></span>${esc(kicker)}</div>` : ''}
             ${headText ? `<div style="font-family:'Anton',sans-serif; font-size:${headSize}px; line-height:.94; letter-spacing:.5px;
               text-transform:uppercase; color:#fff; max-width:100%; text-shadow:0 8px 40px rgba(0,0,0,.6);">${esc(headText)}</div>` : ''}
@@ -981,7 +992,7 @@ function buildPosterHtml(opts) {
         ${ctaHtml ? `<div style="flex:0 0 auto; width:100%; display:flex; justify-content:center; margin-top:${isStory ? 30 : 22}px;">${ctaHtml}</div>` : ''}
         <div style="flex:0 0 auto; width:100%; display:flex; align-items:center; justify-content:center; gap:12px; margin-top:${isStory ? 30 : 20}px;">
           <span style="width:13px; height:13px; background:${accent}; border-radius:3px; box-shadow:0 0 12px ${accent};"></span>
-          <span style="font-size:${isStory ? 25 : 22}px; font-weight:700; letter-spacing:3px; color:#fff;">${esc(site)}</span>
+          <span style="font-size:${isStory ? 26 : 24}px; font-weight:700; letter-spacing:3px; color:#fff;">${esc(site)}</span>
         </div>
       </div>
     </div>
@@ -1141,16 +1152,22 @@ function buildEducativoHtml(opts) {
  * parte del "está todo muy amontonado". Fuente única para todas las plantillas.
  */
 function specChipsHtml(points, g, { marginBottom = 0 } = {}) {
-  const list = (points || []).filter(Boolean).slice(0, 3);
+  // El largo se garantiza ACÁ: el prompt pide datos cortos y el modelo igual devuelve
+  // frases de 70+ caracteres, que impresas quedan chicas y en tres renglones (ilegibles
+  // en el celular). Ver compactFact.
+  const list = (points || []).map((p) => compactFact(p, 30)).filter(Boolean).slice(0, 3);
   if (!list.length) return '';
   const chip = (p) => `<span style="display:inline-flex; align-items:center; gap:${g.isStory ? 11 : 9}px;
     background:rgba(10,11,14,.5); border:1px solid rgba(255,255,255,.2);
     backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
     /* El padding derecho es más generoso que el izquierdo a propósito: la cápsula cierra
        en curva y, con el texto justo contra el borde, la última letra se lee cortada. */
-    border-radius:100px; padding:${g.isStory ? '13px 34px 13px 22px' : '10px 27px 10px 18px'};
-    font-size:${g.isStory ? 26 : 22}px; font-weight:600; letter-spacing:.2px; color:#fff;
-    box-shadow:0 8px 22px rgba(0,0,0,.35);">${checkSvg('#FF8B4D', g.isStory ? 22 : 19)}${esc(p)}</span>`;
+    /* Tamaño pensado para el CELULAR, no para verlo al 100%: en el feed un 1080x1350 se
+       muestra a ~400pt de ancho, así que 22px terminaban siendo ~8pt en pantalla y había
+       que hacer zoom para leerlos. A 30/28px quedan en ~11pt, el mínimo cómodo. */
+    border-radius:100px; padding:${g.isStory ? '15px 36px 15px 24px' : '13px 30px 13px 20px'};
+    font-size:${g.isStory ? 30 : 28}px; font-weight:600; letter-spacing:.2px; color:#fff;
+    box-shadow:0 8px 22px rgba(0,0,0,.35);">${checkSvg('#FF8B4D', g.isStory ? 24 : 22)}${esc(p)}</span>`;
   return `<div style="display:flex; flex-wrap:wrap; gap:${g.isStory ? 14 : 11}px; margin-bottom:${marginBottom}px;">${list.map(chip).join('')}</div>`;
 }
 

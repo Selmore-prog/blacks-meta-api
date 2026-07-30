@@ -59,12 +59,34 @@ function shortLabel(s, max = 34) {
     return out;
   };
   if (!t) return '';
-  if (t.length <= max) return t.replace(/[\s,;:.–—-]+$/, '');
+
+  // LA URL SE SACA, NO SE RECORTA. Un botón que dice la dirección web repite el pie de la
+  // pieza (que ya la muestra) y encima, al partir por puntos para buscar la frase de
+  // acción, la URL se hacía pedazos: "Comprá ahora en www.blacksindumentaria.com.ar"
+  // terminaba impreso como "blacksindumentaria" (caso real). Se quita la URL y queda la
+  // acción; si al sacarla no queda nada accionable, se usa un llamado corto de la casa.
+  const hadUrl = /(https?:\/\/|www\.|[a-z0-9-]+\.(com|ar|net|shop)\b)/i.test(t);
+  let clean = t
+    .replace(/https?:\/\/\S+/gi, ' ')
+    .replace(/\bwww\.\S+/gi, ' ')
+    .replace(/\b[a-z0-9-]+(\.[a-z]{2,4}){1,2}\b/gi, ' ')
+    // Al sacar la URL puede quedar una preposición huérfana: "Entrá a ___ y aprovechá".
+    .replace(/\s+(a|al|en|de|del|con|desde|hasta|por)\s+(y|e|o|u)\s+/gi, ' $2 ')
+    .replace(/\s+(a|al|en|de|del|con|desde|hasta|por)\s*$/i, '')
+    .replace(/\s{2,}/g, ' ')
+    .trim();
+  if (hadUrl) {
+    const bare = tidy(clean.replace(/[\s,;:.–—-]+$/, ''));
+    clean = bare.length >= 8 ? bare : 'Comprá en nuestra web';
+    if (clean.length <= max) return clean;
+  }
+
+  if (clean.length <= max) return clean.replace(/[\s,;:.–—-]+$/, '');
   // Si el CTA vino como varias frases ("¡No te quedes afuera! Entrá a nuestra web y
   // asegurate los descuentos."), la ACCIÓN está en la última: recortar la primera dejaba
   // un botón que no pide nada ("¡No te quedes afuera! Entrá").
-  const clauses = t.split(/[!?.¡¿]+/).map((c) => c.trim()).filter((c) => c.length > 7);
-  const source = clauses.length > 1 ? clauses[clauses.length - 1] : t;
+  const clauses = clean.split(/[!?.¡¿]+/).map((c) => c.trim()).filter((c) => c.length > 7);
+  const source = clauses.length > 1 ? clauses[clauses.length - 1] : clean;
   if (source.length <= max) return tidy(source);
   const cut = source.slice(0, max);
   const lastSpace = cut.lastIndexOf(' ');
@@ -72,4 +94,43 @@ function shortLabel(s, max = 34) {
   return tidy(base);
 }
 
-module.exports = { stripEmoji, fixSpelling, shortLabel };
+// Verbos con los que arranca un beneficio redactado como frase ("Pagá en hasta 6 cuotas"):
+// como CHIP no aportan, el dato es lo que viene después.
+const CHIP_LEAD_VERB = /^(pag[aá]|llevate|consegu[ií]|aprovech[aá]|compr[aá]|obten[eé]|sum[aá]|eleg[ií]|ten[eé]|disfrut[aá]|acced[eé])\s+(en\s+|con\s+|tu\s+|el\s+|la\s+|los\s+|las\s+|hasta\s+|de\s+)*/i;
+// Coletillas que alargan sin agregar dato ("en toda la web", "en todos nuestros productos").
+const CHIP_TAIL_FILLER = /\s+(en|de|por|para)\s+(toda|todo|todos|todas|nuestra|nuestro|nuestras|nuestros|el|la|los|las)\s+[\wáéíóúñ]+(\s+[\wáéíóúñ]+)?\.?$/i;
+
+/**
+ * Compacta un DATO para imprimirlo como chip en una pieza.
+ *
+ * El prompt pide "máx ~4 palabras" y el modelo igual devuelve frases enteras: en la promo
+ * de liquidación salió "Pagá en hasta 6 cuotas sin interés o 10% OFF extra por
+ * transferencia bancaria." (77 caracteres) — impreso chico y en tres renglones, ilegible
+ * en el celular. El largo no se puede dejar librado al prompt: se garantiza acá.
+ *
+ * Estrategia, en orden: quedarse con UNA de las alternativas si el dato trae dos unidas
+ * por "o", sacar el verbo del arranque, sacar la coletilla del final y, recién si sigue
+ * largo, cortar por palabra entera.
+ */
+function compactFact(s, max = 30) {
+  let t = String(s == null ? '' : s).replace(/\s+/g, ' ').replace(/\.+$/, '').trim();
+  if (!t) return '';
+  if (t.length <= max) return t;
+  // "6 cuotas sin interés o 10% OFF por transferencia" -> la primera alternativa.
+  const alt = t.split(/\s+o\s+/i);
+  if (alt.length > 1 && alt[0].trim().length >= 8) t = alt[0].trim();
+  t = t.replace(CHIP_LEAD_VERB, '').trim();
+  t = t.replace(CHIP_TAIL_FILLER, '').trim();
+  if (t.length > max) {
+    const cut = t.slice(0, max);
+    const sp = cut.lastIndexOf(' ');
+    t = (sp > max * 0.5 ? cut.slice(0, sp) : cut);
+  }
+  t = t.replace(/[\s,;:.–—-]+$/, '');
+  for (let i = 0; i < 3 && LABEL_DANGLING.test(t); i += 1) {
+    t = t.replace(LABEL_DANGLING, '').replace(/[\s,;:.–—-]+$/, '');
+  }
+  return t.replace(/^([a-záéíóúñ])/, (m) => m.toUpperCase());
+}
+
+module.exports = { stripEmoji, fixSpelling, shortLabel, compactFact };

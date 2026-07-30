@@ -1118,7 +1118,10 @@ async function generateForSlot(slot, overrides = {}) {
       logos,
       layoutSeed: Number(slot.id),
       // Detalle real: NO se gasta en escena IA — la foto macro real ya es la pieza.
-      useAiProductScene: !isReel && Boolean(heroImageUrl) && slot.pillar !== 'repost' && !heroIsRealDetail,
+      // 'poster' tampoco: es un afiche tipográfico y la foto entra como fondo al 42% de
+      // opacidad — pagar una escena generada para verla así sería tirar la plata.
+      useAiProductScene: !isReel && Boolean(heroImageUrl) && slot.pillar !== 'repost'
+        && !heroIsRealDetail && template !== 'poster',
       // Ilustración didáctica: educativo sin guía real ni foto, o cuando el director
       // creativo decidió que el tema se explica mejor dibujado que fotografiado.
       useAiDiagram: (isEducativo || (directorPlan && directorPlan.visual === 'ilustracion')) && !realSizeChart && !visualImageUrl,
