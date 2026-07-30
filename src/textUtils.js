@@ -37,4 +37,39 @@ function fixSpelling(s) {
   return out;
 }
 
-module.exports = { stripEmoji, fixSpelling };
+/**
+ * Acorta un texto para usarlo como ETIQUETA DE BOTÓN, cortando por palabra entera.
+ * Un `slice(0, n)` a secas partía el CTA al medio y quedaba impreso en la pieza:
+ * "¡No te quedes afuera! Entrá a nuestra web y asegurate los de" (caso real, jul-2026).
+ * Si hay que recortar, se corta en el último espacio y se limpia la puntuación colgada;
+ * nunca se agrega "…" (en un botón queda raro).
+ */
+// Palabras que no pueden quedar al final de una etiqueta: si el recorte cae ahí, la
+// frase queda colgada ("Entrá a", "asegurate los").
+const LABEL_DANGLING = /\s+(a|al|de|del|con|sin|para|por|en|y|e|o|u|que|el|la|los|las|un|una|unos|unas|tu|tus|su|sus|mi|mis|lo|le|te|se|más|muy|ya|desde|hasta|sobre|entre)$/i;
+
+function shortLabel(s, max = 34) {
+  const t = String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+  const tidy = (x) => {
+    let out = x.replace(/[\s,;:.–—-]+$/, '');
+    // Puede quedar más de un conector encadenado ("y asegurate los" -> "y asegurate" -> …).
+    for (let i = 0; i < 3 && LABEL_DANGLING.test(out); i += 1) {
+      out = out.replace(LABEL_DANGLING, '').replace(/[\s,;:.–—-]+$/, '');
+    }
+    return out;
+  };
+  if (!t) return '';
+  if (t.length <= max) return t.replace(/[\s,;:.–—-]+$/, '');
+  // Si el CTA vino como varias frases ("¡No te quedes afuera! Entrá a nuestra web y
+  // asegurate los descuentos."), la ACCIÓN está en la última: recortar la primera dejaba
+  // un botón que no pide nada ("¡No te quedes afuera! Entrá").
+  const clauses = t.split(/[!?.¡¿]+/).map((c) => c.trim()).filter((c) => c.length > 7);
+  const source = clauses.length > 1 ? clauses[clauses.length - 1] : t;
+  if (source.length <= max) return tidy(source);
+  const cut = source.slice(0, max);
+  const lastSpace = cut.lastIndexOf(' ');
+  const base = lastSpace > max * 0.5 ? cut.slice(0, lastSpace) : cut;
+  return tidy(base);
+}
+
+module.exports = { stripEmoji, fixSpelling, shortLabel };

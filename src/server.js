@@ -734,6 +734,9 @@ app.post('/api/generate/:calendarId', wrap(async (req, res) => {
   }
 
   const template = VALID_TEMPLATES.includes(body.template) ? body.template : null;
+  // Dirección de arte elegida a mano: cómo tiene que resolverse la imagen de la pieza.
+  const artMode = ['generativa', 'foto', 'tipografica'].includes(body.artMode) ? body.artMode : null;
+  const artBrief = typeof body.artBrief === 'string' ? body.artBrief.trim().slice(0, 400) : null;
 
   // Guardamos qué versiones había ANTES: recién las descartamos si la nueva sale bien.
   // (Antes se descartaba primero y, si la generación en segundo plano fallaba, la pieza
@@ -749,7 +752,7 @@ app.post('/api/generate/:calendarId', wrap(async (req, res) => {
   const detailForGen = newDetail || slot.pillar_detail;
   (async () => {
     try {
-      await generateForSlot(slotForGen, { pillarDetail: detailForGen, template });
+      await generateForSlot(slotForGen, { pillarDetail: detailForGen, template, artMode, artBrief });
       // La nueva se creó OK → recién ahora descartamos las viejas y limpiamos su cola.
       if (prevIds.length) {
         await pool.query(`UPDATE generated_assets SET status = 'discarded', updated_at = now() WHERE id = ANY($1)`, [prevIds]);
@@ -845,8 +848,11 @@ app.post('/api/assets/:assetId/correct', wrap(async (req, res) => {
   const id = intParam(req.params.assetId);
   if (!id) return res.status(400).json({ error: 'assetId inválido' });
   const instruction = typeof req.body?.instruction === 'string' ? req.body.instruction : '';
-  if (!instruction.trim()) return res.status(400).json({ error: 'Escribí qué hay que corregir.' });
-  const result = await correctPiece({ assetId: id, instruction });
+  // Se puede corregir sólo el texto, sólo la imagen (artMode), o las dos cosas.
+  const artMode = ['generativa', 'foto', 'tipografica'].includes(req.body?.artMode) ? req.body.artMode : null;
+  const artBrief = typeof req.body?.artBrief === 'string' ? req.body.artBrief.trim().slice(0, 400) : null;
+  if (!instruction.trim() && !artMode) return res.status(400).json({ error: 'Escribí qué hay que corregir o elegí una imagen distinta.' });
+  const result = await correctPiece({ assetId: id, instruction, artMode, artBrief });
   res.json({ ok: true, ...result });
 }));
 

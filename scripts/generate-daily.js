@@ -10,7 +10,7 @@ const { getCompanyFacts, companyFactsContext } = require('../src/companyInfo');
 const { getCommercialContextForDate } = require('../src/commercialDates');
 const { eligibleSQL, recentlyFeaturedIds } = require('../src/productScore');
 const config = require('../src/config');
-const { stripEmoji, fixSpelling } = require('../src/textUtils');
+const { stripEmoji, fixSpelling, shortLabel } = require('../src/textUtils');
 const { uploadAsset } = require('../src/storage');
 
 // Retail (con precio y stock finito). 'mayorista' se maneja aparte con pickMayoristaProduct.
@@ -581,11 +581,52 @@ async function renderCarouselShot(shot, i, ctx) {
   });
 }
 
+/**
+ * MODOS DE ARTE (los elige el dueño al regenerar desde el panel). Existen porque el
+ * sistema decidía solo si una pieza llevaba imagen IA o no, y no había forma de pedirle
+ * "esta hacela con imagen generativa" — que es justo lo que hace falta en promos de toda
+ * la tienda o fechas comerciales, donde no hay UN producto que fotografiar.
+ *   auto        : el director creativo decide (comportamiento de siempre).
+ *   generativa  : SÍ o SÍ imagen IA — escena del producto si hay producto, arte de fondo
+ *                 si no. El texto NUNCA lo escribe la IA: se estampa después con el
+ *                 sistema de diseño (la IA escribiendo texto es lo que sacaba titulares
+ *                 mal escritos horneados en la foto).
+ *   foto        : sólo fotos reales del catálogo, cero gasto de IA.
+ *   tipografica : sin foto — afiche de diseño (plantilla poster).
+ */
+const ART_MODES = ['auto', 'generativa', 'foto', 'tipografica'];
+function normalizeArtMode(v) {
+  const m = String(v || '').trim().toLowerCase();
+  return ART_MODES.includes(m) && m !== 'auto' ? m : null;
+}
+
+/**
+ * Descarta del veredicto del QA visual las quejas de "texto cortado" que el navegador
+ * desmiente. El modelo de visión confunde un titular repartido en dos renglones con un
+ * texto mutilado — se midió el DOM en 9 piezas que había rechazado y ninguna desbordaba.
+ * Si la medición exacta (renderPostBuffer.clippedText) dice que no hay nada recortado, la
+ * queja se cae; el resto de los problemas que ve la visión (contraste, superposición,
+ * fotos rotas) se respetan tal cual, porque ahí sí es mejor que cualquier medición.
+ */
+const CUT_CLAIM_RE = /cortad|truncad|mutilad|se sale|falta(n)? (parte|caracteres|letras)|incompleto/i;
+function dropUnfoundedCutClaims(check, clippedText, slotId) {
+  if (!check || check.ok) return check;
+  if (Array.isArray(clippedText) && clippedText.length) return check; // hay recorte real
+  const kept = (check.issues || []).filter((i) => !CUT_CLAIM_RE.test(String(i)));
+  if (kept.length === (check.issues || []).length) return check;
+  const dropped = (check.issues || []).length - kept.length;
+  console.log(`[generate-daily] QA visual · slot #${slotId}: ignoro ${dropped} queja(s) de "texto cortado" — la medición del DOM confirma que ningún texto está recortado.`);
+  return { ok: kept.length === 0, issues: kept };
+}
+
 async function generateForSlot(slot, overrides = {}) {
   const brandProfile = await getBrandProfile();
   // Permite regenerar cambiando el tema/ángulo del contenido sin cambiar el pilar.
   const pillarDetail = overrides.pillarDetail || slot.pillar_detail;
   const effectiveSlot = { ...slot, pillar_detail: pillarDetail };
+  // Dirección de arte pedida a mano desde el panel (ver ART_MODES).
+  const artMode = normalizeArtMode(overrides.artMode);
+  const artBrief = String(overrides.artBrief || '').trim().slice(0, 400) || null;
 
   // Objetivo de la pieza: si el slot no lo tiene (slots viejos, previos al planner
   // con objetivos), usamos el que corresponde al pilar para que el copy igual salga
@@ -830,13 +871,17 @@ async function generateForSlot(slot, overrides = {}) {
 
   // Plantilla visual: override manual > elección del director creativo > elección del
   // cerebro del copy > pool del pilar filtrado por fotos reales > variedad por seed.
-  const template = chooseTemplate(effectiveSlot, { override: overrides.template, visualProduct, aiPick: (directorPlan && directorPlan.template) || copy.template });
+  // artMode 'tipografica' manda sobre todo: la pieza va sin foto, como afiche de diseño.
+  const template = artMode === 'tipografica'
+    ? 'poster'
+    : chooseTemplate(effectiveSlot, { override: overrides.template, visualProduct, aiPick: (directorPlan && directorPlan.template) || copy.template });
 
   let imagePath;
   let slidesJson = null;
   let slidesMetaJson = null; // receta de cada slide del carrusel (para regenerar uno solo)
   let pieceCostUsd = 0; // lo que costó ESTA pieza en imágenes IA (0 = gratis)
   let coverBuffer = null; // portada del carrusel, para el QA visual final
+  let coverClipped = []; // textos realmente recortados en la portada (medición del DOM)
   let coverOverlay = null; // texto esperado en esa portada (para detectar truncados)
 
   // Piezas educativas: la imagen tiene que ENSEÑAR el tema, no decorar.
@@ -972,6 +1017,7 @@ async function generateForSlot(slot, overrides = {}) {
     const urls = slideResults.map((r) => r.url);
     pieceCostUsd += slideResults.reduce((sum, r) => sum + (r.costUsd || 0), 0);
     coverBuffer = slideResults[0] ? slideResults[0].buffer : null;
+    coverClipped = slideResults[0] ? (slideResults[0].clippedText || []) : [];
     coverOverlay = plan[0] ? (plan[0].overlay || overlayTitle) : null;
 
     imagePath = urls[0];
@@ -1026,7 +1072,7 @@ async function generateForSlot(slot, overrides = {}) {
       // botón (pedido real, jul-2026). Si la pieza es semi, el chip de interacción
       // ocupa ese lugar y manda (no se duplican pills).
       ctaLabel: format === 'story' && !isReel && !interactionLabel && copy.cta
-        ? String(copy.cta).slice(0, 60) : null,
+        ? shortLabel(copy.cta, 34) : null,
       // Eyebrow por pilar (magazine/stackedcards): evita el 'NOTA DE TAPA' fuera de lugar.
       kicker: PILLAR_KICKER[slot.pillar],
       // Historias: puntos cortos con datos reales impresos SOBRE la imagen (el caption
@@ -1074,6 +1120,41 @@ async function generateForSlot(slot, overrides = {}) {
       couponCode,
       interactionLabel,
     };
+
+    // ============ DIRECCIÓN DE ARTE PEDIDA A MANO ============
+    // El dueño eligió el modo desde el panel: pisa lo que decidió el director creativo.
+    // 'generativa' es el caso clave de las promos/fechas comerciales sin producto: sin
+    // esto no había forma de pedir una imagen generada y la pieza salía tipográfica.
+    if (artMode === 'foto' || artMode === 'tipografica') {
+      renderOpts.useAiProductScene = false;
+      renderOpts.useAiBackground = false;
+      renderOpts.useAiDiagram = false;
+    }
+    if (artMode === 'tipografica') {
+      renderOpts.productImageUrl = null;
+      renderOpts.productImageUrls = [];
+      renderOpts.coverImage = false;
+    }
+    if (artMode === 'generativa' && !isReel) {
+      renderOpts.useAiDiagram = false;
+      if (renderOpts.productImageUrl) {
+        // Hay foto real del producto: se usa como referencia para que la escena generada
+        // sea ESE producto y no uno inventado.
+        renderOpts.useAiProductScene = true;
+        renderOpts.useAiBackground = false;
+      } else {
+        renderOpts.useAiProductScene = false;
+        renderOpts.useAiBackground = true;
+      }
+      // Arte de afiche: composición dramática con espacio libre reservado para el texto,
+      // que se estampa después (ver artStyle en generateBackground/generateProductScene).
+      renderOpts.artStyle = 'poster';
+    }
+    if (artBrief) {
+      renderOpts.bgBrief = [renderOpts.bgBrief, artBrief].filter(Boolean).join(' — ').slice(0, 600);
+      renderOpts.artBrief = artBrief;
+    }
+
     // Se registra la plantilla/seed EFECTIVOS (el self-healing puede cambiarlos) para
     // guardar una "receta" fiel a la imagen final y poder corregirla después sin tocar
     // la escena (foto IA ya pagada). Ver correctPiece + POST /api/assets/:id/correct.
@@ -1099,11 +1180,12 @@ async function generateForSlot(slot, overrides = {}) {
         // siguientes. Con dos miradas sobre LA MISMA imagen, el ruido de una sola muestra
         // desaparece y sólo pasan los defectos que el revisor ve las dos veces. Es gratis.
         let check = await reviewRenderedPiece({ buffer: render.buffer, overlayText: overlayTitle });
+        check = dropUnfoundedCutClaims(check, render.clippedText, slot.id);
         if (!check.ok) {
           const second = await reviewRenderedPiece({ buffer: render.buffer, overlayText: overlayTitle });
-          if (second.ok) {
+          if (dropUnfoundedCutClaims(second, render.clippedText, slot.id).ok) {
             console.log(`[generate-daily] QA visual: el rechazo del slot #${slot.id} no se confirmó en la segunda mirada (${check.issues.join(' · ')}) — la pieza queda como está.`);
-            check = second;
+            check = { ok: true, issues: [] };
           }
         }
         if (!check.ok) {
@@ -1119,7 +1201,10 @@ async function generateForSlot(slot, overrides = {}) {
             useAiProductScene: false, useAiDiagram: false, useAiBackground: false, // cero gasto nuevo
           });
           pieceCostUsd += healed.costUsd || 0;
-          const recheck = await reviewRenderedPiece({ buffer: healed.buffer, overlayText: overlayTitle });
+          const recheck = dropUnfoundedCutClaims(
+            await reviewRenderedPiece({ buffer: healed.buffer, overlayText: overlayTitle }),
+            healed.clippedText, slot.id
+          );
           const keepHealed = recheck.ok || recheck.issues.length <= check.issues.length;
           if (keepHealed) { render = healed; finalTemplate = 'fullbleed'; finalSeed = Number(slot.id) + 31; }
           if (!recheck.ok) {
@@ -1182,10 +1267,16 @@ async function generateForSlot(slot, overrides = {}) {
         interactionLabel: renderOpts.interactionLabel,
         coverImage: renderOpts.coverImage,
         photoFraming: renderOpts.photoFraming,
+        productDescription: renderOpts.productDescription,
         layoutSeed: finalSeed,
         showBrand: renderOpts.showBrand !== false,
       };
-      slidesMetaJson = JSON.stringify({ single: true, recipe, sceneUrl: sceneUrl || null, sceneAsProduct });
+      // artMode/artBrief quedan guardados para que "Corregir" mantenga la misma dirección
+      // de arte y para poder mostrarla preseleccionada la próxima vez en el panel.
+      slidesMetaJson = JSON.stringify({
+        single: true, recipe, sceneUrl: sceneUrl || null, sceneAsProduct,
+        artMode: artMode || 'auto', artBrief: artBrief || null,
+      });
     } catch (err) {
       console.warn(`[generate-daily] No pude guardar la receta de corrección (sigo): ${err.message}`);
     }
@@ -1198,11 +1289,11 @@ async function generateForSlot(slot, overrides = {}) {
   if (slides && coverBuffer) {
     try {
       const { reviewRenderedPiece } = require('../src/ai');
-      let check = await reviewRenderedPiece({ buffer: coverBuffer, overlayText: coverOverlay });
+      let check = dropUnfoundedCutClaims(await reviewRenderedPiece({ buffer: coverBuffer, overlayText: coverOverlay }), coverClipped, slot.id);
       // Doble mirada, igual que en las piezas simples: un rechazo de una sola muestra
       // manda a revisión manual una portada sana y graba una lección falsa.
       if (!check.ok) {
-        const second = await reviewRenderedPiece({ buffer: coverBuffer, overlayText: coverOverlay });
+        const second = dropUnfoundedCutClaims(await reviewRenderedPiece({ buffer: coverBuffer, overlayText: coverOverlay }), coverClipped, slot.id);
         if (second.ok) {
           console.log(`[generate-daily] QA visual de portada: el rechazo del slot #${slot.id} no se confirmó en la segunda mirada — la dejo pasar.`);
           check = second;
@@ -1373,9 +1464,13 @@ async function regenerateSlide({ assetId, index, overlay, instructions }) {
  * sin tocar nada más de la imagen. Requiere que la pieza tenga su "receta" guardada
  * (slides_meta.single); las piezas viejas hay que regenerarlas una vez para habilitarlo.
  */
-async function correctPiece({ assetId, instruction }) {
+async function correctPiece({ assetId, instruction, artMode: artModeIn, artBrief: artBriefIn } = {}) {
   const instr = String(instruction || '').trim();
-  if (!instr) throw new Error('Escribí qué hay que corregir.');
+  const artMode = normalizeArtMode(artModeIn);
+  const artBrief = String(artBriefIn || '').trim().slice(0, 400) || null;
+  // Se puede corregir SÓLO la imagen (cambiar el arte sin tocar los textos): en ese caso
+  // no hace falta escribir una instrucción de texto.
+  if (!instr && !artMode) throw new Error('Escribí qué hay que corregir (o elegí una imagen distinta).');
 
   const { rows } = await pool.query(
     `SELECT a.*, c.pillar FROM generated_assets a JOIN content_calendar c ON c.id = a.calendar_id WHERE a.id = $1`, [assetId]
@@ -1392,19 +1487,22 @@ async function correctPiece({ assetId, instruction }) {
   }
   const recipe = { ...meta.recipe };
 
-  const { parseCorrection } = require('../src/ai');
-  const corr = await parseCorrection({
-    instruction: instr,
-    current: {
-      overlayTitle: recipe.overlayTitle || '',
-      storyPoints: Array.isArray(recipe.storyPoints) ? recipe.storyPoints : [],
-      cta: recipe.ctaLabel || recipe.cta || '',
-      badge: recipe.badgeText || '',
-      hasPrice: Boolean(recipe.price),
-    },
-    caption: asset.caption || '',
-    pillar: asset.pillar,
-  });
+  // Sin instrucción de texto (sólo se pidió cambiar la imagen) no se llama al cerebro:
+  // los textos quedan exactamente como están.
+  const corr = instr
+    ? await require('../src/ai').parseCorrection({
+      instruction: instr,
+      current: {
+        overlayTitle: recipe.overlayTitle || '',
+        storyPoints: Array.isArray(recipe.storyPoints) ? recipe.storyPoints : [],
+        cta: recipe.ctaLabel || recipe.cta || '',
+        badge: recipe.badgeText || '',
+        hasPrice: Boolean(recipe.price),
+      },
+      caption: asset.caption || '',
+      pillar: asset.pillar,
+    })
+    : {};
 
   // Aplicar SÓLO los campos que devolvió el cerebro (limpios de emoji + ortografía).
   const cleanBurn = (s) => stripEmoji(fixSpelling(String(s == null ? '' : s)));
@@ -1419,36 +1517,101 @@ async function correctPiece({ assetId, instruction }) {
     const merged = corr.storyPoints.map((u, i) => (orig[i] != null && norm(u) === norm(orig[i])) ? orig[i] : cleanBurn(u));
     recipe.storyPoints = merged.filter(Boolean).slice(0, 3);
   }
-  if (corr.cta !== undefined) recipe.ctaLabel = corr.cta ? cleanBurn(corr.cta).slice(0, 60) : null;
+  if (corr.cta !== undefined) recipe.ctaLabel = corr.cta ? shortLabel(cleanBurn(corr.cta), 34) : null;
   if (corr.badge !== undefined) recipe.badgeText = corr.badge ? cleanBurn(corr.badge) : null;
   if (corr.hidePrice === true) { recipe.price = null; recipe.promoPrice = null; }
 
-  // Re-render REUSANDO la escena (bgImageUrl/productImageUrl ya subidos): useAi*:false =>
-  // renderPostBuffer no genera ni paga imagen. La foto queda EXACTAMENTE igual.
   const logos = await getLogos().catch(() => ({ onLight: null, onDark: null }));
-  const sceneAttach = meta.sceneUrl
-    ? (meta.sceneAsProduct
-      ? { productImageUrl: meta.sceneUrl, coverImage: Boolean(recipe.coverImage) }
-      : { bgImageUrl: meta.sceneUrl })
-    : {};
-  const render = await renderPostBuffer({
-    ...recipe,
-    logos,
-    ...sceneAttach,
-    useAiProductScene: false, useAiBackground: false, useAiDiagram: false,
-  });
 
-  const newMeta = { ...meta, recipe };
+  // ============ IMAGEN: reusar la de siempre, o rehacer el arte ============
+  // Por defecto la corrección es GRATIS: se re-renderiza con la MISMA escena ya generada
+  // (useAi*:false), así el texto cambia y la foto queda idéntica.
+  // Con artMode se puede pedir explícitamente otro arte — el caso que faltaba: "esta
+  // pieza rehacela con imagen generativa" sin tener que regenerar el copy entero.
+  let renderInput;
+  if (artMode) {
+    const base = { ...recipe, logos, useAiProductScene: false, useAiBackground: false, useAiDiagram: false };
+    if (artBrief) base.bgBrief = [base.bgBrief, artBrief].filter(Boolean).join(' — ').slice(0, 600);
+    if (artMode === 'tipografica') {
+      // Afiche de diseño: se suelta la foto por completo.
+      renderInput = { ...base, template: 'poster', productImageUrl: null, productImageUrls: [], bgImageUrl: null, coverImage: false };
+    } else if (artMode === 'foto') {
+      // Volver a la foto real del catálogo (descarta la escena IA que hubiera).
+      const productPhoto = await originalProductPhoto(asset);
+      renderInput = { ...base, bgImageUrl: null, productImageUrl: productPhoto || meta.sceneUrl || null };
+    } else {
+      // generativa: se REGENERA la imagen (esto sí cuesta). El producto real, si lo hay,
+      // entra como referencia para que la escena sea ESE producto y no uno inventado.
+      const productPhoto = await originalProductPhoto(asset);
+      renderInput = {
+        ...base,
+        bgTheme: recipe.bgTheme || recipe.overlayTitle || asset.theme_title || '',
+        artStyle: 'poster',
+        artBrief,
+        ...(productPhoto
+          ? { productImageUrl: productPhoto, useAiProductScene: true }
+          : { productImageUrl: null, bgImageUrl: null, useAiBackground: true }),
+      };
+    }
+  } else {
+    const sceneAttach = meta.sceneUrl
+      ? (meta.sceneAsProduct
+        ? { productImageUrl: meta.sceneUrl, coverImage: Boolean(recipe.coverImage) }
+        : { bgImageUrl: meta.sceneUrl })
+      : {};
+    renderInput = { ...recipe, logos, ...sceneAttach, useAiProductScene: false, useAiBackground: false, useAiDiagram: false };
+  }
+
+  const render = await renderPostBuffer(renderInput);
+
+  // Si se generó arte nuevo, la escena limpia pasa a ser la de la receta (así la próxima
+  // corrección de texto reusa ESTA imagen y no vuelve a pagar).
+  let newSceneUrl = meta.sceneUrl;
+  let newSceneAsProduct = meta.sceneAsProduct;
+  if (artMode) {
+    const clean = render.cleanImageUrl || null;
+    newSceneAsProduct = Boolean(clean && !String(clean).startsWith('data:') && !renderInput.coverImage);
+    newSceneUrl = clean && String(clean).startsWith('data:')
+      ? await uploadAsset({
+        buffer: Buffer.from(String(clean).split(',')[1] || '', 'base64'),
+        filename: `scene-corr-${assetId}-${Date.now()}.jpg`,
+        contentType: (String(clean).match(/^data:([^;]+);/) || [])[1] || 'image/jpeg',
+      }).catch(() => null)
+      : clean;
+    if (artMode === 'tipografica') { newSceneUrl = null; newSceneAsProduct = false; }
+    recipe.template = renderInput.template || recipe.template;
+    recipe.coverImage = Boolean(renderInput.coverImage);
+  }
+
+  const newMeta = {
+    ...meta, recipe,
+    sceneUrl: newSceneUrl || null,
+    sceneAsProduct: Boolean(newSceneAsProduct),
+    ...(artMode ? { artMode, artBrief: artBrief || null } : {}),
+  };
   // La ortografía de marca también se propaga al caption de IG (texto secundario).
   const newCaption = fixSpelling(asset.caption || '');
   await pool.query(
-    `UPDATE generated_assets SET image_path = $2, caption = $3, slides_meta = $4, updated_at = now() WHERE id = $1`,
-    [assetId, render.url, newCaption, JSON.stringify(newMeta)]
+    `UPDATE generated_assets SET image_path = $2, caption = $3, slides_meta = $4, est_cost_usd = COALESCE(est_cost_usd, 0) + $5, updated_at = now() WHERE id = $1`,
+    [assetId, render.url, newCaption, JSON.stringify(newMeta), render.costUsd || 0]
   );
 
-  let note = corr.note || 'Corrección aplicada.';
-  if (corr.targetsPhoto) note += ' (La foto se mantiene igual; para cambiar la imagen en sí usá "Regenerar".)';
+  let note = corr.note || (artMode ? 'Imagen actualizada.' : 'Corrección aplicada.');
+  if (artMode === 'generativa') {
+    note += render.costUsd ? ` (Imagen generada con IA: US$${Number(render.costUsd).toFixed(3)}.)` : ' (No se pudo generar la imagen con IA —revisá AI_IMAGES y el tope diario—; quedó el diseño sin foto generada.)';
+  } else if (corr.targetsPhoto) {
+    note += ' (La foto se mantiene igual; para cambiar la imagen elegí una opción de "Imagen" acá mismo o usá "Regenerar".)';
+  }
   return { image_path: render.url, note };
+}
+
+/** Foto REAL del producto de la pieza (para volver a ella o usarla como referencia). */
+async function originalProductPhoto(asset) {
+  if (!asset.product_id) return null;
+  const { rows } = await pool.query('SELECT images, image_url FROM products_cache WHERE id = $1', [asset.product_id]);
+  const p = rows[0];
+  if (!p) return null;
+  return (Array.isArray(p.images) && p.images[0]) || p.image_url || null;
 }
 
 module.exports = { generateDaily, generateForSlot, pickRelevantVisualProduct, VALID_TEMPLATES, regenerateSlide, correctPiece };

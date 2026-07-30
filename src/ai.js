@@ -760,6 +760,30 @@ function photoRealismRules() {
  * ignoran una única mención de "sin texto" en medio de un prompt largo.
  * strict=true se usa en el segundo intento, si el primero vino con texto/logo.
  */
+/**
+ * Dirección de arte de AFICHE (artStyle 'poster'), para cuando el dueño pide desde el
+ * panel "hacela con imagen generativa" en una promo o fecha comercial.
+ *
+ * IMPORTANTE — por qué no se le pide al modelo "un banner": un banner lleva texto, y
+ * pedirle texto a la IA es exactamente lo que rompió piezas antes (titulares en inglés,
+ * mal escritos, horneados en la foto e imposibles de corregir). Acá el modelo hace el
+ * ARTE —composición de campaña, luz dramática, profundidad— y deja libre a propósito la
+ * zona donde después el sistema de diseño estampa el titular, el precio y el botón con
+ * la tipografía real de la marca. Se obtiene el look de banner sin el riesgo del texto.
+ */
+function posterArtDirection(format) {
+  const zone = format === 'story'
+    ? 'la MITAD INFERIOR del cuadro (de la mitad para abajo)'
+    : 'el TERCIO INFERIOR y el TERCIO SUPERIOR del cuadro';
+  return `
+DIRECCIÓN DE AFICHE / KEY VISUAL DE CAMPAÑA (esta pieza es un afiche publicitario, no una foto de catálogo):
+- Composición de AVISO: un sujeto o gesto visual dominante, encuadre decidido, tensión y jerarquía clara. Que se lea de un vistazo a 20 cm en un celular.
+- Luz teatral de campaña: contraluz o luz lateral marcada, haces volumétricos, contraste alto, negros profundos con detalle. Nada de iluminación plana de estudio.
+- Profundidad real en capas (primer plano fuera de foco, sujeto nítido, fondo con caída) para que la pieza no se vea "pegada".
+- Paleta gráfica y editorial: base negro/carbón con el naranja quemado (#C1440C) como acento que aparece en la luz, en un objeto o en un reflejo. Contraste alto, saturación controlada.
+- ESPACIO RESERVADO PARA EL TEXTO (crítico): dejá ${zone} deliberadamente despejado —oscuro, desenfocado o vacío— sin detalle importante. Ahí va a ir el titular y el precio, que se estampan DESPUÉS con la tipografía de la marca. Si el sujeto invade esa zona, recomponé: mejor el sujeto más chico y desplazado que un texto ilegible encima.`;
+}
+
 function noTextNoLogoRule(strict = false) {
   const base = `REGLA DURA — CERO TIPOGRAFÍA: la salida es SOLO la fotografía/ilustración, sin ninguna letra, palabra, número, título, cartel, código, precio, cupón, sticker ni tipografía de ningún tipo, en NINGÚN idioma (ni español, ni inglés, ni inventado) — ni siquiera la palabra "BLACKS". El texto y el logo se agregan DESPUÉS con un sistema de diseño aparte; si la imagen trae cualquier rastro de texto o de un logo/isotipo (real o inventado), se descarta entera.
 REGLA DURA — CERO LOGOS: prohibido inventar o insinuar un logo, isotipo, escudo, sello o marca gráfica de ningún tipo (ni de BLACKS ni de ninguna otra marca), aunque sea sutil o parcialmente tapado.`;
@@ -1166,7 +1190,7 @@ Devolvé SOLO un JSON array alineado al orden: [{"i":0,"shows":"...","is_detail"
   }
 }
 
-async function generateBackground({ theme, brief, occasion, format = 'feed', referenceImages = [], seed = null } = {}) {
+async function generateBackground({ theme, brief, occasion, format = 'feed', referenceImages = [], seed = null, artStyle = null } = {}) {
   if (!config.ai.useAiImages || !hasGemini() || isImageQuotaCoolingDown()) return null;
   if (await imageBudgetExceeded()) return null; // tope diario: sigue con plantilla (gratis)
 
@@ -1196,6 +1220,7 @@ REALISMO ANTI-IA (crítico — la foto tiene que pasar por tomada con cámara re
 
 ARQUITECTURA DE NEGATIVE SPACE Y ZONAS SEGURAS (TEXT SAFE AREAS):
 - Composición por regla de los tercios con AMPLIO espacio negativo limpio y desenfocado (bokeh/depth of field) en el tercio superior e inferior para permitir la legibilidad absoluta del copy/titular tipográfico que se superpondrá después.
+${artStyle === 'poster' ? posterArtDirection(format) : ''}
 ${noTextNoLogoRule(strict)}
 - PROHIBIDO además: caras reconocibles en primer plano, manos deformes, objetos flotando, aspecto render 3D o IA evidente. Si hay personas, de espaldas o con desenfoque suave.`;
 
@@ -1524,7 +1549,7 @@ ${scene.describe()}
 ${bgLine}`;
 }
 
-async function generateProductScene({ productImageUrl, productImageUrls = [], productName, theme, brief, occasion, format = 'feed', seed = null, shotSpec = null } = {}) {
+async function generateProductScene({ productImageUrl, productImageUrls = [], productName, theme, brief, occasion, format = 'feed', seed = null, shotSpec = null, artStyle = null } = {}) {
   if (!config.ai.useAiImages || !hasGemini() || isImageQuotaCoolingDown() || (!productImageUrl && !productImageUrls.length)) return null;
   // Tope diario de gasto: la pieza sale con la foto real del catálogo (gratis).
   // NOTA: el Estudio (generateStudioScene) NO pasa por el tope — es una acción manual
@@ -1576,6 +1601,7 @@ UN SOLO PRODUCTO EN CUADRO (crítico):
 
 ARQUITECTURA DE ZONAS SEGURAS (NEGATIVE SPACE):
 - Aire limpio y desenfocado en los tercios superior e inferior para garantizar contraste absoluto al superponer titulares y precios.
+${artStyle === 'poster' ? posterArtDirection(format) : ''}
 ${noTextNoLogoRule(strict)}
 - PROHIBIDO además: manos/pies deformes, duplicar el producto, cambiarle color o forma, o aspecto de render 3D artificial.`;
 
