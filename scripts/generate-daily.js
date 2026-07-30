@@ -401,7 +401,7 @@ function descriptionImages(product) {
 
 // TEMPLATE_REQUIREMENTS vive en imageRenderer (única fuente de verdad): lo usan
 // este filtro de candidatas Y la validación dura del director creativo.
-const { TEMPLATES: VALID_TEMPLATES, TEMPLATE_INFO, TEMPLATE_REQUIREMENTS } = require('../src/imageRenderer');
+const { TEMPLATES: VALID_TEMPLATES, TEMPLATE_INFO, TEMPLATE_REQUIREMENTS, extractSpecTags } = require('../src/imageRenderer');
 
 // Qué estilos tienen sentido para cada pilar — variedad real por pilar, filtrada
 // después por lo que el producto puede sostener (fotos/descripción disponibles).
@@ -725,7 +725,7 @@ async function generateForSlot(slot, overrides = {}) {
           brandName: mentionedBrandIn(visualProduct && visualProduct.name),
         });
         if (heroShot) {
-          console.log(`[generate-daily] Director de fotografía · slot #${slot.id}: toma=${heroShot.shotType} foto=#${heroShot.photoIndex}${heroShot.photoShows ? ` ("${heroShot.photoShows}")` : ''} foco="${heroShot.focus}"${heroShot.reason ? ` · ${heroShot.reason}` : ''}`);
+          console.log(`[generate-daily] Director de fotografía · slot #${slot.id}: toma=${heroShot.shotType} foto=#${heroShot.photoIndex}${heroShot.photoShows ? ` ("${heroShot.photoShows}")` : ''} encuadre=${heroShot.photoFraming || '?'} foco="${heroShot.focus}"${heroShot.reason ? ` · ${heroShot.reason}` : ''}`);
         }
       }
     } catch (err) {
@@ -988,6 +988,32 @@ async function generateForSlot(slot, overrides = {}) {
     const heroIsRealDetail = Boolean(heroShot && ['detalle', 'flatlay'].includes(heroShot.shotType)) && !realSizeChart;
     const heroImageUrl = heroShot ? (refImgsAll[heroShot.photoIndex] || visualImageUrl) : visualImageUrl;
     const interactionLabel = interactionChip(slot, copy.sticker);
+
+    // ENCUADRE DE LA FOTO REAL: ¿a sangre o dentro de la tarjeta de estudio?
+    // La tarjeta contenida existe para los recortes de catálogo chicos sobre fondo
+    // blanco (ahí queda prolija). Pero cuando la foto ES una toma fotográfica de verdad
+    // —modelo con la prenda puesta, o el producto llenando el cuadro— meterla en una
+    // tarjeta la achica y deja ver el recorte del encuadre: es lo que hacía que la
+    // historia se viera "amontonada y con el torso cortado". Esas van A SANGRE, que es
+    // como se ve una historia editorial de verdad. Decide la visión, no una heurística
+    // ciega (ver describeProductPhotos: has_person / fills_frame / framing).
+    const photoIsScene = Boolean(heroShot && (heroShot.photoHasPerson || heroShot.photoFillsFrame));
+    const heroCoverImage = !realSizeChart && (heroIsRealDetail || photoIsScene);
+
+    // DATOS IMPRESOS EN LA HISTORIA (chips de ficha técnica). Primero los story_points
+    // del copy; si el cerebro no los devolvió, se sacan de la descripción REAL de
+    // Tiendanube con extractSpecTags (nunca se inventa nada). Así una historia de
+    // producto nunca sale muda: siempre lleva 2-3 datos concretos y verificables.
+    const storyDesc = (product && product.description) || (visualProduct && visualProduct.description) || null;
+    let storyPoints = format === 'story' && !isReel && Array.isArray(copy.story_points)
+      ? copy.story_points.filter(Boolean).slice(0, 3) : null;
+    if (format === 'story' && !isReel && (!storyPoints || !storyPoints.length) && storyDesc) {
+      const fromSheet = extractSpecTags(storyDesc, 3, { productName: (product && product.name) || (visualProduct && visualProduct.name) || '' });
+      if (fromSheet.length) {
+        storyPoints = fromSheet;
+        console.log(`[generate-daily] Historia sin story_points del copy · slot #${slot.id}: uso datos de la ficha real → ${fromSheet.join(' · ')}`);
+      }
+    }
     const renderOpts = {
       format,
       template,
@@ -1005,7 +1031,7 @@ async function generateForSlot(slot, overrides = {}) {
       kicker: PILLAR_KICKER[slot.pillar],
       // Historias: puntos cortos con datos reales impresos SOBRE la imagen (el caption
       // de una historia casi no se ve — la info tiene que estar en la pieza).
-      storyPoints: format === 'story' && !isReel && Array.isArray(copy.story_points) ? copy.story_points.slice(0, 3) : null,
+      storyPoints,
       // LA foto elegida por el director de fotografía (no la primera a ciegas).
       productImageUrl: realSizeChart || heroImageUrl,
       // Fotos extra del mismo producto (otros ángulos) para anclar la fidelidad
@@ -1013,8 +1039,12 @@ async function generateForSlot(slot, overrides = {}) {
       productImageUrls: refImgsAll.filter((u) => u !== heroImageUrl).slice(0, 4),
       // Spec de la toma (tipo/foco/fondo): dirige la escena IA como en los carruseles.
       shotSpec: heroShot || null,
-      // Detalle/flatlay: la foto real se ve completa a pantalla (no recorte en tarjeta).
-      coverImage: heroIsRealDetail,
+      // Detalle/flatlay o foto fotográfica (modelo / producto que llena el cuadro):
+      // la foto real va a pantalla completa en vez de contenida en la tarjeta.
+      coverImage: heroCoverImage,
+      // Encuadre detectado por la visión: si la foto recorta al modelo y aun así termina
+      // dentro de la tarjeta, el renderer desvanece el corte para que se lea intencional.
+      photoFraming: heroShot ? heroShot.photoFraming : null,
       // Descripción REAL de Tiendanube: la plantilla 'specsheet' pinea specs
       // técnicos reales (material, feature) tomados de acá, nunca inventados.
       productDescription: (product && product.description) || (visualProduct && visualProduct.description) || null,
@@ -1062,11 +1092,22 @@ async function generateForSlot(slot, overrides = {}) {
     if (!isReel) {
       try {
         const { reviewRenderedPiece } = require('../src/ai');
-        const check = await reviewRenderedPiece({ buffer: render.buffer, overlayText: overlayTitle });
+        // DOBLE MIRADA antes de dar una pieza por rota. El revisor es un modelo de visión
+        // y a veces marca "texto cortado" en textos que están enteros (se comprobó midiendo
+        // el DOM: el elemento no desbordaba nada). Un rechazo falso re-renderiza al pedo,
+        // ensucia qa_notes y —peor— graba una "lección" falsa que después tuerce las piezas
+        // siguientes. Con dos miradas sobre LA MISMA imagen, el ruido de una sola muestra
+        // desaparece y sólo pasan los defectos que el revisor ve las dos veces. Es gratis.
+        let check = await reviewRenderedPiece({ buffer: render.buffer, overlayText: overlayTitle });
+        if (!check.ok) {
+          const second = await reviewRenderedPiece({ buffer: render.buffer, overlayText: overlayTitle });
+          if (second.ok) {
+            console.log(`[generate-daily] QA visual: el rechazo del slot #${slot.id} no se confirmó en la segunda mirada (${check.issues.join(' · ')}) — la pieza queda como está.`);
+            check = second;
+          }
+        }
         if (!check.ok) {
           console.warn(`[generate-daily] QA visual rechazó el render del slot #${slot.id} (plantilla ${template}): ${check.issues.join(' · ')}. Re-renderizo con plantilla segura...`);
-          const { recordLesson } = require('../src/learning');
-          recordLesson({ source: 'render', scope: slot.pillar, lesson: `La plantilla '${template}' salió rota (${String(check.issues[0] || 'defecto visual').replace(/\d+/g, 'N')}) — revisar esa combinación de plantilla/contenido`, detail: check.issues.join(' · ') });
 
           // La escena IA ya generada (data URI) se reusa tal cual; nunca se paga dos veces.
           const aiScene = render.cleanImageUrl && String(render.cleanImageUrl).startsWith('data:') ? render.cleanImageUrl : null;
@@ -1087,6 +1128,11 @@ async function generateForSlot(slot, overrides = {}) {
             const note = `QA visual: ${worst}`;
             copy.qa_notes = copy.qa_notes ? `${copy.qa_notes} · ${note}` : note;
             console.warn(`[generate-daily] QA visual: la pieza del slot #${slot.id} queda para revisión manual (${worst}).`);
+            // La lección se graba SÓLO acá: cuando el defecto sobrevivió al re-render. Si se
+            // arregla solo cambiando de plantilla, no fue un problema de esa plantilla y
+            // grabarlo envenenaba la memoria de errores con falsos positivos.
+            const { recordLesson } = require('../src/learning');
+            recordLesson({ source: 'render', scope: slot.pillar, lesson: `La plantilla '${template}' salió rota (${String(check.issues[0] || 'defecto visual').replace(/\d+/g, 'N')}) — revisar esa combinación de plantilla/contenido`, detail: worst });
           } else {
             console.log(`[generate-daily] QA visual: pieza del slot #${slot.id} auto-corregida con plantilla fullbleed.`);
           }
@@ -1135,6 +1181,7 @@ async function generateForSlot(slot, overrides = {}) {
         couponCode: renderOpts.couponCode,
         interactionLabel: renderOpts.interactionLabel,
         coverImage: renderOpts.coverImage,
+        photoFraming: renderOpts.photoFraming,
         layoutSeed: finalSeed,
         showBrand: renderOpts.showBrand !== false,
       };
@@ -1151,7 +1198,16 @@ async function generateForSlot(slot, overrides = {}) {
   if (slides && coverBuffer) {
     try {
       const { reviewRenderedPiece } = require('../src/ai');
-      const check = await reviewRenderedPiece({ buffer: coverBuffer, overlayText: coverOverlay });
+      let check = await reviewRenderedPiece({ buffer: coverBuffer, overlayText: coverOverlay });
+      // Doble mirada, igual que en las piezas simples: un rechazo de una sola muestra
+      // manda a revisión manual una portada sana y graba una lección falsa.
+      if (!check.ok) {
+        const second = await reviewRenderedPiece({ buffer: coverBuffer, overlayText: coverOverlay });
+        if (second.ok) {
+          console.log(`[generate-daily] QA visual de portada: el rechazo del slot #${slot.id} no se confirmó en la segunda mirada — la dejo pasar.`);
+          check = second;
+        }
+      }
       if (!check.ok) {
         const note = `QA visual (portada del carrusel): ${check.issues.join(' · ')}`;
         copy.qa_notes = copy.qa_notes ? `${copy.qa_notes} · ${note}` : note;
