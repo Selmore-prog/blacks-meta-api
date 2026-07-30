@@ -157,6 +157,23 @@ function buildDirectorPrompt({ slot, candidates, wholesale, companyFacts, recent
     ? `\nÚLTIMAS PIEZAS DE LA CUENTA (no repitas enfoque ni protagonista):\n${recentPieces.slice(0, 8).map((r) => `- ${r}`).join('\n')}`
     : '';
 
+  // INVENTARIO DE MATERIAL. El director elegía plantilla y tratamiento a ciegas: no sabía
+  // si había una cifra fuerte, cuántas fotos reales existían ni si la pieza tenía specs.
+  // Decidir sin ver el material es lo que hacía que "automático" cayera siempre en la
+  // opción pobre. Se calcula acá, es gratis, y le da con qué razonar.
+  const brief = `${slot.pillar_detail || ''} ${slot.theme_title || ''}`;
+  const numbers = brief.match(/\d{1,3}\s*%|\d+\s*x\s*\d+|\d+\s*cuotas/gi) || [];
+  const maxPhotos = candidates.reduce((m, c) => Math.max(m, Number(c.images_count || c.n_images || 0)), 0);
+  const material = [
+    numbers.length
+      ? `- CIFRA FUERTE en el ángulo: ${numbers.join(' · ')} → es el activo de venta más potente que tiene esta pieza. El diseño la imprime GIGANTE, así que el overlay tiene que conservarla.`
+      : '- Sin cifra/descuento concreto en el ángulo.',
+    candidates.length
+      ? `- Productos disponibles: ${candidates.length}${maxPhotos ? ` (el mejor tiene ${maxPhotos} foto(s) reales)` : ''}.`
+      : '- No hay productos candidatos: la pieza NO puede apoyarse en una foto de producto.',
+    occasion ? `- Fecha comercial del día: ${occasion} → la pieza puede vestirse de esa fecha.` : null,
+  ].filter(Boolean).join('\n');
+
   return `Analizá EN PROFUNDIDAD esta pieza de Instagram de BLACKS Indumentaria (ropa de trabajo y calzado de seguridad, Argentina) y decidí el plan creativo ANTES de que se genere nada. Cada imagen cuesta dinero: nada se genera "porque sí".
 
 LA PIEZA:
@@ -168,6 +185,9 @@ ${wholesale ? `\nCONDICIONES MAYORISTAS REALES: ${wholesale}` : ''}${companyFact
 
 CANDIDATOS DE PRODUCTO (los ÚNICOS productos que existen para esta pieza — publicados y con stock/condición correcta; cualquier otro producto NO EXISTE):
 ${candidatesTxt}
+
+MATERIAL DE DISEÑO CON EL QUE CONTÁS (mirá esto ANTES de elegir tratamiento y plantilla):
+${material}
 
 PLANTILLAS VISUALES DISPONIBLES:
 ${templatesTxt}
@@ -185,10 +205,12 @@ CÓMO DECIDIR (pensá en este orden):
    - Piezas institucionales generales (condiciones/beneficios/quiénes somos): normalmente product_id null.
 3. Tratamiento visual "visual" (cada imagen generada cuesta dinero — elegí el MÍNIMO tratamiento que comunica el mensaje):
    - "foto_producto": hay producto elegido y merece protagonismo visual.
-   - "tarjeta_sin_foto": pieza institucional/de texto — la plantilla tipográfica limpia de la marca. Es el default para condiciones/beneficios/anuncios: comunica mejor que una foto sin relación.
+   - "tarjeta_sin_foto": pieza sin foto resuelta con DISEÑO — afiche de marca (plantilla "poster"): trama, banda de acento y, si el ángulo trae una cifra, el número impreso gigante como pieza gráfica. Es el default para promos de toda la tienda, fechas comerciales y condiciones/beneficios: comunica mejor que una foto sin relación. OJO: "sin foto" NO significa "pieza pobre" — significa que el peso lo lleva la tipografía y el color.
    - "ilustracion": pieza educativa que se explica mejor con un dibujo didáctico que con una foto.
    - "fondo_ambiental": pieza de marca/clima/comunidad SIN producto puntual que GANA con una escena fotográfica de ambiente (taller, obra, textura de trabajo). Elegila SOLO si la escena aporta al mensaje concreto — y si la elegís, "image_note" es OBLIGATORIA y específica (qué escena, qué clima, qué transmite). Sin una dirección visual concreta, tarjeta_sin_foto.
 4. "template": la plantilla de la lista que MEJOR comunica este mensaje (respetá su descripción; una plantilla que requiere varias fotos no sirve para un candidato con 1 foto).
+   - REGLA DE DENSIDAD: la plantilla elegida tiene que tener con qué llenarse. Si NO hay producto que mostrar, no elijas una plantilla cuyo protagonista es la foto (queda un lienzo casi vacío): elegí "poster", que está hecha para sostenerse sola.
+   - Si el ángulo trae una CIFRA FUERTE y no hay un producto puntual que mostrar → "poster" casi siempre: es la única que trata el número como pieza gráfica gigante.
 5. "copy_angle": el ángulo concreto para el copy en 1-2 frases — SOLO con los datos dados arriba (condiciones reales, datos verificados, producto elegido). PROHIBIDO inventar datos, cifras o características. Español argentino directo y profesional, sin frases de marketing de IA ("descubrí", "eleva tu", "no te lo pierdas").
    - TEMA SIN MATERIAL: si el ángulo del plan pide datos que NO figuran en el contexto (ej. "nuestra historia", trayectoria, hitos, cifras de la empresa), NO armes una pieza genérica de relleno — PIVOTEÁ el ángulo a algo CONCRETO del material disponible: qué hace la empresa (los datos verificados de arriba), condiciones reales, tipos de producto reales, o una pregunta específica a la audiencia. Una pieza que no dice nada específico no genera nada en la audiencia.
    - El copy_angle tiene que contener al menos UN elemento específico (un dato real, una condición, un tipo de producto, una pregunta concreta). PROHIBIDO el relleno corporativo: "la calidad es nuestra prioridad", "tu socio en seguridad", "te acompañamos", "comprometidos con la excelencia".
@@ -302,11 +324,20 @@ async function planPiece({ slot, wholesale = null, companyFacts = null, recentPi
  * auditor falla, la pieza sigue (ya pasó el lint y la regla anti-invención).
  * ========================================================================= */
 
-async function reviewCopyFacts({ copy, product, wholesale = null, companyFacts = null } = {}) {
+async function reviewCopyFacts({ copy, product, wholesale = null, companyFacts = null, brief = null } = {}) {
   const texts = [copy && copy.caption, copy && copy.overlay, ...((copy && copy.story_points) || [])].filter(Boolean);
   if (!texts.length) return { ok: true };
   // Sin NINGUNA fuente contra la que verificar no hay auditoría posible.
-  if (!product && !wholesale && !companyFacts) return { ok: true };
+  if (!product && !wholesale && !companyFacts && !brief) return { ok: true };
+
+  // EL BRIEF DEL DUEÑO ES FUENTE DE VERDAD. Sin esto, el auditor borraba las promos que
+  // el dueño mismo había cargado en el slot: en la pieza de liquidación marcó "hasta 45%
+  // OFF" y "10% OFF en la segunda unidad" como datos inventados y los sacó del copy, y la
+  // pieza se quedó sin su número (caso real, jul-2026). Una condición comercial que el
+  // dueño escribió es una DECISIÓN suya, no una alucinación del modelo.
+  const briefBlock = brief
+    ? `\nÁNGULO/PROMO QUE CARGÓ EL DUEÑO PARA ESTA PIEZA (fuente de verdad: todo lo que diga acá es CIERTO y se puede afirmar tal cual — descuentos, porcentajes, condiciones, fechas): "${String(brief).slice(0, 500)}"`
+    : '';
 
   const productBlock = product
     ? `PRODUCTO REAL: "${product.name}"${product.brand ? ` (marca ${product.brand})` : ''}${product.price ? ` · precio $${Number(product.price).toLocaleString('es-AR')}` : ' · precio: consultar'}${product.promo_price ? ` · oferta $${Number(product.promo_price).toLocaleString('es-AR')}` : ''}
@@ -315,7 +346,7 @@ DESCRIPCIÓN REAL (única fuente válida de características): "${String(product
 
   const prompt = `Sos AUDITOR FACTUAL de una marca. Compará el texto de esta pieza contra los ÚNICOS datos verdaderos disponibles y detectá afirmaciones concretas INVENTADAS (materiales, características técnicas, precios, cuotas, descuentos, plazos, certificaciones, montos) que NO estén respaldadas.
 
-${productBlock}
+${productBlock}${briefBlock}
 ${wholesale ? `CONDICIONES MAYORISTAS REALES: ${wholesale}` : ''}
 ${companyFacts || ''}
 
@@ -326,6 +357,7 @@ ${(copy.story_points || []).map((p, i) => `${3 + i}. punto: "${p}"`).join('\n')}
 
 REGLAS:
 - Una afirmación es INVENTADA sólo si es un dato CONCRETO y no figura en los datos de arriba. Frases generales de beneficio ("resistente", "cómodo", "rinde") NO son datos concretos: dejalas.
+- Lo que está en el ÁNGULO/PROMO DEL DUEÑO está RESPALDADO: no lo marques ni lo saques. Si el copy dice "45% OFF" y el ángulo dice "hasta 45% off", está bien. PROHIBIDO reemplazar una cifra respaldada por una vaguedad ("grandes descuentos", "últimos días"): esa cifra es el activo de venta de la pieza.
 - Si detectás algo inventado en caption/overlay, reescribí SOLO ese texto quitando la afirmación (mismo tono, voseo argentino, mismo largo aproximado).
 - Si corregís "story_points": devolvé la MISMA CANTIDAD de puntos, reemplazando CADA punto inventado por un dato REAL tomado de los datos de arriba (una condición, un beneficio verificado, un rubro concreto). PROHIBIDO devolver menos puntos o puntos genéricos tipo "calidad en nuestros productos" — cada punto tiene que ser específico y verificable.
 - Las correcciones SIEMPRE salen del contexto dado: nunca agregues datos de tu conocimiento general.

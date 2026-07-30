@@ -157,4 +157,77 @@ function measureInkBox(buffer) {
   });
 }
 
-module.exports = { resizeImage, detectLogoVariant, measureInkBox };
+/**
+ * Saca las BARRAS NEGRAS (letterbox) de una imagen generada por IA.
+ *
+ * Los modelos de imagen suelen devolver un cuadrado y "dibujar" adentro una escena
+ * panorámica con bandas negras arriba y abajo (pasó con la escena de liquidación: volvió
+ * 1024x1024 con dos franjas muertas). Pedir el ratio correcto lo evita casi siempre, pero
+ * cuando no, esas bandas entran a la pieza como zonas negras. Acá se detectan las filas
+ * uniformes y muy oscuras de los bordes y se recorta.
+ *
+ * Devuelve el buffer recortado, o el original si no hay barras (o si algo falla).
+ */
+function trimLetterbox(buffer) {
+  return new Promise((resolve) => {
+    const W = 64;
+    const id = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const inPath = path.join(os.tmpdir(), `lb-in-${id}`);
+    const outPath = path.join(os.tmpdir(), `lb-out-${id}.jpg`);
+    const clean = () => { try { fs.unlinkSync(inPath); } catch (_) {} };
+    try { fs.writeFileSync(inPath, buffer); } catch (_) { return resolve(buffer); }
+    execFile(
+      ffmpegPath,
+      ['-y', '-loglevel', 'error', '-i', inPath, '-vf', `scale=${W}:-2`, '-pix_fmt', 'rgb24', '-f', 'rawvideo', '-'],
+      { encoding: 'buffer', maxBuffer: 8 * 1024 * 1024 },
+      (err, stdout) => {
+        if (err || !stdout || !stdout.length) { clean(); return resolve(buffer); }
+        const H = Math.floor(stdout.length / (W * 3));
+        if (H < 16) { clean(); return resolve(buffer); }
+        // Una fila es "barra" si TODOS sus píxeles son casi negros.
+        const isBar = (y) => {
+          for (let x = 0; x < W; x += 1) {
+            const i = (y * W + x) * 3;
+            if (stdout[i] > 26 || stdout[i + 1] > 26 || stdout[i + 2] > 26) return false;
+          }
+          return true;
+        };
+        let top = 0; while (top < H && isBar(top)) top += 1;
+        let bottom = 0; while (bottom < H - top && isBar(H - 1 - bottom)) bottom += 1;
+        const keep = H - top - bottom;
+        // Barras despreciables: no vale la pena tocar la imagen.
+        const minBar = Math.max(2, Math.round(H * 0.02));
+        if (top < minBar && bottom < minBar) { clean(); return resolve(buffer); }
+        // Tiene que quedar una franja de contenido REAL. El corte no se decide por un
+        // porcentaje fijo (un letterbox de 21:9 dentro de un cuadrado se come el 57% y es
+        // legítimo) sino por lo que queda: banda suficiente y claramente más clara que
+        // las barras. Si la imagen entera es casi negra, es una foto oscura a propósito.
+        if (keep < H * 0.3) { clean(); return resolve(buffer); }
+        let sum = 0;
+        for (let y = top; y < H - bottom; y += 1) {
+          for (let x = 0; x < W; x += 1) {
+            const i = (y * W + x) * 3;
+            sum += Math.max(stdout[i], stdout[i + 1], stdout[i + 2]);
+          }
+        }
+        if (sum / (keep * W) < 30) { clean(); return resolve(buffer); }
+        const topFrac = top / H;
+        const keepFrac = (H - top - bottom) / H;
+        execFile(
+          ffmpegPath,
+          ['-y', '-loglevel', 'error', '-i', inPath,
+            '-vf', `crop=iw:ih*${keepFrac.toFixed(5)}:0:ih*${topFrac.toFixed(5)}`, '-q:v', '2', outPath],
+          (err2) => {
+            if (err2) { clean(); return resolve(buffer); }
+            let out = buffer;
+            try { out = fs.readFileSync(outPath); } catch (_) { /* queda el original */ }
+            clean(); try { fs.unlinkSync(outPath); } catch (_) {}
+            resolve(out);
+          }
+        );
+      }
+    );
+  });
+}
+
+module.exports = { resizeImage, detectLogoVariant, measureInkBox, trimLetterbox };

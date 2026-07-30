@@ -287,6 +287,47 @@ function extractSpecTags(description, max = 3, { productName = '', maxLen = 42 }
   return picked.slice(0, max).map((p) => p.text);
 }
 
+/**
+ * Saca CONDICIONES imprimibles del brief que escribió el dueño para el slot.
+ *
+ * Una promo de toda la tienda no tiene ficha de producto de dónde sacar datos, así que
+ * cuando el copy no devuelve story_points la pieza se queda sin chips y sale con tres
+ * elementos sueltos (el caso de la liquidación). Pero el brief del dueño SÍ tiene la
+ * información: "hasta 45% off de liquidación invierno en nuestra web + 10% off en segunda
+ * unidad en toda la tienda" trae una segunda condición perfectamente imprimible. Es texto
+ * propio, no inventado: el peor caso es repetir algo que ya dijo el dueño.
+ *
+ * `exclude` evita duplicar lo que ya está en el titular.
+ */
+function extractBriefChips(brief, max = 2, { exclude = '' } = {}) {
+  if (!brief) return [];
+  const plain = decodeEntities(String(brief)).replace(/\s+/g, ' ').trim();
+  const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+  const excludeKey = norm(exclude);
+  // Condiciones concretas: llevan número o una palabra de beneficio verificable.
+  const WORTH = /(\d|%|env[ií]o|cuotas|gratis|off|descuento|unidad|transferencia|stock|talles?|garant[ií]a)/i;
+  const parts = plain
+    .split(/\s*[+·;|]\s*|\s+y\s+|,\s*/)
+    .map((s) => s.replace(/^[\s\-–—•*:]+/, '').replace(/[\s.,;:]+$/, '').trim())
+    .filter((s) => s.length >= 6 && s.length <= 46 && WORTH.test(s) && /[a-záéíóúñ]{3,}/i.test(s));
+  const seen = new Set();
+  const out = [];
+  for (const p of parts) {
+    const key = norm(p).slice(0, 14);
+    if (!key || seen.has(key)) continue;
+    // Ya lo dice el titular: no lo repetimos como chip.
+    if (excludeKey && (excludeKey.includes(key) || key.includes(excludeKey.slice(0, 14)))) continue;
+    seen.add(key);
+    // El brief se escribe informal y en minúscula: se normaliza para imprimir.
+    const pretty = fixSpelling(sentenceCase(p))
+      .replace(/\boff\b/gi, 'OFF')
+      .replace(/^([a-záéíóúñ])/, (m) => m.toUpperCase());
+    out.push(pretty);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
 function sharedGeometry(format) {
   const { w, h } = DIMS[format] || DIMS.feed;
   const isStory = format === 'story';
@@ -1722,4 +1763,4 @@ async function renderPostImage(options) {
   return url;
 }
 
-module.exports = { renderPostImage, renderPostBuffer, buildHtml, DIMS, TEMPLATES, TEMPLATE_INFO, TEMPLATE_REQUIREMENTS, extractSpecTags, stripEmoji, fixSpelling };
+module.exports = { renderPostImage, renderPostBuffer, buildHtml, DIMS, TEMPLATES, TEMPLATE_INFO, TEMPLATE_REQUIREMENTS, extractSpecTags, extractBriefChips, stripEmoji, fixSpelling };

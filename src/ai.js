@@ -1,5 +1,5 @@
 const config = require('./config');
-const { resizeImage } = require('./imageUtils');
+const { resizeImage, trimLetterbox } = require('./imageUtils');
 const { stripEmoji, fixSpelling } = require('./textUtils');
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
@@ -204,9 +204,13 @@ La pregunta y las opciones tienen que ser concretas y fáciles de contestar en 2
   // Historias: el caption casi no se ve (va abajo, chiquito) — la información tiene que
   // estar EN la imagen. Se piden 2-3 puntos cortos con datos REALES que la plantilla
   // imprime sobre la historia (chips). Nada inventado: salen del contexto de arriba.
-  const wantStoryPoints = format === 'story' && postType !== 'reel';
+  // También se piden en piezas SIN producto (promos de toda la tienda, fechas
+  // comerciales): ahí no hay foto que llene el cuadro, así que los datos SON el diseño.
+  // Sin esto la pieza salía con tres elementos sueltos y mucho vacío — el "muy simplona"
+  // de la promo de liquidación, que llegó al render con story_points en null.
+  const wantStoryPoints = (format === 'story' || !product) && postType !== 'reel';
   const storyPointsSpec = wantStoryPoints
-    ? `\n\nPUNTOS DE LA HISTORIA (obligatorio): devolvé también "story_points": 2 o 3 puntos CORTÍSIMOS (máx ~4 palabras cada uno) que se imprimen SOBRE la imagen de la historia como texto. Son la información clave que el espectador tiene que llevarse en 3 segundos: beneficios/condiciones/datos REALES tomados SOLO del contexto de esta pieza (producto, condiciones mayoristas, datos verificados). Ej: ["Mínimo 10 unidades", "Personalización con logo", "Envío gratis al país"]. PROHIBIDO inventar datos y PROHIBIDO repetir textual el overlay. SIN emojis ni íconos (se imprimen como texto y los emojis no se ven).`
+    ? `\n\nDATOS IMPRESOS EN LA PIEZA (obligatorio): devolvé también "story_points": 2 o 3 puntos CORTÍSIMOS (máx ~4 palabras cada uno) que se imprimen SOBRE la imagen como chips. Son la información clave que el espectador tiene que llevarse en 3 segundos: beneficios/condiciones/datos REALES tomados SOLO del contexto de esta pieza (producto, condiciones de la promo, condiciones mayoristas, datos verificados). Ej: ["Mínimo 10 unidades", "Personalización con logo", "Envío gratis al país"] o, en una promo, ["10% OFF en la segunda unidad", "6 cuotas sin interés"]. PROHIBIDO inventar datos y PROHIBIDO repetir textual el overlay. SIN emojis ni íconos (se imprimen como texto y los emojis no se ven).`
     : '';
   const commercial = commercialContext
     ? `\n\nCALENDARIO COMERCIAL CERCANO:\n${commercialContext}\nSi alguna fecha encaja con el producto/pilar, usala como ángulo de venta natural. Si queda forzada, ignorala.`
@@ -254,12 +258,21 @@ La pregunta y las opciones tienen que ser concretas y fáciles de contestar en 2
     ? `\nIMAGEN YA DECIDIDA PARA ESTA PIEZA (director de fotografía): ${imageContext}. El "overlay" describe/refuerza exactamente ESO que la foto muestra, y el copy desarrolla ese mismo foco — PROHIBIDO destacar una característica que la imagen no muestra.`
     : '';
 
+  // NÚMEROS DEL ÁNGULO: si el brief trae un descuento/cifra concreta, es EL activo de
+  // venta de la pieza y el diseño lo trata como elemento gráfico gigante. Sin esta regla
+  // el modelo lo parafraseaba y lo perdía: "hasta 45% OFF de liquidación" salió como
+  // "ÚLTIMOS DÍAS: ABRIGO CON DESCUENTO" y la pieza se quedó sin su número (caso real).
+  const briefNumbers = String(pillarDetail || '').match(/\d{1,3}\s*%|\d+\s*x\s*\d+|\d+\s*cuotas/gi);
+  const numbersRule = briefNumbers && briefNumbers.length
+    ? `\n\nCIFRA CLAVE (obligatorio): el ángulo de esta pieza trae ${briefNumbers.length > 1 ? 'estas cifras' : 'esta cifra'}: ${briefNumbers.join(' · ')}. El "overlay" TIENE que incluir la cifra principal TAL CUAL (con su número y su símbolo, ej. "45% OFF"): es el dato más vendedor y el diseño lo imprime en grande. PROHIBIDO reemplazarla por una vaguedad tipo "grandes descuentos", "últimos días" o "precios increíbles".`
+    : '';
+
   return `${formatGuidance(postType, format)}
 
 Pilar de contenido: ${pillar}${OBJECTIVE_GUIDE[objective] ? `\n${OBJECTIVE_GUIDE[objective]}` : ''}
 Ángulo/detalle: ${pillarDetail || 'sin detalle adicional'}${director}${imageCtx}
 ${productInfo}${wholesaleInfo}${educationalGuard}${facts}
-Temporada: ${seasonLine}${commercial}${winners}${noRepeat}${lessons || ''}${interaction}${stickerSpec}${storyPointsSpec}${templates}${voice}
+Temporada: ${seasonLine}${commercial}${winners}${noRepeat}${lessons || ''}${numbersRule}${interaction}${stickerSpec}${storyPointsSpec}${templates}${voice}
 
 ${carousel ? (['educativo', 'mayorista'].includes(pillar)
     ? `\nCARRUSEL PASO A PASO: devolvé "slides": un array de ${slideCount} objetos {"title","text"}. Es una GUÍA accionable, no un folleto: (1) portada con gancho que promete el resultado ("Guía de talles sin equivocarte", "Cómo comprar al por mayor"), (2-${slideCount - 1}) PASOS numerados y concretos — "title" tipo "PASO 1 — MEDÍ TU CINTURA" y "text" con la instrucción exacta (qué hacer, con qué, qué número anotar), (${slideCount}) cierre con el beneficio + CTA${pillar === 'educativo' ? ' (CTA educativo: guardar/compartir/comentar — nunca comprar)' : ''}. Cada paso tiene que poder hacerse EN EL MOMENTO. Nada repetido entre slides.${pillar === 'educativo' ? ' NINGÚN slide nombra productos/prendas propias como solución.' : ''}\n`
@@ -485,18 +498,46 @@ async function geminiGenerateContent(model, body) {
     }
   }
 
+  // RELACIÓN DE ASPECTO (crítico para las piezas). Los modelos de imagen de Gemini
+  // IGNORAN el ratio pedido dentro del texto del prompt y devuelven 1:1: la escena de
+  // liquidación volvió 1024x1024 con barras negras arriba y abajo, y al encajarla en un
+  // 4:5 quedaba recortada y con bandas muertas ("me generó cualquier cosa"). El ratio va
+  // en generationConfig.imageConfig, que es el campo que el modelo sí respeta.
+  const sendBody = { ...body };
+  if (sendBody.aspectRatio) {
+    const ratio = sendBody.aspectRatio;
+    delete sendBody.aspectRatio;
+    if (/image/i.test(targetModel)) {
+      sendBody.generationConfig = { ...(sendBody.generationConfig || {}), imageConfig: { aspectRatio: ratio } };
+    }
+  }
+
   let res = await fetch(`${GEMINI_BASE}/models/${targetModel}:generateContent`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.gemini.apiKey },
-    body: JSON.stringify(body),
+    body: JSON.stringify(sendBody),
   });
+  // Si la versión de la API no acepta imageConfig, se reintenta sin él (mejor una
+  // imagen cuadrada que ninguna) — el recorte de barras la deja usable igual.
+  if (res.status === 400 && sendBody.generationConfig && sendBody.generationConfig.imageConfig) {
+    const t = await res.text().catch(() => '');
+    if (/imageConfig|aspect/i.test(t)) {
+      console.warn(`[ai] ${targetModel} rechazó imageConfig.aspectRatio (${t.slice(0, 120)}); reintento sin ratio.`);
+      const { imageConfig, ...restCfg } = sendBody.generationConfig;
+      res = await fetch(`${GEMINI_BASE}/models/${targetModel}:generateContent`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.gemini.apiKey },
+        body: JSON.stringify({ ...sendBody, generationConfig: restCfg }),
+      });
+    }
+  }
   if (res.status === 404 && targetModel !== 'gemini-2.5-flash-image') {
     console.warn(`[ai] Modelo ${targetModel} dio 404 en v1beta generateContent, reintentando con gemini-2.5-flash-image...`);
     targetModel = 'gemini-2.5-flash-image';
     res = await fetch(`${GEMINI_BASE}/models/${targetModel}:generateContent`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.gemini.apiKey },
-      body: JSON.stringify(body),
+      body: JSON.stringify(sendBody),
     });
   }
   if (!res.ok) {
@@ -639,6 +680,22 @@ function inlineImageFromResponse(data) {
     }
   }
   return null;
+}
+
+/**
+ * Imagen generada, ya saneada: sin barras negras de letterbox. Se pide el ratio correcto
+ * en la llamada, pero cuando el modelo igual devuelve un cuadrado con bandas, éstas
+ * entrarían a la pieza como franjas muertas. Best-effort: si el recorte falla, va la
+ * original. Ver trimLetterbox.
+ */
+async function inlineImageClean(data) {
+  const img = inlineImageFromResponse(data);
+  if (!img) return null;
+  const trimmed = await trimLetterbox(img.buffer).catch(() => img.buffer);
+  if (trimmed && trimmed !== img.buffer) {
+    return { buffer: trimmed, mimeType: 'image/jpeg' }; // trimLetterbox devuelve JPEG
+  }
+  return img;
 }
 
 /* =========================================================================
@@ -928,8 +985,11 @@ async function generateCopyOnce(opts, feedback = null) {
   if (feedback && feedback.length) {
     promptUser += `\n\nIMPORTANTE: una versión anterior de este copy se rechazó por estos problemas. Corregilos TODOS:\n${feedback.map((p) => `- ${p}`).join('\n')}`;
   }
-  // Historias (no reel): además del caption se piden los puntos que van SOBRE la imagen.
-  const wantStoryPoints = opts.format === 'story' && opts.postType !== 'reel';
+  // Historias y piezas sin producto: además del caption se piden los datos que van SOBRE
+  // la imagen. Tiene que coincidir con la condición de buildCopyPrompt (si el prompt los
+  // pide y el esquema no los declara obligatorios, el modelo los omite y la pieza queda
+  // vacía — que es justo lo que pasó con la promo de liquidación).
+  const wantStoryPoints = (opts.format === 'story' || !opts.product) && opts.postType !== 'reel';
 
   if (preferGemini()) {
     try {
@@ -1234,8 +1294,10 @@ ${noTextNoLogoRule(strict)}
       const data = await geminiGenerateContent(config.gemini.imageModel, {
         contents: [{ role: 'user', parts }],
         generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+        // Ratio REAL de la pieza: sin esto el modelo devuelve 1:1 con barras negras.
+        aspectRatio: format === 'story' ? '9:16' : '4:5',
       });
-      const img = inlineImageFromResponse(data);
+      const img = await inlineImageClean(data);
       if (!img) continue;
       spent += await logImageUsage('fondo'); // se generó y se gastó, se use o no
       // Sin referencia real, el chequeo de calidad es la única red de seguridad contra
@@ -1286,8 +1348,10 @@ Composición centrada con aire alrededor, formato ${format === 'story' ? 'vertic
       const data = await geminiGenerateContent(config.gemini.imageModel, {
         contents: [{ role: 'user', parts: [{ text: buildPrompt(attempt > 0) }] }],
         generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+        // Ratio REAL de la pieza: sin esto el modelo devuelve 1:1 con barras negras.
+        aspectRatio: format === 'story' ? '9:16' : '4:5',
       });
-      const img = inlineImageFromResponse(data);
+      const img = await inlineImageClean(data);
       if (!img) continue;
       spent += await logImageUsage('ilustración didáctica');
       const check = await checkImageQuality(img);
@@ -1611,8 +1675,10 @@ ${noTextNoLogoRule(strict)}
       const data = await geminiGenerateContent(config.gemini.imageModel, {
         contents: [{ role: 'user', parts: [{ text: buildPrompt(attempt > 0) }, ...refs.map((r) => ({ inlineData: r }))] }],
         generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+        // Ratio REAL de la pieza: sin esto el modelo devuelve 1:1 con barras negras.
+        aspectRatio: format === 'story' ? '9:16' : '4:5',
       });
-      const img = inlineImageFromResponse(data);
+      const img = await inlineImageClean(data);
       if (!img) continue;
       spent += await logImageUsage('escena de producto');
       // La marca propia del producto (etiqueta Pampero/Ombú real) NO es motivo de
@@ -1693,8 +1759,10 @@ Aire limpio y desenfocado arriba y abajo para futura superposición tipográfica
       const data = await geminiGenerateContent(config.gemini.imageModel, {
         contents: [{ role: 'user', parts }],
         generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+        // Ratio REAL de la pieza: sin esto el modelo devuelve 1:1 con barras negras.
+        aspectRatio: format === 'story' ? '9:16' : '4:5',
       });
-      const img = inlineImageFromResponse(data);
+      const img = await inlineImageClean(data);
       if (!img) continue;
       spent += await logImageUsage('estudio');
       // Productos reales con su marca puesta: la etiqueta propia no es descarte.

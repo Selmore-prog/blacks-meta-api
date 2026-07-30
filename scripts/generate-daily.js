@@ -401,7 +401,7 @@ function descriptionImages(product) {
 
 // TEMPLATE_REQUIREMENTS vive en imageRenderer (única fuente de verdad): lo usan
 // este filtro de candidatas Y la validación dura del director creativo.
-const { TEMPLATES: VALID_TEMPLATES, TEMPLATE_INFO, TEMPLATE_REQUIREMENTS, extractSpecTags } = require('../src/imageRenderer');
+const { TEMPLATES: VALID_TEMPLATES, TEMPLATE_INFO, TEMPLATE_REQUIREMENTS, extractSpecTags, extractBriefChips } = require('../src/imageRenderer');
 
 // Qué estilos tienen sentido para cada pilar — variedad real por pilar, filtrada
 // después por lo que el producto puede sostener (fotos/descripción disponibles).
@@ -409,14 +409,18 @@ const { TEMPLATES: VALID_TEMPLATES, TEMPLATE_INFO, TEMPLATE_REQUIREMENTS, extrac
 // grid, fotos superpuestas, ficha técnica con specs reales, splitscreen, blueprint,
 // portada editorial, bento de tarjetas, tira de polaroids) para que el feed no
 // se sienta repetitivo/plantillero.
+// 'poster' entra en los pilares donde puede NO haber un producto que mostrar (promo de
+// toda la tienda, fecha comercial, anuncio de marca). Faltaba en todos los pools, así que
+// el director creativo no podía elegirlo nunca: sólo se llegaba al afiche por el fallback
+// de fullbleed-sin-foto, y por eso "automático" daba siempre la versión pobre.
 const PILLAR_TEMPLATE_POOL = {
   producto: ['fullbleed', 'minimal', 'grid', 'overlap', 'specsheet'],
-  promo: ['promo', 'splitscreen', 'fullbleed'],
+  promo: ['promo', 'splitscreen', 'fullbleed', 'poster'],
   educativo: ['educativo', 'blueprint'],
   mayorista: ['mayorista', 'stackedcards', 'magazine'],
-  marca: ['minimal', 'magazine', 'overlap', 'fullbleed'],
+  marca: ['minimal', 'magazine', 'overlap', 'fullbleed', 'poster'],
   ugc: ['magazine', 'polaroidstrip', 'overlap', 'minimal'],
-  engagement: ['fullbleed', 'splitscreen', 'minimal'],
+  engagement: ['fullbleed', 'splitscreen', 'minimal', 'poster'],
 };
 
 // Eyebrow (kicker) por pilar: la etiqueta chica en mayúscula que va ARRIBA del titular
@@ -835,6 +839,9 @@ async function generateForSlot(slot, overrides = {}) {
       product: product || visualProduct,
       wholesale,
       companyFacts,
+      // El brief del slot es fuente de verdad: las promos que carga el dueño (descuentos,
+      // condiciones) son decisiones suyas, no invenciones del modelo.
+      brief: [pillarDetail, slot.theme_title].filter(Boolean).join(' — ') || null,
     });
     if (!audit.ok && audit.fixed) {
       if (audit.fixed.caption) copy.caption = audit.fixed.caption;
@@ -1046,18 +1053,30 @@ async function generateForSlot(slot, overrides = {}) {
     const photoIsScene = Boolean(heroShot && (heroShot.photoHasPerson || heroShot.photoFillsFrame));
     const heroCoverImage = !realSizeChart && (heroIsRealDetail || photoIsScene);
 
-    // DATOS IMPRESOS EN LA HISTORIA (chips de ficha técnica). Primero los story_points
-    // del copy; si el cerebro no los devolvió, se sacan de la descripción REAL de
-    // Tiendanube con extractSpecTags (nunca se inventa nada). Así una historia de
-    // producto nunca sale muda: siempre lleva 2-3 datos concretos y verificables.
+    // DATOS IMPRESOS EN LA PIEZA (chips de ficha técnica). Van en las HISTORIAS (donde el
+    // caption casi no se ve) y también en las piezas SIN PRODUCTO de cualquier formato:
+    // ahí no hay foto que llene el cuadro, así que los datos SON el diseño. Sin esto la
+    // promo de liquidación llegó al render con story_points en null y salió con tres
+    // elementos sueltos ("muy simplona"). Primero los del copy; si el cerebro no los
+    // devolvió, se sacan de la descripción REAL de Tiendanube (nunca se inventa nada).
+    const wantsChips = !isReel && (format === 'story' || !product);
     const storyDesc = (product && product.description) || (visualProduct && visualProduct.description) || null;
-    let storyPoints = format === 'story' && !isReel && Array.isArray(copy.story_points)
+    let storyPoints = wantsChips && Array.isArray(copy.story_points)
       ? copy.story_points.filter(Boolean).slice(0, 3) : null;
-    if (format === 'story' && !isReel && (!storyPoints || !storyPoints.length) && storyDesc) {
+    if (wantsChips && (!storyPoints || !storyPoints.length) && storyDesc) {
       const fromSheet = extractSpecTags(storyDesc, 3, { productName: (product && product.name) || (visualProduct && visualProduct.name) || '' });
       if (fromSheet.length) {
         storyPoints = fromSheet;
-        console.log(`[generate-daily] Historia sin story_points del copy · slot #${slot.id}: uso datos de la ficha real → ${fromSheet.join(' · ')}`);
+        console.log(`[generate-daily] Pieza sin story_points del copy · slot #${slot.id}: uso datos de la ficha real → ${fromSheet.join(' · ')}`);
+      }
+    }
+    // Última red: promos SIN producto (no hay ficha de dónde sacar datos). Las condiciones
+    // están en el brief que escribió el dueño — es texto propio, no inventado.
+    if (wantsChips && (!storyPoints || !storyPoints.length)) {
+      const fromBrief = extractBriefChips(`${pillarDetail || ''} ${slot.theme_title || ''}`, 2, { exclude: overlayTitle || '' });
+      if (fromBrief.length) {
+        storyPoints = fromBrief;
+        console.log(`[generate-daily] Pieza sin datos · slot #${slot.id}: uso las condiciones del brief → ${fromBrief.join(' · ')}`);
       }
     }
     const renderOpts = {
@@ -1068,10 +1087,12 @@ async function generateForSlot(slot, overrides = {}) {
       promoPrice: showPrice && product ? product.promo_price : null,
       cta: copy.cta,
       badgeText: badgeText || (heroShot && heroShot.badge) || null,
-      // HISTORIAS: el caption casi nadie lo ve — el CTA va IMPRESO en la pieza como
-      // botón (pedido real, jul-2026). Si la pieza es semi, el chip de interacción
-      // ocupa ese lugar y manda (no se duplican pills).
-      ctaLabel: format === 'story' && !isReel && !interactionLabel && copy.cta
+      // CTA IMPRESO como botón: en HISTORIAS (el caption casi nadie lo ve) y en las
+      // piezas SIN PRODUCTO de cualquier formato — en un afiche el botón no es sólo un
+      // llamado a la acción, es la pieza de diseño que cierra la composición; sin él la
+      // promo de liquidación quedaba con el pie vacío. Si la pieza es semi, el chip de
+      // interacción ocupa ese lugar y manda (no se duplican pills).
+      ctaLabel: !isReel && !interactionLabel && copy.cta && (format === 'story' || !product)
         ? shortLabel(copy.cta, 34) : null,
       // Eyebrow por pilar (magazine/stackedcards): evita el 'NOTA DE TAPA' fuera de lugar.
       kicker: PILLAR_KICKER[slot.pillar],

@@ -1489,19 +1489,19 @@ function openRegen(item) {
         <option value="magazine">Magazine — portada editorial</option>
         <option value="stackedcards">Bento cards — tarjetas apiladas</option>
         <option value="polaroidstrip">Polaroids — tira de instantáneas (historias)</option>
-        <option value="poster">Afiche — tipográfico sin foto (promos / fechas)</option>
+        <option value="poster">Afiche — sin foto, con el descuento en grande</option>
       </select>
-      <p class="hint" style="margin-top:6px;">Algunos estilos necesitan varias fotos del producto o descripción real de Tiendanube; si no hay suficiente, el sistema elige otro automáticamente.</p>
+      <p class="hint" style="margin-top:6px;"><b>Para promos y fechas comerciales (Black Friday, liquidación) elegí “Afiche”:</b> es la única que trata el número del descuento como pieza gráfica gigante. Las que se apoyan en la foto (full-bleed, minimal, grid) quedan vacías si la pieza no tiene un producto puntual que mostrar.</p>
     </div>
     <div class="field">
       <label>Imagen de la pieza</label>
       <select class="input" id="regen-art">
         <option value="">Automática — la decide el director creativo</option>
-        <option value="generativa">Generativa (IA) — arte de campaña hecho para esta pieza</option>
-        <option value="foto">Sólo fotos reales — nunca imagen IA (gratis)</option>
-        <option value="tipografica">Sin foto — afiche de diseño, puro texto y color</option>
+        <option value="generativa">Generativa (IA) — foto de campaña creada para esta pieza</option>
+        <option value="foto">Sólo fotos reales del catálogo</option>
+        <option value="tipografica">Sin foto — afiche de diseño (recomendado para promos)</option>
       </select>
-      <p class="hint" id="regen-art-hint" style="margin-top:6px;">La IA genera el ARTE (luz, composición, profundidad) y deja libre la zona del texto: el titular, el precio y el botón se estampan después con la tipografía de la marca. Nunca se le pide texto a la IA porque lo escribe mal.</p>
+      <p class="hint" id="regen-art-hint" style="margin-top:6px;">La decide el director creativo según el mensaje. Si la pieza no tiene un producto puntual (promo de toda la tienda, fecha comercial), va a elegir el afiche.</p>
     </div>
     <div class="field" id="regen-artbrief-wrap" style="display:none;">
       <label>Indicación para la imagen <span class="hint" style="font-weight:400;">(opcional)</span></label>
@@ -1528,10 +1528,10 @@ function openRegen(item) {
   const artBriefWrap = overlay.querySelector('#regen-artbrief-wrap');
   const artHint = overlay.querySelector('#regen-art-hint');
   const ART_HINTS = {
-    '': 'La decide el director creativo según el mensaje de la pieza (foto real, escena generada o tipográfica).',
-    generativa: 'La IA genera el ARTE (luz, composición, profundidad) y deja libre la zona del texto: el titular, el precio y el botón se estampan después con la tipografía de la marca. Nunca se le pide texto a la IA porque lo escribe mal. Tiene costo.',
-    foto: 'Usa sólo fotos reales del catálogo de Tiendanube. Sin costo de IA.',
-    tipografica: 'Sin foto: afiche de diseño con la trama de la marca y el descuento en grande. Ideal para promos de toda la tienda y fechas comerciales. Sin costo de IA.',
+    '': 'La decide el director creativo según el mensaje. Si la pieza no tiene un producto puntual (promo de toda la tienda, fecha comercial), va a elegir el afiche.',
+    generativa: 'La IA crea la FOTO de campaña (luz, composición, profundidad) y deja libre la zona donde va el texto; el titular, el descuento y el botón se estampan después con la tipografía de la marca. A la IA nunca se le pide escribir: lo escribe mal y no se puede corregir. Cuesta ~US$0,04 por imagen y tarda 1-2 min.',
+    foto: 'Usa sólo fotos reales del catálogo de Tiendanube. Si la pieza no tiene un producto asociado, va a quedar sin foto. Gratis.',
+    tipografica: 'Afiche de diseño: trama de marca, banda de acento y el número del descuento impreso gigante. Es la mejor opción para promos de toda la tienda y fechas comerciales. Gratis e instantáneo.',
   };
   const syncArt = () => {
     artBriefWrap.style.display = artSel.value === 'generativa' ? '' : 'none';
