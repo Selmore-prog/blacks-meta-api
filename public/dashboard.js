@@ -862,21 +862,54 @@ function openPieceCorrect(item, previewOverlay) {
     <p class="hint" style="margin-top:0;">Escribí <b>qué corregir</b> y la IA lo aplica <b>sólo a eso</b>, sobre la misma imagen (no cambia el resto). Ej: «cambiá friza por frisa», «sacá el precio», «título más corto», «poné el botón: Escribinos por WhatsApp».</p>
     <div class="field"><label>¿Qué hay que corregir?</label>
       <textarea class="input" id="pc-inst" rows="3" placeholder="Ej: corregí la palabra friza y en el segundo punto poné Abrigo de invierno"></textarea></div>
+    <div class="field">
+      <label>Imagen <span class="hint" style="font-weight:400;">(opcional — dejala igual o cambiá el arte)</span></label>
+      <select class="input" id="pc-art">
+        <option value="">Dejar la misma imagen (gratis)</option>
+        <option value="generativa">Rehacerla con imagen generativa (IA)</option>
+        <option value="foto">Volver a la foto real del producto</option>
+        <option value="tipografica">Sin foto — afiche de diseño</option>
+      </select>
+      <p class="hint" id="pc-art-hint" style="margin-top:6px;">La corrección de textos no toca la foto. Si querés otra imagen, elegila acá.</p>
+    </div>
+    <div class="field" id="pc-artbrief-wrap" style="display:none;">
+      <label>Indicación para la imagen <span class="hint" style="font-weight:400;">(opcional)</span></label>
+      <textarea class="input" id="pc-artbrief" rows="2" placeholder="Ej: obra en construcción al amanecer, contraluz naranja, mucho polvo en el aire"></textarea>
+    </div>
     <div style="display:flex; gap:8px; justify-content:flex-end;">
       <button class="btn-discard" id="pc-cancel">Cancelar</button>
       <button class="btn-primary" id="pc-go">${icon('wand')} Corregir</button>
     </div>`;
   const ov = showInfoModal('Corregir la historia', body);
   ov.querySelector('#pc-cancel').addEventListener('click', () => ov.remove());
+  const pcArt = ov.querySelector('#pc-art');
+  const pcHint = ov.querySelector('#pc-art-hint');
+  const PC_HINTS = {
+    '': 'La corrección de textos no toca la foto. Si querés otra imagen, elegila acá.',
+    generativa: 'Genera arte nuevo con IA para esta pieza (tiene costo). El texto se estampa después con la tipografía de la marca; a la IA nunca se le pide escribir.',
+    foto: 'Vuelve a la foto real del producto en el catálogo. Sin costo.',
+    tipografica: 'Cambia la pieza a afiche de diseño sin foto. Sin costo.',
+  };
+  const syncPcArt = () => {
+    ov.querySelector('#pc-artbrief-wrap').style.display = pcArt.value === 'generativa' ? '' : 'none';
+    pcHint.textContent = PC_HINTS[pcArt.value] || PC_HINTS[''];
+  };
+  pcArt.addEventListener('change', syncPcArt);
+  syncPcArt();
   ov.querySelector('#pc-go').addEventListener('click', async () => {
     const go = ov.querySelector('#pc-go');
     const instruction = ov.querySelector('#pc-inst').value.trim();
-    if (!instruction) { toast('Escribí qué corregir', 'err'); return; }
+    const artMode = pcArt.value || '';
+    if (!instruction && !artMode) { toast('Escribí qué corregir o elegí otra imagen', 'err'); return; }
     go.disabled = true; go.innerHTML = `${icon('refresh', 'spin')} Corrigiendo…`;
     try {
       const r = await api(`/api/assets/${item.asset_id}/correct`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ instruction }),
+        body: JSON.stringify({
+          instruction,
+          artMode: artMode || undefined,
+          artBrief: artMode === 'generativa' ? (ov.querySelector('#pc-artbrief').value.trim() || undefined) : undefined,
+        }),
       });
       // Actualizá la imagen del preview en vivo (cache-bust) sin recargar todo.
       if (r.image_path && previewOverlay) {
@@ -1456,8 +1489,23 @@ function openRegen(item) {
         <option value="magazine">Magazine — portada editorial</option>
         <option value="stackedcards">Bento cards — tarjetas apiladas</option>
         <option value="polaroidstrip">Polaroids — tira de instantáneas (historias)</option>
+        <option value="poster">Afiche — tipográfico sin foto (promos / fechas)</option>
       </select>
       <p class="hint" style="margin-top:6px;">Algunos estilos necesitan varias fotos del producto o descripción real de Tiendanube; si no hay suficiente, el sistema elige otro automáticamente.</p>
+    </div>
+    <div class="field">
+      <label>Imagen de la pieza</label>
+      <select class="input" id="regen-art">
+        <option value="">Automática — la decide el director creativo</option>
+        <option value="generativa">Generativa (IA) — arte de campaña hecho para esta pieza</option>
+        <option value="foto">Sólo fotos reales — nunca imagen IA (gratis)</option>
+        <option value="tipografica">Sin foto — afiche de diseño, puro texto y color</option>
+      </select>
+      <p class="hint" id="regen-art-hint" style="margin-top:6px;">La IA genera el ARTE (luz, composición, profundidad) y deja libre la zona del texto: el titular, el precio y el botón se estampan después con la tipografía de la marca. Nunca se le pide texto a la IA porque lo escribe mal.</p>
+    </div>
+    <div class="field" id="regen-artbrief-wrap" style="display:none;">
+      <label>Indicación para la imagen <span class="hint" style="font-weight:400;">(opcional)</span></label>
+      <textarea class="input" id="regen-artbrief" placeholder="Ej: taller mecánico de noche, luz naranja de contraluz, mucho humo y chispas"></textarea>
     </div>
     <div style="display:flex; gap:8px; justify-content:flex-end;">
       <button class="btn-discard" id="regen-cancel">Cancelar</button>
@@ -1475,6 +1523,22 @@ function openRegen(item) {
     wireChips();
   }).catch(() => { const l = overlay.querySelector('#regen-chips .loading'); if (l) l.remove(); });
   overlay.querySelector('#regen-cancel').addEventListener('click', () => overlay.remove());
+  // La indicación para la imagen sólo tiene sentido si la imagen se va a generar.
+  const artSel = overlay.querySelector('#regen-art');
+  const artBriefWrap = overlay.querySelector('#regen-artbrief-wrap');
+  const artHint = overlay.querySelector('#regen-art-hint');
+  const ART_HINTS = {
+    '': 'La decide el director creativo según el mensaje de la pieza (foto real, escena generada o tipográfica).',
+    generativa: 'La IA genera el ARTE (luz, composición, profundidad) y deja libre la zona del texto: el titular, el precio y el botón se estampan después con la tipografía de la marca. Nunca se le pide texto a la IA porque lo escribe mal. Tiene costo.',
+    foto: 'Usa sólo fotos reales del catálogo de Tiendanube. Sin costo de IA.',
+    tipografica: 'Sin foto: afiche de diseño con la trama de la marca y el descuento en grande. Ideal para promos de toda la tienda y fechas comerciales. Sin costo de IA.',
+  };
+  const syncArt = () => {
+    artBriefWrap.style.display = artSel.value === 'generativa' ? '' : 'none';
+    artHint.textContent = ART_HINTS[artSel.value] || ART_HINTS[''];
+  };
+  artSel.addEventListener('change', syncArt);
+  syncArt();
   overlay.querySelector('#regen-go').addEventListener('click', async () => {
     const detail = overlay.querySelector('#regen-detail').value.trim();
     const go = overlay.querySelector('#regen-go');
@@ -1482,7 +1546,12 @@ function openRegen(item) {
     try {
       await api(`/api/generate/${item.id}`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ pillarDetail: detail, theme: detail, template: overlay.querySelector('#regen-template').value || undefined }),
+        body: JSON.stringify({
+          pillarDetail: detail, theme: detail,
+          template: overlay.querySelector('#regen-template').value || undefined,
+          artMode: artSel.value || undefined,
+          artBrief: artSel.value === 'generativa' ? (overlay.querySelector('#regen-artbrief').value.trim() || undefined) : undefined,
+        }),
       });
       // Segundo plano: cerramos el modal ya y el panel muestra "generando" hasta que
       // termina (el director de arte + varias escenas de IA puede tardar 1-3 min).

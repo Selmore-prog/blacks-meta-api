@@ -98,7 +98,7 @@ function arrowSvg(color = '#fff', size = 22) {
  * ========================================================================= */
 
 const TEMPLATES = ['fullbleed', 'minimal', 'promo', 'educativo', 'mayorista',
-  'grid', 'overlap', 'specsheet', 'splitscreen', 'blueprint', 'magazine', 'stackedcards', 'polaroidstrip'];
+  'grid', 'overlap', 'specsheet', 'splitscreen', 'blueprint', 'magazine', 'stackedcards', 'polaroidstrip', 'poster'];
 
 // Descripción CORTA de cada plantilla, para que el cerebro (IA de copy) elija la que
 // mejor le queda a la pieza según su mensaje/objetivo. Sólo texto informativo — la
@@ -117,6 +117,7 @@ const TEMPLATE_INFO = {
   magazine: 'Portada editorial: eyebrow + titular gigante + foto chica. Aspiracional; para marca / historias de clientes (ugc).',
   stackedcards: 'Bento de tarjetas (foto + highlight + dato de marca). Moderno; bueno para mayorista/marca.',
   polaroidstrip: 'Tira de polaroids, cercano y genuino. Sólo historias. Para contenido tipo cliente real (ugc).',
+  poster: 'Afiche tipográfico SIN foto: trama de marca, banda de acento y el número del descuento gigante. Para promos de toda la tienda, fechas comerciales (Black Friday, Hot Sale) y anuncios donde no hay UN producto que mostrar.',
 };
 
 // Requisitos mínimos de cada plantilla (cuántas fotos reales del producto necesita,
@@ -558,6 +559,14 @@ function buildFullbleedHtml(opts) {
   const transfer = String(config.brand.transferNote || '').toUpperCase();
 
   const hasCover = Boolean(bgImageUrl || productImageUrl);
+  // SIN NINGUNA FOTO esta plantilla no tiene nada que mostrar: quedaba un degradado
+  // oscuro con el titular flotando y dos tercios del lienzo vacíos ("es muy simplona la
+  // pieza generada"). Esas piezas —promos de toda la tienda, fechas comerciales— las
+  // resuelve el afiche tipográfico, que está diseñado justamente para llenar el cuadro
+  // sin foto. Importa que sea acá y no sólo en la elección de plantilla: fullbleed es el
+  // fallback del self-healing, así que cualquier pieza sin foto puede caer aquí.
+  if (!hasCover && !opts.ctaHeadline) return buildPosterHtml(opts);
+
   const showBrand = opts.showBrand !== false;
   const padX = g.stackPadX;
 
@@ -774,6 +783,170 @@ function buildFullbleedHtml(opts) {
   </body></html>`;
 }
 
+/**
+ * Grano/ruido de impresión como data-URI SVG. Le saca el aspecto "degradado plano de
+ * CSS" a los fondos sólidos: sin esto las piezas sin foto se ven como una diapositiva.
+ */
+function grainCss(opacity = 0.35, freq = 0.85) {
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='${freq}' numOctaves='4' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)' opacity='${opacity}'/></svg>`;
+  return `url("data:image/svg+xml,${svg.replace(/</g, '%3C').replace(/>/g, '%3E').replace(/#/g, '%23')}")`;
+}
+
+/**
+ * Separa un NÚMERO DE DESCUENTO del titular para poder tratarlo como pieza de diseño.
+ * "LIQUIDACIÓN INVIERNO: HASTA 45% OFF" -> { lead:'LIQUIDACIÓN INVIERNO', qualifier:'HASTA',
+ * number:'45', unit:'%', tail:'OFF' }. Devuelve null si el titular no tiene un número
+ * que valga la pena agrandar (ahí el afiche usa el titular grande y listo).
+ */
+function extractDisplayNumber(title) {
+  if (!title) return null;
+  const t = String(title).trim();
+  // "45% OFF" | "45 % OFF" | "2x1" | "3 CUOTAS"
+  const m = t.match(/(?:^|[\s:;,–—-])(hasta|desde)?\s*(\d{1,3})\s*(%|x\s*\d)\s*(off|de descuento|dto\.?)?/i);
+  if (!m) return null;
+  const number = m[2];
+  if (Number(number) <= 0) return null;
+  const isPercent = m[3].trim().startsWith('%');
+  const lead = t.slice(0, m.index).replace(/[\s:;,–—-]+$/, '').trim();
+  const tailRaw = t.slice(m.index + m[0].length).replace(/^[\s:;,–—-]+/, '').trim();
+  return {
+    lead,
+    qualifier: m[1] ? m[1].toUpperCase() : '',
+    number,
+    unit: isPercent ? '%' : m[3].replace(/\s+/g, '').toUpperCase(),
+    tail: (m[4] ? m[4].toUpperCase().replace('DE DESCUENTO', 'OFF').replace('DTO.', 'OFF').replace('DTO', 'OFF') : '') || (isPercent ? 'OFF' : ''),
+    rest: tailRaw,
+  };
+}
+
+/**
+ * POSTER — afiche tipográfico para las piezas que NO tienen foto (promos de toda la
+ * tienda, fechas comerciales tipo Black Friday, anuncios de marca).
+ *
+ * Por qué existe: hasta ahora esas piezas caían al fondo liso de 'fullbleed' y salían
+ * casi vacías — un degradado oscuro, el titular al medio y dos tercios del lienzo en
+ * negro (queja real del dueño: "es muy simplona la pieza generada"). Sin foto que
+ * llene el cuadro, lo que tiene que llenarlo es el DISEÑO:
+ *  - fondo construido en capas (banda diagonal de acento, trama de la marca repetida,
+ *    grano de impresión, viñeta) en vez de un degradado plano;
+ *  - el número del descuento se saca del titular y se trata como pieza gráfica gigante
+ *    (que es lo que haría un diseñador con un "45% OFF" perdido dentro de una frase);
+ *  - jerarquía real: eyebrow → titular → número → datos → botón → dominio.
+ * Si el titular no tiene número, el afiche se sostiene con el titular a gran tamaño y
+ * una regla de acento; nunca queda el hueco muerto de antes.
+ */
+function buildPosterHtml(opts) {
+  const g = sharedGeometry(opts.format);
+  const { w, h, isStory } = g;
+  const accent = opts.accent || config.brand.colors.darkOrange;
+  const site = String(config.brand.site || '').toUpperCase();
+  const padX = g.stackPadX;
+
+  const points = Array.isArray(opts.storyPoints) ? opts.storyPoints.filter(Boolean).slice(0, 3) : [];
+  const display = extractDisplayNumber(opts.overlayTitle);
+  const kicker = opts.kicker || opts.badgeText || '';
+
+  // Titular: si el número se muestra aparte, el titular es sólo la parte de texto.
+  const headText = display ? [display.lead, display.rest].filter(Boolean).join(' ') : (opts.overlayTitle || '');
+  const headSize = display
+    ? (isStory ? 74 : 62)
+    : (isStory ? 104 : 86);
+
+  const numberHtml = display ? `
+    <div style="display:flex; align-items:flex-start; gap:${isStory ? 18 : 14}px; margin:${isStory ? '10px 0 6px' : '8px 0 4px'};">
+      ${display.qualifier ? `<span style="font-size:${isStory ? 30 : 26}px; font-weight:800; letter-spacing:5px; color:rgba(255,255,255,.6); margin-top:${isStory ? 30 : 26}px;">${esc(display.qualifier)}</span>` : ''}
+      <span style="font-family:'Anton',sans-serif; font-size:${isStory ? 300 : 250}px; line-height:.78; letter-spacing:-6px;
+        background:linear-gradient(170deg, #FFFFFF 0%, #FFD9C2 42%, #FF8B4D 100%); -webkit-background-clip:text; background-clip:text; color:transparent;
+        filter:drop-shadow(0 18px 44px rgba(232,93,27,.45));">${esc(display.number)}${esc(display.unit)}</span>
+      ${display.tail ? `<span style="font-family:'Anton',sans-serif; font-size:${isStory ? 78 : 66}px; line-height:1; color:#FF8B4D; margin-top:${isStory ? 26 : 22}px; text-shadow:0 6px 24px rgba(232,93,27,.5);">${esc(display.tail)}</span>` : ''}
+    </div>` : '';
+
+  const chipsHtml = specChipsHtml(points, g);
+  const couponHtml = opts.couponCode
+    ? `<div style="display:inline-flex; align-items:center; gap:14px; padding:14px 24px; background:rgba(255,255,255,.96); border-radius:14px; box-shadow:0 12px 35px rgba(0,0,0,.5);">
+        <span style="font-size:${isStory ? 22 : 19}px; font-weight:800; letter-spacing:3px; color:#6b6b70; text-transform:uppercase; padding-right:14px; border-right:2px dashed #c9c9cf;">CUPÓN</span>
+        <span style="font-family:'Anton',sans-serif; font-size:${isStory ? 48 : 42}px; letter-spacing:2px; color:#141416;">${esc(opts.couponCode)}</span>
+      </div>` : '';
+
+  const ctaHtml = opts.interactionLabel
+    ? `<div style="background:rgba(255,255,255,.18); border:1px solid rgba(255,255,255,.5); backdrop-filter:blur(10px);
+        padding:${isStory ? '17px 34px' : '13px 27px'}; border-radius:100px; font-size:${isStory ? 27 : 22}px; font-weight:700; color:#fff; white-space:nowrap;">${esc(opts.interactionLabel)}</div>`
+    : (opts.ctaLabel ? `<div style="display:inline-flex; align-items:center; gap:${isStory ? 14 : 11}px;
+        background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); border:1px solid rgba(255,255,255,.3);
+        padding:${isStory ? '19px 38px' : '15px 32px'}; border-radius:100px; font-size:${isStory ? 28 : 23}px; font-weight:800;
+        color:#fff; white-space:nowrap; box-shadow:0 16px 36px rgba(232,93,27,.5), inset 0 1px 0 rgba(255,255,255,.3);">
+        <span>${esc(opts.ctaLabel)}</span>${arrowSvg('#fff', isStory ? 24 : 21)}</div>` : '');
+
+  // Trama de marca repetida en diagonal: textura de fondo que da profundidad sin
+  // competir con el texto (queda por debajo de la banda de acento y del grano).
+  const tileText = String(config.brand.name || 'BLACKS').toUpperCase();
+  const rows = [];
+  for (let i = 0; i < (isStory ? 9 : 7); i += 1) {
+    rows.push(`<div style="white-space:nowrap; font-family:'Anton',sans-serif; font-size:${isStory ? 96 : 84}px; letter-spacing:20px; color:rgba(255,255,255,.016); line-height:1.55; transform:translateX(${i % 2 ? -90 : 0}px);">${tileText} ${tileText} ${tileText} ${tileText}</div>`);
+  }
+
+  return `${headHtml(w, h)}</head><body>
+    <div style="position:relative; width:${w}px; height:${h}px; overflow:hidden; color:#fff;
+      background:linear-gradient(168deg, #101216 0%, #0a0b0e 45%, #16110d 100%);">
+
+      <!-- Trama de marca -->
+      <div data-deco="1" style="position:absolute; inset:-8%; z-index:0; transform:rotate(-16deg); pointer-events:none;">${rows.join('')}</div>
+
+      <!-- Banda diagonal de acento -->
+      <div style="position:absolute; top:-20%; right:-30%; width:${Math.round(w * 1.25)}px; height:${Math.round(h * 0.9)}px; z-index:0; pointer-events:none;
+        background:linear-gradient(135deg, rgba(232,93,27,.32) 0%, rgba(232,93,27,.06) 45%, rgba(232,93,27,0) 72%);
+        transform:rotate(-22deg); filter:blur(30px);"></div>
+      <!-- Halo cálido inferior -->
+      <div style="position:absolute; bottom:-18%; left:-14%; width:${Math.round(w * 0.95)}px; height:${Math.round(w * 0.95)}px; z-index:0; pointer-events:none;
+        background:radial-gradient(circle, rgba(232,93,27,.20) 0%, rgba(0,0,0,0) 66%);"></div>
+
+      <!-- Grano de impresión + viñeta -->
+      <div style="position:absolute; inset:0; z-index:1; pointer-events:none; mix-blend-mode:overlay; opacity:.28; background-image:${grainCss(0.5)}; background-size:220px 220px;"></div>
+      <div style="position:absolute; inset:0; z-index:1; pointer-events:none;
+        background:radial-gradient(120% 90% at 50% 40%, rgba(0,0,0,0) 40%, rgba(0,0,0,.55) 100%);"></div>
+
+      <!-- Filo de acento superior -->
+      <div style="position:absolute; top:0; left:0; right:0; height:10px; z-index:3;
+        background:linear-gradient(90deg, ${accent} 0%, #FF8B4D 50%, ${accent} 100%); box-shadow:0 0 30px rgba(232,93,27,.7);"></div>
+
+      <div style="position:absolute; top:${g.safeTop}px; bottom:${g.safeBottom}px; left:${padX}px; right:${padX}px;
+        display:flex; flex-direction:column; align-items:flex-start; z-index:4;">
+        <div style="flex:0 0 auto; display:flex; align-items:flex-start; justify-content:space-between; width:100%; gap:24px;">
+          ${opts.showBrand === false ? '' : brandMarkHtml(opts.logos, { dark: false, heightPx: logoHeightPx(isStory) })}
+          ${opts.badgeText ? `<div style="flex:0 0 auto; background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); color:#fff; font-weight:800; font-size:${isStory ? 21 : 18}px; padding:11px 24px; border-radius:100px; text-transform:uppercase; letter-spacing:3px; box-shadow:0 10px 25px rgba(232,93,27,.45); border:1px solid rgba(255,255,255,.25);">${esc(opts.badgeText)}</div>` : ''}
+        </div>
+
+        <!-- El bloque central se REPARTE a lo alto (titular arriba, número al medio,
+             datos abajo). Centrado dejaba una banda muerta entre los datos y el botón:
+             el afiche tiene que ocupar el lienzo, no flotar en el medio. -->
+        <div style="flex:1 1 auto; min-height:0; display:flex; flex-direction:column;
+          justify-content:${display ? 'space-between' : 'center'}; align-items:flex-start; width:100%; padding:${isStory ? 40 : 28}px 0;">
+          <div>
+            ${kicker ? `<div style="display:inline-flex; align-items:center; gap:12px; margin-bottom:${isStory ? 26 : 20}px;
+              border:1px solid rgba(255,255,255,.26); border-radius:100px; padding:${isStory ? '11px 24px' : '9px 20px'};
+              font-size:${isStory ? 22 : 19}px; font-weight:800; letter-spacing:4px; text-transform:uppercase; color:rgba(255,255,255,.86);">
+              <span style="width:9px; height:9px; border-radius:50%; background:${accent}; box-shadow:0 0 12px ${accent};"></span>${esc(kicker)}</div>` : ''}
+            ${headText ? `<div style="font-family:'Anton',sans-serif; font-size:${headSize}px; line-height:.94; letter-spacing:.5px;
+              text-transform:uppercase; color:#fff; max-width:100%; text-shadow:0 8px 40px rgba(0,0,0,.6);">${esc(headText)}</div>` : ''}
+            ${!display ? `<div style="width:${isStory ? 200 : 170}px; height:8px; border-radius:4px; margin-top:${isStory ? 34 : 26}px; background:linear-gradient(90deg, ${accent} 0%, #FF8B4D 100%); box-shadow:0 0 24px rgba(232,93,27,.6);"></div>` : ''}
+          </div>
+          ${numberHtml}
+          ${(points.length || couponHtml) ? `<div>
+            ${points.length ? chipsHtml : ''}
+            ${couponHtml ? `<div style="margin-top:${points.length ? (isStory ? 24 : 18) : 0}px;">${couponHtml}</div>` : ''}
+          </div>` : '<div></div>'}
+        </div>
+
+        ${ctaHtml ? `<div style="flex:0 0 auto; width:100%; display:flex; justify-content:center; margin-top:${isStory ? 30 : 22}px;">${ctaHtml}</div>` : ''}
+        <div style="flex:0 0 auto; width:100%; display:flex; align-items:center; justify-content:center; gap:12px; margin-top:${isStory ? 30 : 20}px;">
+          <span style="width:13px; height:13px; background:${accent}; border-radius:3px; box-shadow:0 0 12px ${accent};"></span>
+          <span style="font-size:${isStory ? 25 : 22}px; font-weight:700; letter-spacing:3px; color:#fff;">${esc(site)}</span>
+        </div>
+      </div>
+    </div>
+  </body></html>`;
+}
+
 /** MINIMAL: estudio editorial claro con marca arquitectónica de agua, producto flotando en pedestal de luz y titular oscuro. */
 function buildMinimalHtml(opts) {
   const g = sharedGeometry(opts.format);
@@ -796,7 +969,7 @@ function buildMinimalHtml(opts) {
     <div style="position:relative; width:${g.w}px; height:${g.h}px; color:${hero.fullBleed ? '#fff' : '#111113'}; overflow:hidden;
       background:radial-gradient(130% 100% at 50% 0%, #ffffff 0%, #f2f2f6 55%, #e2e2e8 100%);">
       <!-- Watermark arquitectónico de fondo -->
-      ${!hero.fullBleed ? `<div style="position:absolute; top:36%; left:-10%; width:120%; text-align:center; font-family:'Anton',sans-serif; font-size:${g.isStory ? 260 : 210}px; color:rgba(0,0,0,.032); letter-spacing:22px; transform:rotate(-12deg); pointer-events:none; z-index:0;">BLACKS</div>` : ''}
+      ${!hero.fullBleed ? `<div data-deco="1" style="position:absolute; top:36%; left:-10%; width:120%; text-align:center; font-family:'Anton',sans-serif; font-size:${g.isStory ? 260 : 210}px; color:rgba(0,0,0,.032); letter-spacing:22px; transform:rotate(-12deg); pointer-events:none; z-index:0;">BLACKS</div>` : ''}
       <!-- Volumetric top light -->
       ${!hero.fullBleed ? `<div style="position:absolute; top:280px; left:50%; transform:translateX(-50%); width:650px; height:650px; background:radial-gradient(circle, rgba(232,93,27,.11) 0%, rgba(255,255,255,0) 65%); pointer-events:none; z-index:0;"></div>` : ''}
       ${hero.html}
@@ -849,7 +1022,7 @@ function buildPromoHtml(opts) {
       <div style="position:absolute; top:-250px; right:-250px; width:750px; height:750px; background:radial-gradient(circle, rgba(232,93,27,.34) 0%, rgba(0,0,0,0) 65%); pointer-events:none; z-index:0;"></div>
       <div style="position:absolute; bottom:-150px; left:-150px; width:600px; height:600px; background:radial-gradient(circle, rgba(232,93,27,.18) 0%, rgba(0,0,0,0) 65%); pointer-events:none; z-index:0;"></div>
       <!-- Watermark agresivo OFERTA -->
-      <div style="position:absolute; top:42%; left:-5%; width:110%; text-align:center; font-family:'Anton',sans-serif; font-size:${g.isStory ? 280 : 230}px; color:rgba(255,255,255,.025); letter-spacing:18px; transform:rotate(-14deg); pointer-events:none; z-index:0;">OFERTA</div>
+      <div data-deco="1" style="position:absolute; top:42%; left:-5%; width:110%; text-align:center; font-family:'Anton',sans-serif; font-size:${g.isStory ? 280 : 230}px; color:rgba(255,255,255,.025); letter-spacing:18px; transform:rotate(-14deg); pointer-events:none; z-index:0;">OFERTA</div>
       ${hero.html}
       ${hero.fullBleed
         ? scrimHtml({ dark: true, extra: 'radial-gradient(90% 60% at 78% 12%, rgba(232,93,27,.35) 0%, rgba(232,93,27,0) 55%)' })
@@ -1071,7 +1244,7 @@ function buildOverlapHtml(opts) {
   return `${headHtml(g.w, g.h)}</head><body>
     <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#111113; overflow:hidden;
       background:radial-gradient(130% 100% at 50% 0%, #ffffff 0%, #eeeef1 55%, #dfdfe6 100%);">
-      <div style="position:absolute; top:38%; left:-8%; width:116%; text-align:center; font-family:'Anton',sans-serif; font-size:${g.isStory ? 200 : 160}px; color:rgba(0,0,0,.03); letter-spacing:16px; transform:rotate(-9deg); pointer-events:none; z-index:0;">BLACKS</div>
+      <div data-deco="1" style="position:absolute; top:38%; left:-8%; width:116%; text-align:center; font-family:'Anton',sans-serif; font-size:${g.isStory ? 200 : 160}px; color:rgba(0,0,0,.03); letter-spacing:16px; transform:rotate(-9deg); pointer-events:none; z-index:0;">BLACKS</div>
       ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: logoHeightPx(g.isStory), top: g.wmTop, left: g.padX })}
       ${opts.badgeText ? badgeTag(opts.badgeText, { accent, top: g.wmTop, right: g.padX }) : ''}
       ${cards}
@@ -1085,48 +1258,114 @@ function buildOverlapHtml(opts) {
   </body></html>`;
 }
 
-/** SPECSHEET: foto del producto con specs técnicos REALES (de la descripción de Tiendanube) pineados alrededor, estilo ficha técnica editorial. */
+/**
+ * SPECSHEET — dossier técnico del producto.
+ *
+ * Rediseñada en jul-2026. La versión anterior era una foto chica flotando con tres
+ * etiquetas blancas apoyadas en posiciones fijas alrededor: las etiquetas caían donde
+ * caían (a veces sobre el aire, a veces sobre la foto), quedaba un hueco muerto grande y
+ * no había relación entre título, foto y specs — queja real del dueño: "es como todo muy
+ * simple... no parece que sea súper diseñada".
+ *
+ * Ahora es una ficha de verdad, con sistema: encabezado con el código de la pieza, título,
+ * y una grilla de dos columnas — a la izquierda las specs REALES numeradas (01/02/03) con
+ * filetes, a la derecha la foto montada en una placa con esquineros técnicos. Abajo, una
+ * banda de cierre con el precio y el dominio. Las specs salen de la descripción real de
+ * Tiendanube (extractSpecTags); nunca se inventa nada.
+ */
 function buildSpecsheetHtml(opts) {
   const g = sharedGeometry(opts.format);
+  const { w, h, isStory } = g;
   const accent = opts.accent || config.brand.colors.darkOrange;
-  const tags = extractSpecTags(opts.productDescription, 3, { productName: opts.overlayTitle });
-  const headTop = g.wmTop + (g.isStory ? 120 : 95);
-  const boxTop = headTop + (g.isStory ? 250 : 195);
-  const boxBottom = g.footBottom + (g.isStory ? 210 : 160);
-  const hero = heroPhotoHtml({ productImageUrl: opts.productImageUrl, box: { top: boxTop, bottom: boxBottom, left: g.padX + 70, right: g.padX + 70 } });
+  const padX = g.stackPadX;
+  const tags = extractSpecTags(opts.productDescription, isStory ? 4 : 3, { productName: opts.overlayTitle });
+  const { hasPromo, off, now } = priceParts(opts.price, opts.promoPrice);
+  const site = String(config.brand.site || '').toUpperCase();
+  // Código de ficha: identifica la pieza como un documento técnico. Determinista (no
+  // cambia entre renders de la misma pieza) para que una corrección no lo mueva.
+  const code = `BL-${String((Number(opts.layoutSeed) || 1) % 900 + 100)}`;
 
-  const tagSlots = [
-    { top: boxTop + 10, left: g.padX - 10 },
-    { top: Math.round((boxTop + (g.h - boxBottom)) / 2), right: g.padX - 30 },
-    { top: g.h - boxBottom - 40, left: g.padX + 10 },
-  ];
-  const pins = tags.map((t, i) => {
-    const pos = tagSlots[i] || tagSlots[0];
-    const side = pos.left !== undefined ? `left:${pos.left}px;` : `right:${pos.right}px;`;
-    return `<div style="position:absolute; top:${pos.top}px; ${side} max-width:${g.isStory ? 300 : 250}px; z-index:4;
-      background:rgba(255,255,255,.95); border:1px solid rgba(0,0,0,.08); border-radius:14px; padding:10px 16px; box-shadow:0 14px 30px rgba(0,0,0,.16);
-      font-size:${g.isStory ? 19 : 16}px; font-weight:700; color:#1c1c1e; line-height:1.25;">
-      <span style="color:${accent};">●</span> ${esc(t)}
-    </div>`;
-  }).join('');
+  const specList = tags.map((t, i) => `
+    <div style="display:flex; align-items:flex-start; gap:${isStory ? 18 : 15}px; padding:${isStory ? '22px 0' : '18px 0'};
+      ${i ? 'border-top:1px solid rgba(17,17,19,.13);' : ''}">
+      <span style="flex:0 0 auto; font-family:'Anton',sans-serif; font-size:${isStory ? 40 : 34}px; line-height:.9;
+        color:${accent}; letter-spacing:-1px;">${String(i + 1).padStart(2, '0')}</span>
+      <span style="font-size:${isStory ? 27 : 23}px; font-weight:600; line-height:1.28; color:#1c1c1e;">${esc(t)}</span>
+    </div>`).join('');
 
-  return `${headHtml(g.w, g.h)}</head><body>
-    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#111113; overflow:hidden;
-      background:radial-gradient(130% 100% at 50% 0%, #ffffff 0%, #f2f2f6 55%, #e5e5eb 100%);">
-      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: logoHeightPx(g.isStory), top: g.wmTop, left: g.padX })}
-      <div style="position:absolute; top:${headTop}px; left:${g.padX}px; right:${g.padX}px; z-index:3;">
-        <div style="display:inline-flex; align-items:center; gap:10px; background:#111113; color:#fff; font-weight:800; font-size:${g.isStory ? 20 : 18}px; letter-spacing:3px; text-transform:uppercase; padding:9px 20px; border-radius:100px; margin-bottom:20px;">
-          <span style="width:8px;height:8px;border-radius:50%;background:${accent};"></span> FICHA TÉCNICA
+  // Esquineros de encuadre: el recurso gráfico que dice "documento técnico".
+  const bracket = (pos) => `<span style="position:absolute; ${pos} width:${isStory ? 34 : 28}px; height:${isStory ? 34 : 28}px; z-index:3;"></span>`;
+
+  const priceHtml = opts.price ? `
+    <div style="display:inline-flex; align-items:baseline; gap:${isStory ? 16 : 13}px;">
+      ${hasPromo ? `<span style="font-family:'Anton',sans-serif; font-size:${isStory ? 34 : 29}px; color:#9a9aa0; text-decoration:line-through;">$${formatPrice(opts.price)}</span>
+        <span style="background:${accent}; color:#fff; font-weight:800; font-size:${isStory ? 19 : 16}px; padding:5px 13px; border-radius:100px;">-${off}%</span>` : ''}
+      <span style="font-family:'Anton',sans-serif; font-size:${isStory ? 68 : 58}px; color:#111113; letter-spacing:-1px;">$${formatPrice(now)}</span>
+    </div>` : '';
+
+  return `${headHtml(w, h)}</head><body>
+    <div style="position:relative; width:${w}px; height:${h}px; color:#111113; overflow:hidden;
+      background:linear-gradient(168deg, #ffffff 0%, #f3f3f7 55%, #e7e7ee 100%);">
+
+      <!-- Grilla técnica de fondo -->
+      <div style="position:absolute; inset:0; z-index:0; pointer-events:none; opacity:.55; background-image:
+        repeating-linear-gradient(0deg, rgba(17,17,19,.05) 0px, rgba(17,17,19,.05) 1px, transparent 1px, transparent 54px),
+        repeating-linear-gradient(90deg, rgba(17,17,19,.05) 0px, rgba(17,17,19,.05) 1px, transparent 1px, transparent 54px);"></div>
+      <!-- Tinte cálido de marca -->
+      <div style="position:absolute; top:-12%; right:-18%; width:${Math.round(w * 0.9)}px; height:${Math.round(w * 0.9)}px; z-index:0; pointer-events:none;
+        background:radial-gradient(circle, rgba(232,93,27,.13) 0%, rgba(255,255,255,0) 68%);"></div>
+      <!-- Filo de acento superior -->
+      <div style="position:absolute; top:0; left:0; right:0; height:9px; z-index:3;
+        background:linear-gradient(90deg, ${accent} 0%, #FF8B4D 55%, ${accent} 100%);"></div>
+
+      <div style="position:absolute; top:${g.safeTop}px; bottom:${g.safeBottom}px; left:${padX}px; right:${padX}px;
+        display:flex; flex-direction:column; z-index:4;">
+
+        <!-- Encabezado: marca + identificación del documento -->
+        <div style="flex:0 0 auto; display:flex; align-items:flex-start; justify-content:space-between; gap:24px;">
+          ${opts.showBrand === false ? '<span></span>' : brandMarkHtml(opts.logos, { dark: true, heightPx: logoHeightPx(isStory) })}
+          <div style="text-align:right; font-size:${isStory ? 18 : 16}px; font-weight:800; letter-spacing:3px; color:#8a8a92; line-height:1.7;">
+            FICHA TÉCNICA<br/><span style="color:${accent};">${esc(code)}</span>
+          </div>
         </div>
-        ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 60 : 48}px; line-height:.98; text-transform:uppercase; color:#111113; max-width:90%;">${esc(opts.overlayTitle)}</div>` : ''}
+
+        <!-- Título -->
+        <div style="flex:0 0 auto; margin-top:${isStory ? 34 : 26}px;">
+          ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${isStory ? 62 : 52}px; line-height:.98;
+            text-transform:uppercase; color:#111113; letter-spacing:.3px;">${esc(opts.overlayTitle)}</div>` : ''}
+          <div style="width:${isStory ? 150 : 128}px; height:7px; border-radius:4px; margin-top:${isStory ? 22 : 18}px;
+            background:linear-gradient(90deg, ${accent} 0%, #FF8B4D 100%);"></div>
+        </div>
+
+        <!-- Cuerpo: specs numeradas | placa con la foto -->
+        <div style="flex:1 1 auto; min-height:0; display:flex; gap:${isStory ? 34 : 28}px; align-items:stretch;
+          margin:${isStory ? '38px 0' : '30px 0'};">
+          ${tags.length ? `<div style="flex:0 0 ${isStory ? 41 : 38}%; display:flex; flex-direction:column; justify-content:center;">${specList}</div>` : ''}
+          <div style="flex:1 1 auto; min-width:0; position:relative; border-radius:${isStory ? 30 : 26}px; overflow:hidden;
+            background:linear-gradient(158deg, #ffffff 0%, #f0f1f5 58%, #e2e4ea 100%);
+            box-shadow:0 34px 70px -18px rgba(17,17,25,.28), inset 0 1px 0 rgba(255,255,255,.9);
+            display:flex; align-items:center; justify-content:center; padding:${isStory ? '30px 24px' : '26px 20px'};">
+            <div style="position:absolute; inset:${isStory ? 16 : 13}px; border:1px solid rgba(17,17,19,.10); border-radius:${isStory ? 20 : 17}px; pointer-events:none;"></div>
+            ${bracket(`top:${isStory ? 26 : 22}px; left:${isStory ? 26 : 22}px; border-top:2px solid ${accent}; border-left:2px solid ${accent};`)}
+            ${bracket(`bottom:${isStory ? 26 : 22}px; right:${isStory ? 26 : 22}px; border-bottom:2px solid ${accent}; border-right:2px solid ${accent};`)}
+            ${opts.productImageUrl
+    ? `<img src="${esc(opts.productImageUrl)}" alt="" style="max-width:100%; max-height:100%; object-fit:contain;
+        filter:drop-shadow(0 26px 44px rgba(10,15,25,.24)); mix-blend-mode:multiply;"/>`
+    : ''}
+          </div>
+        </div>
+
+        <!-- Cierre: precio + dominio -->
+        <div style="flex:0 0 auto; border-top:1px solid rgba(17,17,19,.16); padding-top:${isStory ? 26 : 20}px;
+          display:flex; align-items:center; justify-content:space-between; gap:20px;">
+          ${priceHtml || '<span></span>'}
+          <div style="display:flex; align-items:center; gap:11px;">
+            <span style="width:12px; height:12px; background:${accent}; border-radius:3px;"></span>
+            <span style="font-size:${isStory ? 22 : 19}px; font-weight:700; letter-spacing:2.6px; color:#1c1c1e;">${esc(site)}</span>
+          </div>
+        </div>
+        ${opts.couponCode ? `<div style="flex:0 0 auto; margin-top:${isStory ? 20 : 15}px;">${couponTag(opts.couponCode, { isStory, marginTop: 0 })}</div>` : ''}
       </div>
-      ${hero.html}
-      ${pins}
-      <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
-        ${compactPriceHtml(g, accent, opts.price, opts.promoPrice)}
-        ${couponTag(opts.couponCode, { isStory: g.isStory })}
-      </div>
-      ${domainHtml(g, { dark: true, accent })}
     </div>
   </body></html>`;
 }
@@ -1342,6 +1581,7 @@ function buildHtml(opts) {
     case 'magazine': return buildMagazineHtml(opts);
     case 'stackedcards': return buildStackedcardsHtml(opts);
     case 'polaroidstrip': return buildPolaroidStripHtml(opts);
+    case 'poster': return buildPosterHtml(opts);
     default: return buildFullbleedHtml(opts);
   }
 }
@@ -1372,6 +1612,7 @@ async function renderPostBuffer(options) {
       brief: options.bgBrief, occasion: options.bgOccasion, format,
       seed: options.layoutSeed, // variedad de escenario/luz/cámara por pieza
       shotSpec: options.shotSpec || null, // director de arte: tipo de toma, foco, fondo
+      artStyle: options.artStyle || null, // 'poster' = arte de afiche con zona libre para el texto
     });
     if (scene) {
       bgImageUrl = `data:${scene.mimeType};base64,${scene.buffer.toString('base64')}`;
@@ -1395,6 +1636,7 @@ async function renderPostBuffer(options) {
       theme: options.bgTheme || options.overlayTitle,
       brief: options.bgBrief, occasion: options.bgOccasion, format,
       seed: options.layoutSeed,
+      artStyle: options.artStyle || null,
     });
     if (bg) {
       bgImageUrl = `data:${bg.mimeType};base64,${bg.buffer.toString('base64')}`;
@@ -1407,6 +1649,7 @@ async function renderPostBuffer(options) {
   // Navegador compartido + a lo sumo 2 páginas a la vez (memoria de Render).
   await acquireRenderSlot();
   let buffer;
+  let clippedText = [];
   let page;
   try {
     const browser = await getBrowser();
@@ -1420,6 +1663,7 @@ async function renderPostBuffer(options) {
     }
     // Esperar a que las tipografías (Anton/Inter) estén listas antes de capturar.
     try { await page.evaluate(async () => { if (document.fonts && document.fonts.ready) await document.fonts.ready; }); } catch (_) {}
+    clippedText = await measureClippedText(page, w).catch(() => []);
     buffer = await page.screenshot({ type: 'jpeg', quality: 90 });
   } finally {
     if (page) await page.close().catch(() => {}); // cerramos la PÁGINA, no el navegador (se reusa)
@@ -1431,7 +1675,46 @@ async function renderPostBuffer(options) {
   // encima. Sirve para reusarla en otro slide (ej. el de precio) sin duplicar texto
   // "quemado" — reusar directamente `url` (que ya tiene chrome) genera doble cuadro/texto fantasma.
   const cleanImageUrl = bgImageUrl || productImageUrl || null;
-  return { url, buffer, costUsd, cleanImageUrl };
+  return { url, buffer, costUsd, cleanImageUrl, clippedText };
+}
+
+/**
+ * ¿Hay algún texto REALMENTE cortado en la pieza? Se mide en el DOM antes de la captura,
+ * que es exacto y gratis.
+ *
+ * Existe porque el QA visual (modelo de visión) marca "texto cortado" de forma sistemática
+ * en titulares largos que sólo están repartidos en dos renglones: se midió el DOM en 9
+ * piezas rechazadas y NINGUNA desbordaba. Cada falso rechazo dispara un re-render inútil,
+ * manda la pieza a revisión manual y graba una lección falsa que tuerce las siguientes.
+ * Con esta medición, el juicio de "texto cortado" lo tiene el navegador y a la visión se
+ * le deja lo que sí sabe ver (contraste, superposición, fotos rotas).
+ *
+ * Criterio estrecho a propósito (cero falsos positivos): sólo cuenta un elemento que
+ * RECORTA SU PROPIO texto (overflow oculto y el contenido no entra) o un texto sin corte
+ * de línea más ancho que el lienzo. La decoración que sangra fuera del canvas (tramas,
+ * marcas de agua gigantes) no cuenta: está recortada a propósito por el lienzo.
+ */
+function measureClippedText(page, canvasWidth) {
+  return page.evaluate((W) => {
+    const out = [];
+    for (const el of document.querySelectorAll('*')) {
+      // Decoración (marcas de agua gigantes, tramas de marca): sangran fuera del lienzo
+      // A PROPÓSITO, no son texto que haya que leer.
+      if (el.closest('[data-deco]')) continue;
+      const own = Array.from(el.childNodes)
+        .filter((n) => n.nodeType === 3).map((n) => n.textContent).join('').trim();
+      if (!own) continue;
+      const cs = getComputedStyle(el);
+      const clips = ['hidden', 'clip'].includes(cs.overflow)
+        || ['hidden', 'clip'].includes(cs.overflowX) || ['hidden', 'clip'].includes(cs.overflowY);
+      if (clips && (el.scrollWidth > el.clientWidth + 1 || el.scrollHeight > el.clientHeight + 1)) {
+        out.push(own.slice(0, 60));
+        continue;
+      }
+      if (cs.whiteSpace === 'nowrap' && el.getBoundingClientRect().width > W) out.push(own.slice(0, 60));
+    }
+    return out;
+  }, canvasWidth);
 }
 
 async function renderPostImage(options) {
