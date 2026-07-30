@@ -76,4 +76,85 @@ function detectLogoVariant(buffer) {
   });
 }
 
-module.exports = { resizeImage, detectLogoVariant };
+/**
+ * Mide la CAJA DE TINTA de una imagen con transparencia (típicamente el logo): el
+ * rectángulo mínimo que contiene los píxeles dibujados, en coordenadas normalizadas
+ * 0..1 sobre la imagen entera, más el aspect ratio (ancho/alto) de la imagen.
+ *
+ * ¿Por qué? Los PNG de logo suelen venir con un margen transparente enorme alrededor
+ * de la marca. Al renderizarlos con `height:150px` el navegador escala TODA la imagen
+ * (margen incluido), así que la marca visible queda mucho más chica que los 150px
+ * pedidos — de ahí el "el logo aparece muy chico" del dueño, que no se arreglaba
+ * subiendo el número. Con esta medición el renderer puede encuadrar SOLO la tinta y
+ * mostrarla al tamaño real que se pidió.
+ *
+ * Devuelve { x0, y0, x1, y1, aspect, coverage } o null si no se pudo medir.
+ */
+function measureInkBox(buffer) {
+  return new Promise((resolve) => {
+    const W = 128; // grilla de análisis: suficiente precisión, costo despreciable
+    const id = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const inPath = path.join(os.tmpdir(), `ink-in-${id}`);
+    const clean = () => { try { fs.unlinkSync(inPath); } catch (_) {} };
+    try { fs.writeFileSync(inPath, buffer); } catch (_) { return resolve(null); }
+    execFile(
+      ffmpegPath,
+      // scale=W:-2 mantiene el aspect: del largo del buffer deducimos el alto real.
+      ['-y', '-loglevel', 'error', '-i', inPath, '-vf', `scale=${W}:-2`, '-pix_fmt', 'rgba', '-f', 'rawvideo', '-'],
+      { encoding: 'buffer', maxBuffer: 8 * 1024 * 1024 },
+      (err, stdout) => {
+        clean();
+        if (err || !stdout || !stdout.length) return resolve(null);
+        const H = Math.floor(stdout.length / (W * 4));
+        if (H < 8) return resolve(null);
+
+        // ¿La imagen tiene transparencia real? Si no (logo con fondo sólido), la "tinta"
+        // se define por contraste contra el color de las esquinas (el fondo).
+        let hasAlpha = false;
+        for (let i = 3; i < stdout.length; i += 4) {
+          if (stdout[i] < 250) { hasAlpha = true; break; }
+        }
+        const cornerLum = (x, y) => {
+          const i = (y * W + x) * 4;
+          return 0.299 * stdout[i] + 0.587 * stdout[i + 1] + 0.114 * stdout[i + 2];
+        };
+        const bgLum = (cornerLum(0, 0) + cornerLum(W - 1, 0) + cornerLum(0, H - 1) + cornerLum(W - 1, H - 1)) / 4;
+
+        let minX = W; let minY = H; let maxX = -1; let maxY = -1; let inkPixels = 0;
+        for (let y = 0; y < H; y += 1) {
+          for (let x = 0; x < W; x += 1) {
+            const i = (y * W + x) * 4;
+            const alpha = stdout[i + 3];
+            let isInk;
+            if (hasAlpha) {
+              isInk = alpha > 40;
+            } else {
+              const lum = 0.299 * stdout[i] + 0.587 * stdout[i + 1] + 0.114 * stdout[i + 2];
+              isInk = Math.abs(lum - bgLum) > 28;
+            }
+            if (!isInk) continue;
+            inkPixels += 1;
+            if (x < minX) minX = x;
+            if (x > maxX) maxX = x;
+            if (y < minY) minY = y;
+            if (y > maxY) maxY = y;
+          }
+        }
+        if (maxX < 0 || maxY < 0) return resolve(null);
+        const box = {
+          x0: minX / W,
+          y0: minY / H,
+          x1: (maxX + 1) / W,
+          y1: (maxY + 1) / H,
+          aspect: W / H,
+          coverage: inkPixels / (W * H),
+        };
+        // Caja degenerada o que ya ocupa casi todo: no hay nada que compensar.
+        if (box.x1 - box.x0 < 0.05 || box.y1 - box.y0 < 0.05) return resolve(null);
+        resolve(box);
+      }
+    );
+  });
+}
+
+module.exports = { resizeImage, detectLogoVariant, measureInkBox };

@@ -76,6 +76,17 @@ function boltSvg(color = '#FF8B4D', size = 26) {
   return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="${color}" style="display:inline-block; vertical-align:middle; flex:0 0 auto;"><path d="M13 2L4.5 13.2c-.4.5 0 1.3.7 1.3H11l-1.2 7.2c-.1.8.9 1.2 1.4.6L20 11.1c.4-.5 0-1.3-.7-1.3H14l1.1-6.9c.1-.8-.9-1.2-1.4-.6z"/></svg>`;
 }
 
+/** Tilde vectorial. Va en SVG y no como carácter ✓ (U+2713): en el contenedor de
+ *  producción no hay fuente que lo dibuje garantizado y salía como cuadradito. */
+function checkSvg(color = '#fff', size = 20) {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="3.4" stroke-linecap="round" stroke-linejoin="round" style="display:block; flex:0 0 auto;"><path d="M20 6L9 17l-5-5"/></svg>`;
+}
+
+/** Flecha vectorial para los botones de CTA (mismo motivo que checkSvg). */
+function arrowSvg(color = '#fff', size = 22) {
+  return `<svg width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="${color}" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" style="display:block; flex:0 0 auto;"><path d="M5 12h13M12 5l7 7-7 7"/></svg>`;
+}
+
 /* =========================================================================
  * SISTEMA DE PLANTILLAS
  *  - fullbleed : foto a sangre + bloque de precio (la clásica). Producto/promo con precio.
@@ -128,36 +139,151 @@ const TEMPLATE_REQUIREMENTS = {
   splitscreen: { minImages: 1 },
 };
 
+/* Entidades HTML que llegan literales en las descripciones de Tiendanube (los textos
+ * se pegaron desde Word/otro editor). Sin decodificarlas, la ficha técnica mostraba
+ * cosas como "Pantalón clásico BLACK&acute" impreso en la pieza. */
+const HTML_ENTITIES = {
+  amp: '&', lt: '<', gt: '>', quot: '"', apos: "'", nbsp: ' ', acute: '´',
+  aacute: 'á', eacute: 'é', iacute: 'í', oacute: 'ó', uacute: 'ú', ntilde: 'ñ',
+  Aacute: 'Á', Eacute: 'É', Iacute: 'Í', Oacute: 'Ó', Uacute: 'Ú', Ntilde: 'Ñ',
+  uuml: 'ü', Uuml: 'Ü', ordm: 'º', ordf: 'ª', deg: '°', hellip: '…', mdash: '—', ndash: '–',
+};
+function decodeEntities(s) {
+  return String(s)
+    .replace(/&#(\d+);/g, (_, n) => String.fromCharCode(Number(n)))
+    .replace(/&#x([0-9a-f]+);/gi, (_, n) => String.fromCharCode(parseInt(n, 16)))
+    .replace(/&([a-zA-Z]+);?/g, (m, name) => (HTML_ENTITIES[name] !== undefined ? HTML_ENTITIES[name] : m));
+}
+
+// Palabras que indican una CARACTERÍSTICA CONCRETA (material, protección, construcción):
+// lo que sirve como dato en una pieza.
+const FEATURE_WORDS = /(cuero|acero|algod[oó]n|poli[eé]ster|elastano|spandex|lycra|canvas|gabardina|grafa|ripstop|cordura|denim|jean|poplin|trucker|guata|frisa|polar|softshell|impermeable|hidr[oó]fug|transpirable|t[eé]rmic|abrigo|forrad|reforzad|costura|puntera|suela|plantilla|antideslizante|antiest[aá]tic|diel[eé]ctric|certificad|norma|iram|bolsillo|cierre|capucha|cuello|puño|presilla|ajustable|elastizad|botamanga|cintura|talle|unisex|dama|caballero|oz\b|onzas|%)/i;
+
+// Habla de BENEFICIO/marketing, no de una característica: "diseñada especialmente para
+// ofrecer comodidad", "ideal para soportar el desgaste diario". Como dato en la pieza no
+// dicen nada y quedaban impresos igual.
+const FILLER_WORDS = /(descubr[ií]|conoc[eé]|ideal para|pensad[oa] |diseñad[oa] |perfect[oa] |garantiz|brinda|ofrec[ei]|te permite|permiten|para que|adem[aá]s de|experiencia|sensaci[oó]n|elegancia|versatilidad|apuesta|comodidad|durabilidad|calidad superior|m[aá]xima calidad|estilo [uú]nico|desgaste diario)/i;
+
+// Termina colgado (fragmento cortado a mitad de frase): "…en Cintura y Botamanga : Permiten".
+const DANGLING_END = /\b(y|e|o|u|de|del|con|sin|para|por|en|a|al|que|como|su|sus|la|el|los|las|un|una|más|muy|tus|te|se)$/i;
+
+// Títulos de sección de la ficha, no datos: "Características principales:", "Composición:".
+// El dato es lo que viene DESPUÉS (y eso ya sale solo al partir por ':').
+const HEADING_RE = /^(caracter[ií]sticas?( principales| destacadas| t[eé]cnicas)?|descripci[oó]n( del producto)?|detalles?|especificaciones|informaci[oó]n( adicional)?|beneficios?|ventajas?|medidas?|talles?( disponibles)?|composici[oó]n|materiales?|cuidados?|instrucciones|colores?( disponibles)?|usos?|aplicaciones)$/i;
+
+// Siglas, unidades y normas que SÍ van en mayúscula aunque la spec se pase a caja de
+// oración. Todo lo demás se baja (si no, quedaban preposiciones gritadas: "Media DE
+// poliester", "Confeccionado EN tela polar").
+const KEEP_UPPER = new Set(['OZ', 'UV', 'PVC', 'RIB', 'DTG', 'EVA', 'TPU', 'PU', 'IRAM', 'ISO', 'ASTM',
+  'LED', 'ABS', 'SRC', 'SB', 'S1', 'S2', 'S3', 'P1', 'P2', 'XS', 'S', 'M', 'L', 'XL', 'XXL', 'XXXL',
+  'CM', 'MM', 'KG', 'GR', 'ML', 'AR', 'US', 'EU', 'ANSI', 'EPI']);
+// Marcas propias y de proveedores: conservan su forma correcta.
+const PROPER_NOUNS = ['BLACKS', ...(config.brand.knownBrands || [])];
+
 /**
- * Extrae 2-3 frases técnicas CORTAS de la descripción real de Tiendanube (nunca
- * inventa nada) para pinearlas como specs en la plantilla 'specsheet'. Prioriza
- * frases con palabras de material/feature/certificación; si no encuentra, usa
- * las primeras frases cortas del texto.
+ * Pasa una spec ALL CAPS a caja de oración ("CIERRE DE BRONCE" -> "Cierre de bronce"),
+ * respetando siglas/unidades ("PVC inyectado", "tela RIB", "8 OZ") y marcas ("Pampero").
+ * Las descripciones viejas del catálogo están escritas enteras en mayúscula y como chip
+ * quedaban gritadas.
  */
-function extractSpecTags(description, max = 3) {
-  if (!description) return [];
-  const plain = String(description).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
-  // Segmenta por puntos, comas, punto y coma, viñetas, guiones de lista y saltos —
-  // muchas descripciones de Tiendanube son un párrafo corrido con comas (sin puntos)
-  // o listas con guiones; antes salían 0 specs y la 'ficha técnica' quedaba vacía.
-  const parts = plain
-    .split(/[.;•\n]+|\s[-–—]\s|,/)
-    .map((s) => s.replace(/^[\s\-–—•*:]+/, '').trim()) // saca viñeta/guion/dos-puntos inicial
-    .filter((s) => s.length >= 6 && s.length <= 70 && /[a-záéíóúñ]{3,}/i.test(s)); // descarta puros números/símbolos
-  const featureWords = /(cuero|acero|algod[oó]n|poli[eé]ster|impermeable|transpirable|reforzad|resistente|antideslizante|certificad|t[eé]rmic|softshell|grafa|ripstop|cordura|costura|puntera|antiest[aá]tic|diel[eé]ctric|polar|abrigo|elastano|elastizad|frisa|forrad|capucha|bolsillo|ajustable|liviano|térmico)/i;
-  const featured = parts.filter((p) => featureWords.test(p));
-  const rest = parts.filter((p) => !featureWords.test(p));
-  // De-duplica por prefijo normalizado (evita 3× "Composición: ..." de cada color).
-  const seen = new Set();
-  const out = [];
-  for (const p of [...featured, ...rest]) {
-    const key = p.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 14);
-    if (!key || seen.has(key)) continue;
-    seen.add(key);
-    out.push(fixSpelling(p));
-    if (out.length >= max) break;
+function sentenceCase(s) {
+  if (s !== s.toUpperCase()) return s; // ya viene en caja mixta: no lo tocamos
+  const lowered = s.split(/(\s+)/).map((tok) => {
+    if (!tok.trim()) return tok;
+    const bare = tok.replace(/[^A-Z0-9%°/]/gi, '');
+    if (KEEP_UPPER.has(bare) || /\d/.test(tok)) return tok;
+    return tok.toLowerCase();
+  }).join('');
+  let out = lowered.charAt(0).toUpperCase() + lowered.slice(1);
+  for (const noun of PROPER_NOUNS) {
+    out = out.replace(new RegExp(`\\b${noun.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\b`, 'gi'), noun);
   }
   return out;
+}
+
+/**
+ * Extrae 2-3 datos técnicos CORTOS y con SENTIDO de la descripción real de Tiendanube
+ * (nunca inventa nada) para imprimirlos como chips/specs en las piezas.
+ *
+ * Rediseñado en jul-2026 porque los items salían mal (queja real: "que tengan sentido los
+ * items de la ficha técnica"). Los defectos concretos que corrige:
+ *  - entidades HTML crudas impresas en la pieza ("Pantalón clásico BLACK&acute");
+ *  - fragmentos cortados a mitad de frase ("impacto de partículas", "…Botamanga : Permiten");
+ *  - relleno de marketing sin dato ("diseñada especialmente para ofrecer comodidad");
+ *  - el nombre del producto repetido como si fuera una característica;
+ *  - frases largas de dos renglones donde alcanzaba la etiqueta ("Puntera de acero:
+ *    protege tus pies frente a impactos" -> "Puntera de acero");
+ *  - texto GRITADO en mayúsculas ("CIERRE DE BRONCE" -> "Cierre de bronce").
+ */
+function extractSpecTags(description, max = 3, { productName = '', maxLen = 42 } = {}) {
+  if (!description) return [];
+  const plain = decodeEntities(String(description).replace(/<[^>]+>/g, ' '))
+    .replace(/[-–—_=*]{3,}/g, ' ')   // separadores decorativos de las fichas viejas
+    .replace(/\s+/g, ' ')
+    .trim();
+  const norm = (s) => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+  const nameKey = norm(productName);
+
+  // 1) Cortes FUERTES: punto, punto y coma, DOS PUNTOS, viñeta, salto, guion de lista.
+  //    Los dos puntos importan porque casi todas las fichas de Tiendanube se escriben
+  //    "Etiqueta : explicación larga" — al cortar ahí, la etiqueta (que ES la spec:
+  //    "Tela Grafa y Gabardina", "Costuras Reforzadas") queda suelta y la explicación
+  //    se descarta sola por larga. A diferencia de antes NO se corta por coma acá:
+  //    cortar por coma partía las frases al medio y de ahí salían los fragmentos
+  //    sin sentido ("impacto de partículas").
+  const strong = plain.split(/[.;:•|\n]+|\s[-–—]\s/).map((s) => s.trim()).filter(Boolean);
+
+  // 2) Tramo corto = candidato tal cual. Tramo largo = recién ahí lo abro por comas
+  //    (marcado como fragmento, que se filtra más duro).
+  const candidates = [];
+  for (const seg of strong) {
+    if (seg.length <= 52) { candidates.push({ text: seg, fromFragment: false }); continue; }
+    for (const piece of seg.split(/,\s*/)) candidates.push({ text: piece.trim(), fromFragment: true });
+  }
+
+  const clean = (raw) => {
+    let t = String(raw).replace(/^[\s\-–—•*:·>]+/, '').replace(/[\s:,;·]+$/, '').trim();
+    t = t.replace(/\s{2,}/g, ' ');
+    return t;
+  };
+
+  // 3) Filtro. `strict` exige además que el candidato arranque en mayúscula cuando salió
+  //    de partir una frase por comas: una spec de verdad empieza con mayúscula en la
+  //    ficha; lo que empieza en minúscula es texto arrancado del medio de la oración.
+  const pick = (strict) => {
+    const out = [];
+    const seen = new Set();
+    const accept = (list) => {
+      for (const c of list) {
+        const t = clean(c.text);
+        if (t.length < 5 || t.length > maxLen) continue;
+        if (!/[a-záéíóúñ]{3,}/i.test(t)) continue;              // puro número/símbolo
+        if (DANGLING_END.test(t)) continue;                      // fragmento colgado
+        if (HEADING_RE.test(t)) continue;                        // título de sección
+        const hasFeature = FEATURE_WORDS.test(t);
+        if (FILLER_WORDS.test(t) && !hasFeature) continue;        // relleno sin dato
+        if (strict && c.fromFragment && !/^[A-ZÁÉÍÓÚÑ0-9]/.test(t)) continue;
+        const key = norm(t);
+        if (!key || seen.has(key.slice(0, 12))) continue;
+        // Eco del nombre del producto: no es una característica.
+        if (nameKey && key.length >= 8 && (nameKey.includes(key.slice(0, 14)) || key.includes(nameKey.slice(0, 14)))) continue;
+        seen.add(key.slice(0, 12));
+        out.push({ text: fixSpelling(sentenceCase(t)), hasFeature });
+      }
+    };
+    // Primero las que nombran una característica concreta, después el resto.
+    accept(candidates.filter((c) => FEATURE_WORDS.test(clean(c.text))));
+    accept(candidates.filter((c) => !FEATURE_WORDS.test(clean(c.text))));
+    return out;
+  };
+
+  // Pasada estricta; si la ficha está escrita toda en minúscula y quedó corta, se relaja.
+  let picked = pick(true);
+  if (picked.length < Math.min(2, max)) {
+    const relaxed = pick(false);
+    if (relaxed.length > picked.length) picked = relaxed;
+  }
+  return picked.slice(0, max).map((p) => p.text);
 }
 
 function sharedGeometry(format) {
@@ -169,6 +295,12 @@ function sharedGeometry(format) {
     wmTop: isStory ? 170 : 54,
     footBottom: isStory ? 360 : 140,
     domainBottom: isStory ? 250 : 54,
+    // ZONAS SEGURAS de Instagram para el layout en columna (ver buildFullbleedHtml):
+    // en historias, arriba va la barra de progreso + @usuario y abajo el "Enviá un
+    // mensaje" + la flecha de compartir. Nada de la pieza puede entrar ahí.
+    safeTop: isStory ? 196 : 54,
+    safeBottom: isStory ? 236 : 54,
+    stackPadX: isStory ? 76 : 62,
   };
 }
 
@@ -184,16 +316,51 @@ function headHtml(w, h) {
 }
 
 /**
+ * Encuadra un logo mostrando SOLO su tinta al alto pedido. Los PNG de logo vienen con
+ * un margen transparente enorme: con un `height` a secas el navegador escala también
+ * ese margen y la marca visible queda ~40% más chica de lo pedido (el "logo muy chico"
+ * que no se arreglaba subiendo el número). Con la caja de tinta medida (measureInkBox)
+ * recortamos el margen: el alto pedido es el alto REAL de la marca.
+ * Sin medición disponible cae al comportamiento viejo (imagen completa).
+ */
+function logoFrameHtml(logoUrl, ink, { heightPx, maxWidthPx, shadow }) {
+  const filter = `filter:drop-shadow(0 2px 3px ${shadow.near}) drop-shadow(0 6px 18px ${shadow.far});`;
+  if (!ink || !ink.aspect) {
+    return `<img class="logo" style="height:${heightPx}px; max-width:${maxWidthPx}px; object-fit:contain; ${filter}" src="${esc(logoUrl)}" alt="BLACKS"/>`;
+  }
+  const inkW = ink.x1 - ink.x0;
+  const inkH = ink.y1 - ink.y0;
+  let imgH = heightPx / inkH;          // alto que tendría la imagen COMPLETA
+  let imgW = imgH * ink.aspect;        // ancho de la imagen completa
+  let boxW = imgW * inkW;              // ancho visible de la marca
+  let boxH = heightPx;
+  if (boxW > maxWidthPx) {             // marca muy ancha (lockup horizontal): la limitamos
+    const k = maxWidthPx / boxW;
+    imgH *= k; imgW *= k; boxW *= k; boxH *= k;
+  }
+  const r = (n) => Math.round(n * 10) / 10;
+  return `<div class="logo" style="position:relative; flex:0 0 auto; width:${r(boxW)}px; height:${r(boxH)}px; overflow:hidden; ${filter}">
+    <img src="${esc(logoUrl)}" alt="BLACKS" style="position:absolute; left:${r(-ink.x0 * imgW)}px; top:${r(-ink.y0 * imgH)}px; width:${r(imgW)}px; height:${r(imgH)}px;"/>
+  </div>`;
+}
+
+/**
  * Marca de BLACKS. `dark` = el FONDO donde va a ir es oscuro -> necesita el logo de
  * tinta CLARA (logoOnDark); fondo claro -> logo de tinta OSCURA (logoOnLight).
  * Acepta el par {logoOnLight, logoOnDark} (selección automática) o un logoUrl único
  * (compat vieja, sin distinción de fondo).
  */
-function brandMarkHtml(logos, { dark = false, heightPx = 104 } = {}) {
+function brandMarkHtml(logos, { dark = false, heightPx = 104, maxWidthPx = null } = {}) {
   const logoUrl = typeof logos === 'string' ? logos : (dark ? logos?.onLight : logos?.onDark) || logos?.fallback;
   if (logoUrl) {
-    return `<img class="logo" style="height:${heightPx}px; max-width:74%; object-fit:contain;
-      filter:drop-shadow(0 1px 2px ${dark ? 'rgba(0,0,0,.25)' : 'rgba(255,255,255,.35)'}) drop-shadow(0 4px 12px ${dark ? 'rgba(255,255,255,.2)' : 'rgba(0,0,0,.55)'});" src="${esc(logoUrl)}" alt="BLACKS"/>`;
+    const ink = (logos && typeof logos === 'object' && logos.ink) ? logos.ink[logoUrl] : null;
+    return logoFrameHtml(logoUrl, ink, {
+      heightPx,
+      maxWidthPx: maxWidthPx || logoMaxWidthPx(heightPx),
+      shadow: dark
+        ? { near: 'rgba(0,0,0,.18)', far: 'rgba(255,255,255,.16)' }
+        : { near: 'rgba(255,255,255,.22)', far: 'rgba(0,0,0,.5)' },
+    });
   }
   return `<div style="font-family:'Anton',sans-serif; font-size:${Math.round(heightPx * 0.62)}px; letter-spacing:8px; color:${dark ? '#111' : '#fff'};">BLACKS</div>`;
 }
@@ -223,16 +390,24 @@ function couponTag(code, { isStory, marginTop = 22 } = {}) {
   </div>`;
 }
 
-// Alto del logo esquinado. Se agrandó (antes 92/76) porque el dueño lo veía "casi
-// imperceptible" arriba a la izquierda. Fuente única para que TODAS las plantillas
-// lo muestren del mismo tamaño y bien visible.
-function logoHeightPx(isStory) { return isStory ? 150 : 120; }
+// Alto del logo esquinado. IMPORTANTE: desde jul-2026 es el alto de la MARCA VISIBLE
+// (la tinta), no el del PNG: brandMarkHtml recorta el margen transparente. Antes 150/120
+// era el alto del archivo y la marca se veía a ~85/68px real — de ahí que el dueño lo
+// siguiera viendo chico después de agrandarlo. Fuente única para todas las plantillas.
+function logoHeightPx(isStory) { return isStory ? 132 : 104; }
+
+// Tope de ANCHO de la marca. Hace falta porque los dos logos de la marca son lockups muy
+// distintos: el de fondo oscuro es apilado (casi cuadrado, 152px de ancho a 132 de alto)
+// y el de fondo claro es horizontal (3:1 — a 132 de alto mediría 561px, más de la mitad
+// del lienzo, y se comía el titular de varias plantillas). Con el tope, el horizontal
+// baja de alto y ocupa un ancho razonable; el apilado ni se entera.
+function logoMaxWidthPx(heightPx) { return Math.round(heightPx * 2.9); }
 
 /** Logo/wordmark esquinado arriba-izquierda (posición común entre plantillas). */
 function cornerBrand(logos, { showBrand, dark, heightPx, top, left }) {
   if (showBrand === false) return '';
   return `<div style="position:absolute; top:${top}px; left:${left}px; display:flex; align-items:center; z-index:4;">
-    ${brandMarkHtml(logos, { dark, heightPx })}</div>`;
+    ${brandMarkHtml(logos, { dark, heightPx, maxWidthPx: logoMaxWidthPx(heightPx) })}</div>`;
 }
 
 function priceParts(price, promoPrice) {
@@ -264,7 +439,21 @@ function compactPriceHtml(g, accent, price, promoPrice, { dark = false } = {}) {
  *    caja del layout — ahí sí queda bien porque el fondo del recorte ya es liso.
  * Devuelve { html, fullBleed } para que el template sepa si necesita un scrim.
  */
-function heroPhotoHtml({ bgImageUrl, productImageUrl, box, shadow = 'rgba(0,0,0,.5)', darkBg = false }) {
+function heroPhotoHtml({ bgImageUrl, productImageUrl, box, shadow = 'rgba(0,0,0,.5)', darkBg = false, fill = false, softTop = false }) {
+  // `fill`: la tarjeta ocupa TODO su contenedor (que el llamador posiciona) en vez de
+  // una caja absoluta con top/bottom fijos. Lo usa el layout en columna de fullbleed,
+  // donde la zona de foto es un flex que se encoge según cuánto texto haya.
+  // `fill`: el llamador (zona flex centrada) define el espacio; la tarjeta se acomoda
+  // dentro con su propia forma. `box`: posición absoluta clásica del resto de plantillas.
+  const place = fill
+    ? 'position:relative;'
+    : `position:absolute; top:${box.top}px; bottom:${box.bottom}px; left:${box.left}px; right:${box.right}px;`;
+  // `softTop`: la foto real recorta al modelo (torso cortado). Un corte duro en el aire
+  // dentro de la tarjeta se lee como error de diseño; un desvanecido lo vuelve un
+  // encuadre editorial intencional.
+  const fadeMask = softTop
+    ? 'linear-gradient(to bottom, transparent 0%, rgba(0,0,0,.35) 5%, #000 16%, #000 100%)'
+    : null;
   if (bgImageUrl) {
     return {
       fullBleed: true,
@@ -277,28 +466,35 @@ function heroPhotoHtml({ bgImageUrl, productImageUrl, box, shadow = 'rgba(0,0,0,
       // (sin "caja blanca" plana), luz cenital, sombra de contacto en el piso y el
       // producto GRANDE. Rediseñado por feedback real del dueño (jul-2026): la
       // tarjeta anterior parecía "un cuadrado con el pantalón ahí".
+      const mask = fadeMask || 'radial-gradient(circle at center, black 68%, transparent 99%)';
+      // En modo `fill` la zona de foto es elástica y puede quedar apaisada: sin este
+      // clamp la tarjeta se estiraba a lo ancho y el producto (vertical) nadaba en un
+      // letterbox blanco. Con aspect-ratio + margin:auto la tarjeta siempre tiene forma
+      // de ficha de producto y queda centrada en el aire que le toque.
+      const shape = fill ? 'aspect-ratio:1/1; max-width:100%; max-height:100%;' : '';
       return {
         fullBleed: false,
-        html: `<div style="position:absolute; top:${box.top}px; bottom:${box.bottom}px; left:${box.left}px; right:${box.right}px;
+        html: `<div style="${place}${shape}
           display:flex; align-items:center; justify-content:center; z-index:1;
           background:
             radial-gradient(140% 100% at 50% -20%, #ffffff 0%, #f2f4f7 40%, #e2e6ec 75%, #d3d8e0 100%);
           border-radius:44px;
           box-shadow:0 50px 100px rgba(0,0,0,.72), inset 0 2px 10px rgba(255,255,255,.95), inset 0 -24px 50px rgba(20,25,35,.10);
-          padding:38px 34px 54px; overflow:hidden;">
+          padding:${softTop ? '0 30px 40px' : '38px 34px 54px'}; overflow:hidden;">
           <!-- Haz de luz cenital de estudio -->
           <div style="position:absolute; top:-12%; left:22%; right:22%; height:55%; background:radial-gradient(50% 60% at 50% 0%, rgba(255,255,255,.9) 0%, rgba(255,255,255,0) 100%); pointer-events:none;"></div>
           <!-- Sombra de contacto en el piso del ciclorama -->
           <div style="position:absolute; left:16%; right:16%; bottom:30px; height:34px; background:radial-gradient(50% 100% at 50% 100%, rgba(15,20,30,.22) 0%, rgba(15,20,30,0) 72%); filter:blur(7px); pointer-events:none;"></div>
-          <img src="${esc(productImageUrl)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 30px 48px rgba(10,15,25,.24)) saturate(1.04) contrast(1.02); mix-blend-mode:multiply; -webkit-mask-image:radial-gradient(circle at center, black 68%, transparent 99%); mask-image:radial-gradient(circle at center, black 68%, transparent 99%);"/>
+          <img src="${esc(productImageUrl)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 30px 48px rgba(10,15,25,.24)) saturate(1.04) contrast(1.02); mix-blend-mode:multiply; -webkit-mask-image:${mask}; mask-image:${mask};"/>
         </div>`,
       };
     }
+    const mask = fadeMask || 'radial-gradient(circle at center, black 65%, transparent 98%)';
     return {
       fullBleed: false,
-      html: `<div style="position:absolute; top:${box.top}px; bottom:${box.bottom}px; left:${box.left}px; right:${box.right}px;
+      html: `<div style="${place}
         display:flex; align-items:center; justify-content:center; z-index:1;">
-        <img src="${esc(productImageUrl)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 30px 50px ${shadow}); mix-blend-mode:multiply; -webkit-mask-image:radial-gradient(circle at center, black 65%, transparent 98%); mask-image:radial-gradient(circle at center, black 65%, transparent 98%);"/>
+        <img src="${esc(productImageUrl)}" style="max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 30px 50px ${shadow}); mix-blend-mode:multiply; -webkit-mask-image:${mask}; mask-image:${mask};"/>
       </div>`,
     };
   }
@@ -315,9 +511,32 @@ function scrimHtml({ dark = true, extra = '' } = {}) {
 }
 
 /**
- * Construye el HTML de la pieza estilo diseñador: foto a sangre (full-bleed) con
- * overlays — wordmark arriba, bloque de precio (ANTES tachado / % OFF / AHORA /
- * transferencia) abajo, y footer con el dominio. Respeta zonas seguras en historias.
+ * FULLBLEED — la plantilla caballo de batalla (y el fallback del self-healing).
+ *
+ * LAYOUT EN COLUMNA (rediseño jul-2026). Antes cada bloque estaba posicionado en
+ * absoluto con offsets calculados a mano (`bottom:360`, `bottom:288`, `bottom:250`...).
+ * Como esos números no sabían cuánto medía el contenido, en cuanto la pieza traía
+ * precio + 3 datos + botón, todo terminaba a 8px de distancia: la línea de datos
+ * pegada a la tarjeta de la foto, el botón pegado al precio y el dominio pegado al
+ * botón (queja real del dueño: "pareciera que está todo muy amontonado").
+ *
+ * Ahora la pieza es UNA COLUMNA FLEX dentro de las zonas seguras de Instagram:
+ *
+ *   ┌─ safeTop ────────────────────────┐
+ *   │ marca                     badge  │  zona-top   (alto del logo)
+ *   │                                  │
+ *   │        FOTO / TARJETA            │  zona-hero  (elástica: se encoge)
+ *   │                                  │
+ *   │ chips de datos reales            │  zona-body  (contenido)
+ *   │ tarjeta de precio                │
+ *   │        [ botón CTA ]             │  zona-cta
+ *   │        www.dominio               │  zona-foot
+ *   └─ safeBottom ─────────────────────┘
+ *
+ * Los `gap` del flex garantizan la separación SIEMPRE, sin importar cuánto texto
+ * genere la IA: si el contenido crece, lo que cede es la foto (zona elástica), nunca
+ * el aire entre bloques. Y como la tarjeta de la foto vive DENTRO de la columna, ya
+ * no puede quedar pisada por el texto.
  */
 function buildFullbleedHtml(opts) {
   const {
@@ -332,95 +551,113 @@ function buildFullbleedHtml(opts) {
     interactionLabel,
   } = opts;
 
-  const { w, h } = DIMS[format] || DIMS.feed;
-  const isStory = format === 'story';
+  const g = sharedGeometry(format);
+  const { w, h, isStory } = g;
   const accent = opts.accent || config.brand.colors.darkOrange;
   const site = String(config.brand.site || '').toUpperCase();
   const transfer = String(config.brand.transferNote || '').toUpperCase();
 
-  const cover = bgImageUrl || productImageUrl || null;
-  const hasCover = Boolean(cover);
+  const hasCover = Boolean(bgImageUrl || productImageUrl);
   const showBrand = opts.showBrand !== false;
+  const padX = g.stackPadX;
 
-  const padX = isStory ? 84 : 60;
-  const wmTop = isStory ? 170 : 54;
-  const footBottom = isStory ? 360 : 140;
-  const footTop = isStory ? 330 : 175;
-  const domainBottom = isStory ? 250 : 54;
-  const heroTop = isStory ? 270 : 165;
-  // La tarjeta-estudio deja SIEMPRE aire libre abajo para el bloque de texto: con
-  // precio (bloque alto) o título de 2 líneas, el texto se montaba sobre la tarjeta.
-  const heroBottom = price ? (isStory ? 700 : 440) : (isStory ? 600 : 340);
-
-  // El layout con título ARRIBA sólo vale con foto A SANGRE (escena IA o foto real
-  // cover): con la tarjeta-estudio contenida —que arranca arriba— el título quedaba
-  // esquinado contra la tarjeta, casi cortado (feedback real del dueño, jul-2026).
+  // Foto A SANGRE (escena IA, o foto real marcada como cover) vs. tarjeta de estudio
+  // contenida (recorte de catálogo con fondo plano).
   const fullBleedCover = Boolean(bgImageUrl || (productImageUrl && opts.coverImage));
-  const LAYOUTS = [{ a: 'left', v: 'bottom' }, { a: 'center', v: 'bottom' }, { a: 'left', v: 'top' }];
-  const L = (price || !fullBleedCover) ? { a: 'left', v: 'bottom' } : LAYOUTS[(Number(opts.layoutSeed) || 0) % LAYOUTS.length];
-  const footPos = L.v === 'top' ? `top:${footTop}px` : `bottom:${footBottom}px`;
+  // La foto real recorta al modelo (torso cortado): el corte duro contra el blanco de
+  // la tarjeta se lee como error. Lo desvanecemos. Ver planHeroShot/photoFraming.
+  const softTop = !fullBleedCover && opts.photoFraming === 'recorte_cuerpo';
 
-  const hasPromo = price && promoPrice && Number(promoPrice) < Number(price);
-  const off = hasPromo ? Math.round((1 - Number(promoPrice) / Number(price)) * 100) : 0;
-  const now = hasPromo ? promoPrice : price;
+  const { hasPromo, off, now } = priceParts(price, promoPrice);
+
+  /* ---------------- piezas de contenido ---------------- */
+
+  // Datos reales del producto/oferta (story_points del copy). Chips independientes: uno
+  // por dato, con tilde vectorial. Antes iban los tres dentro de una sola cápsula larga
+  // que cruzaba la pieza de lado a lado como una "cinta" pegada a la foto.
+  const points = Array.isArray(opts.storyPoints) ? opts.storyPoints.filter(Boolean).slice(0, 3) : [];
+  const chipsHtml = specChipsHtml(points, g);
 
   const couponHtml = opts.couponCode
     ? `<div class="coupon"><span class="cpn-lbl">CUPÓN</span><span class="cpn-code">${esc(opts.couponCode)}</span></div>`
     : '';
 
-  // Slide de cierre (CTA): llamado a la acción + beneficios, SIN precio (feed evergreen).
+  // TARJETA DE PRECIO. Rediseñada como ficha de producto: el nombre del producto entra
+  // como etiqueta arriba (antes la pieza mostraba un precio sin decir de QUÉ era, y el
+  // renglón "AHORA" gastaba una línea en no informar nada). Jerarquía: qué → antes/off
+  // → cuánto → beneficio.
+  const priceLabel = overlayTitle ? `<div class="pname">${esc(overlayTitle)}</div>` : '';
+  const priceCardHtml = price
+    ? `<div class="pcard">
+        ${priceLabel}
+        ${hasPromo
+    ? `<div class="prow"><span class="antes">$${formatPrice(price)}</span><span class="off">-${off}% OFF</span></div>`
+    : '<div class="plbl">PRECIO</div>'}
+        <div class="now">$${formatPrice(now)}</div>
+        ${transfer ? `<div class="transfer">${boltSvg('#FF8B4D', isStory ? 26 : 23)}<span>${esc(transfer)}</span></div>` : ''}
+      </div>`
+    : '';
+
+  // Slide de cierre (CTA) de los carruseles de feed: llamado a la acción + beneficios,
+  // sin precio.
   const ctaBenefits = Array.isArray(opts.ctaBenefits) ? opts.ctaBenefits.filter(Boolean) : [];
-  const ctaHtml = opts.ctaHeadline
-    ? `<div class="pblock">
+  const ctaCardHtml = opts.ctaHeadline
+    ? `<div class="pcard">
         <div class="cta-head">${esc(opts.ctaHeadline)}</div>
-        ${ctaBenefits.map((b) => `<div class="cta-benefit"><span class="cta-check">✓</span> ${esc(b)}</div>`).join('')}
+        ${ctaBenefits.map((b) => `<div class="cta-benefit">${checkSvg('#fff', 17)}<span>${esc(b)}</span></div>`).join('')}
       </div>`
     : '';
 
-  // Puntos con datos reales (storyPoints): en piezas SIN foto llenan el centro como
-  // checklist; con foto van como línea compacta arriba del titular (sin saturar).
-  const points = Array.isArray(opts.storyPoints) ? opts.storyPoints.filter(Boolean).slice(0, 3) : [];
-  const g = sharedGeometry(format);
-  const pointsBlock = points.length && !hasCover ? pointsChecklistHtml(points, g, accent) : '';
-  const pointsLine = points.length && hasCover
-    ? `<div style="display:inline-flex; align-items:center; flex-wrap:wrap; gap:10px 18px; margin-bottom:22px; background:rgba(10,11,14,.55); border:1px solid rgba(255,255,255,.14); border-radius:100px; padding:12px 26px; font-size:${isStory ? 26 : 22}px; font-weight:700; color:rgba(255,255,255,.92);">
-        ${points.map((p) => `<span style="display:inline-flex; align-items:center; gap:8px;"><span style="color:#FF6B1A; font-weight:800;">✓</span>${esc(p)}</span>`).join('')}
-      </div>`
+  // Sin foto la pieza se sostiene con tipografía: titular grande + los datos reales
+  // como checklist apilado (llena el centro en vez de dejar un hueco muerto).
+  const headlineHtml = overlayTitle && !price && !opts.ctaHeadline
+    ? `<div class="headline">${esc(overlayTitle)}</div>`
     : '';
+  const checklistHtml = !hasCover && points.length ? pointsChecklistHtml(points, g, accent) : '';
 
-  let content = '';
+  // DÓNDE VAN LOS CHIPS DE DATOS:
+  //  - Foto contenida en tarjeta: ARRIBA, debajo de la marca. Llenan el aire muerto del
+  //    tercio superior, equilibran la composición y le devuelven alto a la tarjeta.
+  //  - Foto A SANGRE: ABAJO, arriba del precio. En una foto a pantalla completa el tercio
+  //    superior es donde está la CARA del modelo y los chips se la tapaban.
+  //  - Sin foto: van como checklist en el centro (son el contenido de la pieza).
+  const chipsAtTop = hasCover && !fullBleedCover && !opts.ctaHeadline;
+  const chipsAtBody = hasCover && fullBleedCover && !opts.ctaHeadline;
+  const topChipsHtml = chipsAtTop ? chipsHtml : '';
+  const bodyChipsHtml = chipsAtBody ? chipsHtml : '';
+
+  let bodyHtml = '';
   if (opts.ctaHeadline) {
-    content = ctaHtml;
+    bodyHtml = ctaCardHtml;
   } else if (price) {
-    // Los puntos con datos reales (story_points) también van cuando hay precio — antes
-    // se perdían en las historias de producto/promo (bug real: la info clave que el
-    // caption no muestra desaparecía justo en las piezas de venta). Y sin foto de
-    // fondo, el titular y el checklist llenan la pieza en vez de dejar un hueco.
-    content = `${pointsLine}${!hasCover && overlayTitle ? `<div class="headline" style="font-size:${isStory ? 62 : 52}px;">${esc(overlayTitle)}</div>` : ''}<div class="pblock">
-      ${hasPromo ? `<div class="pheader"><span class="antes">$${formatPrice(price)}</span><span class="off">-${off}% OFF</span></div>` : ''}
-      <div class="lbl">${hasPromo ? 'AHORA' : 'PRECIO'}</div>
-      <div class="now">$${formatPrice(now)}</div>
-      ${transfer ? `<div class="transfer">${boltSvg('#FF8B4D', 26)} ${esc(transfer)}</div>` : ''}
-    </div>${!hasCover ? pointsBlock : ''}${couponHtml}`;
-  } else if (overlayTitle) {
-    content = `${pointsLine}<div class="headline">${esc(overlayTitle)}</div>${pointsBlock}${couponHtml}`;
+    bodyHtml = `${bodyChipsHtml}${headlineHtml}${priceCardHtml}${checklistHtml}${couponHtml}`;
+  } else {
+    bodyHtml = `${bodyChipsHtml}${headlineHtml}${checklistHtml}${couponHtml}`;
   }
 
-  const fullbleedLogoUrl = (logos && typeof logos === 'object') ? (logos.onDark || logos.fallback) : logos;
-  const brandMark = fullbleedLogoUrl
-    ? `<img class="logo" src="${esc(fullbleedLogoUrl)}" alt="BLACKS"/>`
-    : `<div class="wordmark">BLACKS</div>`;
-  const badgeHtml = badgeText ? `<div class="badge">${esc(badgeText)}</div>` : '';
-  const interactionHtml = interactionLabel ? `<div class="interaction">${esc(interactionLabel)}</div>` : '';
-  // CTA impreso (historias): el caption de una historia casi nadie lo ve, así que el
-  // llamado a la acción va como botón SOBRE la pieza, en el hueco entre el bloque de
-  // contenido y el dominio. Si hay chip de interacción (pieza semi), ese lugar es suyo.
-  const ctaPillHtml = !interactionLabel && opts.ctaLabel
-    ? `<div class="ctapill">${esc(opts.ctaLabel)}</div>` : '';
+  // CTA impreso: el caption de una historia casi nadie lo lee, así que el llamado a la
+  // acción va como botón SOBRE la pieza. Si la pieza es "semi", ese lugar lo ocupa el
+  // chip de interacción (no se duplican botones).
+  const ctaZoneHtml = interactionLabel
+    ? `<div class="interaction">${esc(interactionLabel)}</div>`
+    : (opts.ctaLabel ? `<div class="ctapill"><span>${esc(opts.ctaLabel)}</span>${arrowSvg('#fff', isStory ? 24 : 21)}</div>` : '');
 
-  // Sin foto: fondo OSCURO de marca (el texto de esta plantilla es blanco — el viejo
-  // fondo claro dejaba la pieza ilegible cuando no había cover) y contenido CENTRADO
-  // verticalmente para que no quede un hueco muerto en el medio.
+  const brandHtml = showBrand ? brandMarkHtml(logos, { dark: false, heightPx: logoHeightPx(isStory), maxWidthPx: logoMaxWidthPx(logoHeightPx(isStory)) }) : '';
+  const badgeHtml = badgeText ? `<div class="badge">${esc(badgeText)}</div>` : '';
+
+  // La zona elástica es la de la FOTO cuando hay foto; si no hay, es la del contenido
+  // (así el texto queda centrado vertical y no colgado abajo con un hueco arriba).
+  const heroFlex = hasCover ? '1 1 auto' : '0 0 auto';
+  const bodyFlex = hasCover ? '0 0 auto' : '1 1 auto';
+
+  const heroZoneHtml = (hasCover && !fullBleedCover)
+    ? heroPhotoHtml({
+      bgImageUrl: null, productImageUrl, box: null, fill: true, softTop,
+      shadow: 'rgba(0,0,0,.6)', darkBg: true,
+    }).html
+    : '';
+
+  // Sin foto: fondo OSCURO de marca (el texto de esta plantilla es blanco).
   const bgFallback = 'linear-gradient(165deg, #0a0b0e 0%, #13161c 55%, #1c2029 100%)';
 
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/>
@@ -431,79 +668,108 @@ function buildFullbleedHtml(opts) {
     * { margin:0; padding:0; box-sizing:border-box; }
     html,body { width:${w}px; height:${h}px; overflow:hidden; font-family:'Inter','Helvetica Neue',Arial,sans-serif; }
     .canvas { position:relative; width:${w}px; height:${h}px; background:${hasCover ? '#0a0a0c' : bgFallback}; color:#fff; overflow:hidden; }
-    /* Glow volumétrico ambiental de estudio */
+    /* Glow volumétrico ambiental de estudio (piezas sin foto) */
     .glow { position:absolute; top:40%; left:50%; transform:translate(-50%, -50%); width:850px; height:850px;
       background:radial-gradient(circle, rgba(232,93,27,.22) 0%, rgba(0,0,0,0) 65%); pointer-events:none; z-index:1; }
     .bg { position:absolute; inset:-40px; width:calc(100% + 80px); height:calc(100% + 80px);
-      object-fit:cover; filter:blur(28px) brightness(.55); z-index:0; }
-    .hero { position:absolute; top:${heroTop}px; bottom:${heroBottom}px; left:${padX}px; right:${padX}px;
-      display:flex; align-items:center; justify-content:center; z-index:1; }
-    .hero img { max-width:100%; max-height:100%; object-fit:contain; filter:drop-shadow(0 30px 60px rgba(0,0,0,.55)); }
-    /* Scrim editorial multicapa: viñeta oscura en bordes + sombra de legibilidad en texto */
+      object-fit:cover; filter:blur(28px) brightness(.5) saturate(.85); z-index:0; }
+    /* Scrim editorial multicapa: viñeta oscura en bordes + sombra de legibilidad abajo */
     .scrim { position:absolute; inset:0; z-index:2; background:
-      radial-gradient(circle at 50% 40%, rgba(0,0,0,0) 40%, rgba(0,0,0,.45) 100%),
-      linear-gradient(to bottom, rgba(0,0,0,.65) 0%, rgba(0,0,0,0) 25%, rgba(0,0,0,0) 55%, rgba(10,10,12,.88) 100%); }
-    .wm { position:absolute; top:${wmTop}px; left:${padX}px; display:flex; justify-content:flex-start; z-index:4; }
+      radial-gradient(circle at 50% 38%, rgba(0,0,0,0) 38%, rgba(0,0,0,.48) 100%),
+      linear-gradient(to bottom, rgba(0,0,0,.62) 0%, rgba(0,0,0,0) 24%, rgba(0,0,0,0) 46%, rgba(8,9,11,.92) 100%); }
+
+    /* ===== COLUMNA PRINCIPAL: el aire entre bloques lo garantiza el flex ===== */
+    .stack { position:absolute; top:${g.safeTop}px; bottom:${g.safeBottom}px; left:${padX}px; right:${padX}px;
+      display:flex; flex-direction:column; align-items:stretch; z-index:4; }
+    .zone-top { flex:0 0 auto; display:flex; align-items:flex-start; justify-content:space-between; gap:24px; }
+    .zone-chips { flex:0 0 auto; margin-top:${isStory ? 30 : 22}px; }
+    .zone-chips:empty { display:none; }
+    .zone-hero { flex:${heroFlex}; position:relative; min-height:0; display:flex; align-items:center; justify-content:center;
+      margin:${isStory ? 34 : 24}px 0 ${isStory ? 46 : 32}px; }
+    .zone-hero:empty { margin:0; }
+    .zone-body { flex:${bodyFlex}; min-height:0; display:flex; flex-direction:column; align-items:flex-start;
+      justify-content:${hasCover ? 'flex-end' : 'center'}; gap:${isStory ? 26 : 20}px; }
+    .zone-cta { flex:0 0 auto; display:flex; justify-content:center; margin-top:${isStory ? 40 : 26}px; }
+    .zone-cta:empty { display:none; }
+    .zone-foot { flex:0 0 auto; display:flex; align-items:center; justify-content:center; gap:12px; margin-top:${isStory ? 30 : 20}px; }
+
     .wordmark { font-family:'Anton',sans-serif; font-size:${isStory ? 64 : 54}px; letter-spacing:8px;
       color:#fff; text-shadow:0 4px 20px rgba(0,0,0,.8); }
-    .logo { height:${logoHeightPx(isStory)}px; max-width:64%; object-fit:contain;
-      filter:drop-shadow(0 1px 2px rgba(255,255,255,.3)) drop-shadow(0 4px 16px rgba(0,0,0,.7)); }
     /* Badge editorial metálico/naranja */
-    .badge { position:absolute; top:${wmTop}px; right:${padX}px; background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); color:#fff;
-      font-weight:800; font-size:18px; padding:10px 22px; border-radius:100px; text-transform:uppercase;
-      letter-spacing:3px; box-shadow:0 10px 25px rgba(232,93,27,.45); border:1px solid rgba(255,255,255,.25); z-index:4; }
-    .coupon { display:inline-flex; align-items:center; gap:14px; margin-top:24px; padding:14px 24px;
+    .badge { flex:0 0 auto; background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); color:#fff;
+      font-weight:800; font-size:${isStory ? 21 : 18}px; padding:11px 24px; border-radius:100px; text-transform:uppercase;
+      letter-spacing:3px; box-shadow:0 10px 25px rgba(232,93,27,.45); border:1px solid rgba(255,255,255,.25); }
+
+    .headline { font-family:'Anton',sans-serif; font-size:${isStory ? 80 : 66}px; line-height:.96;
+      letter-spacing:.5px; text-transform:uppercase; color:#fff; max-width:100%; text-shadow:0 6px 30px rgba(0,0,0,.7); }
+
+    /* ===== Tarjeta de precio / ficha de producto ===== */
+    .pcard { align-self:flex-start; max-width:100%; text-align:left;
+      background:linear-gradient(158deg, rgba(24,25,31,.82) 0%, rgba(10,11,14,.74) 100%);
+      backdrop-filter:blur(26px); -webkit-backdrop-filter:blur(26px);
+      border:1px solid rgba(255,255,255,.16); border-radius:${isStory ? 32 : 26}px;
+      padding:${isStory ? '28px 38px 30px' : '22px 30px 24px'};
+      box-shadow:0 28px 70px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.16); }
+    /* El ancho deja aire a la derecha a propósito: con el texto llegando justo al borde
+       de la tarjeta, la última palabra "se lee" cortada (y el QA visual la reportaba
+       como texto mutilado sin estarlo). */
+    .pname { font-size:${isStory ? 24 : 20}px; font-weight:700; letter-spacing:2.6px; text-transform:uppercase;
+      color:rgba(255,255,255,.66); margin-bottom:${isStory ? 16 : 12}px; max-width:${isStory ? 580 : 470}px;
+      line-height:1.28; display:-webkit-box; -webkit-line-clamp:2; -webkit-box-orient:vertical; overflow:hidden; }
+    .prow { display:flex; align-items:center; gap:16px; margin-bottom:${isStory ? 8 : 6}px; }
+    .plbl { font-size:${isStory ? 20 : 18}px; font-weight:800; letter-spacing:4px; color:#FF8B4D;
+      text-transform:uppercase; margin-bottom:${isStory ? 8 : 6}px; }
+    .antes { font-family:'Anton',sans-serif; font-size:${isStory ? 46 : 40}px; color:rgba(255,255,255,.6);
+      text-decoration:line-through; text-decoration-thickness:3px; line-height:1; }
+    .off { background:linear-gradient(135deg, #FF6B1A 0%, ${accent} 100%); color:#fff; font-weight:800;
+      font-size:${isStory ? 23 : 20}px; padding:7px 17px; border-radius:100px; letter-spacing:1px;
+      box-shadow:0 6px 18px rgba(232,93,27,.45); }
+    .now { font-family:'Anton',sans-serif; font-size:${isStory ? 112 : 96}px; color:#fff; line-height:.9;
+      letter-spacing:-1px; text-shadow:0 4px 24px rgba(0,0,0,.45); }
+    .transfer { display:flex; align-items:center; gap:10px; margin-top:${isStory ? 20 : 15}px;
+      padding-top:${isStory ? 18 : 14}px; border-top:1px solid rgba(255,255,255,.15);
+      font-size:${isStory ? 22 : 19}px; font-weight:600; letter-spacing:.6px; color:rgba(255,255,255,.9); }
+
+    .cta-head { font-family:'Anton',sans-serif; font-size:${isStory ? 68 : 58}px; color:#fff; line-height:.95;
+      letter-spacing:-.5px; margin-bottom:${isStory ? 18 : 14}px; }
+    .cta-benefit { display:flex; align-items:center; gap:12px; font-size:${isStory ? 26 : 23}px; font-weight:600;
+      color:rgba(255,255,255,.95); margin-top:9px; }
+
+    .coupon { display:inline-flex; align-items:center; gap:14px; padding:14px 24px;
       background:rgba(255,255,255,.96); border-radius:14px; box-shadow:0 12px 35px rgba(0,0,0,.5); border:1px solid rgba(0,0,0,.08); }
     .cpn-lbl { font-size:${isStory ? 22 : 19}px; font-weight:800; letter-spacing:3px; color:#6b6b70;
       text-transform:uppercase; padding-right:14px; border-right:2px dashed #c9c9cf; }
     .cpn-code { font-family:'Anton',sans-serif; font-size:${isStory ? 48 : 42}px; letter-spacing:2px; color:#141416; }
-    .foot { position:absolute; left:${padX}px; right:${padX}px; ${hasCover
-      ? `${footPos}; text-align:${L.a};`
-      : `top:${isStory ? 420 : 230}px; bottom:${footBottom + (isStory ? 40 : 20)}px; display:flex; flex-direction:column; justify-content:center; align-items:flex-start; gap:${isStory ? 48 : 34}px; text-align:left;`} z-index:4; }
-    .headline { display:inline-block; font-family:'Anton',sans-serif; font-size:${isStory ? 80 : 66}px; line-height:.96;
-      letter-spacing:.5px; text-transform:uppercase; color:#fff; max-width:94%; text-shadow:0 6px 30px rgba(0,0,0,.7); }
-    /* Cápsula de precio Glassmorphic editorial Apple/SaaS */
-    .pblock { display:inline-block; text-align:left; background:rgba(18,18,22,.65); backdrop-filter:blur(24px);
-      -webkit-backdrop-filter:blur(24px); border:1px solid rgba(255,255,255,.14); border-radius:28px; padding:28px 36px; box-shadow:0 24px 60px rgba(0,0,0,.55); }
-    .pheader { display:flex; align-items:center; gap:16px; margin-bottom:12px; }
-    .lbl { font-size:19px; font-weight:800; letter-spacing:4px; color:#FF8B4D; text-transform:uppercase; margin-bottom:4px; }
-    .antes { font-family:'Anton',sans-serif; font-size:${isStory ? 46 : 40}px; color:rgba(255,255,255,.65); text-decoration:line-through; text-decoration-thickness:3px; line-height:1; }
-    .off { background:linear-gradient(135deg, ${accent} 0%, #b83804 100%); color:#fff; font-weight:800; font-size:22px; padding:6px 16px; border-radius:100px; letter-spacing:1px; box-shadow:0 4px 15px rgba(232,93,27,.4); }
-    .now { font-family:'Anton',sans-serif; font-size:${isStory ? 108 : 96}px; color:#fff; line-height:.88; letter-spacing:-1px; text-shadow:0 4px 20px rgba(0,0,0,.5); }
-    .transfer { font-size:22px; font-weight:600; letter-spacing:1px; color:rgba(255,255,255,.92); margin-top:16px; max-width:540px; display:flex; align-items:center; gap:8px; }
-    .lightning { color:#FF8B4D; font-size:26px; }
-    .cta-head { font-family:'Anton',sans-serif; font-size:${isStory ? 68 : 58}px; color:#fff; line-height:.95; letter-spacing:-.5px; text-shadow:0 4px 20px rgba(0,0,0,.5); margin-bottom:14px; }
-    .cta-benefit { font-size:${isStory ? 26 : 23}px; font-weight:600; color:rgba(255,255,255,.95); display:flex; align-items:center; gap:10px; margin-top:8px; }
-    .cta-check { display:inline-flex; align-items:center; justify-content:center; width:26px; height:26px; border-radius:50%; background:${accent}; color:#fff; font-size:16px; font-weight:800; flex-shrink:0; }
-    .interaction { position:absolute; left:50%; bottom:${(isStory ? 360 : 140) + 30}px; transform:translateX(-50%);
-      background:rgba(255,255,255,.18); border:1px solid rgba(255,255,255,.5); backdrop-filter:blur(8px);
-      padding:16px 32px; border-radius:100px; font-size:26px; font-weight:700; color:#fff; white-space:nowrap; box-shadow:0 12px 30px rgba(0,0,0,.4); z-index:4; }
-    .ctapill { position:absolute; left:50%; bottom:${isStory ? 288 : 82}px; transform:translateX(-50%);
+
+    .interaction { background:rgba(255,255,255,.18); border:1px solid rgba(255,255,255,.5);
+      backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+      padding:${isStory ? '17px 34px' : '13px 27px'}; border-radius:100px; font-size:${isStory ? 27 : 22}px;
+      font-weight:700; color:#fff; white-space:nowrap; box-shadow:0 12px 30px rgba(0,0,0,.4); }
+    .ctapill { display:inline-flex; align-items:center; gap:${isStory ? 14 : 11}px;
       background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); border:1px solid rgba(255,255,255,.3);
-      padding:${isStory ? '16px 34px' : '12px 26px'}; border-radius:100px; font-size:${isStory ? 26 : 21}px; font-weight:800;
-      color:#fff; white-space:nowrap; box-shadow:0 12px 30px rgba(232,93,27,.45); z-index:4; }
-    .domain { position:absolute; left:0; right:0; bottom:${domainBottom}px; display:flex; align-items:center;
-      justify-content:center; gap:12px; z-index:4; }
-    .tick { width:13px; height:13px; background:${accent}; border-radius:3px; box-shadow:0 0 12px ${accent}; }
-    .site { font-size:${isStory ? 24 : 22}px; font-weight:700; letter-spacing:3px; color:#fff; text-shadow:0 1px 6px rgba(0,0,0,.6); }
+      padding:${isStory ? '19px 38px' : '14px 29px'}; border-radius:100px; font-size:${isStory ? 28 : 22}px;
+      font-weight:800; letter-spacing:.4px; color:#fff; white-space:nowrap;
+      box-shadow:0 16px 36px rgba(232,93,27,.5), inset 0 1px 0 rgba(255,255,255,.3); }
+
+    .tick { width:13px; height:13px; background:${accent}; border-radius:3px; box-shadow:0 0 12px ${accent}; flex:0 0 auto; }
+    .site { font-size:${isStory ? 25 : 22}px; font-weight:700; letter-spacing:3px; color:#fff; text-shadow:0 1px 6px rgba(0,0,0,.6); }
   </style></head><body>
     <div class="canvas">
       ${hasCover ? (
-        // Escena IA (bgImageUrl) → SIEMPRE full-bleed (llena el 4:5, producto grande y cerca).
-        // Foto real con coverImage → también full-bleed (para tomas de detalle: se ve completa).
-        // Foto real sin coverImage → tarjeta hero clásica (recorte de catálogo sobre fondo).
-        bgImageUrl
-          ? `<img src="${esc(bgImageUrl)}" alt="" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:0;"/><div class="scrim"></div>`
-          : (opts.coverImage
-            ? `<img src="${esc(productImageUrl)}" alt="" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:0;"/><div class="scrim"></div>`
-            : `<img class="bg" src="${esc(productImageUrl)}" alt=""/>${heroPhotoHtml({ bgImageUrl: null, productImageUrl, box: { top: heroTop, bottom: heroBottom, left: padX, right: padX }, shadow: 'rgba(0,0,0,.6)', darkBg: true }).html}`)
-      ) : '<div class="glow"></div>'}
-      ${showBrand ? `<div class="wm">${brandMark}</div>` : ''}
-      ${badgeHtml}
-      ${interactionHtml}
-      ${ctaPillHtml}
-      <div class="foot">${content}</div>
-      <div class="domain"><span class="tick"></span><span class="site">${esc(site)}</span></div>
+    // Escena IA (bgImageUrl) o foto real marcada cover → a sangre + scrim.
+    // Foto real de catálogo → fondo desenfocado + tarjeta de estudio DENTRO de la columna.
+    fullBleedCover
+      ? `<img src="${esc(bgImageUrl || productImageUrl)}" alt="" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:0;"/><div class="scrim"></div>`
+      : `<img class="bg" src="${esc(productImageUrl)}" alt=""/><div class="scrim"></div>`
+  ) : '<div class="glow"></div>'}
+      <div class="stack">
+        <div class="zone-top">${brandHtml}${badgeHtml}</div>
+        <div class="zone-chips">${topChipsHtml}</div>
+        <div class="zone-hero">${heroZoneHtml}</div>
+        <div class="zone-body">${bodyHtml}</div>
+        <div class="zone-cta">${ctaZoneHtml}</div>
+        <div class="zone-foot"><span class="tick"></span><span class="site">${esc(site)}</span></div>
+      </div>
     </div>
   </body></html>`;
 }
@@ -552,10 +818,17 @@ function buildMinimalHtml(opts) {
 function buildPromoHtml(opts) {
   const g = sharedGeometry(opts.format);
   const accent = opts.accent || config.brand.colors.darkOrange;
+  // El aire que necesita el bloque de abajo depende de lo que lleve: con precio son
+  // ~400px (kicker + tachado/% + precio gigante + nota de transferencia); sin precio,
+  // sólo el titular. Antes el hueco era fijo y el texto terminaba MONTADO sobre la
+  // tarjeta de la foto (defecto real: el titular naranja ilegible sobre el pantalón).
+  const heroBottom = opts.price
+    ? (g.isStory ? 830 : 570)
+    : (g.isStory ? 630 : 400);
   const hero = heroPhotoHtml({
     bgImageUrl: opts.bgImageUrl,
     productImageUrl: opts.productImageUrl,
-    box: { top: g.isStory ? 350 : 230, bottom: g.isStory ? 690 : 460, left: g.padX, right: g.padX },
+    box: { top: g.isStory ? 350 : 230, bottom: heroBottom, left: g.padX, right: g.padX },
     shadow: 'rgba(0,0,0,.7)',
   });
   const { hasPromo, off, now } = priceParts(opts.price, opts.promoPrice);
@@ -567,7 +840,7 @@ function buildPromoHtml(opts) {
       <span style="background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); color:#fff; font-family:'Anton',sans-serif; font-size:${g.isStory ? 54 : 46}px; padding:6px 24px; border-radius:14px; box-shadow:0 12px 30px rgba(232,93,27,.5); border:1px solid rgba(255,255,255,.3); transform:rotate(-2deg);">-${off}% OFF</span>
     </div>` : ''}
     <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 132 : 112}px; color:#fff; line-height:.86; letter-spacing:-2px; text-shadow:0 6px 35px rgba(0,0,0,.8);">$${formatPrice(now)}</div>
-    ${transfer ? `<div style="font-size:22px; font-weight:600; letter-spacing:1px; color:rgba(255,255,255,.92); margin-top:16px; max-width:560px; display:flex; align-items:center; gap:8px;">${boltSvg('#FF8B4D', 26)} ${esc(transfer)}</div>` : ''}`
+    ${transfer ? `<div style="font-size:${g.isStory ? 22 : 19}px; font-weight:600; letter-spacing:.6px; color:rgba(255,255,255,.92); margin-top:18px; max-width:${g.w - g.padX * 2}px; display:flex; align-items:center; gap:10px;">${boltSvg('#FF8B4D', g.isStory ? 26 : 23)}<span>${esc(transfer)}</span></div>` : ''}`
     : (opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 88 : 74}px; line-height:.94; text-transform:uppercase; color:#fff; text-shadow:0 4px 26px rgba(0,0,0,.8);">${esc(opts.overlayTitle)}</div>` : '');
 
   return `${headHtml(g.w, g.h)}</head><body>
@@ -612,7 +885,7 @@ function buildEducativoHtml(opts) {
           linear-gradient(180deg, rgba(10,10,12,.88) 0%, rgba(10,10,12,.38) 45%, rgba(10,10,12,.94) 100%);"></div>
         <div style="position:absolute; top:0; left:0; bottom:0; width:16px; background:linear-gradient(180deg, #FF6B1A 0%, #C1440C 100%); box-shadow:0 0 25px rgba(232,93,27,.6); z-index:4;"></div>
         <div style="position:absolute; top:${g.wmTop}px; left:${g.padX + 24}px; display:flex; align-items:center; gap:16px; z-index:4;">
-          ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: false, heightPx: logoHeightPx(g.isStory) }) : ''}
+          ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: false, heightPx: logoHeightPx(g.isStory), maxWidthPx: logoMaxWidthPx(logoHeightPx(g.isStory)) }) : ''}
         </div>
         <div style="position:absolute; top:${g.isStory ? 340 : 220}px; left:${g.padX + 24}px; right:${g.padX}px; z-index:3;">
           <div style="display:inline-flex; align-items:center; gap:10px; background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); color:#fff; font-weight:800; font-size:${g.isStory ? 22 : 20}px; letter-spacing:3px; text-transform:uppercase; padding:10px 24px; border-radius:100px; box-shadow:0 8px 24px rgba(232,93,27,.45); margin-bottom:26px;"><span style="width:8px;height:8px;border-radius:50%;background:#fff;"></span> ${esc(opts.kicker || 'PARA SABER')}</div>
@@ -631,7 +904,7 @@ function buildEducativoHtml(opts) {
       <div style="position:absolute; top:350px; left:50%; transform:translateX(-50%); width:650px; height:650px; background:radial-gradient(circle, rgba(232,93,27,.12) 0%, rgba(255,255,255,0) 65%); pointer-events:none; z-index:0;"></div>
       <div style="position:absolute; top:0; left:0; bottom:0; width:16px; background:linear-gradient(180deg, #FF6B1A 0%, #C1440C 100%); box-shadow:0 0 25px rgba(232,93,27,.4); z-index:4;"></div>
       <div style="position:absolute; top:${g.wmTop}px; left:${g.padX + 24}px; display:flex; align-items:center; gap:16px; z-index:4;">
-        ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: true, heightPx: logoHeightPx(g.isStory) }) : ''}
+        ${opts.showBrand !== false ? brandMarkHtml(opts.logos, { dark: true, heightPx: logoHeightPx(g.isStory), maxWidthPx: logoMaxWidthPx(logoHeightPx(g.isStory)) }) : ''}
       </div>
       <div style="position:absolute; top:${g.isStory ? 280 : 180}px; left:${g.padX + 24}px; right:${g.padX}px; z-index:3;">
         <div style="display:inline-flex; align-items:center; gap:10px; background:#111113; color:#fff; font-weight:800; font-size:${g.isStory ? 22 : 20}px; letter-spacing:3px; text-transform:uppercase; padding:10px 24px; border-radius:100px; box-shadow:0 12px 28px rgba(0,0,0,.15); margin-bottom:24px;"><span style="width:8px;height:8px;border-radius:50%;background:${accent}; box-shadow:0 0 10px ${accent};"></span> ${esc(opts.kicker || 'PARA SABER')}</div>
@@ -644,6 +917,27 @@ function buildEducativoHtml(opts) {
       ${domainHtml(g, { dark: true, accent })}
     </div>
   </body></html>`;
+}
+
+/**
+ * Fila de CHIPS con los datos reales del producto (ficha técnica). Un chip por dato,
+ * con tilde vectorial y vidrio oscuro (legible sobre cualquier foto, incluido un fondo
+ * de estudio blanco). Reemplaza a la "cinta" anterior —los tres datos metidos en una
+ * sola cápsula que cruzaba la pieza de lado a lado y quedaba pegada a la foto—, que era
+ * parte del "está todo muy amontonado". Fuente única para todas las plantillas.
+ */
+function specChipsHtml(points, g, { marginBottom = 0 } = {}) {
+  const list = (points || []).filter(Boolean).slice(0, 3);
+  if (!list.length) return '';
+  const chip = (p) => `<span style="display:inline-flex; align-items:center; gap:${g.isStory ? 11 : 9}px;
+    background:rgba(10,11,14,.5); border:1px solid rgba(255,255,255,.2);
+    backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
+    /* El padding derecho es más generoso que el izquierdo a propósito: la cápsula cierra
+       en curva y, con el texto justo contra el borde, la última letra se lee cortada. */
+    border-radius:100px; padding:${g.isStory ? '13px 34px 13px 22px' : '10px 27px 10px 18px'};
+    font-size:${g.isStory ? 26 : 22}px; font-weight:600; letter-spacing:.2px; color:#fff;
+    box-shadow:0 8px 22px rgba(0,0,0,.35);">${checkSvg('#FF8B4D', g.isStory ? 22 : 19)}${esc(p)}</span>`;
+  return `<div style="display:flex; flex-wrap:wrap; gap:${g.isStory ? 14 : 11}px; margin-bottom:${marginBottom}px;">${list.map(chip).join('')}</div>`;
 }
 
 /**
@@ -694,18 +988,18 @@ function buildMayoristaHtml(opts) {
 
   // CON FOTO: layout clásico (hero al centro, título+CTA abajo) + línea compacta de
   // puntos reales arriba del título (sólo si hay — no satura la foto).
+  // Igual que en promo: el hueco de abajo se calcula según lo que lleva el bloque
+  // (chips + titular de hasta 2 líneas + botón), si no la fila de datos terminaba
+  // pegada al borde inferior de la tarjeta de la foto.
+  const mayoBottom = (points.length ? (g.isStory ? 120 : 90) : 0) + (g.isStory ? 700 : 480);
   const hero = heroPhotoHtml({
     bgImageUrl: opts.bgImageUrl,
     productImageUrl: opts.productImageUrl,
-    box: { top: g.isStory ? 350 : 230, bottom: g.isStory ? 660 : 440, left: g.padX, right: g.padX },
+    box: { top: g.isStory ? 350 : 230, bottom: mayoBottom, left: g.padX, right: g.padX },
     shadow: 'rgba(0,0,0,.65)',
     darkBg: true,
   });
-  const pointsLine = points.length
-    ? `<div style="display:inline-flex; align-items:center; flex-wrap:wrap; gap:10px 18px; margin-bottom:22px; background:rgba(10,11,14,.55); border:1px solid rgba(255,255,255,.14); border-radius:100px; padding:12px 26px; font-size:${g.isStory ? 26 : 22}px; font-weight:700; color:rgba(255,255,255,.92);">
-        ${points.map((p) => `<span style="display:inline-flex; align-items:center; gap:8px;"><span style="color:#FF6B1A; font-weight:800;">✓</span>${esc(p)}</span>`).join('')}
-      </div>`
-    : '';
+  const pointsLine = specChipsHtml(points, g, { marginBottom: g.isStory ? 26 : 20 });
 
   return `${shellOpen}
       ${hero.html}
@@ -713,7 +1007,7 @@ function buildMayoristaHtml(opts) {
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
         ${pointsLine}
         ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 78 : 64}px; line-height:.96; text-transform:uppercase; color:#fff; max-width:94%; text-shadow:0 4px 25px rgba(0,0,0,.8); letter-spacing:.5px;">${esc(opts.overlayTitle)}</div>` : ''}
-        <div style="margin-top:30px;">${ctaBtn}</div>
+        <div style="margin-top:${g.isStory ? 40 : 30}px;">${ctaBtn}</div>
       </div>
       ${domainHtml(g, { accent })}
     </div>
@@ -795,7 +1089,7 @@ function buildOverlapHtml(opts) {
 function buildSpecsheetHtml(opts) {
   const g = sharedGeometry(opts.format);
   const accent = opts.accent || config.brand.colors.darkOrange;
-  const tags = extractSpecTags(opts.productDescription, 3);
+  const tags = extractSpecTags(opts.productDescription, 3, { productName: opts.overlayTitle });
   const headTop = g.wmTop + (g.isStory ? 120 : 95);
   const boxTop = headTop + (g.isStory ? 250 : 195);
   const boxBottom = g.footBottom + (g.isStory ? 210 : 160);
@@ -861,7 +1155,8 @@ function buildSplitscreenHtml(opts) {
         ${opts.bgImageUrl ? `<img src="${esc(opts.bgImageUrl)}" style="width:100%; height:100%; object-fit:cover;"/>`
           : (opts.productImageUrl ? `<div style="width:100%; height:100%; display:flex; align-items:center; justify-content:center; background:radial-gradient(circle at 50% 30%, #1c1c1e 0%, #0a0a0c 100%);"><img src="${esc(opts.productImageUrl)}" style="max-width:82%; max-height:82%; object-fit:contain; filter:drop-shadow(0 30px 50px rgba(0,0,0,.6));"/></div>` : '')}
       </div>
-      <div style="${colorAreaStyle} background:linear-gradient(160deg, #111113 0%, #1c1c1e 100%); z-index:2; display:flex; flex-direction:column; justify-content:center; padding:${g.padX}px;">
+      <div style="${colorAreaStyle} background:linear-gradient(160deg, #111113 0%, #1c1c1e 100%); z-index:2; display:flex; flex-direction:column; justify-content:center;
+        padding:${g.isStory ? `${g.wmTop + logoHeightPx(true) + 34}px ${g.padX}px ${g.padX}px` : `${g.padX}px`};">
         <div style="width:64px; height:6px; background:${accent}; margin-bottom:24px; border-radius:3px;"></div>
         ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 58 : 50}px; line-height:1.0; text-transform:uppercase; color:#fff;">${esc(opts.overlayTitle)}</div>` : ''}
         ${opts.price ? `<div style="margin-top:22px;">
@@ -959,7 +1254,8 @@ function buildMagazineHtml(opts) {
 function buildStackedcardsHtml(opts) {
   const g = sharedGeometry(opts.format);
   const accent = opts.accent || config.brand.colors.darkOrange;
-  const top = g.wmTop + (g.isStory ? 110 : 90);
+  // Debajo de la marca + el titular (que ahora va en su propia línea, no al lado del logo).
+  const top = g.wmTop + logoHeightPx(g.isStory) + (opts.overlayTitle && opts.productImageUrl ? (g.isStory ? 130 : 110) : 40);
   const bottom = g.footBottom;
   const gap = 16;
   const bigH = Math.round((g.h - top - bottom - gap) * 0.62);
@@ -988,7 +1284,9 @@ function buildStackedcardsHtml(opts) {
     <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#111113; overflow:hidden;
       background:radial-gradient(130% 100% at 50% 0%, #f4f4f6 0%, #e8e8ee 100%);">
       ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: logoHeightPx(g.isStory), top: g.wmTop, left: g.padX })}
-      ${opts.overlayTitle && opts.productImageUrl ? `<div style="position:absolute; top:${g.wmTop + 12}px; left:${g.padX + 200}px; right:${g.padX}px; text-align:right; font-family:'Anton',sans-serif; font-size:${g.isStory ? 36 : 30}px; text-transform:uppercase; color:#111113; z-index:2;">${esc(opts.overlayTitle)}</div>` : ''}
+      <!-- El titular va DEBAJO de la marca, no a su derecha: el logo horizontal ocupa
+           casi 400px y el título se le montaba encima (defecto real, jul-2026). -->
+      ${opts.overlayTitle && opts.productImageUrl ? `<div style="position:absolute; top:${g.wmTop + logoHeightPx(g.isStory) + 22}px; left:${g.padX}px; right:${g.padX}px; font-family:'Anton',sans-serif; font-size:${g.isStory ? 36 : 30}px; line-height:1.02; text-transform:uppercase; color:#111113; z-index:2;">${esc(opts.overlayTitle)}</div>` : ''}
       ${bigCard}
       ${card2}
       ${card3}
@@ -1002,7 +1300,7 @@ function buildPolaroidStripHtml(opts) {
   const g = sharedGeometry('story');
   const accent = opts.accent || config.brand.colors.darkOrange;
   const urls = (opts.productImageUrls && opts.productImageUrls.length ? opts.productImageUrls : [opts.productImageUrl]).filter(Boolean).slice(0, 3);
-  const areaTop = g.wmTop + 140;
+  const areaTop = g.wmTop + logoHeightPx(true) + (opts.overlayTitle ? 110 : 40);
   const areaBottom = g.footBottom + 40;
   const areaH = g.h - areaTop - areaBottom;
   const frameH = Math.round(areaH / urls.length) - 20;
@@ -1021,7 +1319,8 @@ function buildPolaroidStripHtml(opts) {
     <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#111113; overflow:hidden;
       background:radial-gradient(130% 100% at 50% 0%, #f4f4f6 0%, #e2e2e8 100%);">
       ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: logoHeightPx(true), top: g.wmTop, left: g.padX })}
-      ${opts.overlayTitle ? `<div style="position:absolute; top:${g.wmTop + 6}px; left:${g.padX + 200}px; right:${g.padX}px; text-align:right; font-family:'Anton',sans-serif; font-size:30px; text-transform:uppercase; color:#111113; z-index:4;">${esc(opts.overlayTitle)}</div>` : ''}
+      <!-- Titular DEBAJO de la marca (el logo horizontal es ancho y se lo comía). -->
+      ${opts.overlayTitle ? `<div style="position:absolute; top:${g.wmTop + logoHeightPx(true) + 20}px; left:${g.padX}px; right:${g.padX}px; font-family:'Anton',sans-serif; font-size:34px; line-height:1.02; text-transform:uppercase; color:#111113; z-index:4;">${esc(opts.overlayTitle)}</div>` : ''}
       ${frames}
       ${domainHtml(g, { dark: true, accent })}
     </div>
@@ -1140,4 +1439,4 @@ async function renderPostImage(options) {
   return url;
 }
 
-module.exports = { renderPostImage, renderPostBuffer, buildHtml, DIMS, TEMPLATES, TEMPLATE_INFO, TEMPLATE_REQUIREMENTS, stripEmoji, fixSpelling };
+module.exports = { renderPostImage, renderPostBuffer, buildHtml, DIMS, TEMPLATES, TEMPLATE_INFO, TEMPLATE_REQUIREMENTS, extractSpecTags, stripEmoji, fixSpelling };

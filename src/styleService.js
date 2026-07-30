@@ -3,7 +3,7 @@ const { uploadAsset } = require('./storage');
 const { analyzeStyle } = require('./ai');
 const { saveBrandProfile } = require('./brandProfile');
 const { fetchRecentCaptions, analyzeAccountPerformance } = require('./accountAnalyzer');
-const { resizeImage, detectLogoVariant } = require('./imageUtils');
+const { resizeImage, detectLogoVariant, measureInkBox } = require('./imageUtils');
 
 /** Resumen de carpetas/orígenes leídos, agrupado por mes/sección (para mostrar qué se analizó). */
 async function foldersSummary() {
@@ -77,7 +77,34 @@ async function getLogos() {
   const dark = rows.find((r) => r.variant === 'dark'); // tinta oscura -> va sobre fondo claro
   const light = rows.find((r) => r.variant === 'light'); // tinta clara -> va sobre fondo oscuro
   const fallback = rows[0].url;
-  return { onLight: (dark || rows[0]).url, onDark: (light || rows[0]).url, fallback };
+  const logos = { onLight: (dark || rows[0]).url, onDark: (light || rows[0]).url, fallback };
+  // Caja de tinta de cada logo: sin esto el margen transparente del PNG se come casi la
+  // mitad del alto pedido y la marca sale chiquita (ver measureInkBox). Best-effort.
+  logos.ink = await inkBoxesFor([logos.onLight, logos.onDark, fallback]);
+  return logos;
+}
+
+/**
+ * Mide (y cachea en memoria del proceso) la caja de tinta de cada URL de logo. Se hace
+ * una sola vez por proceso y por logo: descargar 15KB + un pase de ffmpeg. Si algo falla,
+ * el logo queda sin medición y el renderer se comporta como antes (sin compensar).
+ */
+const inkCache = new Map();
+async function inkBoxesFor(urls) {
+  const out = {};
+  for (const url of [...new Set(urls.filter(Boolean))]) {
+    if (!inkCache.has(url)) {
+      let box = null;
+      try {
+        const res = await fetch(url);
+        if (res.ok) box = await measureInkBox(Buffer.from(await res.arrayBuffer()));
+      } catch (_) { box = null; }
+      inkCache.set(url, box);
+    }
+    const box = inkCache.get(url);
+    if (box) out[url] = box;
+  }
+  return out;
 }
 
 /** Compat: logo único (el más reciente), para código que todavía no distingue fondos. */

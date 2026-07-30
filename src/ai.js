@@ -833,10 +833,12 @@ async function reviewRenderedPiece({ buffer, mimeType = 'image/jpeg', overlayTex
           { text: `Sos el DIRECTOR DE ARTE que da la aprobación FINAL de una pieza de Instagram ya diseñada (plantilla con textos y logo estampados). Revisala y respondé SOLO un JSON: {"ok": bool, "issues": ["problema concreto en español", ...]}.
 
 Marcá ok=false SOLO si estás COMPLETAMENTE SEGURO de una ROTURA OBJETIVA e inequívoca:
-1. Texto CORTADO: se ven letras por la MITAD (mutiladas por el borde de la imagen o por otro elemento), o una palabra que claramente sigue pero desaparece. Que un texto esté CERCA del borde o toque los márgenes NO es cortado: cortado = faltan pedazos de letras a la vista.${overlayText ? ` El titular esperado es: "${String(overlayText).slice(0, 90)}" — compará letra por letra: sólo está cortado si le FALTAN caracteres visibles.` : ''}
+1. Texto CORTADO: se ven letras por la MITAD (mutiladas por el borde de la imagen o por otro elemento), o una palabra que claramente sigue pero desaparece. Que un texto esté CERCA del borde o toque los márgenes NO es cortado: cortado = faltan pedazos de letras a la vista. Que un texto venga REPARTIDO EN VARIAS LÍNEAS tampoco es cortado: es el salto de línea normal del diseño — leelo como un solo texto continuo juntando todas sus líneas antes de opinar.${overlayText ? ` El texto esperado es: "${String(overlayText).slice(0, 90)}" — puede aparecer como titular grande, como etiqueta chica arriba del precio, repartido en 2 o 3 líneas, o incluso NO aparecer (hay diseños donde la foto y el precio son todo el mensaje): ninguna de esas cosas es un defecto. Sólo marcalo si en la pieza se ve un pedazo de ese texto con letras MUTILADAS.` : ''}
 2. Elementos SUPERPUESTOS que se pisan al punto de no poder leerse (un texto arriba de otro texto, el logo tapando el titular).
 3. Texto ILEGIBLE por contraste casi nulo con el fondo (mismo tono; no alcanza con "podría tener más contraste").
 4. Zona ROTA: bloque gris/blanco plano donde claramente debía ir una foto, ícono de imagen rota del navegador.
+5. BLOQUES PEGADOS: dos bloques distintos (la tarjeta de la foto, los datos, el precio, el botón, la URL del pie) que se TOCAN o quedan a un par de píxeles, sin nada de aire entre ellos, de modo que se leen como un solo amasijo. No cuenta que estén "cerca" con una separación clara y prolija: sólo si literalmente se tocan o se solapan.
+6. PRODUCTO MAL ENCUADRADO dentro de una tarjeta: la foto muestra a una persona cortada de golpe por el borde de la tarjeta (por ejemplo el torso cortado al ras, sin cabeza, con el corte al aire en el medio de la tarjeta blanca) y se lee como un recorte mal hecho, no como un encuadre buscado. Si la foto va a sangre (ocupa toda la pieza), un recorte así es normal en fotografía editorial y NO es un problema.
 
 ELEMENTOS NORMALES DEL DISEÑO (NUNCA son problema): el pie centrado con la URL "${config.brand.site}" — si se lee entera, está perfecta; el wordmark/logo BLACKS arriba; mucho aire/espacio negativo (es intencional); texto chico pero completo; fotos de catálogo con fondo blanco; marcas de agua gigantes muy tenues de fondo; degradados oscuros sobre la foto.
 
@@ -1117,7 +1119,14 @@ async function describeProductPhotos(imageUrls = []) {
   const urls = [...new Set((imageUrls || []).filter(Boolean))].slice(0, 8);
   if (!urls.length || !hasGemini() || isImageQuotaCoolingDown()) return [];
   const parts = [{
-    text: `Sos catalogador de producto. Te paso ${urls.length} fotos DEL MISMO producto (indexadas 0 a ${urls.length - 1}, en orden). Por cada foto decí: "shows" = QUÉ muestra en pocas palabras (ángulo: frontal/3-4/lateral/trasera/cenital, y si es DETALLE/zoom de una parte puntual como "detalle del sol bordado"/"suela de yute"/"etiqueta"/"puntera", o el producto entero); "is_detail" = true si es un primer plano de una parte; "color" = el color DOMINANTE del producto en esa foto, en 1-2 palabras (ej. "azul denim", "crudo", "negro"). Devolvé SOLO un JSON array alineado al orden: [{"i":0,"shows":"...","is_detail":false,"color":"..."},...]. Literal, no inventes.` },
+    text: `Sos catalogador de producto. Te paso ${urls.length} fotos DEL MISMO producto (indexadas 0 a ${urls.length - 1}, en orden). Por cada foto decí:
+- "shows": QUÉ muestra en pocas palabras (ángulo: frontal/3-4/lateral/trasera/cenital, y si es DETALLE/zoom de una parte puntual como "detalle del sol bordado"/"suela de yute"/"etiqueta"/"puntera", o el producto entero).
+- "is_detail": true si es un primer plano de una parte.
+- "color": el color DOMINANTE del producto en esa foto, en 1-2 palabras (ej. "azul denim", "crudo", "negro").
+- "framing": cómo está ENCUADRADO el sujeto. "entero" = el producto (y la persona, si hay) se ve completo, sin quedar cortado por el borde del cuadro. "recorte_cuerpo" = hay una persona o maniquí y el borde de la foto la CORTA por el medio (típico: se ve del torso hacia abajo, sin cabeza; o los brazos/piernas cortados). "detalle" = zoom deliberado de una parte.
+- "has_person": true si aparece una persona o maniquí con la prenda puesta.
+- "fills_frame": true si el sujeto OCUPA casi todo el cuadro (poco fondo vacío alrededor); false si el producto es chico y flota con mucho fondo blanco/vacío.
+Devolvé SOLO un JSON array alineado al orden: [{"i":0,"shows":"...","is_detail":false,"color":"...","framing":"entero","has_person":false,"fills_frame":true},...]. Literal: mirá cada foto, no inventes.` },
   ];
   for (const u of urls) {
     try {
@@ -1137,7 +1146,19 @@ async function describeProductPhotos(imageUrls = []) {
     if (!Array.isArray(arr)) return [];
     return urls.map((_, i) => {
       const d = arr.find((x) => Number(x.i) === i) || arr[i] || {};
-      return { index: i, shows: String(d.shows || '').slice(0, 100), isDetail: Boolean(d.is_detail), color: String(d.color || '').toLowerCase().trim().slice(0, 30) };
+      const framing = ['entero', 'recorte_cuerpo', 'detalle'].includes(d.framing) ? d.framing : null;
+      return {
+        index: i,
+        shows: String(d.shows || '').slice(0, 100),
+        isDetail: Boolean(d.is_detail),
+        color: String(d.color || '').toLowerCase().trim().slice(0, 30),
+        // Encuadre: "recorte_cuerpo" es el defecto que el dueño detectó a ojo (el modelo
+        // cortado por el torso). Se usa para NO elegir esa foto como hero si hay una
+        // entera, y para encuadrarla a sangre (editorial) si es la única que hay.
+        framing: framing || (d.is_detail ? 'detalle' : 'entero'),
+        hasPerson: Boolean(d.has_person),
+        fillsFrame: d.fills_frame !== false,
+      };
     });
   } catch (err) {
     console.warn(`[ai] describeProductPhotos falló (sigo sin descripciones): ${err.message}`);
@@ -1385,7 +1406,7 @@ async function planHeroShot({ productName, productDescription, brief, pillar = '
     ? String(productDescription).replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 700)
     : '';
   const photosBlock = (photoDescriptions && photoDescriptions.length)
-    ? `QUÉ MUESTRA CADA FOTO REAL DISPONIBLE (elegí por CONTENIDO, no por orden):\n${photoDescriptions.map((p) => `- foto ${p.index}: ${p.shows}${p.color ? ` (color: ${p.color})` : ''}${p.isDetail ? ' [DETALLE/ZOOM]' : ''}`).join('\n')}`
+    ? `QUÉ MUESTRA CADA FOTO REAL DISPONIBLE (elegí por CONTENIDO, no por orden):\n${photoDescriptions.map((p) => `- foto ${p.index}: ${p.shows}${p.color ? ` (color: ${p.color})` : ''}${p.isDetail ? ' [DETALLE/ZOOM]' : ''}${p.framing === 'recorte_cuerpo' ? ' [OJO: la persona sale CORTADA por el borde — encuadre parcial]' : ''}${p.framing === 'entero' && p.hasPerson ? ' [persona COMPLETA]' : ''}`).join('\n')}`
     : `(No hay descripción de las fotos: hay ${photoCount} foto(s), índices 0 a ${photoCount - 1}. Elegí photo_index 0 y una toma 'hero' genérica-pero-verdadera.)`;
 
   const system = 'Sos DIRECTOR DE FOTOGRAFÍA de una agencia premium de indumentaria de trabajo (BLACKS). Para cada pieza única de Instagram decidís QUÉ foto real usar y QUÉ toma armar, como un profesional que estudia el brief y el material antes de disparar. Respondés SOLO con JSON válido.';
@@ -1402,9 +1423,10 @@ CÓMO DECIDIR (pensalo como un profesional, en este orden):
 1. ¿El ángulo nombra o gira alrededor de un DETALLE puntual (suela, puntera, costura, bordado, tela, etiqueta)? → buscá la foto que MUESTRA ese detalle y armá shot_type "detalle" con focus en eso, respaldado por la ficha real. Si NINGUNA foto lo muestra, NO fuerces el detalle: hero del producto entero.
 2. ¿El ángulo es de uso/contexto (obra, taller, clima)? → "contexto" con la foto más natural.
 3. ¿Es presentación/venta general? → "hero" con la foto que mejor presenta el producto ENTERO (frontal o 3/4, el color con mejor foto). Si es una PRENDA y hay una foto donde se ve PUESTA/con caída real, preferila (queda más editorial y con vida que la prenda colgada plana).
-4. "background": "limpio" (estudio) para producto/promo/mayorista; "sutil" para detalle; "contexto" sólo si el ángulo lo pide.
-5. "overlay": QUÉ diría un titular de máx ~5 palabras sobre LO QUE SE VE en esa foto, con datos reales (voseo argentino). Es un respaldo: si no aporta, null.
-6. "badge": "OFERTA" sólo si el ángulo habla de una oferta real; "NUEVO" sólo si habla de lanzamiento; si no, null.
+4. ENCUADRE (regla firme para las tomas 'hero'): entre dos fotos parecidas, elegí SIEMPRE la de encuadre "entero" antes que una marcada [OJO: la persona sale CORTADA]. Una hero con el modelo cortado por el torso se lee como error de recorte y es exactamente el problema que hay que evitar. Sólo usá una foto de encuadre parcial como hero si NINGUNA otra muestra el producto entero, o si el ángulo pide expresamente ese recorte.
+5. "background": "limpio" (estudio) para producto/promo/mayorista; "sutil" para detalle; "contexto" sólo si el ángulo lo pide.
+6. "overlay": QUÉ diría un titular de máx ~5 palabras sobre LO QUE SE VE en esa foto, con datos reales (voseo argentino). Es un respaldo: si no aporta, null.
+7. "badge": "OFERTA" sólo si el ángulo habla de una oferta real; "NUEVO" sólo si habla de lanzamiento; si no, null.
 REGLA DE ORO: el focus tiene que estar RESPALDADO por la ficha real y VISIBLE en la foto elegida. Prohibido inventar materiales o características.
 
 Devolvé SOLO este JSON:
@@ -1426,11 +1448,32 @@ Devolvé SOLO este JSON:
 
   const s = await generateJson({ system, prompt, schema, maxTokens: 400, temperature: 0.4 });
   if (!s || typeof s !== 'object') return null;
-  const pi = Math.max(0, Math.min(photoCount - 1, Number.isInteger(Number(s.photo_index)) ? Number(s.photo_index) : 0));
+  let pi = Math.max(0, Math.min(photoCount - 1, Number.isInteger(Number(s.photo_index)) ? Number(s.photo_index) : 0));
+  const descs = photoDescriptions || [];
+  let shotType = ['hero', 'detalle', 'contexto', 'flatlay'].includes(s.shot_type) ? s.shot_type : 'hero';
+
+  // VALIDACIÓN DURA DEL ENCUADRE. El prompt pide preferir fotos enteras, pero el modelo
+  // igual elegía la foto 0 (en el catálogo de Tiendanube las primeras suelen ser las del
+  // modelo cortado por el torso) — de ahí la queja del dueño: "no me gusta que se vea la
+  // foto del producto con el torso cortado... que el programa detecte estas
+  // inconsistencias y las corrija al generar". Acá se corrige sí o sí: para una hero, si
+  // la foto elegida tiene encuadre parcial y existe otra ENTERA del mismo producto, se
+  // cambia. Se prioriza mantener el color de la foto que el modelo había elegido.
+  const isWholeShot = shotType === 'hero' || shotType === 'contexto';
+  const chosen = descs.find((p) => p.index === pi);
+  if (isWholeShot && chosen && chosen.framing === 'recorte_cuerpo') {
+    const whole = descs.filter((p) => p.framing === 'entero' && !p.isDetail);
+    const sameColor = whole.find((p) => p.color && chosen.color && p.color === chosen.color);
+    const better = sameColor || whole.find((p) => p.hasPerson) || whole[0];
+    if (better) {
+      console.log(`[ai] planHeroShot: la foto #${pi} recorta al modelo (torso cortado) — cambio a la #${better.index} ("${better.shows}"), que muestra el producto entero.`);
+      pi = better.index;
+    }
+  }
+
   // Validación dura: una toma 'detalle' sólo vale si la foto elegida ES un detalle
   // real (según la visión) — si no, degrada a hero (mejor entero que un falso zoom).
-  const desc = (photoDescriptions || []).find((p) => p.index === pi);
-  let shotType = ['hero', 'detalle', 'contexto', 'flatlay'].includes(s.shot_type) ? s.shot_type : 'hero';
+  const desc = descs.find((p) => p.index === pi);
   if (shotType === 'detalle' && desc && !desc.isDetail) shotType = 'hero';
   return {
     shotType,
@@ -1442,6 +1485,12 @@ Devolvé SOLO este JSON:
     badge: ['NUEVO', 'OFERTA'].includes(String(s.badge || '').toUpperCase()) ? String(s.badge).toUpperCase() : null,
     reason: s.reason ? String(s.reason).slice(0, 200) : null,
     photoShows: desc ? desc.shows : null, // qué muestra la foto elegida (para el copy)
+    // Encuadre de la foto final: el renderer decide con esto si la muestra a sangre
+    // (foto con persona / que llena el cuadro) o dentro de la tarjeta de estudio
+    // (recorte de catálogo chico sobre fondo blanco). Ver photoFraming en imageRenderer.
+    photoFraming: desc ? desc.framing : null,
+    photoHasPerson: desc ? Boolean(desc.hasPerson) : false,
+    photoFillsFrame: desc ? desc.fillsFrame !== false : false,
   };
 }
 
