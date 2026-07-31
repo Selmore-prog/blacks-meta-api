@@ -605,6 +605,24 @@ function normalizeArtMode(v) {
 }
 
 /**
+ * Lee la intención sobre la IMAGEN en una corrección escrita en lenguaje natural.
+ *
+ * Hacía falta porque "corregir" sólo tocaba textos: el dueño escribió "poné un producto
+ * de fondo" y el sistema le contestó que la foto se mantiene igual — "no me respetó
+ * nada". El cerebro ya detectaba que el pedido era sobre la foto (targets_photo) pero no
+ * había forma de actuar. Ahora ese pedido se traduce al modo de arte correspondiente.
+ * Es deterministico a propósito: sobre una acción que cuesta plata (generativa) conviene
+ * una regla legible y no la interpretación libre de un modelo.
+ */
+function artIntentFromInstruction(instr) {
+  const s = String(instr || '').toLowerCase();
+  if (/\b(sin foto|sin imagen|saca\w* la foto|quit\w* la foto|s[oó]lo texto|solo texto|tipogr[aá]fic)/.test(s)) return 'tipografica';
+  if (/\b(generativ|imagen (con )?ia|inteligencia artificial|escena generada|gener[aá]\w* la imagen)/.test(s)) return 'generativa';
+  if (/\b(foto de fondo|producto de fondo|imagen de fondo|con una foto|pon[eé]\w* una foto|pon[eé]\w* un producto|agreg\w* una foto|mostr[aá]\w* el producto|que se vea el producto)/.test(s)) return 'foto';
+  return null;
+}
+
+/**
  * Descarta del veredicto del QA visual las quejas de "texto cortado" que el navegador
  * desmiente. El modelo de visión confunde un titular repartido en dos renglones con un
  * texto mutilado — se midió el DOM en 9 piezas que había rechazado y ninguna desbordaba.
@@ -883,6 +901,25 @@ async function generateForSlot(slot, overrides = {}) {
     ? 'poster'
     : chooseTemplate(effectiveSlot, { override: overrides.template, visualProduct, aiPick: (directorPlan && directorPlan.template) || copy.template });
 
+  // FOTO DE AMBIENTE PARA EL AFICHE. Cuando el director decide "tarjeta sin foto",
+  // visualProduct queda en null y la pieza se renderiza sin NINGUNA imagen: el afiche
+  // salía como puro texto sobre negro (queja real: "ni el texto ni el fondo están bien").
+  // Pero en el afiche la foto no dice "este producto está en oferta" — va al 50% detrás
+  // de la tipografía, como atmósfera. Así que si la pieza terminó siendo un afiche y no
+  // tiene foto, se busca una del catálogo sólo para el fondo. Nunca se paga IA por esto.
+  // Con artMode 'tipografica' el dueño pidió explícitamente sin foto: se respeta.
+  let posterBackdrop = null;
+  if (template === 'poster' && artMode !== 'tipografica' && !visualImageUrl) {
+    try {
+      const anchor = await pickRelevantVisualProduct(effectiveSlot)
+        || (await pool.query(`SELECT image_url FROM products_cache WHERE image_url IS NOT NULL AND ${eligibleSQL()} ORDER BY sales_30d DESC NULLS LAST LIMIT 1`)).rows[0];
+      posterBackdrop = (anchor && (anchor.image_url || anchor.imageUrl)) || null;
+      if (posterBackdrop) console.log(`[generate-daily] Afiche del slot #${slot.id}: uso una foto real del catálogo como fondo de ambiente.`);
+    } catch (err) {
+      console.warn(`[generate-daily] No pude buscar foto de fondo para el afiche (sigue sin ella): ${err.message}`);
+    }
+  }
+
   let imagePath;
   let slidesJson = null;
   let slidesMetaJson = null; // receta de cada slide del carrusel (para regenerar uno solo)
@@ -1100,7 +1137,7 @@ async function generateForSlot(slot, overrides = {}) {
       // de una historia casi no se ve — la info tiene que estar en la pieza).
       storyPoints,
       // LA foto elegida por el director de fotografía (no la primera a ciegas).
-      productImageUrl: realSizeChart || heroImageUrl,
+      productImageUrl: realSizeChart || heroImageUrl || posterBackdrop,
       // Fotos extra del mismo producto (otros ángulos) para anclar la fidelidad
       // de la escena IA: menos chance de que el modelo reinvente el producto.
       productImageUrls: refImgsAll.filter((u) => u !== heroImageUrl).slice(0, 4),
@@ -1490,7 +1527,9 @@ async function regenerateSlide({ assetId, index, overlay, instructions }) {
  */
 async function correctPiece({ assetId, instruction, artMode: artModeIn, artBrief: artBriefIn } = {}) {
   const instr = String(instruction || '').trim();
-  const artMode = normalizeArtMode(artModeIn);
+  // El selector del panel manda; si el dueño no eligió nada pero lo pidió escribiéndolo
+  // ("poné un producto de fondo"), se toma de la instrucción.
+  const artMode = normalizeArtMode(artModeIn) || artIntentFromInstruction(instr);
   const artBrief = String(artBriefIn || '').trim().slice(0, 400) || null;
   // Se puede corregir SÓLO la imagen (cambiar el arte sin tocar los textos): en ese caso
   // no hace falta escribir una instrucción de texto.
@@ -1629,13 +1668,22 @@ async function correctPiece({ assetId, instruction, artMode: artModeIn, artBrief
   return { image_path: render.url, note };
 }
 
-/** Foto REAL del producto de la pieza (para volver a ella o usarla como referencia). */
+/**
+ * Foto REAL para la pieza: la del producto que protagoniza, y si la pieza no tiene
+ * producto (una promo de toda la tienda), una foto del catálogo para usar de ambiente.
+ * Sin este fallback, pedir "poné un producto de fondo" en un afiche no hacía nada.
+ */
 async function originalProductPhoto(asset) {
-  if (!asset.product_id) return null;
-  const { rows } = await pool.query('SELECT images, image_url FROM products_cache WHERE id = $1', [asset.product_id]);
-  const p = rows[0];
-  if (!p) return null;
-  return (Array.isArray(p.images) && p.images[0]) || p.image_url || null;
+  if (asset.product_id) {
+    const { rows } = await pool.query('SELECT images, image_url FROM products_cache WHERE id = $1', [asset.product_id]);
+    const p = rows[0];
+    const own = p && ((Array.isArray(p.images) && p.images[0]) || p.image_url);
+    if (own) return own;
+  }
+  const { rows } = await pool.query(
+    `SELECT image_url FROM products_cache WHERE image_url IS NOT NULL AND ${eligibleSQL()} ORDER BY sales_30d DESC NULLS LAST LIMIT 1`
+  );
+  return (rows[0] && rows[0].image_url) || null;
 }
 
 module.exports = { generateDaily, generateForSlot, pickRelevantVisualProduct, VALID_TEMPLATES, regenerateSlide, correctPiece };

@@ -893,16 +893,39 @@ function buildPosterHtml(opts) {
     ? (isStory ? 74 : 62)
     : (isStory ? 104 : 86);
 
+  // LOCKUP DEL NÚMERO. El "%" NO va al mismo cuerpo que las cifras: la Anton lo dibuja
+  // con los dos ceritos muy separados y a 250px el conjunto se leía "450/o" (defecto real
+  // que reportó el dueño). Se arma como lo haría un diseñador: las cifras enormes y, al
+  // costado, una columna con el "%" a media altura y el "OFF" debajo.
+  // Las cifras ocupan ~2/3 del ancho útil: es EL activo de venta de la pieza y tiene que
+  // leerse desde el scroll. Se achica sola si el número tiene 3 dígitos ("100%").
+  const digitPx = (isStory ? 340 : 300) - (String(display && display.number || '').length >= 3 ? (isStory ? 60 : 55) : 0);
+  const isPercent = display && display.unit === '%';
   const numberHtml = display ? `
-    <div style="display:flex; align-items:flex-start; gap:${isStory ? 18 : 14}px; margin:${isStory ? '10px 0 6px' : '8px 0 4px'};">
-      ${display.qualifier ? `<span style="font-size:${isStory ? 30 : 26}px; font-weight:800; letter-spacing:5px; color:rgba(255,255,255,.6); margin-top:${isStory ? 30 : 26}px;">${esc(display.qualifier)}</span>` : ''}
-      <span style="font-family:'Anton',sans-serif; font-size:${isStory ? 300 : 250}px; line-height:.78; letter-spacing:-6px;
-        background:linear-gradient(170deg, #FFFFFF 0%, #FFD9C2 42%, #FF8B4D 100%); -webkit-background-clip:text; background-clip:text; color:transparent;
-        filter:drop-shadow(0 18px 44px rgba(232,93,27,.45));">${esc(display.number)}${esc(display.unit)}</span>
-      ${display.tail ? `<span style="font-family:'Anton',sans-serif; font-size:${isStory ? 78 : 66}px; line-height:1; color:#FF8B4D; margin-top:${isStory ? 26 : 22}px; text-shadow:0 6px 24px rgba(232,93,27,.5);">${esc(display.tail)}</span>` : ''}
+    <div style="display:flex; align-items:flex-start; gap:${isStory ? 20 : 16}px;">
+      ${display.qualifier ? `<span style="font-size:${isStory ? 30 : 27}px; font-weight:800; letter-spacing:5px; color:rgba(255,255,255,.62); margin-top:${Math.round(digitPx * 0.13)}px;">${esc(display.qualifier)}</span>` : ''}
+      <span style="font-family:'Anton',sans-serif; font-size:${digitPx}px; line-height:.8; letter-spacing:-4px;
+        background:linear-gradient(170deg, #FFFFFF 0%, #FFD9C2 44%, #FF8B4D 100%); -webkit-background-clip:text; background-clip:text; color:transparent;
+        filter:drop-shadow(0 18px 44px rgba(232,93,27,.45));">${esc(display.number)}${isPercent ? '' : esc(display.unit)}</span>
+      ${(isPercent || display.tail) ? `<div style="display:flex; flex-direction:column; align-items:flex-start; margin-top:${Math.round(digitPx * 0.06)}px;">
+        ${isPercent ? `<span style="font-family:'Anton',sans-serif; font-size:${Math.round(digitPx * 0.42)}px; line-height:.9;
+          background:linear-gradient(170deg, #FFFFFF 0%, #FFD9C2 50%, #FF8B4D 100%); -webkit-background-clip:text; background-clip:text; color:transparent;">%</span>` : ''}
+        ${display.tail ? `<span style="font-family:'Anton',sans-serif; font-size:${Math.round(digitPx * 0.26)}px; line-height:1; color:#FF8B4D; letter-spacing:1px; text-shadow:0 6px 24px rgba(232,93,27,.5);">${esc(display.tail)}</span>` : ''}
+      </div>` : ''}
     </div>` : '';
 
-  const chipsHtml = specChipsHtml(points, g);
+  // Un chip que repite el número gigante es ruido: en la pieza real salió "Hasta 45% OFF"
+  // como cápsula al lado de un "45% OFF" de 250px. Se descarta el duplicado.
+  const displayKey = display
+    ? `${display.qualifier}${display.number}${display.unit}${display.tail}`.toLowerCase().replace(/[^a-z0-9]/g, '')
+    : '';
+  const usefulPoints = displayKey
+    ? points.filter((p) => {
+      const k = String(p).toLowerCase().replace(/[^a-z0-9]/g, '');
+      return !(k && (displayKey.includes(k) || k.includes(displayKey)));
+    })
+    : points;
+  const chipsHtml = specChipsHtml(usefulPoints, g);
   const couponHtml = opts.couponCode
     ? `<div style="display:inline-flex; align-items:center; gap:14px; padding:14px 24px; background:rgba(255,255,255,.96); border-radius:14px; box-shadow:0 12px 35px rgba(0,0,0,.5);">
         <span style="font-size:${isStory ? 22 : 19}px; font-weight:800; letter-spacing:3px; color:#6b6b70; text-transform:uppercase; padding-right:14px; border-right:2px dashed #c9c9cf;">CUPÓN</span>
@@ -918,19 +941,23 @@ function buildPosterHtml(opts) {
         color:#fff; white-space:nowrap; box-shadow:0 16px 36px rgba(232,93,27,.5), inset 0 1px 0 rgba(255,255,255,.3);">
         <span>${esc(opts.ctaLabel)}</span>${arrowSvg('#fff', isStory ? 24 : 21)}</div>` : '');
 
-  // Trama de marca repetida en diagonal: textura de fondo que da profundidad sin
-  // competir con el texto (queda por debajo de la banda de acento y del grano).
-  const tileText = String(config.brand.name || 'BLACKS').toUpperCase();
-  const rows = [];
-  for (let i = 0; i < (isStory ? 9 : 7); i += 1) {
-    rows.push(`<div style="white-space:nowrap; font-family:'Anton',sans-serif; font-size:${isStory ? 96 : 84}px; letter-spacing:20px; color:rgba(255,255,255,.016); line-height:1.55; transform:translateX(${i % 2 ? -90 : 0}px);">${tileText} ${tileText} ${tileText} ${tileText}</div>`);
-  }
-
   // FOTO DE CONTEXTO (opcional). Un afiche 100% tipográfico funciona en historias y en
   // anuncios, pero en el FEED una pieza con producto real engancha más. Cuando hay una
   // foto disponible entra como capa de fondo muy oscurecida: da contexto y calidez sin
   // pelearle protagonismo al número, que sigue siendo el elemento dominante.
   const backdrop = opts.bgImageUrl || opts.productImageUrl || null;
+
+  // Trama de marca en diagonal: textura MUY tenue para que el fondo liso no se vea plano.
+  // Va casi invisible a propósito — al 1.6% ya se leía "BLACKS" cruzando toda la pieza y
+  // quedaba ruidoso (defecto real). Con foto de fondo directamente no va: la foto ya
+  // aporta la textura y superponer las dos ensucia.
+  const tileText = String(config.brand.name || 'BLACKS').toUpperCase();
+  const rows = [];
+  if (!backdrop) {
+    for (let i = 0; i < (isStory ? 9 : 7); i += 1) {
+      rows.push(`<div style="white-space:nowrap; font-family:'Anton',sans-serif; font-size:${isStory ? 96 : 84}px; letter-spacing:20px; color:rgba(255,255,255,.008); line-height:1.55; transform:translateX(${i % 2 ? -90 : 0}px);">${tileText} ${tileText} ${tileText} ${tileText}</div>`);
+    }
+  }
 
   return `${headHtml(w, h)}</head><body>
     <div style="position:relative; width:${w}px; height:${h}px; overflow:hidden; color:#fff;
@@ -968,26 +995,24 @@ function buildPosterHtml(opts) {
           ${opts.badgeText ? `<div style="flex:0 0 auto; background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); color:#fff; font-weight:800; font-size:${isStory ? 21 : 18}px; padding:11px 24px; border-radius:100px; text-transform:uppercase; letter-spacing:3px; box-shadow:0 10px 25px rgba(232,93,27,.45); border:1px solid rgba(255,255,255,.25);">${esc(opts.badgeText)}</div>` : ''}
         </div>
 
-        <!-- El bloque central se REPARTE a lo alto (titular arriba, número al medio,
-             datos abajo). Centrado dejaba una banda muerta entre los datos y el botón:
-             el afiche tiene que ocupar el lienzo, no flotar en el medio. -->
+        <!-- Kicker + titular + número van JUNTOS como un solo bloque, centrado en el aire
+             que queda. Repartirlos con space-between abría dos bandas muertas (una entre
+             el titular y el número, otra entre el número y los datos) y la pieza se veía
+             desarmada. Los datos y el botón bajan a sus propias zonas, abajo. -->
         <div style="flex:1 1 auto; min-height:0; display:flex; flex-direction:column;
-          justify-content:${display ? 'space-between' : 'center'}; align-items:flex-start; width:100%; padding:${isStory ? 40 : 28}px 0;">
-          <div>
-            ${kicker ? `<div style="display:inline-flex; align-items:center; gap:12px; margin-bottom:${isStory ? 26 : 20}px;
-              border:1px solid rgba(255,255,255,.26); border-radius:100px; padding:${isStory ? '11px 24px' : '9px 20px'};
-              font-size:${isStory ? 25 : 23}px; font-weight:800; letter-spacing:4px; text-transform:uppercase; color:rgba(255,255,255,.86);">
-              <span style="width:9px; height:9px; border-radius:50%; background:${accent}; box-shadow:0 0 12px ${accent};"></span>${esc(kicker)}</div>` : ''}
-            ${headText ? `<div style="font-family:'Anton',sans-serif; font-size:${headSize}px; line-height:.94; letter-spacing:.5px;
-              text-transform:uppercase; color:#fff; max-width:100%; text-shadow:0 8px 40px rgba(0,0,0,.6);">${esc(headText)}</div>` : ''}
-            ${!display ? `<div style="width:${isStory ? 200 : 170}px; height:8px; border-radius:4px; margin-top:${isStory ? 34 : 26}px; background:linear-gradient(90deg, ${accent} 0%, #FF8B4D 100%); box-shadow:0 0 24px rgba(232,93,27,.6);"></div>` : ''}
-          </div>
-          ${numberHtml}
-          ${(points.length || couponHtml) ? `<div>
-            ${points.length ? chipsHtml : ''}
-            ${couponHtml ? `<div style="margin-top:${points.length ? (isStory ? 24 : 18) : 0}px;">${couponHtml}</div>` : ''}
-          </div>` : '<div></div>'}
+          justify-content:flex-end; align-items:flex-start; width:100%; padding:${isStory ? 34 : 24}px 0;">
+          ${kicker ? `<div style="display:inline-flex; align-items:center; gap:12px; margin-bottom:${isStory ? 26 : 20}px;
+            border:1px solid rgba(255,255,255,.26); border-radius:100px; padding:${isStory ? '11px 24px' : '9px 20px'};
+            font-size:${isStory ? 25 : 23}px; font-weight:800; letter-spacing:4px; text-transform:uppercase; color:rgba(255,255,255,.86);">
+            <span style="width:9px; height:9px; border-radius:50%; background:${accent}; box-shadow:0 0 12px ${accent};"></span>${esc(kicker)}</div>` : ''}
+          ${headText ? `<div style="font-family:'Anton',sans-serif; font-size:${headSize}px; line-height:.94; letter-spacing:.5px;
+            text-transform:uppercase; color:#fff; max-width:100%; text-shadow:0 8px 40px rgba(0,0,0,.6);">${esc(headText)}</div>` : ''}
+          ${!display ? `<div style="width:${isStory ? 200 : 170}px; height:8px; border-radius:4px; margin-top:${isStory ? 34 : 26}px; background:linear-gradient(90deg, ${accent} 0%, #FF8B4D 100%); box-shadow:0 0 24px rgba(232,93,27,.6);"></div>` : ''}
+          ${numberHtml ? `<div style="margin-top:${isStory ? 24 : 18}px;">${numberHtml}</div>` : ''}
         </div>
+
+        ${chipsHtml ? `<div style="flex:0 0 auto; width:100%; margin-top:${isStory ? 12 : 8}px;">${chipsHtml}</div>` : ''}
+        ${couponHtml ? `<div style="flex:0 0 auto; margin-top:${isStory ? 24 : 18}px;">${couponHtml}</div>` : ''}
 
         ${ctaHtml ? `<div style="flex:0 0 auto; width:100%; display:flex; justify-content:center; margin-top:${isStory ? 30 : 22}px;">${ctaHtml}</div>` : ''}
         <div style="flex:0 0 auto; width:100%; display:flex; align-items:center; justify-content:center; gap:12px; margin-top:${isStory ? 30 : 20}px;">
