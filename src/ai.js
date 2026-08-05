@@ -2388,10 +2388,84 @@ Devolvé SOLO este JSON:
   };
 }
 
+/**
+ * "Corregir esta imagen" (UN slide de un carrusel): el usuario escribe en lenguaje
+ * natural qué quiere de ESE slide ("poné todos los colores", "que diga Conseguilos en
+ * la web", "mostrá el bolsillo de cerca") y el cerebro devuelve la RECETA corregida de
+ * la toma: tipo de toma, texto impreso, qué foto real usar y cuáles acompañan.
+ *
+ * Antes, ese pedido sólo se pegaba al "focus" de la toma — un campo que las tomas
+ * 'variantes' / 'cta' / 'price' ni miran: escribir "poné más colores" no cambiaba
+ * absolutamente nada (bug real, ago-2026). Acá el pedido puede CAMBIAR la toma.
+ * current = { shotType, overlay, focus, photoIndex, extraPhotos }.
+ */
+async function parseSlideCorrection({ instruction, current = {}, index = 0, slideCount = 1, productName = '', photoDescriptions = [], photoCount = 1, format = 'feed', ctaHeadline = '' } = {}) {
+  const photosBlock = (photoDescriptions && photoDescriptions.length)
+    ? photoDescriptions.map((p) => `- foto ${p.index}: ${p.shows}${p.color ? ` (color: ${p.color})` : ''}${p.isDetail ? ' [DETALLE]' : ''}`).join('\n')
+    : `(No hay descripción de las fotos: hay ${photoCount} foto(s) reales, índices 0 a ${Math.max(0, photoCount - 1)}.)`;
+  const system = 'Sos DIRECTOR DE ARTE de BLACKS (indumentaria de trabajo argentina, voseo). Corregís UNA toma de un carrusel ya diseñado según el pedido del dueño. Respondés SOLO JSON con la receta final de ESA toma, cambiando EXCLUSIVAMENTE lo que el pedido nombra y dejando el resto idéntico. Nunca inventás datos, colores ni características que las fotos no muestren.';
+  const prompt = `TOMA ACTUAL (slide ${index + 1} de ${slideCount}, formato ${format === 'story' ? 'story' : 'feed'}):
+- shot_type: ${JSON.stringify(current.shotType || 'hero')}
+- overlay (texto impreso sobre la imagen): ${JSON.stringify(current.overlay || '')}
+- focus (qué enfatiza la foto): ${JSON.stringify(current.focus || '')}
+- photo_index (foto real principal): ${Number.isInteger(current.photoIndex) ? current.photoIndex : 0}
+- extra_photos (fotos que acompañan, sólo en 'variantes'): ${JSON.stringify(Array.isArray(current.extraPhotos) ? current.extraPhotos : [])}
+${productName ? `PRODUCTO: ${productName}\n` : ''}FOTOS REALES DISPONIBLES:
+${photosBlock}
+
+QUÉ RENDERIZA CADA shot_type (elegí el que hace falta para cumplir el pedido):
+- "hero": foto/escena del producto entero a pantalla completa, con el overlay grande.
+- "detalle" / "flatlay": FOTO REAL a pantalla completa, primer plano de una parte (usa "focus" para decir qué parte).
+- "contexto": el producto en un ambiente de trabajo real.
+- "variantes": COLLAGE (bento) de hasta 4 fotos reales — es LA ÚNICA toma que muestra varios colores a la vez. "extra_photos" son los índices de las OTRAS fotos del collage (elegí una por color distinto, nunca dos fotos del mismo color).
+- "cta": cierre con llamado a la acción. El overlay es el titular del cierre${ctaHeadline ? ` (hoy dice ${JSON.stringify(ctaHeadline)})` : ''}; ahí van los pedidos de tipo "que diga X".
+
+PEDIDO DEL DUEÑO (la ÚNICA corrección a aplicar): "${String(instruction).slice(0, 400)}"
+
+REGLAS:
+- Devolvé la receta COMPLETA con su valor final. Lo que el pedido no menciona vuelve IDÉNTICO.
+- Si el pedido es sobre MOSTRAR MÁS COLORES / variantes, devolvé shot_type "variantes" y poné en extra_photos TODOS los índices de fotos de colores distintos al principal (hasta 4). Si las fotos no alcanzan, poné igual las que haya: el sistema completa con otros productos del mismo modelo.
+- Si el pedido dice qué TEXTO tiene que decir la pieza, ese texto va TAL CUAL en "overlay" (respetá la palabra exacta que pide, incluido el género: "Conseguilos" vs "Conseguilas").
+- Si el pedido es sobre la FOTO (más cerca, otro ángulo, otro color, más fondo), ajustá focus y/o photo_index eligiendo la foto real cuya descripción coincida. Nunca elijas un índice que no exista.
+- overlay: máximo ~5 palabras, voseo, sin emojis. Puede ser null si el pedido dice sacar el texto.
+- "note": 1 frase corta en español diciendo qué cambiaste (y si algo no se puede, decilo).
+
+Devolvé SOLO este JSON:
+{"shot_type":"variantes","overlay":"...","focus":"...","photo_index":0,"extra_photos":[1,2],"wants_all_colors":true,"note":"..."}`;
+  const schema = {
+    type: 'object',
+    properties: {
+      shot_type: { type: 'string', enum: ['hero', 'detalle', 'contexto', 'flatlay', 'variantes', 'cta', 'price'] },
+      overlay: { type: 'string', nullable: true },
+      focus: { type: 'string', nullable: true },
+      photo_index: { type: 'integer' },
+      extra_photos: { type: 'array', items: { type: 'integer' } },
+      wants_all_colors: { type: 'boolean' },
+      note: { type: 'string' },
+    },
+    required: ['shot_type', 'note'],
+  };
+  const s = await generateJson({ system, prompt, schema, maxTokens: 700, temperature: 0.2 });
+  if (!s || typeof s !== 'object') throw new Error('No pude interpretar la corrección del slide. Probá reformulando el pedido.');
+  const clampIdx = (n) => Math.max(0, Math.min(Math.max(0, photoCount - 1), Number.isInteger(n) ? n : 0));
+  const overlayRaw = 'overlay' in s ? s.overlay : undefined;
+  return {
+    shotType: ['hero', 'detalle', 'contexto', 'flatlay', 'variantes', 'cta', 'price'].includes(s.shot_type) ? s.shot_type : undefined,
+    overlay: overlayRaw === undefined ? undefined
+      : (overlayRaw && String(overlayRaw).trim() && String(overlayRaw).toLowerCase() !== 'null' ? String(overlayRaw).trim().slice(0, 60) : null),
+    focus: typeof s.focus === 'string' ? s.focus.slice(0, 160) : undefined,
+    photoIndex: Number.isInteger(s.photo_index) ? clampIdx(s.photo_index) : undefined,
+    extraPhotos: Array.isArray(s.extra_photos) ? [...new Set(s.extra_photos.map(clampIdx))].slice(0, 4) : undefined,
+    wantsAllColors: s.wants_all_colors === true,
+    note: s.note ? String(s.note).slice(0, 160) : '',
+  };
+}
+
 module.exports = {
   generateCopy,
   generateJson,
   parseCorrection,
+  parseSlideCorrection,
   generateBackground,
   generateProductScene,
   planCarouselShots,

@@ -928,27 +928,38 @@ function openPieceCorrect(item, previewOverlay) {
 
 /** Corrige/regenera UN slide del carrusel: texto exacto y/o indicación para la imagen. */
 function openSlideFix(item, index, carEl) {
+  // Texto que HOY tiene impreso ese slide (viene de la receta guardada): el campo va
+  // precargado para que se vea qué dice, y sólo se manda si el dueño lo edita —así una
+  // corrección escrita ("que diga Conseguilos") no queda pisada por el campo.
+  const meta = Array.isArray(item.slides_meta) ? item.slides_meta : null;
+  const currentOverlay = (meta && meta[index] && meta[index].overlay) ? String(meta[index].overlay) : '';
   const body = `
-    <p class="hint" style="margin-top:0;">Regenerás <b>sólo el slide ${index + 1}</b> (los demás quedan igual). Podés cambiar el texto que va en la imagen y/o dar una indicación para la foto.</p>
+    <p class="hint" style="margin-top:0;">Regenerás <b>sólo el slide ${index + 1}</b> (los demás quedan igual). Pedí en castellano lo que quieras de este slide: la IA cambia el texto, la foto o el tipo de toma según lo que digas.</p>
     <div class="field"><label>Texto en la imagen (dejalo vacío para no poner texto)</label>
       <input class="input" id="sf-overlay" placeholder="Ej: Etiqueta argentina" /></div>
-    <div class="field"><label>Indicación para la imagen (opcional)</label>
-      <textarea class="input" id="sf-inst" placeholder="Ej: mostrá más de cerca la etiqueta, fondo más oscuro"></textarea></div>
+    <div class="field"><label>¿Qué querés que cambie en este slide?</label>
+      <textarea class="input" id="sf-inst" placeholder="Ej: mostrá todos los colores disponibles · que diga Conseguilos en la web · mostrá más de cerca el bolsillo"></textarea></div>
     <div style="display:flex; gap:8px; justify-content:flex-end;">
       <button class="btn-discard" id="sf-cancel">Cancelar</button>
       <button class="btn-primary" id="sf-go">${icon('wand')} Regenerar slide ${index + 1}</button>
     </div>`;
   const ov = showInfoModal(`Corregir slide ${index + 1}`, body);
+  // Por propiedad y no como atributo: el texto puede traer comillas.
+  ov.querySelector('#sf-overlay').value = currentOverlay;
   ov.querySelector('#sf-cancel').addEventListener('click', () => ov.remove());
   ov.querySelector('#sf-go').addEventListener('click', async () => {
     const go = ov.querySelector('#sf-go');
+    const overlayText = ov.querySelector('#sf-overlay').value;
+    const instructions = ov.querySelector('#sf-inst').value.trim();
+    if (!instructions && overlayText === currentOverlay) {
+      toast('Escribí qué querés que cambie (o editá el texto de la imagen)', 'err'); return;
+    }
     go.disabled = true; go.innerHTML = `${icon('refresh', 'spin')} Regenerando…`;
     try {
-      const overlayText = ov.querySelector('#sf-overlay').value;
-      const instructions = ov.querySelector('#sf-inst').value.trim();
       const r = await api(`/api/assets/${item.asset_id}/regenerate-slide`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ index, overlay: overlayText, instructions }),
+        // `overlay` sólo viaja si el dueño tocó el campo (si no, manda la corrección escrita).
+        body: JSON.stringify({ index, instructions, ...(overlayText === currentOverlay ? {} : { overlay: overlayText }) }),
       });
       // Reemplazá la imagen del slide en vivo (con cache-bust) sin recargar todo.
       if (carEl && r.slides && r.slides[index]) {
@@ -956,7 +967,9 @@ function openSlideFix(item, index, carEl) {
         if (imgEl) imgEl.src = `${r.slides[index]}?t=${Date.now()}`;
       }
       ov.remove();
-      toast('Slide regenerado', 'ok');
+      // La nota dice QUÉ se cambió (y si algo no se pudo, por qué): ej. cuántos colores
+      // hay realmente en Tiendanube.
+      toast(r.note || 'Slide regenerado', 'ok');
       reloadKeepScroll();
     } catch (e) {
       toast(e.message, 'err');

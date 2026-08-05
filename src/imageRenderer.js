@@ -1270,24 +1270,44 @@ function buildMayoristaHtml(opts) {
   </body></html>`;
 }
 
-/** GRID: bento de 3-4 fotos reales del producto (ángulos/tomas distintas) en collage editorial. */
+/** GRID: bento de 2 a 6 fotos reales del producto (ángulos o variantes de color). */
 function buildGridHtml(opts) {
   const g = sharedGeometry(opts.format);
   const accent = opts.accent || config.brand.colors.darkOrange;
-  const urls = (opts.productImageUrls && opts.productImageUrls.length ? opts.productImageUrls : [opts.productImageUrl]).filter(Boolean).slice(0, 4);
+  const urls = (opts.productImageUrls && opts.productImageUrls.length ? opts.productImageUrls : [opts.productImageUrl]).filter(Boolean).slice(0, 6);
   // El titular va DEBAJO del logo (no a la misma altura) para que nunca se pisen.
   const headTop = g.wmTop + (g.isStory ? 120 : 95);
   const top = headTop + (g.isStory ? 220 : 170);
   const bottom = g.footBottom + (g.isStory ? 40 : 30);
   const gap = 14;
   const cell = (url, radius, shadow) => `<div style="border-radius:${radius}px; overflow:hidden; background:#f4f4f6; box-shadow:0 ${shadow}px ${shadow * 2}px rgba(0,0,0,.24);"><img src="${esc(url)}" style="width:100%; height:100%; object-fit:cover;"/></div>`;
-  const cellsHtml = urls.length >= 3
-    ? `<div style="position:absolute; top:${top}px; bottom:${bottom}px; left:${g.padX}px; right:${g.padX}px; display:grid; grid-template-columns: 1.4fr 1fr; grid-template-rows: 1fr 1fr; gap:${gap}px; z-index:1;">
+  const gridBox = `position:absolute; top:${top}px; bottom:${bottom}px; left:${g.padX}px; right:${g.padX}px; display:grid; gap:${gap}px; z-index:1;`;
+  const uniform = (cols, radius) => `<div style="${gridBox} grid-template-columns: repeat(${cols}, 1fr); grid-auto-rows: 1fr;">
+        ${urls.map((u) => cell(u, radius, 14)).join('')}
+      </div>`;
+  // CADA FOTO TIENE QUE VERSE: este collage muestra los COLORES disponibles, así que
+  // perder uno es perder información. Antes la plantilla exigía 3+ fotos (con 2 caía a una
+  // sola: el slide "también en otros colores" mostraba UN color) y con 4 dibujaba 3
+  // celdas, tirando la cuarta (bugs reales, ago-2026). Ahora hay layout para 2 a 6.
+  let cellsHtml;
+  if (urls.length === 5) {
+    // 5 fotos en 3 columnas dejan un hueco al final: la última fila va CENTRADA (grilla
+    // de 6 columnas, cada foto ocupa 2 y la fila de abajo arranca corrida una columna).
+    cellsHtml = `<div style="${gridBox} grid-template-columns: repeat(6, 1fr); grid-auto-rows: 1fr;">
+        ${urls.slice(0, 3).map((u) => `<div style="grid-column: span 2;">${cell(u, 20, 14)}</div>`).join('')}
+        <div style="grid-column: 2 / span 2;">${cell(urls[3], 20, 14)}</div>
+        <div style="grid-column: 4 / span 2;">${cell(urls[4], 20, 14)}</div>
+      </div>`;
+  } else if (urls.length === 6) cellsHtml = uniform(3, 20); // 6 colores: 3x2 exacto
+  else if (urls.length === 4) cellsHtml = uniform(2, 22); // 4 colores: 2x2
+  else if (urls.length === 3) {
+    cellsHtml = `<div style="${gridBox} grid-template-columns: 1.4fr 1fr; grid-template-rows: 1fr 1fr;">
         <div style="grid-row: 1 / 3;">${cell(urls[0], 28, 20)}</div>
         ${cell(urls[1], 22, 14)}
-        ${cell(urls[3] || urls[2], 22, 14)}
-      </div>`
-    : heroPhotoHtml({ productImageUrl: urls[0], box: { top, bottom, left: g.padX, right: g.padX } }).html;
+        ${cell(urls[2], 22, 14)}
+      </div>`;
+  } else if (urls.length === 2) cellsHtml = uniform(2, 26);
+  else cellsHtml = heroPhotoHtml({ productImageUrl: urls[0], box: { top, bottom, left: g.padX, right: g.padX } }).html;
 
   return `${headHtml(g.w, g.h)}</head><body>
     <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#111113; overflow:hidden;

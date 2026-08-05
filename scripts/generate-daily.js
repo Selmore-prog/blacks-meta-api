@@ -2,7 +2,7 @@ const pool = require('../src/db');
 const { seedCalendar, getPendingForDate } = require('../src/calendar');
 const { generateCopy } = require('../src/ai');
 const { renderPostBuffer } = require('../src/imageRenderer');
-const { fetchProduct } = require('../src/tiendanube');
+const { fetchProduct, productColors } = require('../src/tiendanube');
 const { getBrandProfile } = require('../src/brandProfile');
 const { getLogos } = require('../src/styleService');
 const { getWholesaleSettings, wholesaleContext } = require('../src/wholesale');
@@ -10,7 +10,7 @@ const { getCompanyFacts, companyFactsContext } = require('../src/companyInfo');
 const { getCommercialContextForDate } = require('../src/commercialDates');
 const { eligibleSQL, recentlyFeaturedIds } = require('../src/productScore');
 const config = require('../src/config');
-const { stripEmoji, fixSpelling, shortLabel } = require('../src/textUtils');
+const { stripEmoji, fixSpelling, shortLabel, agreeWithProduct } = require('../src/textUtils');
 const { uploadAsset } = require('../src/storage');
 
 // Retail (con precio y stock finito). 'mayorista' se maneja aparte con pickMayoristaProduct.
@@ -532,8 +532,12 @@ async function renderCarouselShot(shot, i, ctx) {
   const refUrl = refImgs.length ? (refImgs[shot.photoIndex] || refImgs[i % refImgs.length]) : visualImageUrl;
 
   // BENTO de variantes de color: collage (grid) con foto real de cada color, sin IA.
+  // `extraUrls` son fotos que NO están en las del producto (otros colores que en
+  // Tiendanube son productos hermanos: "…Beige" / "…Verde"); las agrega la corrección
+  // cuando el dueño pide ver TODOS los colores y las fotos propias no alcanzan.
   if (shot.shotType === 'variantes') {
-    const bento = [shot.photoIndex, ...(shot.extraPhotos || [])].map((idx) => refImgs[idx]).filter(Boolean).slice(0, 4);
+    const byIndex = [shot.photoIndex, ...(shot.extraPhotos || [])].map((idx) => refImgs[idx]).filter(Boolean);
+    const bento = [...new Set([...byIndex, ...(shot.extraUrls || []).filter(Boolean)])].slice(0, MAX_BENTO);
     return renderPostBuffer({
       format, template: 'grid',
       overlayTitle: shot.overlay || 'También en otros colores',
@@ -544,11 +548,22 @@ async function renderCarouselShot(shot, i, ctx) {
   }
 
   // CIERRE CTA (feed): foto linda full-bleed + llamado a la acción y beneficios, SIN precio.
+  // El titular sale del texto de marca, PERO concordado con el producto de la pieza: el
+  // "Conseguilas en la web" fijo quedaba en femenino sobre un pantalón (bug real,
+  // ago-2026). Si el dueño escribió el texto a mano (overlayByUser), se respeta tal cual.
   if (shot.shotType === 'cta') {
+    // Un titular de cierre es corto. Si el overlay guardado es una frase larga (una pieza
+    // vieja donde el dueño escribió el PEDIDO en el campo de texto), se usa el de marca.
+    const overlayHead = shot.overlay && String(shot.overlay).length <= 45 ? shot.overlay : null;
+    // Texto escrito por el dueño: se imprime tal cual. Cualquier otro (el de marca o el
+    // que puso la IA) se concuerda con el producto de la pieza.
+    const head = (shot.overlayByUser && overlayHead)
+      ? overlayHead
+      : agreeWithProduct(overlayHead || config.brand.ctaHeadline, (product && product.name) || sceneTheme);
     return renderPostBuffer({
       format, template: 'fullbleed',
-      overlayTitle: shot.overlay || config.brand.ctaHeadline,
-      ctaHeadline: config.brand.ctaHeadline,
+      overlayTitle: head,
+      ctaHeadline: head,
       ctaBenefits: config.brand.ctaBenefits,
       productImageUrl: refUrl, coverImage: true,
       logos, showBrand: false, layoutSeed: Number(slotId) + i * 13,
@@ -1014,7 +1029,10 @@ async function generateForSlot(slot, overrides = {}) {
         photoDescriptions = await describeProductPhotos(refImgs.slice(0, 10)).catch(() => []);
       }
       // Cuántas tomas: hero + 2 detalle + cierre CTA, +1 si hay 2+ colores (slide bento).
-      const distinctColors = new Set(photoDescriptions.map((d) => d.color).filter(Boolean)).size;
+      // Los colores salen de la FICHA de Tiendanube (exactos, con stock); la visión es el
+      // plan B y sólo mira las primeras fotos, así que subcontaba los colores.
+      const realColors = productColors(visualProduct || product).length;
+      const distinctColors = Math.max(realColors, new Set(photoDescriptions.map((d) => d.color).filter(Boolean)).size);
       const targetShots = Math.min(6, 4 + (distinctColors >= 2 ? 1 : 0));
       shotPlan = await planCarouselShots({
         productName: product ? product.name : sceneTheme,
@@ -1052,6 +1070,22 @@ async function generateForSlot(slot, overrides = {}) {
       let freeIdx = 0; while (freeIdx < refImgs.length && usedIdx.has(freeIdx)) freeIdx += 1;
       plan = [...plan, { shotType: 'price', focus: '', photoIndex: freeIdx < refImgs.length ? freeIdx : 0, extraPhotos: [], background: 'limpio', overlay: null, badge: null }];
     }
+
+    // BENTO DE COLORES: el slide de variantes tiene que mostrar UN color por foto. El
+    // director de arte elegía dos fotos del mismo color y el collage quedaba mostrando
+    // un solo color (bug real, ago-2026). Acá se corrige con lo que VIO la visión; si
+    // el producto tiene un solo color, el slide pasa a ser un detalle (no se miente).
+    plan = await Promise.all(plan.map(async (shot) => {
+      if (shot.shotType !== 'variantes') return shot;
+      const fixed = { ...shot };
+      const { note, total } = await fillColorBento(fixed, { product: visualProduct || product, refImgs, photoDescriptions });
+      if (total < 2) {
+        console.log(`[generate-daily] Slot #${slot.id}: el producto tiene un solo color — el slide de variantes pasa a detalle.`);
+        return { ...shot, shotType: 'detalle', extraPhotos: [], extraUrls: [], overlay: null };
+      }
+      console.log(`[generate-daily] Slot #${slot.id} · bento de colores: ${note}`);
+      return fixed;
+    }));
 
     // Contexto compartido de la pieza: lo usa renderCarouselShot (y la regeneración de 1 slide).
     const ctx = { refImgs, visualImageUrl, sceneTheme, format, logos, occasion, couponCode, overlayTitle, badgeText, imageBrief, pillar: slot.pillar, slotId: slot.id, product };
@@ -1476,14 +1510,15 @@ async function regenerateSlide({ assetId, index, overlay, instructions }) {
   const i = Number(index);
   if (!Number.isInteger(i) || i < 0 || i >= urls.length) throw new Error('Índice de slide inválido.');
 
-  const meta = Array.isArray(asset.slides_meta) ? asset.slides_meta : (asset.slides_meta ? JSON.parse(asset.slides_meta) : null);
-  // Receta de ESE slide (o una por defecto si la pieza es vieja y no tiene slides_meta).
-  const shot = (meta && meta[i]) ? { ...meta[i] } : { shotType: i === 0 ? 'hero' : 'detalle', photoIndex: i, extraPhotos: [], background: 'limpio', focus: '', overlay: null, badge: null };
+  let metaRaw = asset.slides_meta;
+  if (typeof metaRaw === 'string') { try { metaRaw = JSON.parse(metaRaw); } catch (_) { metaRaw = null; } }
+  // Recetas de los slides. Si la pieza es vieja y no tiene ninguna, se arma una por
+  // defecto para TODOS los slides: así la corrección también queda guardada en piezas
+  // viejas (antes se aplicaba a la imagen pero se perdía en la próxima corrección).
+  const defaultShot = (n) => ({ shotType: n === 0 ? 'hero' : 'detalle', photoIndex: n, extraPhotos: [], background: 'limpio', focus: '', overlay: null, badge: null });
+  const meta = Array.isArray(metaRaw) ? metaRaw : urls.map((_, n) => defaultShot(n));
+  const shot = meta[i] ? { ...meta[i] } : defaultShot(i);
 
-  // Correcciones del usuario: texto exacto del overlay y/o indicación para la imagen.
-  if (typeof overlay === 'string') shot.overlay = overlay.trim() || null;
-  if (instructions && String(instructions).trim()) shot.focus = `${shot.focus || ''} ${String(instructions).trim()}`.trim().slice(0, 200);
-  // Variar la escena IA para que salga distinta al regenerar (fotos reales no cambian).
   shot.photoIndex = Number.isInteger(shot.photoIndex) ? shot.photoIndex : i;
 
   const product = asset.product_id
@@ -1491,6 +1526,56 @@ async function regenerateSlide({ assetId, index, overlay, instructions }) {
     : null;
   const refImgs = (product && Array.isArray(product.images) && product.images.length)
     ? product.images : (product && product.image_url ? [product.image_url] : []);
+
+  // ============ EL PEDIDO ESCRITO CAMBIA LA TOMA, NO SÓLO EL "FOCO" ============
+  // Antes la indicación libre se pegaba al campo `focus`, que las tomas 'variantes',
+  // 'cta' y 'price' ni miran: "poné más colores" no cambiaba nada. Ahora el cerebro lee
+  // el pedido con las fotos reales a la vista y devuelve la receta corregida.
+  const instr = String(instructions || '').trim();
+  const notes = [];
+  let photoDescriptions = [];
+  if (instr) {
+    const { describeProductPhotos, parseSlideCorrection } = require('../src/ai');
+    photoDescriptions = refImgs.length ? await describeProductPhotos(refImgs.slice(0, 10)).catch(() => []) : [];
+    try {
+      const corr = await parseSlideCorrection({
+        instruction: instr,
+        current: shot,
+        index: i,
+        slideCount: urls.length,
+        productName: (product && product.name) || asset.theme_title || '',
+        photoDescriptions,
+        photoCount: Math.max(refImgs.length, 1),
+        format: asset.slot_format === 'story' || asset.format === 'story' ? 'story' : 'feed',
+        ctaHeadline: config.brand.ctaHeadline,
+      });
+      if (corr.shotType) shot.shotType = corr.shotType;
+      if (corr.overlay !== undefined) {
+        shot.overlay = corr.overlay ? stripEmoji(fixSpelling(corr.overlay)) : null;
+        shot.overlayByUser = true; // texto pedido por el dueño: no se le toca el género
+      }
+      if (corr.focus !== undefined) shot.focus = String(corr.focus || '').slice(0, 200);
+      if (corr.photoIndex !== undefined) shot.photoIndex = corr.photoIndex;
+      if (corr.extraPhotos) shot.extraPhotos = corr.extraPhotos.filter((n) => n !== shot.photoIndex);
+      if (corr.note) notes.push(corr.note);
+    } catch (err) {
+      console.warn(`[generate-daily] Corrección de slide sin cerebro (uso el pedido como indicación de foto): ${err.message}`);
+      shot.focus = `${shot.focus || ''} ${instr}`.trim().slice(0, 200);
+    }
+    // COLORES: si la toma quedó como bento de variantes, se completa con TODAS las
+    // fotos de colores distintos que existan de verdad (las del producto y, si no
+    // alcanzan, las de sus hermanos de color en Tiendanube). Nunca se inventa un color.
+    if (shot.shotType === 'variantes') {
+      const filled = await fillColorBento(shot, { product, refImgs, photoDescriptions });
+      if (filled.note) notes.push(filled.note);
+    }
+  }
+  // El texto exacto tipeado en el panel gana sobre lo que haya decidido el cerebro.
+  // El panel sólo manda `overlay` si el dueño EDITÓ el campo (viene precargado con el
+  // texto actual): así, dejarlo como está no pisa la corrección escrita, y vaciarlo a
+  // propósito sí saca el texto.
+  if (typeof overlay === 'string') { shot.overlay = overlay.trim() || null; shot.overlayByUser = true; }
+
   const format = asset.slot_format === 'story' || asset.format === 'story' ? 'story' : 'feed';
   const logos = await getLogos().catch(() => ({ onLight: null, onDark: null }));
   const occasion = await getCommercialContextForDate(asset.scheduled_date, { daysAhead: 0 }).catch(() => null);
@@ -1509,13 +1594,118 @@ async function regenerateSlide({ assetId, index, overlay, instructions }) {
 
   const { url } = await renderCarouselShot(shot, i, ctx);
   urls[i] = url;
-  if (meta) meta[i] = shot;
+  meta[i] = shot;
 
   await pool.query(
     `UPDATE generated_assets SET slides = $2, image_path = $3, slides_meta = $4, updated_at = now() WHERE id = $1`,
-    [assetId, JSON.stringify(urls), urls[0], meta ? JSON.stringify(meta) : asset.slides_meta]
+    [assetId, JSON.stringify(urls), urls[0], JSON.stringify(meta)]
   );
-  return { slides: urls, image_path: urls[0] };
+  return { slides: urls, image_path: urls[0], note: notes.join(' ').trim() || 'Slide regenerado.' };
+}
+
+/* ============ COLORES REALES DE UN MODELO ============ */
+// Palabras de color que aparecen en los nombres de Tiendanube: se sacan del nombre para
+// encontrar los "hermanos" del mismo modelo en otro color.
+const COLOR_WORDS = ['negro', 'negra', 'negros', 'negras', 'beige', 'arena', 'verde', 'verdes', 'azul', 'azules',
+  'marino', 'gris', 'grises', 'blanco', 'blanca', 'crudo', 'kaki', 'caqui', 'marron', 'bordo', 'rojo', 'roja',
+  'amarillo', 'amarilla', 'naranja', 'celeste', 'oliva', 'topo', 'tiza', 'petroleo', 'camel', 'tostado', 'militar',
+  'tabaco', 'chocolate', 'plomo', 'acero', 'natural', 'color', 'colores'];
+
+/**
+ * Fotos de OTROS colores del mismo modelo. En Tiendanube cada color suele ser un producto
+ * aparte ("Pantalón Cargo Pampero Beige" / "… Verde"), así que las fotos del producto de
+ * la pieza sólo alcanzan para 1-2 colores: sin esto, pedir "mostrá todos los colores" no
+ * podía dar más de lo que ya había. Se exige que el nombre comparta TODAS las palabras
+ * del modelo (sin las de color) para no colar un producto distinto.
+ */
+async function siblingColorPhotos(product, limit = 3) {
+  if (!product || !product.name) return [];
+  const tokens = stripAccents(String(product.name).toLowerCase())
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length > 2 && !COLOR_WORDS.includes(w));
+  if (tokens.length < 2) return [];
+  const { rows } = await pool.query(
+    `SELECT id, name, image_url FROM products_cache
+      WHERE id <> $1 AND image_url IS NOT NULL AND ${eligibleSQL()}
+        AND translate(lower(name), 'áéíóúñü', 'aeiounu') LIKE ALL($2::text[])
+      ORDER BY sales_30d DESC NULLS LAST, id
+      LIMIT $3`,
+    [product.id, tokens.slice(0, 6).map((w) => `%${w}%`), limit]
+  );
+  return rows.map((r) => ({ url: r.image_url, name: r.name }));
+}
+
+/**
+ * UNA foto por COLOR distinto para el bento de variantes. El collage tenía dos fotos del
+ * MISMO color (el director de arte eligió 5 y 6, las dos verdes) y encima la plantilla
+ * las colapsaba en una sola: el slide "también en otros colores" mostraba un solo color
+ * (bug real, ago-2026). Se prioriza lo que eligió el cerebro y se descartan las repes.
+ */
+function distinctColorExtras(photoIndex, refImgs, photoDescriptions = [], preferred = []) {
+  const colorOf = (idx) => {
+    const d = photoDescriptions.find((p) => p.index === idx);
+    return d && d.color ? stripAccents(String(d.color).toLowerCase()).split(/\s+/)[0] : null;
+  };
+  const seen = new Set([colorOf(photoIndex)].filter(Boolean));
+  const extras = [];
+  const order = [...preferred, ...refImgs.map((_, n) => n)];
+  for (const idx of order) {
+    if (extras.length >= 3 || idx === photoIndex || extras.includes(idx) || idx >= refImgs.length) continue;
+    const c = colorOf(idx);
+    if (c) { if (seen.has(c)) continue; seen.add(c); }
+    else if (photoDescriptions.length) continue; // hay visión y esta foto no aporta color nuevo
+    extras.push(idx);
+  }
+  return { extras, colors: photoDescriptions.length ? seen.size : extras.length + 1 };
+}
+
+// Cuántas fotos entran en el collage de colores (la plantilla arma 2, 3, 4 o 6 celdas).
+const MAX_BENTO = 6;
+
+/**
+ * Completa el bento de variantes con TODOS los colores que existen de verdad.
+ *
+ * Orden de verdad, de mejor a peor:
+ *  1. Las VARIANTES de Tiendanube (exacto y gratis: el atributo "Color" y la foto que la
+ *     tienda le asigna a cada color, con su stock). Es lo que ve el cliente en la web.
+ *  2. La visión sobre las fotos del producto (sólo mira las primeras 8: por eso el cargo
+ *     Pampero, con 6 colores en 29 fotos, "tenía" dos).
+ *  3. Los productos hermanos del mismo modelo (cuando cada color es un producto aparte).
+ * Devuelve una nota honesta con qué colores entraron y cuáles no.
+ */
+async function fillColorBento(shot, { product, refImgs, photoDescriptions = [] }) {
+  // 1) COLORES REALES DE LA FICHA (la fuente de verdad).
+  const colors = productColors(product);
+  if (colors.length >= 2) {
+    const hero = colors.find((c) => c.index === shot.photoIndex);
+    const rest = colors.filter((c) => c !== hero).sort((a, b) => (b.stock == null ? Infinity : b.stock) - (a.stock == null ? Infinity : a.stock));
+    const pick = [...(hero ? [hero] : []), ...rest].slice(0, MAX_BENTO);
+    if (pick[0].index >= 0) shot.photoIndex = pick[0].index;
+    shot.extraPhotos = pick.slice(1).filter((c) => c.index >= 0).map((c) => c.index);
+    // Un color cuya foto no esté en la galería guardada entra por URL directa.
+    shot.extraUrls = pick.slice(1).filter((c) => c.index < 0).map((c) => c.url);
+    const left = colors.slice(MAX_BENTO).map((c) => c.color);
+    const note = `El collage muestra los ${pick.length} colores con stock en Tiendanube: ${pick.map((c) => c.color).join(', ')}.`
+      + (left.length ? ` (No entraron ${left.join(' y ')}: el collage llega hasta ${MAX_BENTO}.)` : '');
+    return { note, total: pick.length };
+  }
+
+  // 2) Sin variantes de color en la ficha: una foto por color según la visión.
+  const { extras } = distinctColorExtras(shot.photoIndex, refImgs, photoDescriptions, shot.extraPhotos || []);
+  shot.extraPhotos = extras;
+
+  // 3) Hermanos de color del catálogo (otros productos del mismo modelo).
+  const missing = 4 - (1 + shot.extraPhotos.length);
+  const siblings = missing > 0 ? await siblingColorPhotos(product, missing).catch(() => []) : [];
+  shot.extraUrls = siblings.map((s) => s.url);
+
+  const total = Math.min(4, 1 + shot.extraPhotos.length + shot.extraUrls.length);
+  const kind = photoDescriptions.length ? 'colores' : 'fotos';
+  const note = total <= 1
+    ? 'No encontré otra foto de otro color en Tiendanube: el slide quedó con la única que hay.'
+    : `El collage muestra ${total} ${kind}${siblings.length ? ` (${siblings.length} de otros productos del mismo modelo)` : ''} — son todos los que hay en Tiendanube.`;
+  return { note, total };
 }
 
 /**

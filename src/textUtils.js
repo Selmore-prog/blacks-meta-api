@@ -133,4 +133,86 @@ function compactFact(s, max = 30) {
   return t.replace(/^([a-záéíóúñ])/, (m) => m.toUpperCase());
 }
 
-module.exports = { stripEmoji, fixSpelling, shortLabel, compactFact };
+/* =========================================================================
+ * CONCORDANCIA DE GÉNERO ("Conseguilas" vs "Conseguilos")
+ *
+ * El cierre de los carruseles usaba SIEMPRE el mismo texto de marca
+ * (BRAND_CTA_HEADLINE = "Conseguilas en la web"), en femenino. En una pieza de
+ * pantalones quedaba "Conseguilas" — mal escrito y sin forma de arreglarlo desde
+ * el panel (bug real, ago-2026). Acá el pronombre pegado al verbo (-lo/-la/-los/
+ * -las) se adapta al género del producto de la pieza. El NÚMERO se respeta tal
+ * como está escrito (la marca habla en plural), sólo cambia el género.
+ * ========================================================================= */
+
+const NO_ACCENTS = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '');
+
+// Sustantivos del rubro donde la morfología sola falla o conviene fijar.
+const MASC_NOUNS = new Set(['pantalon', 'jean', 'buzo', 'borcego', 'botin', 'calzado', 'guante', 'casco',
+  'chaleco', 'mameluco', 'delantal', 'short', 'cinturon', 'gorro', 'zapato', 'zueco', 'sweater', 'saco',
+  'ambo', 'abrigo', 'protector', 'respirador', 'arnes', 'traje', 'conjunto', 'kit', 'par', 'equipo',
+  'uniforme', 'overol', 'pullover', 'anteojo', 'barbijo', 'pilot', 'piloto', 'impermeable']);
+const FEM_NOUNS = new Set(['campera', 'camisa', 'remera', 'chomba', 'camiseta', 'bota', 'faja', 'capucha',
+  'gorra', 'mochila', 'zapatilla', 'ropa', 'prenda', 'chaqueta', 'polera', 'musculosa', 'media',
+  'antiparra', 'mascara', 'camisola', 'bermuda', 'malla', 'rodillera', 'polaina', 'indumentaria']);
+
+/** Singular aproximado (sólo para decidir género/número, no para imprimir). */
+function singularize(w) {
+  if (/[^aeiou]es$/.test(w) && w.length > 4) return w.slice(0, -2);
+  if (/s$/.test(w) && w.length > 3) return w.slice(0, -1);
+  return w;
+}
+
+/** Género gramatical del sustantivo que encabeza el nombre del producto: 'm' | 'f'. */
+function nounGender(word) {
+  const w = singularize(NO_ACCENTS(String(word || '')).toLowerCase().replace(/[^a-z]/g, ''));
+  if (!w) return 'm';
+  if (MASC_NOUNS.has(w)) return 'm';
+  if (FEM_NOUNS.has(w)) return 'f';
+  if (/(cion|sion|dad|tad|umbre|eza|ura|tud)$/.test(w)) return 'f';
+  if (/a$/.test(w)) return 'f';
+  return 'm';
+}
+
+/**
+ * Género del producto según su nombre: gana la primera palabra que esté en el
+ * lexicón del rubro ("Pantalón Cargo Slim Fit" -> pantalón -> masculino); si
+ * ninguna está, se decide por la primera palabra con la regla morfológica.
+ */
+function productGender(productName) {
+  const words = String(productName || '').split(/[\s/,-]+/).filter(Boolean);
+  for (const w of words) {
+    const norm = singularize(NO_ACCENTS(w).toLowerCase().replace(/[^a-z]/g, ''));
+    if (MASC_NOUNS.has(norm)) return 'm';
+    if (FEM_NOUNS.has(norm)) return 'f';
+  }
+  return words.length ? nounGender(words[0]) : 'm';
+}
+
+// Palabras comunes que TERMINAN en lo/la/los/las sin ser verbo+pronombre.
+const NOT_ENCLITIC = new Set(['regalo', 'trabajo', 'catalogo', 'articulo', 'estilo', 'modelo', 'intervalo',
+  'terciopelo', 'pantalon', 'abuelo', 'suelo', 'cuello', 'ella', 'aquella', 'plantilla', 'semilla',
+  'pantalla', 'estrella', 'espalda', 'tela', 'talla', 'malla', 'sala', 'ala', 'bola', 'cola', 'gala',
+  'escuela', 'suela', 'tobillo', 'solo', 'sola', 'solos', 'solas', 'halo', 'palo', 'pelo', 'malo']);
+// verbo (termina en vocal, con o sin pronombre encadenado) + lo/la/los/las
+const ENCLITIC_RE = /\b([a-zA-ZáéíóúüñÁÉÍÓÚÜÑ]{2,}[aeiouáéíóú](?:te|se|me|nos)?)(los|las|lo|la)\b/g;
+
+/**
+ * Adapta al género del producto los pronombres pegados al verbo de un texto corto
+ * ("Conseguilas en la web" + "Pantalón Cargo" -> "Conseguilos en la web").
+ * Conserva el número (plural/singular) y no toca artículos ("la web") ni palabras
+ * que sólo terminan parecido ("regalo", "pantalla").
+ */
+function agreeWithProduct(text, productName) {
+  const t = String(text == null ? '' : text);
+  if (!t || !productName) return t;
+  const gender = productGender(productName);
+  return t.replace(ENCLITIC_RE, (full, stem, suffix) => {
+    if (full.length < 7) return full;
+    if (NOT_ENCLITIC.has(NO_ACCENTS(full).toLowerCase())) return full;
+    const plural = suffix.endsWith('s');
+    const want = (gender === 'f' ? 'la' : 'lo') + (plural ? 's' : '');
+    return stem + want;
+  });
+}
+
+module.exports = { stripEmoji, fixSpelling, shortLabel, compactFact, agreeWithProduct, productGender };

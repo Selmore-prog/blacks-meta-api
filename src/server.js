@@ -256,7 +256,7 @@ app.get('/api/calendar', wrap(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT c.*,
             a.id as asset_id, a.caption, a.hashtags, a.cta, a.image_path, a.video_path,
-            a.meta_post_id, a.status as asset_status, a.format as asset_format, a.slides,
+            a.meta_post_id, a.status as asset_status, a.format as asset_format, a.slides, a.slides_meta,
             a.edited_video_path, a.edit_status, a.voiceover_path, a.est_cost_usd, a.gen_model, a.qa_notes, a.sticker,
             p.name as product_name, p.image_url as product_image_url, p.price as product_price, p.stock as product_stock,
             fp.name as forced_product_name, fp.image_url as forced_product_image_url,

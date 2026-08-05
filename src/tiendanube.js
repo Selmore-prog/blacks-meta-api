@@ -83,6 +83,44 @@ function normalizeProduct(product) {
 }
 
 /**
+ * COLORES REALES del producto, leídos de las variantes de Tiendanube.
+ *
+ * Es la VERDAD EXACTA y gratis: Tiendanube guarda el atributo "Color" en cada variante
+ * y le asocia la foto de ESE color (variant.image_id). Antes los colores se adivinaban
+ * mirando las fotos con visión, que además sólo mira las 8 primeras: el cargo Pampero
+ * tiene 6 colores repartidos en 29 fotos (beige #0, verde #5, negro #10, azul #14,
+ * tiza #19, gris #24) y el sistema "veía" dos (bug real, ago-2026).
+ *
+ * Se descartan los colores SIN STOCK (no se anuncia un color que no se puede comprar) y
+ * los que no tienen foto propia. `index` es la posición de esa foto en product.images
+ * (-1 si no está en la galería guardada).
+ * Devuelve [{ color, url, index, stock }] en el orden del catálogo.
+ */
+function productColors(product) {
+  const raw = product && product.raw ? product.raw : product;
+  if (!raw || !Array.isArray(raw.variants) || !raw.variants.length) return [];
+  const attrPos = (raw.attributes || []).findIndex((a) => /color/i.test(pickText(a)));
+  if (attrPos < 0) return []; // este producto no se vende por color (sólo talles)
+  const srcById = new Map((raw.images || []).map((im) => [im.id, im.src]));
+  const gallery = Array.isArray(product && product.images) && product.images.length
+    ? product.images
+    : (raw.images || []).map((im) => im.src);
+  const byColor = new Map();
+  for (const v of raw.variants) {
+    const color = pickText(v.values && v.values[attrPos]).trim();
+    if (!color) continue;
+    const key = color.toLowerCase();
+    const entry = byColor.get(key) || { color, url: null, stock: 0, tracked: false };
+    if (typeof v.stock === 'number') { entry.stock += v.stock; entry.tracked = true; }
+    if (!entry.url && v.image_id && srcById.has(v.image_id)) entry.url = srcById.get(v.image_id);
+    byColor.set(key, entry);
+  }
+  return [...byColor.values()]
+    .filter((c) => c.url && (!c.tracked || c.stock > 0))
+    .map((c) => ({ color: c.color, url: c.url, stock: c.tracked ? c.stock : null, index: gallery.indexOf(c.url) }));
+}
+
+/**
  * Trae UN producto puntual con su precio/stock actual (para refrescar justo antes de generar/publicar).
  * Devuelve el producto normalizado o null si no existe / falla.
  */
@@ -173,4 +211,4 @@ async function fetchSalesSince(sinceISO) {
   return sales;
 }
 
-module.exports = { fetchAllProducts, fetchProduct, fetchSalesSince, normalizeProduct, detectBrand, pickText };
+module.exports = { fetchAllProducts, fetchProduct, fetchSalesSince, normalizeProduct, detectBrand, pickText, productColors };
