@@ -82,6 +82,29 @@ async function runReport(body) {
   return data;
 }
 
+/**
+ * Reporte EN TIEMPO REAL (últimos 30 minutos). Los informes normales de GA4 tardan
+ * horas en consolidar, así que para saber si un evento recién instalado está
+ * llegando de verdad hay que preguntar por acá.
+ */
+async function runRealtimeReport(body) {
+  const token = await accessToken();
+  if (!token) return null;
+  const res = await fetch(
+    `https://analyticsdata.googleapis.com/v1beta/properties/${config.ga.propertyId}:runRealtimeReport`,
+    {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    }
+  );
+  const data = await res.json();
+  if (!res.ok || data.error) {
+    throw new Error(`GA runRealtimeReport: ${(data.error && data.error.message) || res.status}`);
+  }
+  return data;
+}
+
 function rowsOf(report) {
   return (report && report.rows) || [];
 }
@@ -256,4 +279,4 @@ async function productViewsBySegment(pool, { days = 28 } = {}) {
   };
 }
 
-module.exports = { isEnabled, storeSummary, topViewedWithRealSales, productViewsBySegment, runReport, accessToken, credentials };
+module.exports = { isEnabled, storeSummary, topViewedWithRealSales, productViewsBySegment, runReport, runRealtimeReport, accessToken, credentials };

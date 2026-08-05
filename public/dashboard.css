@@ -700,3 +700,22 @@ button .cost-tag { margin-left: 8px; }
 .an-conn { border: 1px solid var(--line); border-left-width: 3px; border-radius: 10px; padding: 10px 14px; font-size: 13px; line-height: 1.55; }
 .an-conn.ok { border-left-color: var(--green); }
 .an-conn.bad { border-left-color: #ff6b6b; }
+
+/* ---- Diccionario de eventos ---- */
+.an-ev-state { border: 1px solid var(--line); border-left-width: 3px; border-radius: 10px;
+  padding: 11px 15px; margin: 12px 0; font-size: 13px; line-height: 1.6; }
+.an-ev-state.ok { border-left-color: var(--green); }
+.an-ev-state.warn { border-left-color: var(--orange); }
+.an-ev-state.bad { border-left-color: #ff6b6b; }
+.an-ev-state .ic { width: 15px; height: 15px; vertical-align: -2px; }
+.an-ev-table td { font-size: 12.5px; line-height: 1.55; }
+.an-ev-table tr.an-ev-own td { background: rgba(232, 93, 27, .04); }
+.an-ev-code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; }
+.an-ev-tag { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; border-radius: 100px;
+  padding: 1px 7px; margin-left: 5px; border: 1px solid var(--line); color: var(--muted); }
+.an-ev-tag.own { border-color: rgba(232, 93, 27, .5); color: var(--orange); }
+.an-ev-star { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; background: var(--orange-dim);
+  color: var(--orange); border-radius: 100px; padding: 2px 8px; margin-left: 4px; }
+.an-ev-live { color: var(--green); }
+.an-ev-ojo { color: var(--orange); font-size: 11.5px; }

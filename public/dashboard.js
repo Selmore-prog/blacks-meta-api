@@ -3334,6 +3334,63 @@ async function checkAnalysisSources() {
   }
 }
 
+/**
+ * Diccionario de eventos: qué mide la tienda, qué está entrando AHORA y qué
+ * significa cada uno. La vista en vivo es la clave: los eventos recién puestos
+ * tardan hasta 48 h en salir en los informes normales de Analytics, y sin esto
+ * parece que no funcionan cuando en realidad ya están llegando.
+ */
+async function loadEventCatalog() {
+  const btn = anEl('an-ev');
+  const out = anEl('an-events-out');
+  btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Consultando…`;
+  out.innerHTML = `<div class="panel an-panel"><p class="loading">Preguntando a Analytics qué está llegando…</p></div>`;
+  try {
+    const d = await api('/api/analysis/eventos?days=7');
+    if (!d.enabled) { out.innerHTML = `<div class="panel an-panel"><p class="empty">${esc(d.reason)}</p></div>`; return; }
+
+    const r = d.resumen;
+    const estado = r.llegandoAhora > 0
+      ? `<div class="an-ev-state ok">${icon('check')} <b>Está midiendo.</b> En los últimos 30 minutos llegaron ${r.llegandoAhora} de los ${r.propios} eventos propios.
+         ${r.esperandoConsolidacion ? ' Todavía no aparecen en los informes por fecha: Analytics tarda hasta 48 h en consolidarlos. Es normal y no hay nada que arreglar.' : ''}</div>`
+      : `<div class="an-ev-state bad">${icon('alert')} <b>No está llegando nada.</b> Si ya publicaste el tema con la medición nueva, entrá a la tienda, tocá un botón de WhatsApp y volvé a probar en un minuto.</div>`;
+
+    const dims = d.dimensiones.ok
+      ? `<div class="an-ev-state ok">${icon('check')} Las dimensiones personalizadas están registradas: las consultas se pueden abrir por tipo y por botón.</div>`
+      : `<div class="an-ev-state warn">${icon('alert')} <b>Faltan registrar las dimensiones personalizadas.</b> Los eventos se cuentan igual, pero sin esto no se puede saber si una consulta fue mayorista o minorista, ni de qué botón salió.
+          <ul class="an-warn-list">${d.dimensiones.lista.map((x) => `<li><code>${esc(x.param)}</code> — ${esc(x.label)} <span class="an-dim">(${esc(x.valores)})</span></li>`).join('')}</ul>
+          <p class="hint">${esc(d.dimensiones.comoRegistrar)}</p></div>`;
+
+    const fila = (e) => `<tr class="${e.propio ? 'an-ev-own' : ''}">
+        <td>
+          <b>${esc(e.label)}</b>${e.destacado ? ' <span class="an-ev-star">clave</span>' : ''}<br>
+          <code class="an-ev-code">${esc(e.event)}</code>
+          ${e.propio ? '<span class="an-ev-tag own">nuestro</span>' : '<span class="an-ev-tag auto">automático</span>'}
+        </td>
+        <td>${esc(e.significa)}<br><span class="an-dim">Dónde: ${esc(e.donde)}</span>
+          <br><span class="an-dim">Para qué: ${esc(e.paraQue)}</span>
+          ${e.ojo ? `<br><span class="an-ev-ojo">Ojo: ${esc(e.ojo)}</span>` : ''}</td>
+        <td class="num">${e.ahora === null ? '<span class="an-dim">—</span>' : (e.ahora ? `<b class="an-ev-live">${anNum(e.ahora)}</b>` : '<span class="an-dim">0</span>')}</td>
+        <td class="num">${e.periodo ? anNum(e.periodo) : '<span class="an-dim">0</span>'}</td>
+      </tr>`;
+
+    out.innerHTML = `<div class="panel an-panel">
+      <h3>${icon('list')} Qué se está midiendo</h3>
+      ${estado}
+      ${dims}
+      <div class="an-scroll"><table class="insights an-table an-ev-table">
+        <thead><tr><th>Evento</th><th>Qué significa</th><th class="num">Ahora<br><span class="an-dim">30 min</span></th><th class="num">Últimos<br>${d.ventana.dias} días</th></tr></thead>
+        <tbody>${d.eventos.map(fila).join('')}</tbody>
+      </table></div>
+      <p class="hint">"Ahora" es la vista en vivo de Analytics (últimos 30 minutos, sin demora). "Últimos ${d.ventana.dias} días" sale de los informes por fecha, que se consolidan con retraso.</p>
+    </div>`;
+  } catch (e) {
+    out.innerHTML = `<div class="panel an-panel"><p class="empty">No pude consultarlo: ${esc(e.message)}</p></div>`;
+  } finally {
+    btn.disabled = false; btn.innerHTML = `${icon('list')} Qué se está midiendo`;
+  }
+}
+
 function exportSectionAnalysis() {
   if (!anReport) { toast('Primero cargá el informe', 'err'); return; }
   const params = new URLSearchParams(analysisParams());

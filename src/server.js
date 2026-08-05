@@ -513,6 +513,74 @@ app.get('/api/analysis/section', wrap(async (req, res) => {
   res.json(await cachedSectionReport(req.query));
 }));
 
+/* Qué se está midiendo, qué está llegando AHORA y qué significa cada evento.
+ * Existe porque los eventos nuevos tardan hasta 48 h en aparecer en los informes
+ * normales de GA4: sin la vista en tiempo real parece que no funcionan cuando en
+ * realidad ya están entrando. */
+app.get('/api/analysis/eventos', wrap(async (req, res) => {
+  const { runRealtimeReport, runReport, isEnabled: gaOn } = require('./analytics');
+  const { EVENT_CATALOG, OWN_EVENTS, CUSTOM_DIMENSIONS } = require('./eventCatalog');
+  if (!gaOn()) return res.json({ enabled: false, reason: 'Google Analytics no está configurado.' });
+
+  const days = Math.min(30, Math.max(1, Number(req.query.days) || 7));
+  const hoy = new Date().toISOString().slice(0, 10);
+  const desde = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
+  const count = (rep) => {
+    const out = {};
+    for (const r of (rep && rep.rows) || []) out[r.dimensionValues[0].value] = Number(r.metricValues[0].value);
+    return out;
+  };
+
+  const [rt, hist] = await Promise.all([
+    runRealtimeReport({ dimensions: [{ name: 'eventName' }], metrics: [{ name: 'eventCount' }], limit: 50 })
+      .then(count).catch(() => null),
+    runReport({
+      dateRanges: [{ startDate: desde, endDate: hoy }],
+      dimensions: [{ name: 'eventName' }], metrics: [{ name: 'eventCount' }], limit: 50,
+    }).then(count).catch(() => ({})),
+  ]);
+
+  // ¿Están declaradas las dimensiones personalizadas? Se prueba una: si GA no la
+  // conoce, responde con error y sabemos que falta registrarlas todas.
+  let dimensionsReady = true;
+  let dimensionsError = null;
+  try {
+    await runReport({
+      dateRanges: [{ startDate: desde, endDate: hoy }],
+      dimensions: [{ name: 'customEvent:lead_type' }], metrics: [{ name: 'eventCount' }], limit: 1,
+    });
+  } catch (e) { dimensionsReady = false; dimensionsError = e.message; }
+
+  const eventos = EVENT_CATALOG.map((e) => ({
+    ...e,
+    ahora: rt ? (rt[e.event] || 0) : null,
+    periodo: hist[e.event] || 0,
+  }));
+  const propiosAhora = OWN_EVENTS.filter((n) => rt && rt[n]).length;
+  const propiosPeriodo = OWN_EVENTS.filter((n) => hist[n]).length;
+
+  res.json({
+    enabled: true,
+    realtimeOk: Boolean(rt),
+    ventana: { desde, hasta: hoy, dias: days },
+    eventos,
+    resumen: {
+      propios: OWN_EVENTS.length,
+      llegandoAhora: propiosAhora,
+      consolidados: propiosPeriodo,
+      // El caso típico al día siguiente de publicar: entran en vivo pero los
+      // informes todavía no los muestran.
+      esperandoConsolidacion: propiosAhora > 0 && propiosPeriodo === 0,
+    },
+    dimensiones: {
+      ok: dimensionsReady,
+      error: dimensionsError,
+      lista: CUSTOM_DIMENSIONS,
+      comoRegistrar: 'GA4 > Administrar > Definiciones personalizadas > Crear dimensión personalizada. Ámbito: Evento. El "nombre del parámetro" tiene que escribirse exactamente igual que en la lista. GA4 sólo procesa desde el momento en que se crean: no es retroactivo.',
+    },
+  });
+}));
+
 // Estado de las tres fuentes del informe, en castellano y con el paso que falta.
 // Sirve para no tener que adivinar por qué un panel aparece vacío.
 app.get('/api/analysis/conexiones', wrap(async (req, res) => {
