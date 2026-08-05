@@ -26,6 +26,7 @@
       <button class="tab" data-view="style" onclick="switchTab('style')"><span data-ic="sparkles"></span><span class="tl">Estilo de marca</span></button>
       <button class="tab" data-view="products" onclick="switchTab('products')"><span data-ic="tag"></span><span class="tl">Productos</span></button>
       <button class="tab" data-view="metrics" onclick="switchTab('metrics')"><span data-ic="chart"></span><span class="tl">Métricas</span></button>
+      <button class="tab" data-view="analysis" onclick="switchTab('analysis')"><span data-ic="search"></span><span class="tl">Análisis web</span></button>
     </nav>
     <div class="side-foot">@blacks.indumentaria</div>
     <button class="side-collapse" id="side-collapse" onclick="toggleSidenav()" title="Comprimir / desplegar el menú">‹</button>
@@ -232,6 +233,59 @@
         <div id="lessons-panel"></div>
       </div>
     </section>
+
+    <!-- ===== ANÁLISIS WEB: radiografía de una sección del sitio, comparando períodos ===== -->
+    <section id="view-analysis" class="view hidden">
+      <div class="toolbar">
+        <div>
+          <h2>Análisis web</h2>
+          <div class="sub">Qué pasa adentro de una sección del sitio: de dónde viene la gente, qué mira, a dónde va y cuántos terminan consultando.</div>
+        </div>
+      </div>
+
+      <div class="panel" style="margin-bottom:18px;">
+        <div class="an-controls">
+          <div class="field">
+            <label>Sección (ruta)</label>
+            <input class="input" id="an-prefix" list="an-prefixes" value="/mayorista" placeholder="/mayorista"/>
+            <datalist id="an-prefixes">
+              <option value="/mayorista">Mayorista</option>
+              <option value="/productos">Fichas de producto</option>
+              <option value="/eshop">Catálogo minorista</option>
+              <option value="/contacto">Contacto</option>
+              <option value="/">Todo el sitio</option>
+            </datalist>
+          </div>
+          <div class="field">
+            <label>Comparación</label>
+            <select class="input" id="an-preset">
+              <option value="month-prev">Mes pasado vs. el anterior</option>
+              <option value="jul-may">Julio vs. mayo</option>
+              <option value="last30">Últimos 30 días vs. 30 previos</option>
+              <option value="year">Mes pasado vs. mismo mes del año pasado</option>
+              <option value="custom">Fechas a mano</option>
+            </select>
+          </div>
+          <div class="field"><label>Período a analizar</label>
+            <div class="an-dates"><input class="input" type="date" id="an-from"/><span>a</span><input class="input" type="date" id="an-to"/></div>
+          </div>
+          <div class="field"><label>Comparar contra</label>
+            <div class="an-dates"><input class="input" type="date" id="an-cmp-from"/><span>a</span><input class="input" type="date" id="an-cmp-to"/></div>
+          </div>
+        </div>
+        <div class="an-actions">
+          <button class="btn-primary" id="an-run" onclick="loadSectionAnalysis()"><span data-ic="search"></span> Ver informe</button>
+          <button class="btn-ghost" id="an-ai" onclick="explainSectionAnalysis()"><span data-ic="sparkles"></span> Explicar con IA</button>
+          <button class="btn-ghost" id="an-export" onclick="exportSectionAnalysis()"><span data-ic="download"></span> Descargar informe</button>
+        </div>
+        <div class="field" style="margin-top:10px;">
+          <label>Contexto para la IA <span class="hint" style="font-weight:400;">(opcional — lo que Analytics no puede saber)</span></label>
+          <textarea class="input" id="an-context" rows="2" placeholder="Ej: en julio subimos el presupuesto de Google Ads y estuvimos con menos gente atendiendo el WhatsApp mayorista"></textarea>
+        </div>
+      </div>
+
+      <div id="an-out"></div>
+    </section>
   </div>
 
   <!-- ===== Navegación inferior (mobile, tipo app) ===== -->
@@ -241,6 +295,7 @@
     <button class="tab" data-view="style" onclick="switchTab('style')"><span data-ic="sparkles"></span><span class="tl">Estilo</span></button>
     <button class="tab" data-view="products" onclick="switchTab('products')"><span data-ic="tag"></span><span class="tl">Productos</span></button>
     <button class="tab" data-view="metrics" onclick="switchTab('metrics')"><span data-ic="chart"></span><span class="tl">Métricas</span></button>
+    <button class="tab" data-view="analysis" onclick="switchTab('analysis')"><span data-ic="search"></span><span class="tl">Análisis</span></button>
   </nav>
 
   <!-- Modal edición: en desktop es un panel lateral que se desliza desde la derecha;

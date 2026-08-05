@@ -1108,7 +1108,7 @@ async function generateCopy(opts) {
  * Genera un objeto JSON arbitrario (para el planner y otras tareas estructuradas).
  * Intenta Gemini (con responseSchema) y cae a Groq (json_object). Lanza si ambos fallan.
  */
-async function generateJson({ system, prompt, schema, maxTokens = 4000, temperature = 0.6 }) {
+async function generateJson({ system, prompt, schema, maxTokens = 4000, temperature = 0.6, thinkingBudget = 0 }) {
   if (preferGemini()) {
     try {
       const data = await geminiGenerateContent(config.gemini.textModel, {
@@ -1118,7 +1118,9 @@ async function generateJson({ system, prompt, schema, maxTokens = 4000, temperat
           temperature,
           maxOutputTokens: maxTokens,
           responseMimeType: 'application/json',
-          thinkingConfig: { thinkingBudget: 0 },
+          // Por defecto sin "pensar" (barato y rápido). Los análisis que cruzan muchos
+          // números sí lo piden: un diagnóstico sin razonar sale en titulares vacíos.
+          thinkingConfig: { thinkingBudget },
           ...(schema ? { responseSchema: schema } : {}),
         },
       });
@@ -2461,11 +2463,141 @@ Devolvé SOLO este JSON:
   };
 }
 
+/* =========================================================================
+ * DIAGNÓSTICO DE UNA SECCIÓN DEL SITIO (analista de datos)
+ *
+ * Recibe el informe comparado de sectionAnalysis.js (dos períodos, con rutas, fuentes,
+ * entradas, destinos y consultas) y explica QUÉ PASÓ. La regla dura es que cada
+ * afirmación tenga números del informe atrás: la pregunta que originó esto ("¿por qué
+ * julio tuvo más visitas y menos consultas?") se contesta mal con generalidades.
+ * ========================================================================= */
+
+/** Convierte el informe en un bloque de texto compacto (el modelo lee números, no JSON gigante). */
+function sectionReportDigest(rep) {
+  const pctStr = (v) => (v === null || v === undefined ? 'nuevo' : `${v > 0 ? '+' : ''}${v}%`);
+  const line = (label, cur, prev, delta, extra = '') => `- ${label}: ${cur} (antes ${prev}, ${pctStr(delta)})${extra}`;
+  const table = (title, arr, fmt, n = 10) => (arr && arr.length
+    ? `\n${title}\n${arr.slice(0, n).map(fmt).join('\n')}` : '');
+
+  const f = rep.funnel;
+  const peak = [...(rep.daily || [])].sort((a, b) => b.sessions - a.sessions)[0];
+  const low = [...(rep.daily || [])].sort((a, b) => a.sessions - b.sessions)[0];
+
+  return `SECCIÓN ANALIZADA: ${rep.prefix}
+PERÍODO ACTUAL: ${rep.current.label} · PERÍODO ANTERIOR: ${rep.previous.label}
+
+RESUMEN (actual vs anterior)
+${rep.kpis.map((k) => line(k.label, `${k.cur}${k.unit}`, `${k.prev}${k.unit}`, k.delta)).join('\n')}
+- Peso de la sección sobre todo el sitio: ${f.current.shareOfSite}% de las sesiones (antes ${f.previous.shareOfSite}%)
+${peak ? `- Día pico del período actual: ${peak.date} con ${peak.sessions} sesiones y ${peak.contacts} consultas` : ''}
+${low ? `- Día más flojo: ${low.date} con ${low.sessions} sesiones` : ''}
+${table('PÁGINAS DE LA SECCIÓN (vistas)', rep.pages,
+    (p) => `- ${p.key}: ${p.views} vistas (antes ${p.viewsPrev}, ${pctStr(p.viewsDelta)}) · ${p.sessions} sesiones · interacción ${p.engagement}%`, 12)}
+${table('DE DÓNDE VIENE EL TRÁFICO Y CUÁNTO CONSULTA', rep.sources,
+    (s) => `- ${s.sourceMedium} · campaña "${s.campaign}": ${s.sessions} sesiones (antes ${s.sessionsPrev}, ${pctStr(s.sessionsDelta)}) · ${s.contacts} consultas (antes ${s.contactsPrev}) · tasa ${s.rate}% (antes ${s.ratePrev}%) · interacción ${s.engagement}% · rebote ${s.bounce}%`, 12)}
+${table('POR DÓNDE ENTRAN (landing de la sesión)', rep.landings,
+    (l) => `- ${l.key}: ${l.sessions} sesiones (${pctStr(l.sessionsDelta)}) · rebote ${l.bounce}% (antes ${l.bouncePrev}%)`, 8)}
+${table('DESDE QUÉ SITIO/PÁGINA LLEGAN A LA SECCIÓN', rep.entries,
+    (e) => `- ${e.key}: ${e.views} vistas (${pctStr(e.viewsDelta)})`, 8)}
+${table('A DÓNDE VAN DESPUÉS DE LA SECCIÓN', rep.destinations,
+    (d) => `- ${d.key}: ${d.views} vistas (${pctStr(d.viewsDelta)})`, 10)}
+${table('PÁGINAS DONDE SE TOCA EL WHATSAPP MAYORISTA (dentro de la sección)', rep.contactPages,
+    (c) => `- ${c.key}: ${c.contacts} consultas (antes ${c.contactsPrev}, ${pctStr(c.contactsDelta)})`, 10)}
+${table('DISPOSITIVOS', rep.devices, (d) => `- ${d.key}: ${d.sessions} sesiones (${pctStr(d.sessionsDelta)}) · interacción ${d.engagement}%`, 4)}
+${table('REGIONES', rep.regions, (r) => `- ${r.key}: ${r.sessions} sesiones (${pctStr(r.sessionsDelta)})`, 8)}
+${table('OTROS CANALES DE CONSULTA MEDIDOS EN TODO EL SITIO', rep.tracking.forms,
+    (x) => `- evento ${x.key}: ${x.count} (antes ${x.countPrev}, ${pctStr(x.countDelta)})`, 5)}
+
+LÍMITES DE LA MEDICIÓN (tenelos en cuenta, no los ignores):
+${rep.tracking.warnings.map((w) => `- ${w}`).join('\n')}`;
+}
+
+/**
+ * Diagnóstico con IA del informe de sección. `businessContext` es lo que el dueño sabe
+ * y Analytics no (ej. "en julio pausamos tal campaña", "hubo feriados").
+ */
+async function analyzeSectionFunnel({ report, businessContext = '' } = {}) {
+  const digest = sectionReportDigest(report);
+  const system = 'Sos analista de datos digital de una PyME argentina de indumentaria de trabajo (BLACKS), especialista en Google Analytics 4 y en tráfico pago de Google Ads. Hablás en castellano rioplatense, claro y directo, sin jerga vacía. Cada afirmación tuya se apoya en un número del informe: si un dato no está, decís que no está medido en vez de inventarlo. Respondés SOLO JSON.';
+  const prompt = `${digest}
+${businessContext ? `\nCONTEXTO QUE APORTA EL DUEÑO (no está en Analytics, tomalo como cierto): "${String(businessContext).slice(0, 800)}"\n` : ''}
+TAREA: explicá qué pasó en esta sección entre los dos períodos y qué conviene hacer.
+
+REGLAS:
+- Escribí para el dueño del negocio, no para un analista: nada de "CTR", "bounce", "funnel" sin explicar en una frase.
+- CITÁ NÚMEROS del informe en cada hallazgo e hipótesis (ej. "las sesiones de MaxPerf pasaron de 1.436 a 3.922").
+- Ordená las hipótesis de MÁS a MENOS probable, y para cada una decí qué evidencia del informe la sostiene, qué evidencia la contradice (si hay), cómo verificarla en 5 minutos y qué haría falta cambiar.
+- Distinguí SIEMPRE tres cosas: (a) lo que el dato demuestra, (b) lo que el dato sugiere pero no prueba, (c) lo que no se puede saber con lo que hoy se mide.
+- Si la caída de consultas se explica mejor por algo que pasó FUERA de la sección, decilo con todas las letras.
+- Ojo con la trampa clásica: más tráfico de peor calidad baja la tasa de consulta sin que nada del sitio haya empeorado. Fijate si el mix de fuentes cambió antes de culpar a la página.
+- "acciones": ENTRE 3 Y 6 (obligatorio, nunca vacío), concretas y accionables esta semana, cada una con impacto esperado (alto/medio/bajo) y esfuerzo (bajo/medio/alto). Si algo hay que medir mejor, ponelo como acción.
+- Nada de relleno. Si un bloque no tiene sustento en los datos, dejalo vacío.
+
+Devolvé SOLO este JSON:
+{
+ "titular": "una frase que resume qué pasó, con el número clave adentro",
+ "resumen": "3-5 oraciones explicando la película completa",
+ "hallazgos": [{"texto":"qué muestra el dato, con números","tipo":"bueno|malo|neutro"}],
+ "hipotesis": [{"titulo":"...","probabilidad":"alta|media|baja","evidencia":["..."],"contra":["..."],"verificar":"...","implica":"..."}],
+ "sin_medir": ["qué no se puede responder con lo que hay medido hoy"],
+ "acciones": [{"titulo":"...","detalle":"...","impacto":"alto|medio|bajo","esfuerzo":"bajo|medio|alto"}],
+ "preguntas": ["preguntas concretas para el dueño que cambiarían el diagnóstico"]
+}`;
+  const schema = {
+    type: 'object',
+    properties: {
+      titular: { type: 'string' },
+      resumen: { type: 'string' },
+      hallazgos: { type: 'array', items: { type: 'object', properties: { texto: { type: 'string' }, tipo: { type: 'string' } }, required: ['texto'] } },
+      hipotesis: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: {
+            titulo: { type: 'string' }, probabilidad: { type: 'string' },
+            evidencia: { type: 'array', items: { type: 'string' } },
+            contra: { type: 'array', items: { type: 'string' } },
+            verificar: { type: 'string' }, implica: { type: 'string' },
+          },
+          required: ['titulo', 'probabilidad'],
+        },
+      },
+      sin_medir: { type: 'array', items: { type: 'string' } },
+      acciones: {
+        type: 'array',
+        items: {
+          type: 'object',
+          properties: { titulo: { type: 'string' }, detalle: { type: 'string' }, impacto: { type: 'string' }, esfuerzo: { type: 'string' } },
+          required: ['titulo'],
+        },
+      },
+      preguntas: { type: 'array', items: { type: 'string' } },
+    },
+    required: ['titular', 'resumen', 'hallazgos', 'hipotesis', 'acciones'],
+  };
+  // OJO: en Gemini los tokens de razonamiento se descuentan de maxOutputTokens. Con el
+  // techo de siempre (4000) el JSON salía cortado a la mitad y caía al modelo de respaldo,
+  // que sin razonar contesta en generalidades ("mejorar la experiencia del usuario").
+  const out = await generateJson({ system, prompt, schema, maxTokens: 9000, temperature: 0.3, thinkingBudget: 3000 });
+  if (!out || typeof out !== 'object') throw new Error('El análisis no devolvió nada interpretable.');
+  return {
+    titular: String(out.titular || ''),
+    resumen: String(out.resumen || ''),
+    hallazgos: Array.isArray(out.hallazgos) ? out.hallazgos.slice(0, 12) : [],
+    hipotesis: Array.isArray(out.hipotesis) ? out.hipotesis.slice(0, 6) : [],
+    sinMedir: Array.isArray(out.sin_medir) ? out.sin_medir.slice(0, 8) : [],
+    acciones: Array.isArray(out.acciones) ? out.acciones.slice(0, 6) : [],
+    preguntas: Array.isArray(out.preguntas) ? out.preguntas.slice(0, 6) : [],
+  };
+}
+
 module.exports = {
   generateCopy,
   generateJson,
   parseCorrection,
   parseSlideCorrection,
+  analyzeSectionFunnel,
+  sectionReportDigest,
   generateBackground,
   generateProductScene,
   planCarouselShots,

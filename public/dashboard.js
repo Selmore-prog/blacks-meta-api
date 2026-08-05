@@ -35,6 +35,8 @@ const ICONS = {
   heart: '<path d="M20.84 4.61a5.5 5.5 0 0 0-7.78 0L12 5.67l-1.06-1.06a5.5 5.5 0 0 0-7.78 7.78L12 21.23l8.84-8.84a5.5 5.5 0 0 0 0-7.78z"/>',
   comment: '<path d="M21 11.5a8.38 8.38 0 0 1-.9 3.8 8.5 8.5 0 0 1-7.6 4.7 8.38 8.38 0 0 1-3.8-.9L3 21l1.9-5.7a8.38 8.38 0 0 1-.9-3.8 8.5 8.5 0 0 1 4.7-7.6 8.38 8.38 0 0 1 3.8-.9h.5a8.48 8.48 0 0 1 8 8z"/>',
   bookmark: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
+  search: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
+  route: '<circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/>',
 };
 function icon(name, extra = '') {
   const fill = name === 'play' ? 'currentColor' : 'none';
@@ -121,6 +123,7 @@ function switchTab(view) {
   if (view === 'metrics') loadMetrics();
   if (view === 'products') loadProducts();
   if (view === 'studio') loadStudio();
+  if (view === 'analysis') setupAnalysis();
 }
 
 /* Sub-pestañas de Métricas (para que la vista no sea un scroll infinito). */
@@ -2926,6 +2929,262 @@ async function analyzeAccount() {
   } catch (e) {
     out.innerHTML = `<p class="hint" style="color:var(--muted)">No pude analizar: ${esc(e.message)} (revisá permisos de Instagram insights).</p>`;
   } finally { btn.disabled = false; btn.innerHTML = `${icon('chart')} Analizar mi cuenta`; }
+}
+
+/* ============ ANÁLISIS WEB (secciones del sitio) ============
+ * Radiografía de una ruta del sitio comparando dos períodos. Existe porque el panel
+ * mostraba totales y no dejaba contestar la pregunta del negocio: "/mayorista tuvo el
+ * doble de visitas que en mayo y menos consultas, ¿por qué?". */
+
+let anReport = null;      // último informe cargado (para exportar sin volver a pedirlo)
+let anAnalysis = null;    // último diagnóstico de la IA
+
+const anEl = (id) => document.getElementById(id);
+const ymd = (d) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+const monthStart = (y, m) => new Date(y, m, 1);
+const monthEnd = (y, m) => new Date(y, m + 1, 0);
+
+/** Rellena las 4 fechas según el preset elegido. */
+function applyAnalysisPreset() {
+  const preset = anEl('an-preset').value;
+  const today = new Date();
+  const set = (from, to, cmpFrom, cmpTo) => {
+    anEl('an-from').value = ymd(from); anEl('an-to').value = ymd(to);
+    anEl('an-cmp-from').value = ymd(cmpFrom); anEl('an-cmp-to').value = ymd(cmpTo);
+  };
+  const y = today.getFullYear();
+  const m = today.getMonth();
+  if (preset === 'month-prev') set(monthStart(y, m - 1), monthEnd(y, m - 1), monthStart(y, m - 2), monthEnd(y, m - 2));
+  else if (preset === 'jul-may') set(monthStart(y, 6), monthEnd(y, 6), monthStart(y, 4), monthEnd(y, 4));
+  else if (preset === 'last30') {
+    const to = new Date(today); to.setDate(to.getDate() - 1);
+    const from = new Date(to); from.setDate(from.getDate() - 29);
+    const cmpTo = new Date(from); cmpTo.setDate(cmpTo.getDate() - 1);
+    const cmpFrom = new Date(cmpTo); cmpFrom.setDate(cmpFrom.getDate() - 29);
+    set(from, to, cmpFrom, cmpTo);
+  } else if (preset === 'year') set(monthStart(y, m - 1), monthEnd(y, m - 1), monthStart(y - 1, m - 1), monthEnd(y - 1, m - 1));
+}
+
+let anReady = false;
+function setupAnalysis() {
+  if (anReady) return;
+  anReady = true;
+  anEl('an-preset').addEventListener('change', applyAnalysisPreset);
+  ['an-from', 'an-to', 'an-cmp-from', 'an-cmp-to'].forEach((id) =>
+    anEl(id).addEventListener('change', () => { anEl('an-preset').value = 'custom'; }));
+  applyAnalysisPreset();
+  loadSectionAnalysis();
+}
+
+/** Parámetros de la consulta, con los nombres de período que se muestran en el informe. */
+function analysisParams() {
+  const monthName = (a, b) => {
+    const d1 = new Date(`${a}T12:00:00`); const d2 = new Date(`${b}T12:00:00`);
+    const fmt = (d) => d.toLocaleDateString('es-AR', { month: 'long', year: 'numeric' });
+    // Un mes calendario completo se nombra por su mes; si no, se muestran las fechas.
+    if (d1.getDate() === 1 && d2.getMonth() === d1.getMonth() && d2.getDate() === new Date(d2.getFullYear(), d2.getMonth() + 1, 0).getDate()) {
+      return fmt(d1).replace(/^\w/, (c) => c.toUpperCase());
+    }
+    return `${d1.toLocaleDateString('es-AR')} a ${d2.toLocaleDateString('es-AR')}`;
+  };
+  const from = anEl('an-from').value; const to = anEl('an-to').value;
+  const cmpFrom = anEl('an-cmp-from').value; const cmpTo = anEl('an-cmp-to').value;
+  return {
+    prefix: anEl('an-prefix').value.trim() || '/mayorista',
+    from, to, cmpFrom, cmpTo,
+    label: monthName(from, to), cmpLabel: monthName(cmpFrom, cmpTo),
+  };
+}
+
+const anQuery = () => new URLSearchParams(analysisParams()).toString();
+
+/** Variación coloreada. `goodIsUp=false` para métricas donde subir es malo (rebote). */
+function anDelta(delta, goodIsUp = true) {
+  if (delta === null || delta === undefined) return '<span class="an-d new">nuevo</span>';
+  if (!delta) return '<span class="an-d flat">=</span>';
+  const good = goodIsUp ? delta > 0 : delta < 0;
+  return `<span class="an-d ${good ? 'up' : 'down'}">${delta > 0 ? '+' : ''}${delta}%</span>`;
+}
+
+const anNum = (v) => (typeof v === 'number' ? v.toLocaleString('es-AR') : v);
+
+function anTable(title, cols, rows, note) {
+  if (!rows || !rows.length) return '';
+  return `<div class="panel an-panel"><h3>${title}</h3>${note ? `<p class="hint">${esc(note)}</p>` : ''}
+    <div class="an-scroll"><table class="insights an-table"><thead><tr>${cols.map((c) => `<th${c.num ? ' class="num"' : ''}>${esc(c.label)}</th>`).join('')}</tr></thead>
+    <tbody>${rows.map((r) => `<tr>${cols.map((c) => `<td${c.num ? ' class="num"' : ''}>${c.cell(r)}</td>`).join('')}</tr>`).join('')}</tbody></table></div></div>`;
+}
+
+async function loadSectionAnalysis() {
+  const out = anEl('an-out');
+  const btn = anEl('an-run');
+  const p = analysisParams();
+  if (!p.from || !p.to || !p.cmpFrom || !p.cmpTo) { toast('Elegí las fechas de los dos períodos', 'err'); return; }
+  btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Consultando Analytics…`;
+  out.innerHTML = skeleton('rows', 4);
+  try {
+    anReport = await api(`/api/analysis/section?${anQuery()}`);
+    anAnalysis = null;
+    renderSectionAnalysis();
+  } catch (e) {
+    out.innerHTML = `<div class="panel"><p class="empty">No pude traer el informe: ${esc(e.message)}</p></div>`;
+  } finally {
+    btn.disabled = false; btn.innerHTML = `${icon('search')} Ver informe`;
+  }
+}
+
+function renderSectionAnalysis() {
+  const r = anReport;
+  if (!r) return;
+  const kpis = r.kpis.map((k) => `<div class="an-kpi" title="${esc(k.help || '')}">
+      <span class="an-lbl">${esc(k.label)}</span>
+      <b>${anNum(k.cur)}${esc(k.unit)}</b>
+      <span class="an-prev">antes ${anNum(k.prev)}${esc(k.unit)} ${anDelta(k.delta)}</span>
+    </div>`).join('');
+
+  const html = `
+    <div class="panel an-panel">
+      <h3>${icon('chart')} ${esc(r.prefix)} · ${esc(r.current.label)} vs ${esc(r.previous.label)}</h3>
+      <div class="an-kpis">${kpis}</div>
+      <!-- Alto FIJO en el contenedor: con maintainAspectRatio:false, un canvas suelto
+           crece sin techo hasta dejar la página con miles de píxeles en blanco. -->
+      <div style="position:relative; height:260px; margin-top:16px;"><canvas id="an-chart"></canvas></div>
+      <p class="hint" style="margin-top:6px;">Barras: sesiones por día en la sección. Línea: consultas al WhatsApp mayorista en todo el sitio.</p>
+    </div>
+
+    <div id="an-ai-out"></div>
+
+    ${anTable(`${icon('route')} De dónde viene la gente y cuánto consulta`, [
+    { label: 'Fuente / medio', cell: (x) => esc(x.sourceMedium) },
+    { label: 'Campaña', cell: (x) => `<span class="an-dim">${esc(x.campaign)}</span>` },
+    { label: 'Sesiones', num: true, cell: (x) => `${anNum(x.sessions)} ${anDelta(x.sessionsDelta)}<br><span class="an-dim">antes ${anNum(x.sessionsPrev)}</span>` },
+    { label: 'Consultas', num: true, cell: (x) => `${anNum(x.contacts)}<br><span class="an-dim">antes ${anNum(x.contactsPrev)}</span>` },
+    { label: 'Tasa', num: true, cell: (x) => `<b>${x.rate}%</b><br><span class="an-dim">antes ${x.ratePrev}%</span>` },
+    { label: 'Rebote', num: true, cell: (x) => `${x.bounce}%` },
+  ], r.sources, 'Tasa = de cada 100 sesiones de esa fuente, cuántas tocaron el WhatsApp mayorista estando en la sección. Es la métrica que separa tráfico bueno de tráfico inflado.')}
+
+    ${anTable(`${icon('list')} Páginas de la sección`, [
+    { label: 'Página', cell: (x) => `<span class="an-path">${esc(x.key)}</span>` },
+    { label: 'Vistas', num: true, cell: (x) => `${anNum(x.views)} ${anDelta(x.viewsDelta)}` },
+    { label: 'Antes', num: true, cell: (x) => anNum(x.viewsPrev) },
+    { label: 'Sesiones', num: true, cell: (x) => anNum(x.sessions) },
+    { label: 'Interacción', num: true, cell: (x) => `${x.engagement}%` },
+  ], r.pages)}
+
+    ${anTable(`${icon('pin')} Por dónde entran`, [
+    { label: 'Primera página de la visita', cell: (x) => `<span class="an-path">${esc(x.key)}</span>` },
+    { label: 'Sesiones', num: true, cell: (x) => `${anNum(x.sessions)} ${anDelta(x.sessionsDelta)}` },
+    { label: 'Rebote', num: true, cell: (x) => `${x.bounce}% <span class="an-dim">(antes ${x.bouncePrev}%)</span>` },
+  ], r.landings)}
+
+    ${anTable(`${icon('send')} A dónde van después`, [
+    { label: 'Página destino (fuera de la sección)', cell: (x) => `<span class="an-path">${esc(x.key)}</span>` },
+    { label: 'Vistas', num: true, cell: (x) => `${anNum(x.views)} ${anDelta(x.viewsDelta)}` },
+  ], r.destinations, 'Adónde sigue la navegación desde una página de la sección.')}
+
+    ${anTable(`${icon('comment')} Dónde se generan las consultas`, [
+    { label: 'Página de la sección', cell: (x) => `<span class="an-path">${esc(x.key)}</span>` },
+    { label: 'Consultas', num: true, cell: (x) => `${anNum(x.contacts)} ${anDelta(x.contactsDelta)}` },
+    { label: 'Antes', num: true, cell: (x) => anNum(x.contactsPrev) },
+  ], r.contactPages)}
+
+    ${anTable(`${icon('user')} Dispositivo`, [
+    { label: 'Dispositivo', cell: (x) => esc(x.key) },
+    { label: 'Sesiones', num: true, cell: (x) => `${anNum(x.sessions)} ${anDelta(x.sessionsDelta)}` },
+    { label: 'Interacción', num: true, cell: (x) => `${x.engagement}%` },
+  ], r.devices)}
+
+    ${anTable(`${icon('pin')} Provincias`, [
+    { label: 'Región', cell: (x) => esc(x.key) },
+    { label: 'Sesiones', num: true, cell: (x) => `${anNum(x.sessions)} ${anDelta(x.sessionsDelta)}` },
+  ], r.regions)}
+
+    <div class="panel an-panel an-warn">
+      <h3>${icon('info')} Cómo leer esto</h3>
+      <p class="hint" style="margin-top:0;">Se cuenta como <b>consulta</b> el ${esc(r.tracking.contactMetric)}. Mayorista = link al ${esc(r.tracking.whatsappNumbers.mayorista)}; minorista = ${esc(r.tracking.whatsappNumbers.minorista)}.</p>
+      <ul class="an-warn-list">${r.tracking.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul>
+    </div>`;
+
+  anEl('an-out').innerHTML = html;
+  drawAnalysisChart(r);
+}
+
+let anChart = null;
+function drawAnalysisChart(r) {
+  const el = anEl('an-chart');
+  if (!el || typeof Chart === 'undefined' || !r.daily || !r.daily.length) return;
+  const labels = r.daily.map((d) => d.date.slice(5));
+  if (anChart) { anChart.destroy(); anChart = null; } // sin esto cada informe deja su gráfico atrás
+  anChart = new Chart(el.getContext('2d'), {
+    data: {
+      labels,
+      datasets: [
+        { type: 'bar', label: 'Sesiones en la sección', data: r.daily.map((d) => d.sessions), backgroundColor: 'rgba(193,68,12,.55)', yAxisID: 'y' },
+        { type: 'line', label: 'Consultas mayoristas', data: r.daily.map((d) => d.contacts), borderColor: '#f5f5f7', backgroundColor: '#f5f5f7', tension: .3, pointRadius: 2, yAxisID: 'y1' },
+      ],
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { labels: { color: '#97979f', boxWidth: 12 } } },
+      scales: {
+        x: { grid: { color: 'rgba(255,255,255,.05)' }, ticks: { color: '#97979f', maxTicksLimit: 12 } },
+        y: { beginAtZero: true, grid: { color: 'rgba(255,255,255,.05)' }, ticks: { color: '#97979f', precision: 0 } },
+        y1: { beginAtZero: true, position: 'right', grid: { drawOnChartArea: false }, ticks: { color: '#97979f', precision: 0 } },
+      },
+    },
+  });
+}
+
+async function explainSectionAnalysis() {
+  const btn = anEl('an-ai');
+  const out = anEl('an-ai-out');
+  if (!anReport) { toast('Primero cargá el informe', 'err'); return; }
+  btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Analizando…`;
+  if (out) out.innerHTML = `<div class="panel an-panel"><p class="loading">La IA está leyendo el informe…</p></div>`;
+  try {
+    const body = { ...analysisParams(), businessContext: anEl('an-context').value.trim() };
+    const r = await api('/api/analysis/section/ai', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+    });
+    anAnalysis = r.analysis;
+    renderSectionAiAnalysis();
+  } catch (e) {
+    if (out) out.innerHTML = `<div class="panel an-panel"><p class="empty">No pude analizarlo: ${esc(e.message)}</p></div>`;
+  } finally {
+    btn.disabled = false; btn.innerHTML = `${icon('sparkles')} Explicar con IA`;
+  }
+}
+
+function renderSectionAiAnalysis() {
+  const a = anAnalysis;
+  const out = anEl('an-ai-out');
+  if (!a || !out) return;
+  const list = (title, arr, fmt) => (arr && arr.length ? `<div class="an-block"><span class="fmt-label">${title}</span><ul class="an-list">${arr.map(fmt).join('')}</ul></div>` : '');
+  out.innerHTML = `<div class="panel an-panel an-ai">
+    <h3>${icon('sparkles')} Diagnóstico</h3>
+    <p class="an-titular">${esc(a.titular)}</p>
+    <p class="an-resumen">${esc(a.resumen)}</p>
+    ${list('Qué muestran los datos', a.hallazgos, (h) => `<li class="an-f ${esc(h.tipo || 'neutro')}">${esc(h.texto)}</li>`)}
+    ${a.hipotesis && a.hipotesis.length ? `<div class="an-block"><span class="fmt-label">Hipótesis, de más a menos probable</span>
+      ${a.hipotesis.map((h) => `<div class="an-hyp">
+        <div class="an-hyp-head"><b>${esc(h.titulo)}</b><span class="an-prob ${esc(h.probabilidad)}">${esc(h.probabilidad)}</span></div>
+        ${(h.evidencia || []).length ? `<ul class="an-list pro">${h.evidencia.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>` : ''}
+        ${(h.contra || []).length ? `<ul class="an-list con">${h.contra.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>` : ''}
+        ${h.verificar ? `<p class="hint"><b>Cómo verificarlo:</b> ${esc(h.verificar)}</p>` : ''}
+        ${h.implica ? `<p class="hint"><b>Qué implica:</b> ${esc(h.implica)}</p>` : ''}
+      </div>`).join('')}</div>` : ''}
+    ${list('Lo que hoy no se puede saber', a.sinMedir, (s) => `<li>${esc(s)}</li>`)}
+    ${list('Qué hacer', a.acciones, (x) => `<li><b>${esc(x.titulo)}</b> <span class="an-tag">impacto ${esc(x.impacto || '-')} · esfuerzo ${esc(x.esfuerzo || '-')}</span><br><span class="an-dim">${esc(x.detalle || '')}</span></li>`)}
+    ${list('Para responder internamente', a.preguntas, (p) => `<li>${esc(p)}</li>`)}
+  </div>`;
+}
+
+function exportSectionAnalysis() {
+  if (!anReport) { toast('Primero cargá el informe', 'err'); return; }
+  const params = new URLSearchParams(analysisParams());
+  // Si ya se pidió el diagnóstico, el informe descargado lo incluye.
+  if (anAnalysis) { params.set('ai', '1'); params.set('context', anEl('an-context').value.trim().slice(0, 500)); }
+  window.open(`/api/analysis/section/export?${params.toString()}`, '_blank');
 }
 
 /* ============ init ============ */

@@ -14,7 +14,9 @@ const { uploadAsset } = require('./storage');
 const styleService = require('./styleService');
 const { importDriveFolder } = require('./driveService');
 const { analyzeAccountPerformance } = require('./accountAnalyzer');
-const { hasGemini, buildVideoPrompt, buildVideoPromptSet } = require('./ai');
+const { hasGemini, buildVideoPrompt, buildVideoPromptSet, analyzeSectionFunnel } = require('./ai');
+const { sectionReport } = require('./sectionAnalysis');
+const { buildSectionReportHtml } = require('./sectionReportHtml');
 const { transcribeVideo } = require('./transcribe');
 const { getWholesaleSettings, saveWholesaleSettings } = require('./wholesale');
 const { syncCompanyInfo, getCompanyFacts } = require('./companyInfo');
@@ -472,6 +474,65 @@ app.post('/api/cron/generate-plan', authCron, wrap(async (req, res) => {
 /* ----------------------- Insights / Productos ----------------------- */
 app.get('/api/insights/report', wrap(async (req, res) => {
   res.json(await analyzePerformance());
+}));
+
+/* ----------------------- Análisis de sección (rutas del sitio) -----------------------
+ * Un informe comparado de UNA sección (/mayorista, /eshop…) entre dos períodos, con el
+ * diagnóstico opcional de la IA. Nació de una pregunta que el panel no podía contestar:
+ * julio tuvo el doble de visitas en /mayorista y menos consultas — ¿por qué?
+ * Cache de 10 min por combinación: son ~17 consultas a Analytics por informe. */
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const sectionCache = new Map();
+
+function sectionParams(q) {
+  const prefix = String(q.prefix || '/mayorista').trim();
+  if (!/^\/[a-z0-9\-/_]*$/i.test(prefix)) throw new Error('La ruta de la sección no es válida (ej: /mayorista).');
+  const dates = ['from', 'to', 'cmpFrom', 'cmpTo'].map((k) => String(q[k] || '').trim());
+  if (!dates.every((d) => DATE_RE.test(d))) throw new Error('Faltan fechas (formato AAAA-MM-DD): from, to, cmpFrom, cmpTo.');
+  const [from, to, cmpFrom, cmpTo] = dates;
+  if (from > to || cmpFrom > cmpTo) throw new Error('El período termina antes de empezar.');
+  return {
+    prefix,
+    current: { start: from, end: to, label: String(q.label || '').slice(0, 40) || undefined },
+    previous: { start: cmpFrom, end: cmpTo, label: String(q.cmpLabel || '').slice(0, 40) || undefined },
+  };
+}
+
+async function cachedSectionReport(q) {
+  const params = sectionParams(q);
+  const key = JSON.stringify(params);
+  const hit = sectionCache.get(key);
+  if (hit && Date.now() - hit.at < 10 * 60 * 1000) return hit.data;
+  const data = await sectionReport(params);
+  sectionCache.set(key, { data, at: Date.now() });
+  if (sectionCache.size > 20) sectionCache.delete(sectionCache.keys().next().value);
+  return data;
+}
+
+app.get('/api/analysis/section', wrap(async (req, res) => {
+  res.json(await cachedSectionReport(req.query));
+}));
+
+// El diagnóstico se pide aparte (cuesta una llamada al modelo y tarda ~15 s): el informe
+// con los números se ve al instante y la explicación se pide cuando hace falta.
+app.post('/api/analysis/section/ai', wrap(async (req, res) => {
+  const report = await cachedSectionReport({ ...req.query, ...req.body });
+  const businessContext = typeof req.body?.businessContext === 'string' ? req.body.businessContext : '';
+  const analysis = await analyzeSectionFunnel({ report, businessContext });
+  res.json({ ok: true, analysis });
+}));
+
+// Informe descargable (HTML autocontenido, para mandar al equipo o imprimir en PDF).
+app.get('/api/analysis/section/export', wrap(async (req, res) => {
+  const report = await cachedSectionReport(req.query);
+  let analysis = null;
+  if (req.query.ai === '1') {
+    analysis = await analyzeSectionFunnel({ report, businessContext: String(req.query.context || '') }).catch(() => null);
+  }
+  const name = `informe-${report.prefix.replace(/\W+/g, '-').replace(/^-|-$/g, '') || 'sitio'}-${report.current.start}_${report.current.end}.html`;
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+  res.send(buildSectionReportHtml(report, analysis));
 }));
 
 /* ----------------------- Meta Ads (pauta) ----------------------- */

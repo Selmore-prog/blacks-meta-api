@@ -69,6 +69,11 @@ module.exports = {
   ga: {
     propertyId: required('GA_PROPERTY_ID', ''),
     credentialsB64: required('GA_CREDENTIALS_B64', ''),
+    // Los dos WhatsApp de la tienda. Analytics no marca "consulta mayorista": lo único
+    // que queda registrado es el CLIC saliente al link, y el número es lo que distingue
+    // una consulta mayorista de una minorista. Por eso viven acá y no hardcodeados.
+    whatsappMayorista: required('WA_MAYORISTA', '5491153248230'),
+    whatsappMinorista: required('WA_MINORISTA', '5491151456431'),
   },
 
   // Notificaciones por Telegram (opcionales, gratis). Ver src/notifier.js para el paso a paso.

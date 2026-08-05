@@ -1,0 +1,199 @@
+/* =========================================================================
+ * INFORME DESCARGABLE de una sección (HTML autocontenido, sin CSS ni JS externo).
+ * Se manda por mail o se imprime a PDF: la idea es que el equipo comercial pueda
+ * leerlo sin entrar al panel y sin saber de Analytics.
+ * ========================================================================= */
+
+const esc = (s) => String(s == null ? '' : s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+const n = (v) => (typeof v === 'number' ? v.toLocaleString('es-AR') : esc(v));
+
+/** Variación como texto con color: verde/rojo según convenga (más consultas = bueno). */
+function deltaHtml(delta, { goodIsUp = true } = {}) {
+  if (delta === null || delta === undefined) return '<span class="d new">nuevo</span>';
+  if (delta === 0) return '<span class="d flat">=</span>';
+  const good = goodIsUp ? delta > 0 : delta < 0;
+  return `<span class="d ${good ? 'up' : 'down'}">${delta > 0 ? '+' : ''}${delta}%</span>`;
+}
+
+function table(title, cols, rows, note = '') {
+  if (!rows || !rows.length) return '';
+  return `<h3>${esc(title)}</h3>${note ? `<p class="note">${esc(note)}</p>` : ''}
+  <table><thead><tr>${cols.map((c) => `<th${c.num ? ' class="num"' : ''}>${esc(c.label)}</th>`).join('')}</tr></thead>
+  <tbody>${rows.map((r) => `<tr>${cols.map((c) => `<td${c.num ? ' class="num"' : ''}>${c.cell(r)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+}
+
+/** Gráfico de barras en SVG puro (dos series: sesiones y consultas por día). */
+function sparkSvg(daily) {
+  if (!daily || daily.length < 2) return '';
+  const w = 860; const h = 170; const pad = 28;
+  const maxS = Math.max(...daily.map((d) => d.sessions), 1);
+  const maxC = Math.max(...daily.map((d) => d.contacts), 1);
+  const bw = (w - pad * 2) / daily.length;
+  const bars = daily.map((d, i) => {
+    const x = pad + i * bw;
+    const hs = ((h - pad * 2) * d.sessions) / maxS;
+    return `<rect x="${x.toFixed(1)}" y="${(h - pad - hs).toFixed(1)}" width="${Math.max(1, bw - 2).toFixed(1)}" height="${hs.toFixed(1)}" fill="#c1440c" opacity=".55"/>`;
+  }).join('');
+  const pts = daily.map((d, i) => {
+    const x = pad + i * bw + bw / 2;
+    const y = h - pad - ((h - pad * 2) * d.contacts) / maxC;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return `<svg viewBox="0 0 ${w} ${h}" class="chart" role="img" aria-label="Sesiones y consultas por día">
+    ${bars}<polyline points="${pts}" fill="none" stroke="#111" stroke-width="2"/>
+    <text x="${pad}" y="16" class="cap">Sesiones por día (barras, máx ${maxS}) · consultas (línea, máx ${maxC})</text>
+  </svg>`;
+}
+
+function analysisHtml(a) {
+  if (!a) return '';
+  const list = (title, arr, fmt) => (arr && arr.length ? `<h3>${esc(title)}</h3><ul>${arr.map(fmt).join('')}</ul>` : '');
+  return `<section class="ai">
+    <h2>Diagnóstico</h2>
+    <p class="titular">${esc(a.titular)}</p>
+    <p>${esc(a.resumen)}</p>
+    ${list('Qué muestran los datos', a.hallazgos, (h) => `<li class="f-${esc(h.tipo || 'neutro')}">${esc(h.texto)}</li>`)}
+    ${a.hipotesis && a.hipotesis.length ? `<h3>Hipótesis, de más a menos probable</h3>${a.hipotesis.map((h) => `
+      <div class="hyp"><b>${esc(h.titulo)}</b> <span class="prob ${esc(h.probabilidad)}">${esc(h.probabilidad)}</span>
+        ${h.evidencia && h.evidencia.length ? `<ul class="pro">${h.evidencia.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>` : ''}
+        ${h.contra && h.contra.length ? `<ul class="con">${h.contra.map((e) => `<li>${esc(e)}</li>`).join('')}</ul>` : ''}
+        ${h.verificar ? `<p class="check"><b>Cómo verificarlo:</b> ${esc(h.verificar)}</p>` : ''}
+        ${h.implica ? `<p class="check"><b>Qué implica:</b> ${esc(h.implica)}</p>` : ''}
+      </div>`).join('')}` : ''}
+    ${list('Lo que hoy no se puede saber', a.sinMedir, (s) => `<li>${esc(s)}</li>`)}
+    ${list('Qué hacer', a.acciones, (x) => `<li><b>${esc(x.titulo)}</b> <span class="tag">impacto ${esc(x.impacto || '-')} · esfuerzo ${esc(x.esfuerzo || '-')}</span><br>${esc(x.detalle || '')}</li>`)}
+    ${list('Preguntas para responder internamente', a.preguntas, (p) => `<li>${esc(p)}</li>`)}
+  </section>`;
+}
+
+function buildSectionReportHtml(rep, analysis) {
+  const kpiCards = rep.kpis.map((k) => {
+    // En rebote y en "consultas fuera de la sección" subir no es necesariamente bueno,
+    // pero para no mentir con colores sólo pintamos donde el sentido es inequívoco.
+    const goodIsUp = !/rebote/i.test(k.label);
+    return `<div class="kpi"><span class="lbl">${esc(k.label)}</span>
+      <b>${n(k.cur)}${esc(k.unit)}</b>
+      <span class="prev">antes ${n(k.prev)}${esc(k.unit)} ${deltaHtml(k.delta, { goodIsUp })}</span>
+      ${k.help ? `<span class="help">${esc(k.help)}</span>` : ''}</div>`;
+  }).join('');
+
+  return `<!doctype html><html lang="es"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Informe ${esc(rep.prefix)} · ${esc(rep.current.label)}</title>
+<style>
+  :root { color-scheme: light; }
+  * { box-sizing: border-box; }
+  body { font: 15px/1.55 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; color: #14141a; background: #fff; margin: 0; padding: 32px; max-width: 980px; margin-inline: auto; }
+  h1 { font-size: 26px; margin: 0 0 4px; }
+  h2 { font-size: 19px; margin: 34px 0 10px; padding-bottom: 6px; border-bottom: 2px solid #14141a; }
+  h3 { font-size: 15px; margin: 22px 0 8px; text-transform: uppercase; letter-spacing: .04em; color: #55555f; }
+  .sub { color: #6b6b76; margin: 0 0 24px; }
+  .kpis { display: grid; grid-template-columns: repeat(auto-fill, minmax(190px, 1fr)); gap: 10px; }
+  .kpi { border: 1px solid #e3e3e9; border-radius: 10px; padding: 12px 14px; display: flex; flex-direction: column; gap: 2px; }
+  .kpi .lbl { font-size: 12px; color: #6b6b76; }
+  .kpi b { font-size: 24px; letter-spacing: -.02em; }
+  .kpi .prev { font-size: 12px; color: #6b6b76; }
+  .kpi .help { font-size: 11px; color: #8a8a94; margin-top: 4px; }
+  .d { font-weight: 700; }
+  .d.up { color: #12805c; } .d.down { color: #c02626; } .d.flat, .d.new { color: #8a8a94; }
+  table { width: 100%; border-collapse: collapse; margin: 6px 0 18px; font-size: 13.5px; }
+  th, td { text-align: left; padding: 7px 9px; border-bottom: 1px solid #ececf1; vertical-align: top; }
+  th { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: #6b6b76; background: #fafafc; }
+  td.num, th.num { text-align: right; white-space: nowrap; }
+  .path { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 12.5px; word-break: break-all; }
+  .note { font-size: 12.5px; color: #6b6b76; margin: 0 0 6px; }
+  .chart { width: 100%; height: auto; margin: 8px 0 20px; }
+  .cap { font-size: 11px; fill: #6b6b76; }
+  .ai { background: #fbfbfd; border: 1px solid #e3e3e9; border-radius: 12px; padding: 4px 22px 18px; margin-top: 30px; }
+  .ai .titular { font-size: 17px; font-weight: 700; margin-bottom: 6px; }
+  .ai ul { margin: 6px 0 14px; padding-left: 20px; }
+  .ai li { margin-bottom: 5px; }
+  li.f-bueno::marker { content: "▲ "; color: #12805c; }
+  li.f-malo::marker { content: "▼ "; color: #c02626; }
+  .hyp { border-left: 3px solid #c1440c; padding: 2px 0 2px 14px; margin: 12px 0; }
+  .prob { font-size: 11px; text-transform: uppercase; border: 1px solid #d5d5dd; border-radius: 20px; padding: 1px 8px; color: #55555f; }
+  .prob.alta { border-color: #c02626; color: #c02626; }
+  ul.pro li::marker { content: "+ "; color: #12805c; }
+  ul.con li::marker { content: "− "; color: #c02626; }
+  .check { font-size: 13px; color: #44444d; margin: 4px 0; }
+  .tag { font-size: 11px; color: #6b6b76; }
+  .warn { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px; padding: 12px 16px; font-size: 13.5px; }
+  .warn li { margin-bottom: 4px; }
+  footer { margin-top: 34px; padding-top: 12px; border-top: 1px solid #ececf1; font-size: 12px; color: #8a8a94; }
+  @media print { body { padding: 0; } .ai, .warn { break-inside: avoid; } h2 { break-after: avoid; } }
+</style></head><body>
+<h1>Informe de la sección <span class="path">${esc(rep.prefix)}</span></h1>
+<p class="sub">${esc(rep.current.label)} comparado con ${esc(rep.previous.label)} · datos de Google Analytics 4 · generado el ${new Date(rep.generatedAt).toLocaleString('es-AR')}</p>
+
+<h2>Los números</h2>
+<div class="kpis">${kpiCards}</div>
+${sparkSvg(rep.daily)}
+
+${analysisHtml(analysis)}
+
+<h2>De dónde viene la gente</h2>
+${table('Fuente, campaña y cuánto consulta cada una', [
+    { label: 'Fuente / medio', cell: (r) => esc(r.sourceMedium) },
+    { label: 'Campaña', cell: (r) => esc(r.campaign) },
+    { label: 'Sesiones', num: true, cell: (r) => `${n(r.sessions)} ${deltaHtml(r.sessionsDelta)}` },
+    { label: 'Antes', num: true, cell: (r) => n(r.sessionsPrev) },
+    { label: 'Consultas', num: true, cell: (r) => `${n(r.contacts)} <span class="tag">(antes ${n(r.contactsPrev)})</span>` },
+    { label: 'Tasa', num: true, cell: (r) => `${r.rate}% <span class="tag">(antes ${r.ratePrev}%)</span>` },
+    { label: 'Rebote', num: true, cell: (r) => `${r.bounce}%` },
+  ], rep.sources, 'La tasa es cuántas de cada 100 sesiones de esa fuente tocaron el WhatsApp mayorista estando en la sección.')}
+
+<h2>Qué miran adentro</h2>
+${table('Páginas de la sección', [
+    { label: 'Página', cell: (r) => `<span class="path">${esc(r.key)}</span>` },
+    { label: 'Vistas', num: true, cell: (r) => `${n(r.views)} ${deltaHtml(r.viewsDelta)}` },
+    { label: 'Antes', num: true, cell: (r) => n(r.viewsPrev) },
+    { label: 'Sesiones', num: true, cell: (r) => n(r.sessions) },
+    { label: 'Interacción', num: true, cell: (r) => `${r.engagement}%` },
+  ], rep.pages)}
+
+${table('Por dónde entran (primera página de la visita)', [
+    { label: 'Página de entrada', cell: (r) => `<span class="path">${esc(r.key)}</span>` },
+    { label: 'Sesiones', num: true, cell: (r) => `${n(r.sessions)} ${deltaHtml(r.sessionsDelta)}` },
+    { label: 'Rebote', num: true, cell: (r) => `${r.bounce}% <span class="tag">(antes ${r.bouncePrev}%)</span>` },
+  ], rep.landings)}
+
+${table('Desde qué sitio llegan', [
+    { label: 'Origen', cell: (r) => `<span class="path">${esc(r.key)}</span>` },
+    { label: 'Vistas', num: true, cell: (r) => `${n(r.views)} ${deltaHtml(r.viewsDelta)}` },
+  ], rep.entries)}
+
+${table('A dónde van después de la sección', [
+    { label: 'Página destino', cell: (r) => `<span class="path">${esc(r.key)}</span>` },
+    { label: 'Vistas', num: true, cell: (r) => `${n(r.views)} ${deltaHtml(r.viewsDelta)}` },
+  ], rep.destinations, 'Páginas fuera de la sección a las que se llega desde una página de la sección.')}
+
+<h2>Dónde se generan las consultas</h2>
+${table('Páginas de la sección donde se toca el WhatsApp mayorista', [
+    { label: 'Página', cell: (r) => `<span class="path">${esc(r.key)}</span>` },
+    { label: 'Consultas', num: true, cell: (r) => `${n(r.contacts)} ${deltaHtml(r.contactsDelta)}` },
+    { label: 'Antes', num: true, cell: (r) => n(r.contactsPrev) },
+  ], rep.contactPages)}
+
+<h2>Quién es esa gente</h2>
+${table('Dispositivo', [
+    { label: 'Dispositivo', cell: (r) => esc(r.key) },
+    { label: 'Sesiones', num: true, cell: (r) => `${n(r.sessions)} ${deltaHtml(r.sessionsDelta)}` },
+    { label: 'Interacción', num: true, cell: (r) => `${r.engagement}%` },
+  ], rep.devices)}
+${table('Provincia / región', [
+    { label: 'Región', cell: (r) => esc(r.key) },
+    { label: 'Sesiones', num: true, cell: (r) => `${n(r.sessions)} ${deltaHtml(r.sessionsDelta)}` },
+  ], rep.regions)}
+
+<h2>Cómo leer esto</h2>
+<div class="warn"><b>Qué se está midiendo como "consulta":</b> ${esc(rep.tracking.contactMetric)}.
+Mayorista = link al ${esc(rep.tracking.whatsappNumbers.mayorista)} · minorista = ${esc(rep.tracking.whatsappNumbers.minorista)}.
+<ul>${rep.tracking.warnings.map((w) => `<li>${esc(w)}</li>`).join('')}</ul></div>
+
+<footer>BLACKS · informe generado automáticamente desde Google Analytics 4. Los porcentajes comparan contra ${esc(rep.previous.label)}.</footer>
+</body></html>`;
+}
+
+module.exports = { buildSectionReportHtml };
