@@ -76,6 +76,14 @@ module.exports = {
     whatsappMinorista: required('WA_MINORISTA', '5491151456431'),
   },
 
+  // Search Console: por qué búsquedas nos encuentran y en qué posición quedamos.
+  // Usa la MISMA cuenta de servicio que Analytics (hay que darle acceso de lectura
+  // a la propiedad). La URL tiene que ser igual a la de la propiedad, barra final
+  // incluida; si la propiedad es de tipo dominio, va como 'sc-domain:midominio.com'.
+  gsc: {
+    siteUrl: required('GSC_SITE_URL', 'https://blacksindumentaria.com.ar/'),
+  },
+
   // Notificaciones por Telegram (opcionales, gratis). Ver src/notifier.js para el paso a paso.
   telegram: {
     botToken: required('TELEGRAM_BOT_TOKEN', ''),

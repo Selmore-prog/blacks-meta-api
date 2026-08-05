@@ -2472,6 +2472,33 @@ Devolvé SOLO este JSON:
  * julio tuvo más visitas y menos consultas?") se contesta mal con generalidades.
  * ========================================================================= */
 
+/** Embudo de contacto medido con los eventos propios del tema (si ya hay datos). */
+function leadEventsBlock(le) {
+  if (!le || !le.ready) return '';
+  const d = (c, p) => `${c} (antes ${p})`;
+  const rows = (title, arr) => (arr && arr.length
+    ? `\n${title}\n${arr.map((x) => `- ${x.key}: ${d(x.count, x.countPrev)}`).join('\n')}` : '');
+  return `
+EMBUDO DE CONTACTO (eventos propios de la tienda, más precisos que el clic saliente)
+${le.funnel.map((s) => `- ${s.label} (${s.event}): ${d(s.count, s.countPrev)}`).join('\n')}${rows('CONSULTAS POR TIPO', le.byType)}${rows('CONSULTAS SEGÚN DE QUÉ BOTÓN SALIERON', le.byChannel)}${rows('CONSULTAS SEGÚN EN QUÉ TIPO DE PÁGINA ESTABAN', le.byPage)}
+`;
+}
+
+/** Qué pasa en Google ANTES del clic (Search Console). */
+function searchBlock(s) {
+  if (!s || !s.enabled) return '';
+  const t = s.totals;
+  const q = (x) => `- "${x.key}": ${x.impressions} impresiones (antes ${x.impressionsPrev}), ${x.clicks} clics, posición ${x.position}${x.positionPrev ? ` (antes ${x.positionPrev})` : ''}`;
+  const block = (title, arr, n = 8) => (arr && arr.length ? `\n${title}\n${arr.slice(0, n).map(q).join('\n')}` : '');
+  return `
+CÓMO NOS ENCUENTRAN EN GOOGLE (Search Console, sólo búsqueda orgánica)
+- Clics: ${t.current.clicks} (antes ${t.previous.clicks})
+- Impresiones (veces que aparecimos): ${t.current.impressions} (antes ${t.previous.impressions})
+- De cada 100 veces que aparecemos, nos hacen clic: ${t.current.ctr} (antes ${t.previous.ctr})
+- Posición media: ${t.current.position} (antes ${t.previous.position}) — MENOS es mejor${block('BÚSQUEDAS QUE MÁS NOS MUESTRAN', s.topQueries)}${block('TERRENO PERDIDO (nos siguen mostrando pero bajamos de posición: alguien nos pasó)', s.lostGround)}${block('TERRENO GANADO (subimos de posición)', s.gainedGround)}${block('NOS VEN Y NO NOS ELIGEN (buena posición, casi sin clics: el título/descripción no convence)', s.lowCtr)}
+`;
+}
+
 /** Convierte el informe en un bloque de texto compacto (el modelo lee números, no JSON gigante). */
 function sectionReportDigest(rep) {
   const pctStr = (v) => (v === null || v === undefined ? 'nuevo' : `${v > 0 ? '+' : ''}${v}%`);
@@ -2507,6 +2534,7 @@ ${table('DISPOSITIVOS', rep.devices, (d) => `- ${d.key}: ${d.sessions} sesiones 
 ${table('REGIONES', rep.regions, (r) => `- ${r.key}: ${r.sessions} sesiones (${pctStr(r.sessionsDelta)})`, 8)}
 ${table('OTROS CANALES DE CONSULTA MEDIDOS EN TODO EL SITIO', rep.tracking.forms,
     (x) => `- evento ${x.key}: ${x.count} (antes ${x.countPrev}, ${pctStr(x.countDelta)})`, 5)}
+${leadEventsBlock(rep.leadEvents)}${searchBlock(rep.search)}
 
 LÍMITES DE LA MEDICIÓN (tenelos en cuenta, no los ignores):
 ${rep.tracking.warnings.map((w) => `- ${w}`).join('\n')}`;
@@ -2530,6 +2558,8 @@ REGLAS:
 - Distinguí SIEMPRE tres cosas: (a) lo que el dato demuestra, (b) lo que el dato sugiere pero no prueba, (c) lo que no se puede saber con lo que hoy se mide.
 - Si la caída de consultas se explica mejor por algo que pasó FUERA de la sección, decilo con todas las letras.
 - Ojo con la trampa clásica: más tráfico de peor calidad baja la tasa de consulta sin que nada del sitio haya empeorado. Fijate si el mix de fuentes cambió antes de culpar a la página.
+- Si hay datos de Search Console, usalos para separar dos cosas distintas: perder VISIBILIDAD en Google (menos impresiones) es un problema de posicionamiento; mantener impresiones y perder posición o clics significa que la competencia nos está ganando ESA búsqueda. Nombrá las búsquedas concretas.
+- Si hay embudo de eventos propios, decí en qué paso se cae la gente (ej. abren el botón de WhatsApp pero no eligen) en vez de hablar de "la conversión" en abstracto.
 - "acciones": ENTRE 3 Y 6 (obligatorio, nunca vacío), concretas y accionables esta semana, cada una con impacto esperado (alto/medio/bajo) y esfuerzo (bajo/medio/alto). Si algo hay que medir mejor, ponelo como acción.
 - Nada de relleno. Si un bloque no tiene sustento en los datos, dejalo vacío.
 

@@ -26,11 +26,15 @@ function b64url(buf) {
   return Buffer.from(buf).toString('base64').replace(/=+$/, '').replace(/\+/g, '-').replace(/\//g, '_');
 }
 
-let tokenCache = { token: null, exp: 0 };
+// Un token por SCOPE: la misma cuenta de servicio sirve para Analytics y para
+// Search Console, pero Google exige pedir cada permiso por separado.
+const tokenCaches = new Map();
+const GA_SCOPE = 'https://www.googleapis.com/auth/analytics.readonly';
 
-/** Access token OAuth2 con JWT firmado (cache ~55 min). */
-async function accessToken() {
-  if (tokenCache.token && Date.now() < tokenCache.exp) return tokenCache.token;
+/** Access token OAuth2 con JWT firmado (cache ~55 min por scope). */
+async function accessToken(scope = GA_SCOPE) {
+  const tokenCache = tokenCaches.get(scope);
+  if (tokenCache && tokenCache.token && Date.now() < tokenCache.exp) return tokenCache.token;
   const creds = credentials();
   if (!creds) return null;
 
@@ -38,7 +42,7 @@ async function accessToken() {
   const header = b64url(JSON.stringify({ alg: 'RS256', typ: 'JWT' }));
   const claims = b64url(JSON.stringify({
     iss: creds.client_email,
-    scope: 'https://www.googleapis.com/auth/analytics.readonly',
+    scope,
     aud: creds.token_uri,
     iat,
     exp: iat + 3600,
@@ -54,9 +58,9 @@ async function accessToken() {
   });
   const data = await res.json();
   if (!res.ok || !data.access_token) {
-    throw new Error(`GA auth falló: ${JSON.stringify(data).slice(0, 200)}`);
+    throw new Error(`Auth de Google falló (${scope}): ${JSON.stringify(data).slice(0, 200)}`);
   }
-  tokenCache = { token: data.access_token, exp: Date.now() + 55 * 60 * 1000 };
+  tokenCaches.set(scope, { token: data.access_token, exp: Date.now() + 55 * 60 * 1000 });
   return data.access_token;
 }
 
@@ -252,4 +256,4 @@ async function productViewsBySegment(pool, { days = 28 } = {}) {
   };
 }
 
-module.exports = { isEnabled, storeSummary, topViewedWithRealSales, productViewsBySegment, runReport };
+module.exports = { isEnabled, storeSummary, topViewedWithRealSales, productViewsBySegment, runReport, accessToken, credentials };

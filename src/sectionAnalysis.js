@@ -1,4 +1,5 @@
 const { runReport, isEnabled } = require('./analytics');
+const { searchReport } = require('./searchConsole');
 const config = require('./config');
 
 /* =========================================================================
@@ -44,6 +45,24 @@ const fPath = (prefix) => ({ filter: { fieldName: 'pagePath', stringFilter: { ma
 const fEvent = (name) => ({ filter: { fieldName: 'eventName', stringFilter: { value: name } } });
 const fLink = (value) => ({ filter: { fieldName: 'linkUrl', stringFilter: { matchType: 'CONTAINS', value } } });
 const fAnd = (...xs) => ({ andGroup: { expressions: xs.filter(Boolean) } });
+
+/* ---------------- eventos propios de la tienda ----------------
+ * Los pone snipplets/analytics-events.tpl del tema. Son MEJORES que el clic
+ * saliente porque dicen de qué botón salió la consulta y si era mayorista o
+ * minorista sin depender del número del link. Como se instalaron después, el
+ * informe los muestra sólo cuando ya tienen datos y sigue calculando todo con
+ * los clics salientes: así los períodos viejos se pueden seguir comparando. */
+const LEAD_EVENT = 'generate_lead';
+const FUNNEL_EVENTS = [
+  { event: 'view_b2b_landing', label: 'Vieron la propuesta mayorista' },
+  { event: 'whatsapp_modal_open', label: 'Abrieron el botón de WhatsApp' },
+  { event: 'b2b_info_open', label: 'Abrieron trabajos o preguntas frecuentes' },
+  { event: 'scroll_to_products', label: 'Pasaron al catálogo mayorista' },
+  { event: 'click_cotizador', label: 'Entraron al auto-cotizador' },
+  { event: LEAD_EVENT, label: 'Dejaron una consulta' },
+  { event: 'phone_click', label: 'Tocaron el teléfono' },
+  { event: 'email_click', label: 'Tocaron el mail' },
+];
 
 /**
  * Un clic de contacto = clic saliente a un link de WhatsApp. `who`:
@@ -212,6 +231,33 @@ async function sectionReport({ prefix = '/mayorista', current, previous } = {}) 
     }),
   ]);
 
+  /* ---------------- eventos propios (embudo de consulta) ----------------
+   * Van aparte y con .catch: las dimensiones personalizadas (lead_type,
+   * contact_channel) no existen hasta que se registran en GA4, y ahí la API
+   * responde con error. El embudo por nombre de evento funciona desde el día 1. */
+  const [funnelRep, leadTypeRep, leadChannelRep, leadPageRep] = await Promise.all([
+    runReport({
+      dateRanges, dimensions: [{ name: 'eventName' }], metrics: [{ name: 'eventCount' }],
+      dimensionFilter: { orGroup: { expressions: FUNNEL_EVENTS.map((f) => fEvent(f.event)) } },
+      limit: 20,
+    }).catch(() => null),
+    runReport({
+      dateRanges, dimensions: [{ name: 'customEvent:lead_type' }], metrics: [{ name: 'eventCount' }],
+      dimensionFilter: fEvent(LEAD_EVENT),
+      orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }], limit: 5,
+    }).catch(() => null),
+    runReport({
+      dateRanges, dimensions: [{ name: 'customEvent:contact_channel' }], metrics: [{ name: 'eventCount' }],
+      dimensionFilter: fEvent(LEAD_EVENT),
+      orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }], limit: 12,
+    }).catch(() => null),
+    runReport({
+      dateRanges, dimensions: [{ name: 'customEvent:page_type' }], metrics: [{ name: 'eventCount' }],
+      dimensionFilter: fEvent(LEAD_EVENT),
+      orderBys: [{ metric: { metricName: 'eventCount' }, desc: true }], limit: 10,
+    }).catch(() => null),
+  ]);
+
   /* ---------------- totales y embudo ---------------- */
   const pick = (rep, range) => rows(rep).find((r) => rangeOf(r) === range);
   const totalsCur = pick(totalsRep, CUR);
@@ -333,6 +379,30 @@ async function sectionReport({ prefix = '/mayorista', current, previous } = {}) 
   const daily = seriesFor(CUR, current.start, current.end);
   const dailyPrev = seriesFor(PREV, previous.start, previous.end);
 
+  /* ---------------- lo que pasa ANTES del clic (Google Search Console) ---------------- */
+  const search = await searchReport({ prefix, current, previous }).catch((e) => ({ enabled: false, reason: e.message }));
+
+  /* ---------------- embudo de consulta con los eventos propios ---------------- */
+  const funnelCounts = funnelRep ? mergeByKey(funnelRep, { key: (r) => dimAt(r, 0), metrics: 1 }) : new Map();
+  const leadFunnel = FUNNEL_EVENTS.map((f) => {
+    const hit = funnelCounts.get(f.event);
+    return { event: f.event, label: f.label, count: hit ? hit.cur[0] : 0, countPrev: hit ? hit.prev[0] : 0 };
+  }).filter((s) => s.count || s.countPrev);
+  const leadRows = (rep) => (rep ? toRows(mergeByKey(rep, { key: (r) => dimAt(r, 0) || '(sin dato)', metrics: 1 }), { fields: ['count'], limit: 12 }) : []);
+  const leadTotal = leadFunnel.find((s) => s.event === LEAD_EVENT) || { count: 0, countPrev: 0 };
+  const leadEvents = {
+    // "Listo" = ya hay consultas medidas con el evento propio en el período actual.
+    ready: leadTotal.count > 0,
+    // Las dimensiones personalizadas se registran a mano en GA4; sin eso no hay cortes.
+    dimensionsReady: Boolean(leadTypeRep),
+    total: leadTotal.count,
+    totalPrev: leadTotal.countPrev,
+    funnel: leadFunnel,
+    byType: leadRows(leadTypeRep),
+    byChannel: leadRows(leadChannelRep),
+    byPage: leadRows(leadPageRep),
+  };
+
   /* ---------------- qué está medido y qué no ---------------- */
   const eventTotals = mergeByKey(eventsRep, { key: (r) => dimAt(r, 0), metrics: 1 });
   const events = toRows(eventTotals, { fields: ['count'], limit: 40 });
@@ -345,7 +415,12 @@ async function sectionReport({ prefix = '/mayorista', current, previous } = {}) 
     events: events.slice(0, 25),
     warnings: [
       !has('click') ? 'No hay eventos "click" salientes: sin eso no se puede medir ninguna consulta por WhatsApp.' : null,
-      has('generate_lead') ? null : 'No hay un evento propio de "consulta mayorista" (generate_lead): lo único que se mide es el clic al link, que no confirma que la persona haya escrito.',
+      leadEvents.ready
+        ? null
+        : 'Todavía no llegan eventos propios de consulta (generate_lead): hasta que el tema con la medición nueva esté publicado, todo se calcula con el clic saliente.',
+      leadEvents.ready && !leadEvents.dimensionsReady
+        ? 'Faltan registrar las dimensiones personalizadas en GA4 (lead_type, contact_channel, page_type, info_type): sin eso las consultas se cuentan pero no se pueden abrir por tipo ni por botón.'
+        : null,
       'Un clic al WhatsApp no es una conversación: la comparación contra las consultas REALES recibidas hay que hacerla a mano.',
     ].filter(Boolean),
   };
@@ -356,7 +431,7 @@ async function sectionReport({ prefix = '/mayorista', current, previous } = {}) 
     previous: { ...previous, label: previous.label || `${previous.start} a ${previous.end}` },
     generatedAt: new Date().toISOString(),
     funnel, kpis, pages, sources: sourceQuality, landings, entries, destinations,
-    devices, regions, contactPages, contactSources, daily, dailyPrev, tracking,
+    devices, regions, contactPages, contactSources, daily, dailyPrev, leadEvents, search, tracking,
   };
 }
 

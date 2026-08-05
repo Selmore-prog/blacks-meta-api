@@ -3088,6 +3088,9 @@ function renderSectionAnalysis() {
     { label: 'Antes', num: true, cell: (x) => anNum(x.contactsPrev) },
   ], r.contactPages)}
 
+    ${anLeadFunnelHtml(r.leadEvents)}
+    ${anSearchHtml(r.search)}
+
     ${anTable(`${icon('user')} Dispositivo`, [
     { label: 'Dispositivo', cell: (x) => esc(x.key) },
     { label: 'Sesiones', num: true, cell: (x) => `${anNum(x.sessions)} ${anDelta(x.sessionsDelta)}` },
@@ -3110,6 +3113,81 @@ function renderSectionAnalysis() {
 }
 
 let anChart = null;
+/**
+ * Embudo de contacto con los eventos propios del tema (WhatsApp, cotizador,
+ * formulario…). Mientras el tema con la medición nueva no esté publicado, no hay
+ * datos: en vez de una tabla vacía se explica qué falta para tenerlos.
+ */
+function anLeadFunnelHtml(le) {
+  if (!le) return '';
+  if (!le.ready) {
+    return `<div class="panel an-panel an-warn">
+      <h3>${icon('route')} Embudo de contacto</h3>
+      <p class="hint" style="margin-top:0;">Todavía no llegan los eventos propios de la tienda (<code>generate_lead</code> y compañía).
+      Cuando publiques el tema con la medición nueva, acá vas a ver cuánta gente ve la propuesta mayorista, cuánta abre el botón de WhatsApp
+      y cuánta termina consultando — y de qué botón sale cada consulta. Hasta entonces el informe usa el clic saliente, que ya funciona.</p>
+    </div>`;
+  }
+  const max = Math.max(...le.funnel.map((s) => s.count), 1);
+  const steps = le.funnel.map((s) => {
+    const pctBar = Math.round((s.count / max) * 100);
+    const d = s.countPrev ? Math.round(((s.count - s.countPrev) / s.countPrev) * 1000) / 10 : null;
+    return `<div class="an-step">
+      <div class="an-step-top"><span>${esc(s.label)}</span><b>${anNum(s.count)} ${anDelta(d)}</b></div>
+      <div class="an-step-bar"><i style="width:${pctBar}%"></i></div>
+      <span class="an-dim">antes ${anNum(s.countPrev)} · evento <code>${esc(s.event)}</code></span>
+    </div>`;
+  }).join('');
+  const mini = (title, arr) => (arr && arr.length ? `<div class="an-block"><span class="fmt-label">${title}</span>
+    <ul class="an-list">${arr.map((x) => `<li>${esc(x.key)}: <b>${anNum(x.count)}</b> <span class="an-dim">(antes ${anNum(x.countPrev)})</span></li>`).join('')}</ul></div>` : '');
+  return `<div class="panel an-panel">
+    <h3>${icon('route')} Embudo de contacto</h3>
+    <p class="hint" style="margin-top:0;">Medido con los eventos propios de la tienda: dice en qué paso se cae la gente, no sólo cuántos llegaron.</p>
+    <div class="an-steps">${steps}</div>
+    ${le.dimensionsReady ? '' : `<p class="hint">Para abrir las consultas por tipo y por botón falta registrar las dimensiones personalizadas en GA4 (<code>lead_type</code>, <code>contact_channel</code>, <code>page_type</code>, <code>info_type</code>).</p>`}
+    ${mini('Consultas por tipo', le.byType)}
+    ${mini('De qué botón salieron', le.byChannel)}
+    ${mini('Desde qué tipo de página', le.byPage)}
+  </div>`;
+}
+
+/** Qué pasa en Google ANTES del clic: visibilidad, posición y terreno perdido. */
+function anSearchHtml(s) {
+  if (!s) return '';
+  if (!s.enabled) {
+    return `<div class="panel an-panel an-warn">
+      <h3>${icon('search')} Cómo nos encuentran en Google</h3>
+      <p class="hint" style="margin-top:0;">Sin conectar todavía: ${esc(s.reason || 'falta configurar Search Console.')}</p>
+    </div>`;
+  }
+  const t = s.totals;
+  const posDelta = (x) => (x.positionDelta === null ? '<span class="an-d new">nueva</span>'
+    : x.positionDelta === 0 ? '<span class="an-d flat">=</span>'
+      : `<span class="an-d ${x.positionDelta > 0 ? 'up' : 'down'}">${x.positionDelta > 0 ? '↑' : '↓'} ${Math.abs(x.positionDelta)}</span>`);
+  const qCols = [
+    { label: 'Búsqueda', cell: (x) => esc(x.key) },
+    { label: 'Apariciones', num: true, cell: (x) => `${anNum(x.impressions)} ${anDelta(x.impressionsDelta)}` },
+    { label: 'Clics', num: true, cell: (x) => `${anNum(x.clicks)} <span class="an-dim">(antes ${anNum(x.clicksPrev)})</span>` },
+    { label: 'Posición', num: true, cell: (x) => `${x.position} ${posDelta(x)}<br><span class="an-dim">antes ${x.positionPrev || '-'}</span>` },
+  ];
+  return `<div class="panel an-panel">
+      <h3>${icon('search')} Cómo nos encuentran en Google</h3>
+      <p class="hint" style="margin-top:0;">Sólo búsqueda orgánica (no la pauta). "Posición" es el puesto promedio en el que aparecemos: <b>menos es mejor</b>.</p>
+      <div class="an-kpis">
+        <div class="an-kpi"><span class="an-lbl">Clics desde Google</span><b>${anNum(t.current.clicks)}</b><span class="an-prev">antes ${anNum(t.previous.clicks)} ${anDelta(s.deltas.clicks)}</span></div>
+        <div class="an-kpi"><span class="an-lbl">Veces que aparecimos</span><b>${anNum(t.current.impressions)}</b><span class="an-prev">antes ${anNum(t.previous.impressions)} ${anDelta(s.deltas.impressions)}</span></div>
+        <div class="an-kpi"><span class="an-lbl">Nos eligen</span><b>${t.current.ctr}%</b><span class="an-prev">antes ${t.previous.ctr}% ${anDelta(s.deltas.ctr)}</span></div>
+        <div class="an-kpi"><span class="an-lbl">Posición media</span><b>${t.current.position}</b><span class="an-prev">antes ${t.previous.position} <span class="an-d ${s.deltas.position > 0 ? 'up' : s.deltas.position < 0 ? 'down' : 'flat'}">${s.deltas.position > 0 ? 'mejoró' : s.deltas.position < 0 ? 'empeoró' : '='} ${Math.abs(s.deltas.position)}</span></span></div>
+      </div>
+    </div>
+    ${anTable(`${icon('alert')} Terreno perdido — nos siguen mostrando pero bajamos de puesto`, qCols, s.lostGround,
+    'Lo más parecido a "quién nos está ganando": Google nos sigue mostrando por esa búsqueda, pero alguien nos pasó de lugar.')}
+    ${anTable(`${icon('check')} Terreno ganado`, qCols, s.gainedGround)}
+    ${anTable(`${icon('eye')} Nos ven y no nos eligen`, qCols, s.lowCtr,
+    'Estamos en la primera página pero casi nadie entra: ahí el problema es el título y la descripción que muestra Google, no el posicionamiento.')}
+    ${anTable(`${icon('list')} Búsquedas que más nos muestran`, qCols, s.topQueries)}`;
+}
+
 function drawAnalysisChart(r) {
   const el = anEl('an-chart');
   if (!el || typeof Chart === 'undefined' || !r.daily || !r.daily.length) return;

@@ -68,6 +68,62 @@ function analysisHtml(a) {
   </section>`;
 }
 
+/** Embudo de contacto (eventos propios del tema). Se omite si todavía no hay datos. */
+function leadFunnelSection(le) {
+  if (!le || !le.ready || !le.funnel.length) return '';
+  const max = Math.max(...le.funnel.map((s) => s.count), 1);
+  const steps = le.funnel.map((s) => `<div class="step">
+      <div class="step-top"><span>${esc(s.label)}</span><b>${n(s.count)} ${deltaHtml(deltaOf(s.count, s.countPrev))}</b></div>
+      <div class="step-bar"><i style="width:${Math.round((s.count / max) * 100)}%"></i></div>
+      <span class="note">antes ${n(s.countPrev)}</span>
+    </div>`).join('');
+  const mini = (title, arr) => (arr && arr.length
+    ? `<h3>${esc(title)}</h3><ul>${arr.map((x) => `<li>${esc(x.key)}: <b>${n(x.count)}</b> (antes ${n(x.countPrev)})</li>`).join('')}</ul>` : '');
+  return `<h2>Embudo de contacto</h2>
+    <p class="note">Medido con los eventos propios de la tienda: muestra en qué paso se cae la gente.</p>
+    <div class="steps">${steps}</div>
+    ${mini('Consultas por tipo', le.byType)}
+    ${mini('De qué botón salieron', le.byChannel)}
+    ${mini('Desde qué tipo de página', le.byPage)}`;
+}
+
+function deltaOf(cur, prev) {
+  if (!prev) return cur ? null : 0;
+  return Math.round(((cur - prev) / prev) * 1000) / 10;
+}
+
+/** Visibilidad en Google (Search Console). Se omite si no está conectado. */
+function searchSection(s) {
+  if (!s || !s.enabled) return '';
+  const t = s.totals;
+  const posCell = (x) => {
+    const d = x.positionDelta;
+    const tag = d === null ? '<span class="d new">nueva</span>'
+      : d === 0 ? '<span class="d flat">=</span>'
+        : `<span class="d ${d > 0 ? 'up' : 'down'}">${d > 0 ? '↑' : '↓'} ${Math.abs(d)}</span>`;
+    return `${x.position} ${tag}`;
+  };
+  const cols = [
+    { label: 'Búsqueda', cell: (x) => esc(x.key) },
+    { label: 'Apariciones', num: true, cell: (x) => `${n(x.impressions)} ${deltaHtml(x.impressionsDelta)}` },
+    { label: 'Clics', num: true, cell: (x) => `${n(x.clicks)} <span class="tag">(antes ${n(x.clicksPrev)})</span>` },
+    { label: 'Posición', num: true, cell: posCell },
+  ];
+  return `<h2>Cómo nos encuentran en Google</h2>
+    <p class="note">Sólo búsqueda orgánica, no la pauta. "Posición" es el puesto promedio: menos es mejor.</p>
+    <div class="kpis">
+      <div class="kpi"><span class="lbl">Clics desde Google</span><b>${n(t.current.clicks)}</b><span class="prev">antes ${n(t.previous.clicks)} ${deltaHtml(s.deltas.clicks)}</span></div>
+      <div class="kpi"><span class="lbl">Veces que aparecimos</span><b>${n(t.current.impressions)}</b><span class="prev">antes ${n(t.previous.impressions)} ${deltaHtml(s.deltas.impressions)}</span></div>
+      <div class="kpi"><span class="lbl">Nos eligen</span><b>${t.current.ctr}%</b><span class="prev">antes ${t.previous.ctr}% ${deltaHtml(s.deltas.ctr)}</span></div>
+      <div class="kpi"><span class="lbl">Posición media</span><b>${t.current.position}</b><span class="prev">antes ${t.previous.position}</span></div>
+    </div>
+    ${table('Terreno perdido — nos siguen mostrando pero bajamos de puesto', cols, s.lostGround,
+    'Lo más parecido a "quién nos está ganando": Google nos sigue mostrando por esa búsqueda, pero alguien nos pasó de lugar.')}
+    ${table('Terreno ganado', cols, s.gainedGround)}
+    ${table('Nos ven y no nos eligen', cols, s.lowCtr, 'Buena posición y casi sin clics: el problema es el título y la descripción que muestra Google.')}
+    ${table('Búsquedas que más nos muestran', cols, s.topQueries)}`;
+}
+
 function buildSectionReportHtml(rep, analysis) {
   const kpiCards = rep.kpis.map((k) => {
     // En rebote y en "consultas fuera de la sección" subir no es necesariamente bueno,
@@ -122,7 +178,11 @@ function buildSectionReportHtml(rep, analysis) {
   .warn { background: #fff7ed; border: 1px solid #fed7aa; border-radius: 10px; padding: 12px 16px; font-size: 13.5px; }
   .warn li { margin-bottom: 4px; }
   footer { margin-top: 34px; padding-top: 12px; border-top: 1px solid #ececf1; font-size: 12px; color: #8a8a94; }
-  @media print { body { padding: 0; } .ai, .warn { break-inside: avoid; } h2 { break-after: avoid; } }
+  .steps { display: flex; flex-direction: column; gap: 12px; margin: 10px 0 18px; }
+  .step-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 14px; }
+  .step-bar { height: 8px; background: #ececf1; border-radius: 100px; overflow: hidden; margin: 5px 0 3px; }
+  .step-bar i { display: block; height: 100%; background: #c1440c; border-radius: 100px; }
+  @media print { body { padding: 0; } .ai, .warn, .step { break-inside: avoid; } h2 { break-after: avoid; } }
 </style></head><body>
 <h1>Informe de la sección <span class="path">${esc(rep.prefix)}</span></h1>
 <p class="sub">${esc(rep.current.label)} comparado con ${esc(rep.previous.label)} · datos de Google Analytics 4 · generado el ${new Date(rep.generatedAt).toLocaleString('es-AR')}</p>
@@ -175,6 +235,9 @@ ${table('Páginas de la sección donde se toca el WhatsApp mayorista', [
     { label: 'Consultas', num: true, cell: (r) => `${n(r.contacts)} ${deltaHtml(r.contactsDelta)}` },
     { label: 'Antes', num: true, cell: (r) => n(r.contactsPrev) },
   ], rep.contactPages)}
+
+${leadFunnelSection(rep.leadEvents)}
+${searchSection(rep.search)}
 
 <h2>Quién es esa gente</h2>
 ${table('Dispositivo', [

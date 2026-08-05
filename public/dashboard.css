@@ -688,3 +688,9 @@ button .cost-tag { margin-left: 8px; }
 .an-prob.alta { border-color: #ff6b6b; color: #ff6b6b; }
 .an-tag { font-size: 11px; color: var(--muted); }
 .an-warn-list { margin: 8px 0 0; padding-left: 20px; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.an-steps { display: flex; flex-direction: column; gap: 12px; margin-top: 12px; }
+.an-step-top { display: flex; justify-content: space-between; align-items: baseline; gap: 12px; font-size: 13.5px; }
+.an-step-bar { height: 8px; background: var(--panel-2); border-radius: 100px; overflow: hidden; margin: 5px 0 3px; }
+.an-step-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--orange), #f0894a); border-radius: 100px; }
+.an-panel code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px;
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; }
