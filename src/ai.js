@@ -2499,6 +2499,22 @@ CÓMO NOS ENCUENTRAN EN GOOGLE (Search Console, sólo búsqueda orgánica)
 `;
 }
 
+/** Plata: cuánto cuesta cada campaña y cada consulta (Google Ads). */
+function adsBlock(a) {
+  if (!a || !a.enabled) return '';
+  const cur = a.currency || 'ARS';
+  const camp = (c) => `- "${c.name}" (${c.channel}): gastó ${cur} ${c.cost} (antes ${c.costPrev}) · ${c.clicks} clics · ${c.sectionSessions} sesiones en la sección · ${c.sectionContacts} consultas · costo por consulta ${c.costPerContact === null ? 'sin consultas medidas' : `${cur} ${c.costPerContact}`}${c.impressionShare !== null ? ` · cuota de impresiones ${c.impressionShare}%, perdida por ranking ${c.lostToRank}% y por presupuesto ${c.lostToBudget}%` : ''}`;
+  const terms = (a.searchTerms || []).slice(0, 15)
+    .map((t) => `- "${t.term}" (campaña ${t.campaign}): ${t.clicks} clics, ${cur} ${t.cost}, ${t.conversions} conversiones`).join('\n');
+  return `
+PLATA INVERTIDA EN GOOGLE ADS
+- Gasto total del período: ${cur} ${a.totals.cost} (antes ${a.totals.costPrev})
+- Costo promedio por consulta de la sección: ${a.costPerContactAvg === null ? 'no se puede calcular (sin consultas medidas)' : `${cur} ${a.costPerContactAvg}`}
+POR CAMPAÑA
+${a.campaigns.slice(0, 12).map(camp).join('\n')}${terms ? `\nQUÉ TIPEÓ LA GENTE QUE HIZO CLIC EN LOS AVISOS (términos reales, ordenados por gasto)\n${terms}` : ''}
+`;
+}
+
 /** Convierte el informe en un bloque de texto compacto (el modelo lee números, no JSON gigante). */
 function sectionReportDigest(rep) {
   const pctStr = (v) => (v === null || v === undefined ? 'nuevo' : `${v > 0 ? '+' : ''}${v}%`);
@@ -2534,7 +2550,7 @@ ${table('DISPOSITIVOS', rep.devices, (d) => `- ${d.key}: ${d.sessions} sesiones 
 ${table('REGIONES', rep.regions, (r) => `- ${r.key}: ${r.sessions} sesiones (${pctStr(r.sessionsDelta)})`, 8)}
 ${table('OTROS CANALES DE CONSULTA MEDIDOS EN TODO EL SITIO', rep.tracking.forms,
     (x) => `- evento ${x.key}: ${x.count} (antes ${x.countPrev}, ${pctStr(x.countDelta)})`, 5)}
-${leadEventsBlock(rep.leadEvents)}${searchBlock(rep.search)}
+${leadEventsBlock(rep.leadEvents)}${searchBlock(rep.search)}${adsBlock(rep.ads)}
 
 LÍMITES DE LA MEDICIÓN (tenelos en cuenta, no los ignores):
 ${rep.tracking.warnings.map((w) => `- ${w}`).join('\n')}`;
@@ -2560,6 +2576,8 @@ REGLAS:
 - Ojo con la trampa clásica: más tráfico de peor calidad baja la tasa de consulta sin que nada del sitio haya empeorado. Fijate si el mix de fuentes cambió antes de culpar a la página.
 - Si hay datos de Search Console, usalos para separar dos cosas distintas: perder VISIBILIDAD en Google (menos impresiones) es un problema de posicionamiento; mantener impresiones y perder posición o clics significa que la competencia nos está ganando ESA búsqueda. Nombrá las búsquedas concretas.
 - Si hay embudo de eventos propios, decí en qué paso se cae la gente (ej. abren el botón de WhatsApp pero no eligen) en vez de hablar de "la conversión" en abstracto.
+- Si hay datos de Google Ads, la comparación que importa es el COSTO POR CONSULTA entre campañas, no el gasto total ni los clics. Decí en pesos cuánto cuesta una consulta en cada una y cuánto se ahorraría moviendo plata de la peor a la mejor. Si hay términos de búsqueda que gastan y no traen nada, nombralos para agregarlos como negativos.
+- Cuota de impresiones: perder por RANKING (te ganan con mejor oferta o calidad) y perder por PRESUPUESTO (te quedaste sin plata) son problemas distintos y se arreglan distinto. No los mezcles.
 - "acciones": ENTRE 3 Y 6 (obligatorio, nunca vacío), concretas y accionables esta semana, cada una con impacto esperado (alto/medio/bajo) y esfuerzo (bajo/medio/alto). Si algo hay que medir mejor, ponelo como acción.
 - Nada de relleno. Si un bloque no tiene sustento en los datos, dejalo vacío.
 

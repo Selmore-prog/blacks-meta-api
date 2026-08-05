@@ -3088,6 +3088,7 @@ function renderSectionAnalysis() {
     { label: 'Antes', num: true, cell: (x) => anNum(x.contactsPrev) },
   ], r.contactPages)}
 
+    ${anAdsHtml(r.ads)}
     ${anLeadFunnelHtml(r.leadEvents)}
     ${anSearchHtml(r.search)}
 
@@ -3149,6 +3150,59 @@ function anLeadFunnelHtml(le) {
     ${mini('De qué botón salieron', le.byChannel)}
     ${mini('Desde qué tipo de página', le.byPage)}
   </div>`;
+}
+
+/** Plata: cuánto cuesta cada consulta en cada campaña (Google Ads). */
+function anAdsHtml(a) {
+  if (!a) return '';
+  if (!a.enabled) {
+    return `<div class="panel an-panel an-warn">
+      <h3>${icon('bolt')} Costo por consulta (Google Ads)</h3>
+      <p class="hint" style="margin-top:0;">Sin conectar todavía: ${esc(a.reason || 'falta configurar Google Ads.')}</p>
+      ${a.missing && a.missing.length ? `<ul class="an-warn-list">${a.missing.map((m) => `<li>${esc(m)}</li>`).join('')}</ul>` : ''}
+    </div>`;
+  }
+  const cur = a.currency || 'ARS';
+  const plata = (v) => (v === null || v === undefined ? '<span class="an-dim">sin datos</span>' : `${cur} ${anNum(v)}`);
+  // El costo por consulta es LA métrica de esta tabla: se ordena y se resalta.
+  const conDato = a.campaigns.filter((c) => c.costPerContact !== null);
+  const mejor = conDato.length ? Math.min(...conDato.map((c) => c.costPerContact)) : null;
+  const peor = conDato.length ? Math.max(...conDato.map((c) => c.costPerContact)) : null;
+  return `<div class="panel an-panel">
+      <h3>${icon('bolt')} Costo por consulta (Google Ads)</h3>
+      <p class="hint" style="margin-top:0;">Cruza el gasto real de cada campaña con las sesiones y consultas que esa misma campaña trajo a la sección. Es la comparación que decide dónde poner la plata.</p>
+      <div class="an-kpis">
+        <div class="an-kpi"><span class="an-lbl">Gasto del período</span><b>${cur} ${anNum(a.totals.cost)}</b><span class="an-prev">antes ${cur} ${anNum(a.totals.costPrev)} ${anDelta(a.totals.costPrev ? Math.round(((a.totals.cost - a.totals.costPrev) / a.totals.costPrev) * 1000) / 10 : null, false)}</span></div>
+        <div class="an-kpi"><span class="an-lbl">Costo por consulta (promedio)</span><b>${a.costPerContactAvg === null ? '—' : `${cur} ${anNum(a.costPerContactAvg)}`}</b><span class="an-prev">${anNum(a.sectionContactsTotal)} consultas atribuidas</span></div>
+        <div class="an-kpi"><span class="an-lbl">Clics pagos</span><b>${anNum(a.totals.clicks)}</b><span class="an-prev">antes ${anNum(a.totals.clicksPrev)}</span></div>
+        <div class="an-kpi"><span class="an-lbl">Conversiones que cuenta Ads</span><b>${anNum(a.totals.conversions)}</b><span class="an-prev">antes ${anNum(a.totals.conversionsPrev)}</span></div>
+      </div>
+    </div>
+    ${anTable(`${icon('chart')} Cada campaña: lo que gasta y lo que trae`, [
+    { label: 'Campaña', cell: (c) => `${esc(c.name)}<br><span class="an-dim">${esc(c.channel || '')}</span>` },
+    { label: 'Gasto', num: true, cell: (c) => `${cur} ${anNum(c.cost)}<br><span class="an-dim">antes ${anNum(c.costPrev)}</span>` },
+    { label: 'Sesiones', num: true, cell: (c) => anNum(c.sectionSessions) },
+    { label: 'Consultas', num: true, cell: (c) => anNum(c.sectionContacts) },
+    {
+      label: 'Costo x consulta',
+      num: true,
+      cell: (c) => (c.costPerContact === null ? '<span class="an-dim">sin consultas</span>'
+        : `<b class="${c.costPerContact === mejor ? 'an-best' : c.costPerContact === peor ? 'an-worst' : ''}">${plata(c.costPerContact)}</b>`),
+    },
+    {
+      label: 'Subasta',
+      num: true,
+      cell: (c) => (c.impressionShare === null ? '<span class="an-dim">n/d</span>'
+        : `${c.impressionShare}%<br><span class="an-dim">pierde ${c.lostToRank}% x ranking · ${c.lostToBudget}% x presupuesto</span>`),
+    },
+  ], a.campaigns, 'Cuota de subasta: de todas las veces que tu aviso podía aparecer, en cuántas apareció. Perder por RANKING es que te ganan con mejor oferta o calidad; perder por PRESUPUESTO es que te quedaste sin plata.')}
+    ${anTable(`${icon('search')} Qué tipeó la gente que hizo clic en tus avisos`, [
+    { label: 'Búsqueda real', cell: (t) => esc(t.term) },
+    { label: 'Campaña', cell: (t) => `<span class="an-dim">${esc(t.campaign)}</span>` },
+    { label: 'Clics', num: true, cell: (t) => anNum(t.clicks) },
+    { label: 'Gasto', num: true, cell: (t) => `${cur} ${anNum(t.cost)}` },
+    { label: 'Conversiones', num: true, cell: (t) => anNum(t.conversions) },
+  ], a.searchTerms, 'Los términos que más gastan sin traer nada son candidatos a palabra clave negativa.')}`;
 }
 
 /** Qué pasa en Google ANTES del clic: visibilidad, posición y terreno perdido. */
@@ -3255,6 +3309,29 @@ function renderSectionAiAnalysis() {
     ${list('Qué hacer', a.acciones, (x) => `<li><b>${esc(x.titulo)}</b> <span class="an-tag">impacto ${esc(x.impacto || '-')} · esfuerzo ${esc(x.esfuerzo || '-')}</span><br><span class="an-dim">${esc(x.detalle || '')}</span></li>`)}
     ${list('Para responder internamente', a.preguntas, (p) => `<li>${esc(p)}</li>`)}
   </div>`;
+}
+
+/** Estado de las tres fuentes del informe, con el paso que falta en cada una. */
+async function checkAnalysisSources() {
+  const btn = anEl('an-diag');
+  const out = anEl('an-diag-out');
+  btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Probando…`;
+  out.innerHTML = '';
+  try {
+    const d = await api('/api/analysis/conexiones');
+    const fila = (nombre, x, ayuda) => `<li class="an-conn ${x.ok ? 'ok' : 'bad'}">
+      <b>${x.ok ? '✔' : '✕'} ${esc(nombre)}</b> — ${esc(x.detalle)}
+      ${!x.ok && ayuda ? `<br><span class="an-dim">${ayuda}</span>` : ''}</li>`;
+    out.innerHTML = `<ul class="an-conn-list">
+      ${fila('Google Analytics', d.analytics)}
+      ${fila('Search Console', d.searchConsole, 'Se habilita en el proyecto de Google Cloud <b>durable-pipe-396712</b> y se le da acceso de lectura a la cuenta de servicio en Search Console.')}
+      ${fila('Google Ads', d.googleAds, 'Necesita developer token del API Center + client id/secret + refresh token (<code>node scripts/google-ads-token.js</code>).')}
+    </ul>`;
+  } catch (e) {
+    out.innerHTML = `<p class="hint">No pude probar: ${esc(e.message)}</p>`;
+  } finally {
+    btn.disabled = false; btn.innerHTML = `${icon('bolt')} Probar conexiones`;
+  }
 }
 
 function exportSectionAnalysis() {

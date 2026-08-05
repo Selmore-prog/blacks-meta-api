@@ -68,6 +68,46 @@ function analysisHtml(a) {
   </section>`;
 }
 
+/** Lo que cuesta cada consulta según Google Ads. Se omite si no está conectado. */
+function adsSection(a) {
+  if (!a || !a.enabled) return '';
+  const cur = a.currency || 'ARS';
+  const conDato = a.campaigns.filter((c) => c.costPerContact !== null);
+  const mejor = conDato.length ? Math.min(...conDato.map((c) => c.costPerContact)) : null;
+  const peor = conDato.length ? Math.max(...conDato.map((c) => c.costPerContact)) : null;
+  return `<h2>Lo que cuesta cada consulta</h2>
+    <p class="note">Gasto real de Google Ads cruzado con las sesiones y consultas que cada campaña trajo a la sección.</p>
+    <div class="kpis">
+      <div class="kpi"><span class="lbl">Gasto del período</span><b>${cur} ${n(a.totals.cost)}</b><span class="prev">antes ${cur} ${n(a.totals.costPrev)}</span></div>
+      <div class="kpi"><span class="lbl">Costo por consulta</span><b>${a.costPerContactAvg === null ? '—' : `${cur} ${n(a.costPerContactAvg)}`}</b><span class="prev">${n(a.sectionContactsTotal)} consultas atribuidas</span></div>
+      <div class="kpi"><span class="lbl">Clics pagos</span><b>${n(a.totals.clicks)}</b><span class="prev">antes ${n(a.totals.clicksPrev)}</span></div>
+    </div>
+    ${table('Cada campaña: lo que gasta y lo que trae', [
+    { label: 'Campaña', cell: (c) => `${esc(c.name)}<br><span class="tag">${esc(c.channel || '')}</span>` },
+    { label: 'Gasto', num: true, cell: (c) => `${cur} ${n(c.cost)}` },
+    { label: 'Sesiones', num: true, cell: (c) => n(c.sectionSessions) },
+    { label: 'Consultas', num: true, cell: (c) => n(c.sectionContacts) },
+    {
+      label: 'Costo x consulta',
+      num: true,
+      cell: (c) => (c.costPerContact === null ? '<span class="tag">sin consultas</span>'
+        : `<b style="color:${c.costPerContact === mejor ? '#12805c' : c.costPerContact === peor ? '#c02626' : 'inherit'}">${cur} ${n(c.costPerContact)}</b>`),
+    },
+    {
+      label: 'Subasta',
+      num: true,
+      cell: (c) => (c.impressionShare === null ? '<span class="tag">n/d</span>'
+        : `${c.impressionShare}%<br><span class="tag">pierde ${c.lostToRank}% x ranking · ${c.lostToBudget}% x presupuesto</span>`),
+    },
+  ], a.campaigns)}
+    ${table('Qué tipeó la gente que hizo clic en los avisos', [
+    { label: 'Búsqueda real', cell: (t) => esc(t.term) },
+    { label: 'Campaña', cell: (t) => `<span class="tag">${esc(t.campaign)}</span>` },
+    { label: 'Clics', num: true, cell: (t) => n(t.clicks) },
+    { label: 'Gasto', num: true, cell: (t) => `${cur} ${n(t.cost)}` },
+  ], (a.searchTerms || []).slice(0, 25), 'Los que más gastan sin traer nada son candidatos a palabra clave negativa.')}`;
+}
+
 /** Embudo de contacto (eventos propios del tema). Se omite si todavía no hay datos. */
 function leadFunnelSection(le) {
   if (!le || !le.ready || !le.funnel.length) return '';
@@ -236,6 +276,7 @@ ${table('Páginas de la sección donde se toca el WhatsApp mayorista', [
     { label: 'Antes', num: true, cell: (r) => n(r.contactsPrev) },
   ], rep.contactPages)}
 
+${adsSection(rep.ads)}
 ${leadFunnelSection(rep.leadEvents)}
 ${searchSection(rep.search)}
 

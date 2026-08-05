@@ -1,5 +1,6 @@
 const { runReport, isEnabled } = require('./analytics');
 const { searchReport } = require('./searchConsole');
+const { adsReport } = require('./googleAds');
 const config = require('./config');
 
 /* =========================================================================
@@ -382,6 +383,33 @@ async function sectionReport({ prefix = '/mayorista', current, previous } = {}) 
   /* ---------------- lo que pasa ANTES del clic (Google Search Console) ---------------- */
   const search = await searchReport({ prefix, current, previous }).catch((e) => ({ enabled: false, reason: e.message }));
 
+  /* ---------------- lo que CUESTA cada consulta (Google Ads) ----------------
+   * El cruce se hace por NOMBRE de campaña: es el mismo texto que Analytics
+   * guarda en sessionCampaignName, así que las sesiones y las consultas que ya
+   * calculamos por campaña se pueden poner al lado del gasto real. */
+  const ads = await adsReport({ current, previous }).catch((e) => ({ enabled: false, reason: e.message }));
+  if (ads.enabled) {
+    const bySection = new Map(sourceQuality.map((s) => [s.campaign, s]));
+    ads.campaigns = ads.campaigns.map((c) => {
+      const s = bySection.get(c.name);
+      const sessions = s ? s.sessions : 0;
+      const contacts = s ? s.contacts : 0;
+      return {
+        ...c,
+        sectionSessions: sessions,
+        sectionContacts: contacts,
+        // Lo que se quiere saber: cuánto sale una consulta por cada campaña.
+        // Sin consultas no se divide por cero: queda null y se muestra "sin datos".
+        costPerContact: contacts ? Math.round((c.cost / contacts) * 100) / 100 : null,
+        costPerSession: sessions ? Math.round((c.cost / sessions) * 100) / 100 : null,
+      };
+    }).sort((a, b) => b.cost - a.cost);
+    const totalCost = ads.totals.cost;
+    const totalContacts = ads.campaigns.reduce((a, c) => a + c.sectionContacts, 0);
+    ads.costPerContactAvg = totalContacts ? Math.round((totalCost / totalContacts) * 100) / 100 : null;
+    ads.sectionContactsTotal = totalContacts;
+  }
+
   /* ---------------- embudo de consulta con los eventos propios ---------------- */
   const funnelCounts = funnelRep ? mergeByKey(funnelRep, { key: (r) => dimAt(r, 0), metrics: 1 }) : new Map();
   const leadFunnel = FUNNEL_EVENTS.map((f) => {
@@ -431,7 +459,7 @@ async function sectionReport({ prefix = '/mayorista', current, previous } = {}) 
     previous: { ...previous, label: previous.label || `${previous.start} a ${previous.end}` },
     generatedAt: new Date().toISOString(),
     funnel, kpis, pages, sources: sourceQuality, landings, entries, destinations,
-    devices, regions, contactPages, contactSources, daily, dailyPrev, leadEvents, search, tracking,
+    devices, regions, contactPages, contactSources, daily, dailyPrev, leadEvents, search, ads, tracking,
   };
 }
 

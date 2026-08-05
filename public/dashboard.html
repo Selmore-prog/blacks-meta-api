@@ -277,7 +277,9 @@
           <button class="btn-primary" id="an-run" onclick="loadSectionAnalysis()"><span data-ic="search"></span> Ver informe</button>
           <button class="btn-ghost" id="an-ai" onclick="explainSectionAnalysis()"><span data-ic="sparkles"></span> Explicar con IA</button>
           <button class="btn-ghost" id="an-export" onclick="exportSectionAnalysis()"><span data-ic="download"></span> Descargar informe</button>
+          <button class="btn-ghost" id="an-diag" onclick="checkAnalysisSources()"><span data-ic="bolt"></span> Probar conexiones</button>
         </div>
+        <div id="an-diag-out"></div>
         <div class="field" style="margin-top:10px;">
           <label>Contexto para la IA <span class="hint" style="font-weight:400;">(opcional — lo que Analytics no puede saber)</span></label>
           <textarea class="input" id="an-context" rows="2" placeholder="Ej: en julio subimos el presupuesto de Google Ads y estuvimos con menos gente atendiendo el WhatsApp mayorista"></textarea>

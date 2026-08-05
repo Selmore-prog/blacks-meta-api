@@ -76,6 +76,21 @@ module.exports = {
     whatsappMinorista: required('WA_MINORISTA', '5491151456431'),
   },
 
+  // Google Ads: gasto por campaña para saber cuánto cuesta cada consulta.
+  // NO usa la cuenta de servicio (Google Ads no las acepta): va con OAuth2 de
+  // usuario. El refresh token se genera una vez con scripts/google-ads-token.js.
+  googleAds: {
+    developerToken: required('GOOGLE_ADS_DEVELOPER_TOKEN', ''),
+    clientId: required('GOOGLE_ADS_CLIENT_ID', ''),
+    clientSecret: required('GOOGLE_ADS_CLIENT_SECRET', ''),
+    refreshToken: required('GOOGLE_ADS_REFRESH_TOKEN', ''),
+    // Los 10 dígitos de la cuenta, SIN guiones.
+    customerId: String(required('GOOGLE_ADS_CUSTOMER_ID', '')).replace(/\D/g, ''),
+    // Sólo si la cuenta se administra desde una cuenta administradora (MCC).
+    loginCustomerId: String(required('GOOGLE_ADS_LOGIN_CUSTOMER_ID', '')).replace(/\D/g, ''),
+    currency: required('GOOGLE_ADS_CURRENCY', 'ARS'),
+  },
+
   // Search Console: por qué búsquedas nos encuentran y en qué posición quedamos.
   // Usa la MISMA cuenta de servicio que Analytics (hay que darle acceso de lectura
   // a la propiedad). La URL tiene que ser igual a la de la propiedad, barra final

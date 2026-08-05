@@ -513,6 +513,37 @@ app.get('/api/analysis/section', wrap(async (req, res) => {
   res.json(await cachedSectionReport(req.query));
 }));
 
+// Estado de las tres fuentes del informe, en castellano y con el paso que falta.
+// Sirve para no tener que adivinar por qué un panel aparece vacío.
+app.get('/api/analysis/conexiones', wrap(async (req, res) => {
+  const { isEnabled: gaOn, runReport } = require('./analytics');
+  const { searchReport } = require('./searchConsole');
+  const { adsReport } = require('./googleAds');
+  const hoy = new Date().toISOString().slice(0, 10);
+  const hace7 = new Date(Date.now() - 7 * 864e5).toISOString().slice(0, 10);
+  const rango = { start: hace7, end: hoy };
+
+  const analytics = gaOn()
+    ? await runReport({ dateRanges: [{ startDate: hace7, endDate: hoy }], metrics: [{ name: 'sessions' }] })
+      .then((r) => ({ ok: true, detalle: `${((r.rows || [])[0] || { metricValues: [{ value: 0 }] }).metricValues[0].value} sesiones en los últimos 7 días` }))
+      .catch((e) => ({ ok: false, detalle: e.message }))
+    : { ok: false, detalle: 'Falta GA_PROPERTY_ID o GA_CREDENTIALS_B64.' };
+
+  const gsc = await searchReport({ prefix: '/', current: rango, previous: rango })
+    .then((r) => (r.enabled
+      ? { ok: true, detalle: `${r.totals.current.impressions} apariciones en Google en los últimos 7 días` }
+      : { ok: false, detalle: r.reason }))
+    .catch((e) => ({ ok: false, detalle: e.message }));
+
+  const ads = await adsReport({ current: rango, previous: rango })
+    .then((r) => (r.enabled
+      ? { ok: true, detalle: `${r.campaigns.length} campañas con actividad · gastó ${r.currency} ${r.totals.cost} en 7 días` }
+      : { ok: false, detalle: r.reason }))
+    .catch((e) => ({ ok: false, detalle: e.message }));
+
+  res.json({ analytics, searchConsole: gsc, googleAds: ads });
+}));
+
 // El diagnóstico se pide aparte (cuesta una llamada al modelo y tarda ~15 s): el informe
 // con los números se ve al instante y la explicación se pide cuando hace falta.
 app.post('/api/analysis/section/ai', wrap(async (req, res) => {

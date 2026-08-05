@@ -694,3 +694,9 @@ button .cost-tag { margin-left: 8px; }
 .an-step-bar i { display: block; height: 100%; background: linear-gradient(90deg, var(--orange), #f0894a); border-radius: 100px; }
 .an-panel code { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 11.5px;
   background: var(--panel-2); border: 1px solid var(--line); border-radius: 5px; padding: 1px 5px; }
+.an-best { color: var(--green); }
+.an-worst { color: #ff6b6b; }
+.an-conn-list { list-style: none; margin: 14px 0 0; padding: 0; display: flex; flex-direction: column; gap: 8px; }
+.an-conn { border: 1px solid var(--line); border-left-width: 3px; border-radius: 10px; padding: 10px 14px; font-size: 13px; line-height: 1.55; }
+.an-conn.ok { border-left-color: var(--green); }
+.an-conn.bad { border-left-color: #ff6b6b; }
