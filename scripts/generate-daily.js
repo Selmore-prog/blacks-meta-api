@@ -1459,6 +1459,9 @@ async function generateForSlot(slot, overrides = {}) {
 }
 
 async function generateDaily() {
+  // El cron corre en un proceso aparte: hay que traer los ajustes del panel
+  // (ej. qué modelo de imagen eligió el dueño) antes de generar nada.
+  await require('../src/settings').loadSettings().catch(() => {});
   console.log('[generate-daily] Sembrando calendario (próximos 14 días si faltan)...');
   await seedCalendar(14);
 

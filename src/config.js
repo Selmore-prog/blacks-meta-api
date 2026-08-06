@@ -55,6 +55,11 @@ module.exports = {
     // se generan piezas con plantilla (gratis) — nunca se corta la generación, sólo el
     // gasto. 0 = sin tope. Se mide contra la tabla ai_usage (día calendario argentino).
     imageDailyBudgetUsd: Number(process.env.AI_IMAGE_DAILY_BUDGET_USD) || 3,
+    // TOPE DE GASTO DIARIO en VIDEO IA (Veo). El video se cobra por segundo y es
+    // mucho más caro que una imagen (US$0.40 a US$3.20 por clip según calidad), así
+    // que tiene su propio techo. A diferencia de las imágenes, acá no hay alternativa
+    // gratis: al llegar al tope el botón avisa y no genera. 0 = sin tope.
+    videoDailyBudgetUsd: Number(process.env.AI_VIDEO_DAILY_BUDGET_USD) || 5,
   },
 
   supabase: {

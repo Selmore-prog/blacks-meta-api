@@ -180,7 +180,40 @@ CREATE TABLE IF NOT EXISTS studio_assets (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- AJUSTES DEL PANEL (ago-2026): lo que antes era variable de entorno y obligaba a
+-- redeployar (ej. qué modelo de imagen usar) se edita desde el panel y vive acá.
+CREATE TABLE IF NOT EXISTS app_settings (
+  key        TEXT PRIMARY KEY,
+  value      TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+-- VIDEO CON IA (ago-2026): cada generación de Veo tarda 1-4 min, así que no puede
+-- vivir en memoria (un reinicio de Render perdería el video ya pagado). Cada pedido
+-- queda acá con el nombre de la operación de Google para poder seguirla o retomarla.
+CREATE TABLE IF NOT EXISTS video_jobs (
+  id                 SERIAL PRIMARY KEY,
+  asset_id           INTEGER REFERENCES generated_assets(id) ON DELETE CASCADE, -- null = video del Estudio
+  studio_product_ids BIGINT[],
+  operation          TEXT NOT NULL,          -- nombre de la operación en Google
+  model              TEXT,
+  quality            TEXT,                   -- lite | fast | calidad
+  duration_sec       INTEGER,
+  aspect_ratio       TEXT,
+  format             TEXT,
+  style              TEXT,
+  prompt             TEXT,
+  product_names      TEXT,
+  status             TEXT NOT NULL DEFAULT 'running', -- running | done | error
+  error              TEXT,
+  video_path         TEXT,
+  est_cost_usd       NUMERIC DEFAULT 0,
+  created_at         TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_ai_usage_created ON ai_usage (created_at);
+CREATE INDEX IF NOT EXISTS idx_video_jobs_asset ON video_jobs (asset_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_qa_lessons_active ON qa_lessons (active, scope);
 CREATE INDEX IF NOT EXISTS idx_calendar_date ON content_calendar (scheduled_date);
 CREATE INDEX IF NOT EXISTS idx_publish_queue_status ON publish_queue (status, next_attempt_at);

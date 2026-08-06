@@ -249,11 +249,21 @@ async function loadConfig() {
  * Tocándolo se ve el detalle de qué está pasando con cada cosa.
  */
 let bgTasksData = null;
+// Piezas cuyo video está generándose en Veo ahora mismo (para el chip en la tarjeta).
+const videoRunningIds = new Set();
 async function pollBgTasks() {
   const btn = document.getElementById('bg-tasks');
   if (!btn) return;
   try {
     bgTasksData = await api('/api/background-tasks');
+    const before = videoRunningIds.size;
+    videoRunningIds.clear();
+    (bgTasksData.videos || []).forEach((v) => {
+      if (!v.asset_id) return;
+      videoRunningIds.add(String(v.asset_id));
+      watchVideoJob(v.asset_id); // sobrevive a un F5: retoma el seguimiento solo
+    });
+    if (before !== videoRunningIds.size && calItems.length) renderCalView();
     const n = bgTasksData.active || 0;
     const failed = bgTasksData.failed || 0;
     btn.classList.toggle('hidden', !n && !failed);
@@ -333,7 +343,7 @@ function setCalBack(n) {
   calBackDays = n;
   localStorage.setItem('calBackDays', String(calBackDays));
 }
-const filters = { status: 'all', format: 'all', pillar: 'all', auto: 'all', comercial: 'all', q: '' };
+const filters = { status: 'all', format: 'all', pillar: 'all', auto: 'all', comercial: 'all', q: '', focus: 'all' };
 function comercialOf(it) {
   if (it.pillar === 'mayorista') return 'mayorista';
   if (['producto', 'promo'].includes(it.pillar)) return 'minorista';
@@ -405,8 +415,53 @@ function discardReasonModal() {
   });
 }
 
+/* ============ BANDEJA DE REVISIÓN ============
+ * El calendario muestra todo, pero lo que importa a diario es poco: qué falta
+ * aprobar, qué tiene una alerta, qué no se generó todavía. Estos "focos" son
+ * filtros de un toque sobre esas 4 preguntas, con el número al lado.
+ */
+function needsAttention(it) {
+  return Boolean(it.asset_id && statusOf(it) === 'draft' && (it.qa_notes || it.gen_model === 'groq'))
+    || Boolean(it.asset_id && it.queue_status === 'failed' && statusOf(it) !== 'published')
+    // Un Reel aprobado sin video no se puede publicar: es una alerta real.
+    || Boolean(it.post_type === 'reel' && it.asset_id && !it.video_path && ['draft', 'approved'].includes(statusOf(it)));
+}
+
+const FOCUS_DEFS = {
+  revisar: { label: 'Para aprobar', match: (it) => statusOf(it) === 'draft' },
+  alerta: { label: 'Con alerta', match: needsAttention },
+  'sin-generar': { label: 'Sin generar', match: (it) => statusOf(it) === 'sin-generar' },
+  esperando: { label: 'Aprobadas esperando su horario', match: (it) => statusOf(it) === 'approved' },
+};
+
+function focusCounts() {
+  const out = {};
+  for (const key of Object.keys(FOCUS_DEFS)) out[key] = calItems.filter(FOCUS_DEFS[key].match).length;
+  return out;
+}
+
+function renderFocusBar() {
+  const host = document.getElementById('focus-bar');
+  if (!host) return;
+  const counts = focusCounts();
+  const total = Object.values(counts).reduce((a, b) => a + b, 0);
+  if (!total) { host.innerHTML = ''; return; }
+  host.innerHTML = Object.keys(FOCUS_DEFS).map((key) => {
+    const n = counts[key];
+    if (!n) return '';
+    const on = filters.focus === key;
+    return `<button class="focus-chip ${key} ${on ? 'on' : ''}" data-focus="${key}">
+      <b>${n}</b> ${esc(FOCUS_DEFS[key].label)}</button>`;
+  }).join('');
+  host.querySelectorAll('[data-focus]').forEach((b) => b.addEventListener('click', () => {
+    filters.focus = filters.focus === b.dataset.focus ? 'all' : b.dataset.focus;
+    renderCalView();
+  }));
+}
+
 function getFiltered() {
   return calItems.filter((it) => {
+    if (filters.focus !== 'all' && !FOCUS_DEFS[filters.focus].match(it)) return false;
     if (filters.status !== 'all' && statusOf(it) !== filters.status) return false;
     if (filters.format !== 'all' && it.post_type !== filters.format) return false;
     if (filters.pillar !== 'all' && it.pillar !== filters.pillar) return false;
@@ -445,6 +500,7 @@ function renderFilters() {
     sel('f-auto', 'Tipo', [{ v: 'auto', t: 'Automática' }, { v: 'semi', t: 'Semi' }], filters.auto) +
     sel('f-comercial', 'Venta', [{ v: 'minorista', t: 'Minorista' }, { v: 'mayorista', t: 'Mayorista' }], filters.comercial) +
     `<input class="filter-search" id="f-q" placeholder="Buscar en el texto…" value="${esc(filters.q)}" oninput="onFilter('f-q', this.value)" />` +
+    `<button class="filter-sel" id="f-selall" onclick="selectAllVisible()" title="Marcar todas las piezas que se ven, para aprobarlas o descartarlas juntas">Seleccionar todo</button>` +
     `<span class="filter-count" id="f-count"></span>`;
 }
 
@@ -533,11 +589,111 @@ function renderCalView() {
   const items = getFiltered();
   const countEl = document.getElementById('f-count');
   if (countEl) countEl.textContent = `${items.length} de ${calItems.length} piezas`;
+  renderFocusBar();
   if (calView === 'list') renderCalList(items);
   else if (calView === 'grid') renderCalGrid(items);
   else renderProfileGrid();
   renderCalMore();
   refreshPubTimers();
+  renderBulkBar();
+}
+
+/* ============ SELECCIÓN MÚLTIPLE (acciones en lote) ============
+ * Aprobar de a una es lo que más tiempo come cuando hay 10 piezas al día.
+ * Con el check de cada tarjeta se juntan varias y se aprueban/descartan/generan
+ * todas juntas desde la barra de abajo.
+ */
+const selectedSlots = new Set();
+
+function selectedItems() {
+  return calItems.filter((it) => selectedSlots.has(String(it.id)));
+}
+
+function toggleSelect(id, on) {
+  if (on) selectedSlots.add(String(id)); else selectedSlots.delete(String(id));
+  renderBulkBar();
+}
+
+function clearSelection() {
+  selectedSlots.clear();
+  document.querySelectorAll('.card-check input').forEach((c) => { c.checked = false; });
+  renderBulkBar();
+}
+
+function selectAllVisible() {
+  getFiltered().filter(selectableItem).forEach((it) => selectedSlots.add(String(it.id)));
+  document.querySelectorAll('.card-check input').forEach((c) => { c.checked = selectedSlots.has(c.dataset.slot); });
+  renderBulkBar();
+}
+
+/** Sólo tiene sentido seleccionar lo que todavía se puede tocar. */
+function selectableItem(it) {
+  const st = statusOf(it);
+  return ['draft', 'approved', 'sin-generar'].includes(st);
+}
+
+function renderBulkBar() {
+  let bar = document.getElementById('bulk-bar');
+  const items = selectedItems();
+  if (!items.length) { if (bar) bar.remove(); return; }
+  if (!bar) {
+    bar = document.createElement('div');
+    bar.id = 'bulk-bar';
+    bar.className = 'bulk-bar';
+    document.body.appendChild(bar);
+  }
+  const drafts = items.filter((it) => statusOf(it) === 'draft');
+  const pend = items.filter((it) => statusOf(it) === 'sin-generar');
+  const killable = items.filter((it) => ['draft', 'approved'].includes(statusOf(it)));
+  bar.innerHTML = `
+    <span class="bb-count"><b>${items.length}</b> seleccionada${items.length > 1 ? 's' : ''}</span>
+    ${drafts.length ? `<button class="btn-approve btn-sm" id="bb-approve">${icon('check')} Aprobar ${drafts.length}</button>` : ''}
+    ${pend.length ? `<button class="btn-primary btn-sm" id="bb-gen">${icon('bolt')} Generar ${pend.length}</button>` : ''}
+    ${killable.length ? `<button class="btn-discard btn-sm" id="bb-discard">${icon('trash')} Descartar ${killable.length}</button>` : ''}
+    <button class="btn-ghost btn-sm" id="bb-clear">Deseleccionar</button>`;
+
+  bar.querySelector('#bb-clear').addEventListener('click', clearSelection);
+  const approveBtn = bar.querySelector('#bb-approve');
+  if (approveBtn) approveBtn.addEventListener('click', () => runBulk(approveBtn, drafts,
+    (it) => api(`/api/assets/${it.asset_id}/approve`, { method: 'POST' }), 'Aprobadas'));
+  const genBtn = bar.querySelector('#bb-gen');
+  if (genBtn) genBtn.addEventListener('click', () => runBulk(genBtn, pend, async (it) => {
+    await api(`/api/generate/${it.id}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    markGenerating(it.id);
+  }, 'Generándose en segundo plano'));
+  const disBtn = bar.querySelector('#bb-discard');
+  if (disBtn) disBtn.addEventListener('click', async () => {
+    const ok = await confirmModal('Descartar piezas',
+      `Se descartan <b>${killable.length}</b> piezas. No se borran: quedan guardadas y podés regenerar el slot cuando quieras.`, 'Descartar');
+    if (!ok) return;
+    runBulk(disBtn, killable, (it) => api(`/api/assets/${it.asset_id}/discard`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ reason: '' }),
+    }), 'Descartadas');
+  });
+}
+
+/**
+ * Corre una acción sobre varias piezas de a 3 por vez (no de a 30 juntas: el
+ * servidor de Render es chico) y avisa cuántas salieron bien y cuántas no.
+ */
+async function runBulk(btn, items, fn, doneLabel) {
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  let done = 0; let failed = 0;
+  const queue = [...items];
+  const worker = async () => {
+    while (queue.length) {
+      const it = queue.shift();
+      btn.innerHTML = `${icon('refresh', 'spin')} ${done + 1}/${items.length}`;
+      try { await fn(it); done += 1; } catch (_) { failed += 1; }
+    }
+  };
+  await Promise.all([worker(), worker(), worker()]);
+  btn.disabled = false;
+  btn.innerHTML = original;
+  toast(failed ? `${doneLabel}: ${done} · fallaron ${failed}` : `${doneLabel}: ${done}`, failed ? 'err' : 'ok');
+  clearSelection();
+  reloadKeepScroll();
 }
 
 /**
@@ -1068,8 +1224,14 @@ function renderCard(item) {
   // música) o publicar a mano.
   const downloadBtn = (aid && (item.image_path || item.video_path))
     ? `<button class="btn-ghost btn-sm" data-act="download" data-id="${aid}" title="Bajá la imagen o el video para editar en el celular o publicar a mano">${icon('download')} Descargar</button>` : '';
+  // Video con IA de verdad (Veo): sólo si al Reel le falta el video.
+  const genVideoBtn = (item.post_type === 'reel' && aid && !item.video_path)
+    ? (videoRunningIds.has(String(aid))
+      ? `<span class="badge semi gen-chip">${icon('refresh', 'spin')} Generando el video…</span>`
+      : `<button class="btn-video" data-act="genvideo" data-id="${aid}">${icon('film')} Generar video con IA</button>`)
+    : '';
   const videoBtn = (item.post_type === 'reel' && aid)
-    ? `<button class="btn-ghost btn-sm" data-act="videoprompt" data-id="${aid}">${icon('film')} Prompt video IA</button>` : '';
+    ? `<button class="btn-ghost btn-sm" data-act="videoprompt" data-id="${aid}" title="Para generarlo a mano en Gemini/Veo">${icon('copy')} Prompt a mano</button>` : '';
   const uploadVideoBtn = (item.post_type === 'reel' && aid)
     ? `<button class="btn-ghost btn-sm" data-act="uploadvideo" data-id="${aid}">${icon('upload')} Subir video</button>` : '';
   const editVideoBtn = (item.post_type === 'reel' && aid && item.video_path)
@@ -1094,13 +1256,13 @@ function renderCard(item) {
   } else if (status === 'draft') {
     actions = `<button class="btn-approve" data-act="approve" data-id="${aid}">${icon('check')} Aprobar</button>
       <button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Editar</button>
-      ${regenBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${downloadBtn}
+      ${regenBtn}${genVideoBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${downloadBtn}
       <button class="btn-discard btn-sm" data-act="discard" data-id="${aid}">${icon('trash')} Descartar</button>${planBtn}`;
   } else if (status === 'approved') {
     actions = (isSemi
       ? `<button class="btn-manual" data-act="publish" data-id="${aid}">${icon('info')} Cómo publicarla</button>`
       : `<button class="btn-publish" data-act="publish" data-id="${aid}">${icon('send')} Publicar ahora</button>`) +
-      `<button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Editar</button>${regenBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${downloadBtn}${planBtn}`;
+      `<button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Editar</button>${regenBtn}${genVideoBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${downloadBtn}${planBtn}`;
   } else if (status === 'published') {
     actions = `<span class="badge status-published" ${item.meta_post_id ? `title="ID de Instagram: ${esc(item.meta_post_id)}"` : ''}>${icon('check')} Publicada</span>
       ${downloadBtn}
@@ -1122,13 +1284,20 @@ function renderCard(item) {
   // Reels: el video NUNCA se auto-genera (nada de imagen estática con zoom).
   // El copy y la imagen base salen del panel; el video lo generás en Gemini/Veo.
   const reelNote = (item.post_type === 'reel' && aid && !item.video_path && ['draft', 'approved'].includes(status))
-    ? `<div class="reel-note">${icon('film')} Este Reel tiene el copy listo pero <b>le falta el video</b> (no se publica sin él): generalo en Gemini/Veo con <b>Prompt video IA</b> y subilo con <b>Subir video</b>.</div>` : '';
+    ? `<div class="reel-note">${icon('film')} Este Reel tiene el copy listo pero <b>le falta el video</b> (no se publica sin él): tocá <b>Generar video con IA</b> y en 1-4 minutos queda solo. Si preferís hacerlo a mano, están el <b>prompt</b> y <b>Subir video</b>.</div>` : '';
 
   const caption = item.caption
     ? `<div class="caption">${esc(item.caption)}</div>${item.hashtags ? `<div class="hashtags">${esc(item.hashtags)}</div>` : ''}`
     : `<div class="caption empty">${esc(item.pillar_detail || 'Todavía sin generar.')}</div>`;
 
+  // Check para las acciones en lote: sólo en lo que todavía se puede tocar.
+  const checkbox = selectableItem(item)
+    ? `<label class="card-check" title="Seleccionar para aprobar/descartar en lote">
+        <input type="checkbox" data-slot="${item.id}" ${selectedSlots.has(String(item.id)) ? 'checked' : ''}/></label>`
+    : '';
+
   card.innerHTML = `
+    ${checkbox}
     <div>${renderPreview(item)}</div>
     <div class="body">
       <div class="meta-row">
@@ -1152,6 +1321,8 @@ function renderCard(item) {
   card.querySelectorAll('[data-act]').forEach((btn) => {
     btn.addEventListener('click', () => handleAction(btn.dataset.act, btn.dataset.id, btn, card, item));
   });
+  const chk = card.querySelector('.card-check input');
+  if (chk) chk.addEventListener('change', () => toggleSelect(chk.dataset.slot, chk.checked));
   const ph = card.querySelector('.phone');
   if (ph) { ph.style.cursor = 'zoom-in'; ph.title = 'Ver cómo se publica'; ph.addEventListener('click', () => openPreview(item)); }
   return card;
@@ -1180,6 +1351,8 @@ async function handleAction(act, id, btn, card, item) {
       openEdit(id);
     } else if (act === 'regen') {
       openRegen(item || calItems.find((x) => String(x.id) === String(id)));
+    } else if (act === 'genvideo') {
+      openVideoGenerate(id);
     } else if (act === 'videoprompt') {
       openVideoPrompt(id);
     } else if (act === 'uploadvideo') {
@@ -1647,6 +1820,185 @@ async function openVideoPrompt(assetId) {
       } finally { imgsBtn.disabled = false; imgsBtn.innerHTML = original; }
     });
   } catch (e) { toast(e.message, 'err'); }
+}
+
+/* ============ VIDEO CON IA (Veo) ============
+ * Genera el video de verdad desde el panel: elegís estilo, calidad y desde qué
+ * foto arranca, y el motor lo genera solo (1-4 min) y lo deja enganchado a la
+ * pieza. Antes había que ir a Gemini/Veo a mano y volver a subirlo.
+ * El costo se muestra SIEMPRE antes de gastar (Veo se cobra por segundo).
+ */
+const videoJobPolls = new Map();
+
+async function openVideoGenerate(assetId, studio = null) {
+  let opt;
+  try {
+    opt = await api(`/api/video/options?duration=8${assetId ? `&assetId=${assetId}` : ''}`);
+  } catch (e) { toast(e.message, 'err'); return; }
+  if (!opt.available) {
+    showInfoModal('Video con IA', '<p class="hint">Falta configurar <b>GEMINI_API_KEY</b> en el servidor: sin eso no se puede generar video con IA. Mientras tanto podés usar <b>Prompt video IA</b> y generarlo a mano.</p>');
+    return;
+  }
+
+  const frames = opt.frames || [];
+  // Ojo: div y no label — `.field label` del panel pisa el display:flex de .q-card.
+  const qCards = (dur) => opt.qualities.map((q) => `
+    <div class="q-card ${q.id === 'fast' ? 'sel' : ''}" data-q="${q.id}">
+      <b>${esc(q.label)}</b>
+      <span class="q-price" data-persec="${q.usdPerSec}">US$ ${(q.usdPerSec * dur).toFixed(2)}</span>
+      <span class="q-desc">${esc(q.desc)} · ${q.resolution}</span>
+    </div>`).join('');
+
+  const destino = studio
+    ? 'Queda guardado en la biblioteca del Estudio, listo para descargar.'
+    : 'Queda pegado a la pieza, listo para publicar.';
+  const body = `
+    <p class="hint" style="margin-top:0;">El video se genera con <b>Veo 3.1</b> arrancando desde una foto real (así el producto no se deforma). Tarda 1 a 4 minutos. ${destino}</p>
+    ${(studio ? studio.name : opt.productName) ? `<p class="hint" style="margin:0 0 12px;">${icon('tag')} <b>${esc(studio ? studio.name : opt.productName)}</b></p>` : ''}
+
+    <div class="grid-2">
+      <div class="field"><label>Estilo</label>
+        <select class="input" id="vg-style">${(opt.styles || []).map((s) => `<option value="${esc(s.id)}">${esc(s.label)}</option>`).join('')}</select></div>
+      <div class="field"><label>Duración</label>
+        <select class="input" id="vg-dur">${(opt.durations || [8]).map((d) => `<option value="${d}" ${d === 8 ? 'selected' : ''}>${d} segundos</option>`).join('')}</select></div>
+    </div>
+
+    <div class="field"><label>Calidad (esto es lo que define el precio)</label>
+      <div class="q-cards" id="vg-qs">${qCards(8)}</div></div>
+
+    ${frames.length ? `<div class="field"><label>Primer fotograma — de acá arranca el video</label>
+      <div class="vg-frames" id="vg-frames">
+        ${frames.map((f, i) => `<button class="vg-frame ${i === 0 ? 'sel' : ''}" data-frame="${esc(f.id)}" title="${esc(f.label)}">
+          <img src="${esc(f.url)}" loading="lazy" alt=""/><span>${esc(f.label)}</span></button>`).join('')}
+      </div></div>`
+      : `<p class="hint">${studio ? 'Arranca desde la primera foto del producto elegido.' : 'Esta pieza no tiene foto de producto: el video sale sólo del texto (menos fiel).'}</p>`}
+
+    <p class="hint" style="margin:4px 0 14px;">${icon('info')} Gasto de video de hoy: <b>US$ ${Number(opt.spentTodayUsd).toFixed(2)}</b> de US$ ${Number(opt.budgetUsd).toFixed(2)} (tope diario).</p>
+
+    <div id="vg-status"></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
+      <button class="btn-ghost" id="vg-manual">${icon('copy')} Prefiero el prompt a mano</button>
+      <button class="btn-primary" id="vg-go">${icon('film')} Generar video · <span id="vg-cost">US$ 0,80</span></button>
+    </div>`;
+
+  const ov = showInfoModal('Generar el video con IA', body);
+  const durSel = ov.querySelector('#vg-dur');
+  const costEl = ov.querySelector('#vg-cost');
+  const goBtn = ov.querySelector('#vg-go');
+  let quality = 'fast';
+  let frame = frames.length ? frames[0].id : null;
+
+  const refreshCost = () => {
+    const dur = Number(durSel.value) || 8;
+    ov.querySelectorAll('.q-card').forEach((c) => {
+      const p = c.querySelector('.q-price');
+      p.textContent = `US$ ${(Number(p.dataset.persec) * dur).toFixed(2)}`;
+    });
+    const sel = ov.querySelector('.q-card.sel .q-price');
+    if (costEl && sel) costEl.textContent = sel.textContent;
+  };
+  durSel.addEventListener('change', refreshCost);
+  ov.querySelectorAll('.q-card').forEach((c) => c.addEventListener('click', () => {
+    ov.querySelectorAll('.q-card').forEach((x) => x.classList.remove('sel'));
+    c.classList.add('sel');
+    quality = c.dataset.q;
+    refreshCost();
+  }));
+  ov.querySelectorAll('.vg-frame').forEach((b) => b.addEventListener('click', () => {
+    ov.querySelectorAll('.vg-frame').forEach((x) => x.classList.remove('sel'));
+    b.classList.add('sel');
+    frame = b.dataset.frame;
+  }));
+  refreshCost();
+
+  ov.querySelector('#vg-manual').addEventListener('click', () => {
+    ov.remove();
+    if (studio) studioVideoPrompt(); else openVideoPrompt(assetId);
+  });
+
+  goBtn.addEventListener('click', async () => {
+    const dur = Number(durSel.value) || 8;
+    goBtn.disabled = true;
+    goBtn.innerHTML = `${icon('refresh', 'spin')} Arrancando…`;
+    const payload = { quality, duration: dur, style: ov.querySelector('#vg-style').value, frame };
+    try {
+      const r = studio
+        ? await api('/api/studio/video', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ ...studioParams(), ...payload }),
+        })
+        : await api(`/api/assets/${assetId}/generate-video`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload),
+        });
+      ov.querySelector('#vg-status').innerHTML =
+        `<div class="vg-run">${icon('refresh', 'spin')} Generando el video… tarda 1 a 4 minutos. Podés cerrar esta ventana y seguir trabajando: cuando esté listo ${studio ? 'aparece en la biblioteca' : 'aparece en la pieza'}.</div>`;
+      goBtn.classList.add('hidden');
+      toast(r.already ? 'Ya había un video generándose para esta pieza' : 'Video en camino', 'ok');
+      if (studio) watchStudioVideoJob(r.job && r.job.id, ov); else watchVideoJob(assetId, ov);
+      pollBgTasks();
+    } catch (e) {
+      toast(e.message, 'err');
+      goBtn.disabled = false;
+      goBtn.innerHTML = `${icon('film')} Reintentar`;
+    }
+  });
+}
+
+/** Igual que watchVideoJob pero para el Estudio (el resultado va a la biblioteca). */
+function watchStudioVideoJob(jobId, ov = null) {
+  if (!jobId || videoJobPolls.has(`studio-${jobId}`)) return;
+  const timer = setInterval(async () => {
+    try {
+      const jobs = await api('/api/studio/video-jobs');
+      const job = (jobs || []).find((j) => j.id === jobId);
+      if (!job || job.status === 'running') return;
+      clearInterval(timer);
+      videoJobPolls.delete(`studio-${jobId}`);
+      if (job.status === 'done') {
+        toast('¡Video listo! Ya está en la biblioteca.', 'ok');
+        if (ov && document.body.contains(ov)) {
+          ov.querySelector('#vg-status').innerHTML =
+            `<video src="${esc(job.video_path)}" controls playsinline style="width:180px;border-radius:12px;margin-bottom:12px;"></video>`;
+        }
+        loadStudioGallery();
+      } else {
+        toast(`El video falló: ${job.error || 'error desconocido'}`, 'err');
+        if (ov && document.body.contains(ov)) {
+          ov.querySelector('#vg-status').innerHTML = `<div class="vg-run err">${icon('alert')} ${esc(job.error || 'Error generando el video')}</div>`;
+        }
+      }
+      pollBgTasks();
+    } catch (_) { /* reintenta */ }
+  }, 8000);
+  videoJobPolls.set(`studio-${jobId}`, timer);
+}
+
+/** Sigue el estado del video hasta que está listo (o falla) y refresca el panel. */
+function watchVideoJob(assetId, ov = null) {
+  if (videoJobPolls.has(String(assetId))) return;
+  const timer = setInterval(async () => {
+    try {
+      const job = await api(`/api/assets/${assetId}/video-job`);
+      if (!job || job.status === 'running') return;
+      clearInterval(timer);
+      videoJobPolls.delete(String(assetId));
+      if (job.status === 'done') {
+        toast('¡Video listo! Ya quedó en la pieza.', 'ok');
+        if (ov && document.body.contains(ov)) {
+          ov.querySelector('#vg-status').innerHTML =
+            `<video src="${esc(job.video_path)}" controls playsinline style="width:180px;border-radius:12px;margin-bottom:12px;"></video>`;
+        }
+      } else {
+        toast(`El video falló: ${job.error || 'error desconocido'}`, 'err');
+        if (ov && document.body.contains(ov)) {
+          ov.querySelector('#vg-status').innerHTML = `<div class="vg-run err">${icon('alert')} ${esc(job.error || 'Error generando el video')}</div>`;
+        }
+      }
+      reloadKeepScroll();
+      pollBgTasks();
+    } catch (_) { /* reintenta en el próximo tick */ }
+  }, 8000);
+  videoJobPolls.set(String(assetId), timer);
 }
 
 function openVideoUpload(assetId) {
@@ -2225,6 +2577,10 @@ function loadStudio() {
     gen.innerHTML = `${icon('image')} Generar imagen con IA ${costTag(genCostLabel())}`;
     gen.addEventListener('click', () => studioGenImage(gen));
     document.getElementById('st-video').addEventListener('click', studioVideoPrompt);
+    document.getElementById('st-gen-video').addEventListener('click', () => {
+      if (!studioSel.length) { toast('Elegí al menos un producto.'); return; }
+      openVideoGenerate(null, { name: studioSel.map((p) => p.name).join(' + ') });
+    });
     document.getElementById('st-upload').addEventListener('click', studioUpload);
     renderStudioSel();
   }
@@ -2241,7 +2597,46 @@ function openEdit(assetId) {
   document.getElementById('edit-cta').value = (it && it.cta) || '';
   document.getElementById('edit-modal').classList.remove('hidden');
 }
-function closeEdit() { document.getElementById('edit-modal').classList.add('hidden'); editingId = null; }
+function closeEdit() {
+  document.getElementById('edit-modal').classList.add('hidden');
+  const box = document.getElementById('edit-variants');
+  if (box) box.innerHTML = '';
+  editingId = null;
+}
+
+/**
+ * "Probar otras 3 versiones": pide 3 captions alternativos para la MISMA imagen.
+ * Es texto (gratis) — a diferencia de "Regenerar", que vuelve a pagar la escena.
+ * Tocás una y se carga en el formulario; después guardás normalmente.
+ */
+async function loadCopyVariants(btn) {
+  const box = document.getElementById('edit-variants');
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `${icon('refresh', 'spin')} Escribiendo 3 versiones…`;
+  box.innerHTML = '';
+  try {
+    const d = await api(`/api/assets/${editingId}/copy-variants`, { method: 'POST' });
+    box.innerHTML = `<label>Otras versiones — tocá una para usarla</label>` + d.variants.map((v, i) => `
+      <div class="cv-card" data-i="${i}">
+        <div class="cv-head"><b>${esc(v.angle || `Versión ${i + 1}`)}</b>
+          ${(v.problems || []).length ? `<span class="badge qa-warn" title="${esc((v.problems || []).join(' · '))}">revisar</span>` : ''}
+          <span class="cv-use">Usar esta</span></div>
+        <div class="cv-cap">${esc(v.caption)}</div>
+        ${v.hashtags ? `<div class="cv-tags">${esc(v.hashtags)}</div>` : ''}
+      </div>`).join('');
+    box.querySelectorAll('.cv-card').forEach((c) => c.addEventListener('click', () => {
+      const v = d.variants[Number(c.dataset.i)];
+      document.getElementById('edit-caption').value = v.caption;
+      if (v.hashtags) document.getElementById('edit-hashtags').value = v.hashtags;
+      if (v.cta) document.getElementById('edit-cta').value = v.cta;
+      box.querySelectorAll('.cv-card').forEach((x) => x.classList.toggle('sel', x === c));
+      toast('Cargada en el formulario — dale a Guardar si te convence', 'ok');
+    }));
+  } catch (e) {
+    box.innerHTML = `<p class="hint">${esc(e.message)}</p>`;
+  } finally { btn.disabled = false; btn.innerHTML = original; }
+}
 async function saveEdit() {
   try {
     await api(`/api/assets/${editingId}/edit`, {
@@ -2477,6 +2872,43 @@ async function loadLessons() {
           <button class="btn-discard btn-sm" onclick="toggleLesson(${Number(l.id)}, ${l.active ? 'false' : 'true'})">${l.active ? 'Apagar' : 'Reactivar'}</button>
         </div>`).join('')}
     </div>`;
+  } catch (_) { el.innerHTML = ''; }
+}
+
+/**
+ * Calidad de las imágenes: elegir el modelo desde acá (antes era una variable de
+ * entorno y había que redeployar). El precio por pieza cambia según cuál elijas,
+ * por eso vive en la pestaña de Costos.
+ */
+async function loadImageModel() {
+  const el = document.getElementById('image-model-panel');
+  if (!el) return;
+  try {
+    const d = await api('/api/settings/image-model');
+    el.innerHTML = `<div class="panel" style="margin-bottom:20px;">
+      <h3>Calidad de las imágenes generadas</h3>
+      <p class="hint">Con qué modelo se generan las escenas de las piezas. Más calidad = más costo por pieza. El cambio aplica desde la próxima generación, sin redeploy.</p>
+      <div class="q-cards" id="im-cards">
+        ${d.options.map((o) => `<div class="q-card ${o.id === d.current ? 'sel' : ''}" data-model="${esc(o.id)}">
+          <b>${esc(o.label)}</b>
+          <span class="q-price">US$ ${o.usd.toFixed(3)}</span>
+          <span class="q-desc">${esc(o.desc)}</span>
+        </div>`).join('')}
+      </div>
+      <p class="hint" style="margin:10px 0 0;">Precio por imagen. Una pieza simple usa 1; un carrusel, entre 1 y 3.</p>
+    </div>`;
+    el.querySelectorAll('[data-model]').forEach((c) => c.addEventListener('click', async () => {
+      if (c.classList.contains('sel')) return;
+      try {
+        await api('/api/settings/image-model', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ model: c.dataset.model }),
+        });
+        toast('Listo: las próximas piezas usan ese modelo', 'ok');
+        loadImageModel();
+        loadConfig();
+      } catch (e) { toast(e.message, 'err'); }
+    }));
   } catch (_) { el.innerHTML = ''; }
 }
 
@@ -2885,6 +3317,7 @@ async function loadMetrics() {
   loadConversionAudit();
   loadAttribution();
   loadAiUsage();
+  loadImageModel();
   loadLessons();
   loadReachChart();
   const body = document.getElementById('metrics-body');
@@ -3477,6 +3910,19 @@ function renderFunnels(f) {
     </div>
     <ul class="an-warn-list" style="margin-top:14px;">${(f.avisos || []).map((a) => `<li>${esc(a)}</li>`).join('')}</ul>`;
 }
+
+/* ============ atajos de teclado ============
+ * Escape cierra lo que esté abierto (modal, panel de edición) y, si no hay nada,
+ * limpia la selección múltiple. Antes había que buscar la X con el mouse.
+ */
+document.addEventListener('keydown', (e) => {
+  if (e.key !== 'Escape') return;
+  const overlays = document.querySelectorAll('.modal-overlay:not(.hidden)');
+  const dynamic = [...overlays].filter((o) => o.id !== 'edit-modal');
+  if (dynamic.length) { dynamic[dynamic.length - 1].remove(); return; }
+  if (!document.getElementById('edit-modal').classList.contains('hidden')) { closeEdit(); return; }
+  if (selectedSlots.size) clearSelection();
+});
 
 /* ============ init ============ */
 hydrateIcons();

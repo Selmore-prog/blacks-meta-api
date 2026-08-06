@@ -66,6 +66,8 @@
         </div>
       </div>
       <div class="next-plan" id="next-plan"></div>
+      <!-- Bandeja de revisión: los 4 números que importan por día. Tocás uno y filtra. -->
+      <div class="focus-bar" id="focus-bar"></div>
       <div class="filters" id="filters"></div>
       <div id="calendar-list"><p class="loading">Cargando calendario...</p></div>
       <div id="calendar-grid" class="hidden"></div>
@@ -98,10 +100,11 @@
         </div>
         <div style="display:flex; gap:8px; flex-wrap:wrap;">
           <button class="btn-primary" id="st-gen-img"><span data-ic="image"></span> Generar imagen con IA</button>
-          <button class="btn-ghost" id="st-video"><span data-ic="film"></span> Prompt de video (Gemini/Veo)</button>
+          <button class="btn-video" id="st-gen-video"><span data-ic="film"></span> Generar video con IA</button>
+          <button class="btn-ghost" id="st-video"><span data-ic="copy"></span> Prompt de video a mano</button>
           <button class="btn-ghost" id="st-upload"><span data-ic="upload"></span> Subir resultado</button>
         </div>
-        <p class="hint" style="margin:10px 0 0;">El video no se genera acá: te llevás el prompt detallado, lo pegás en Gemini/Veo con las fotos del producto, y el resultado lo subís con "Subir resultado" para que quede en la biblioteca.</p>
+        <p class="hint" style="margin:10px 0 0;">El video se genera acá mismo con Veo (tarda 1-4 min y te muestra el costo antes). Si preferís hacerlo vos en Gemini/Veo, "Prompt de video a mano" te da el texto detallado y después subís el resultado.</p>
       </div>
 
       <div class="panel">
@@ -229,6 +232,8 @@
 
       <div id="mt-costos" class="mt-pane hidden">
         <div id="ai-usage" class="prod-totals" style="margin-bottom:20px;"></div>
+        <!-- Calidad/costo de las imágenes: elegible sin redeploy. -->
+        <div id="image-model-panel"></div>
         <!-- Memoria de errores: lecciones que el sistema aprendió del QA y del usuario. -->
         <div id="lessons-panel"></div>
       </div>
@@ -326,7 +331,10 @@
         <div class="field"><label>Caption</label><textarea class="input" id="edit-caption"></textarea></div>
         <div class="field"><label>Hashtags</label><input class="input" id="edit-hashtags" /></div>
         <div class="field"><label>CTA</label><input class="input" id="edit-cta" /></div>
-        <div style="display:flex; gap:8px; justify-content:flex-end;">
+        <!-- Variantes: 3 ángulos distintos para la MISMA imagen (texto = gratis). -->
+        <div class="field" id="edit-variants"></div>
+        <div style="display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
+          <button class="btn-ghost" id="edit-variants-btn" onclick="loadCopyVariants(this)" title="Escribe 3 versiones del texto para esta misma imagen. No cuesta nada.">Probar otras 3 versiones</button>
           <button class="btn-discard" onclick="closeEdit()">Cancelar</button>
           <button class="btn-primary" onclick="saveEdit()">Guardar</button>
         </div>

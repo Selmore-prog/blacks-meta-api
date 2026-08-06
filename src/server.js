@@ -217,6 +217,15 @@ app.get('/api/background-tasks', wrap(async (req, res) => {
     ),
     getPublishQueueStatus({ limit: 10 }),
   ]);
+  // Videos que Veo está generando ahora mismo (tardan 1-4 min).
+  const videos = await pool.query(
+    `SELECT v.id, v.asset_id, v.status, v.quality, v.est_cost_usd, v.created_at, v.product_names,
+            c.theme_title, c.pillar_detail
+     FROM video_jobs v
+     LEFT JOIN generated_assets a ON a.id = v.asset_id
+     LEFT JOIN content_calendar c ON c.id = a.calendar_id
+     WHERE v.status = 'running' ORDER BY v.id DESC LIMIT 10`
+  ).catch(() => ({ rows: [] })); // tabla nueva: si todavía no migraron, no rompe el panel
   const summary = publish.summary || {};
   const publishActive = (summary.queued || 0) + (summary.processing || 0);
   res.json({
@@ -224,8 +233,9 @@ app.get('/api/background-tasks', wrap(async (req, res) => {
     // generado en Gemini/Veo), así que no cuentan como "en proceso".
     reels: reels.rows,
     edits: edits.rows,
+    videos: videos.rows,
     publish,
-    active: edits.rows.length + publishActive,
+    active: edits.rows.length + publishActive + videos.rows.length,
     failed: summary.failed || 0,
   });
 }));
@@ -418,6 +428,18 @@ app.get('/api/analytics/views-by-segment', wrap(async (req, res) => {
 }));
 
 // Consumo de imágenes IA del mes (estimado en USD) + proyección a fin de mes.
+/* Modelo de imagen elegido desde el panel (calidad vs. costo por pieza). */
+app.get('/api/settings/image-model', wrap(async (req, res) => {
+  const { IMAGE_MODEL_OPTIONS } = require('./settings');
+  res.json({ current: config.gemini.imageModel, options: IMAGE_MODEL_OPTIONS });
+}));
+
+app.post('/api/settings/image-model', wrap(async (req, res) => {
+  const { setImageModel } = require('./settings');
+  const model = await setImageModel((req.body || {}).model);
+  res.json({ ok: true, current: model });
+}));
+
 app.get('/api/ai-usage', wrap(async (req, res) => {
   const { rows } = await pool.query(
     `SELECT COUNT(*)::int AS images, COALESCE(SUM(est_cost_usd), 0)::numeric(10,2) AS usd,
@@ -1057,6 +1079,43 @@ app.post('/api/assets/:assetId/edit', wrap(async (req, res) => {
   }
 }));
 
+/**
+ * 3 versiones alternativas del caption para la MISMA imagen. Es texto: sale gratis
+ * y no vuelve a pagar la escena de IA (que es lo caro de "Regenerar").
+ */
+app.post('/api/assets/:assetId/copy-variants', wrap(async (req, res) => {
+  const { generateCopyVariants } = require('./ai');
+  const { companyFactsContext, getCompanyFacts } = require('./companyInfo');
+  const { lessonsContext } = require('./learning');
+  const id = intParam(req.params.assetId);
+  if (!id) return res.status(400).json({ error: 'assetId inválido' });
+  const { rows } = await pool.query(
+    `SELECT a.caption, c.pillar, c.objective, c.format, c.post_type,
+            p.name, p.description, p.price, p.promo_price
+     FROM generated_assets a JOIN content_calendar c ON c.id = a.calendar_id
+     LEFT JOIN products_cache p ON p.id = a.product_id WHERE a.id = $1`,
+    [id]
+  );
+  const r = rows[0];
+  if (!r) return res.status(404).json({ error: 'No existe el asset' });
+  const [companyFacts, lessons] = await Promise.all([
+    getCompanyFacts().then(companyFactsContext).catch(() => ''),
+    lessonsContext({ pillar: r.pillar }).catch(() => ''),
+  ]);
+  const variants = await generateCopyVariants({
+    caption: r.caption,
+    product: r.name ? { name: r.name, description: r.description, price: r.price, promo_price: r.promo_price } : null,
+    pillar: r.pillar,
+    objective: r.objective || 'venta',
+    format: r.format || 'feed',
+    postType: r.post_type || 'feed',
+    companyFacts,
+    lessons,
+  });
+  if (!variants.length) return res.status(502).json({ error: 'No pude generar variantes ahora. Probá de nuevo en un minuto.' });
+  res.json({ variants });
+}));
+
 app.post('/api/assets/:assetId/discard', wrap(async (req, res) => {
   const id = intParam(req.params.assetId);
   if (!id) return res.status(400).json({ error: 'assetId inválido' });
@@ -1143,6 +1202,104 @@ app.get('/api/assets/:assetId/video-prompt', wrap(async (req, res) => {
     caption: r.caption,
     pillar: r.pillar,
   }));
+}));
+
+/* ----------------------- Video con IA (Veo 3.1) -----------------------
+ * Antes el video era 100% manual: copiabas el prompt, lo pegabas en Gemini/Veo,
+ * bajabas el mp4 y lo volvías a subir. Estos endpoints lo generan solos desde el
+ * panel: arrancan la operación, la siguen en segundo plano y dejan el video
+ * enganchado a la pieza (o en la biblioteca del Estudio). Ver src/videoAi.js.
+ * ------------------------------------------------------------------------ */
+
+/** Fotogramas candidatos para arrancar el video (image-to-video). */
+async function videoStartFrames(assetId) {
+  const { rows } = await pool.query(
+    `SELECT a.image_path, a.slides_meta, p.name AS product_name, p.description AS product_description,
+            p.image_url AS product_image_url, p.images AS product_images
+     FROM generated_assets a LEFT JOIN products_cache p ON p.id = a.product_id WHERE a.id = $1`,
+    [assetId]
+  );
+  const r = rows[0];
+  if (!r) return null;
+  let meta = r.slides_meta;
+  if (typeof meta === 'string') { try { meta = JSON.parse(meta); } catch (_) { meta = null; } }
+  const frames = [];
+  // La escena limpia (sin textos quemados) es el mejor primer fotograma: ya tiene
+  // la luz y el ambiente de la pieza. La foto de catálogo es la más fiel al producto.
+  if (meta && meta.sceneUrl) frames.push({ id: 'escena', label: 'Escena de la pieza', url: meta.sceneUrl });
+  const photos = Array.isArray(r.product_images) && r.product_images.length
+    ? r.product_images : [r.product_image_url].filter(Boolean);
+  photos.slice(0, 4).forEach((url, i) => frames.push({ id: `foto${i}`, label: `Foto real ${i + 1}`, url }));
+  // Ojo: la imagen de la pieza NO sirve de primer fotograma — tiene los textos
+  // quemados encima y el video los deformaría. Sin foto limpia, va sólo texto.
+  return { frames, product: r };
+}
+
+// Qué se puede generar y cuánto sale (el panel lo muestra ANTES de gastar).
+app.get('/api/video/options', wrap(async (req, res) => {
+  const { listVideoQualities, listApiVideoStyles, hasVeo, videoSpendTodayUsd } = require('./videoAi');
+  const duration = Number(req.query.duration) || 8;
+  const assetId = intParam(req.query.assetId);
+  const frames = assetId ? await videoStartFrames(assetId) : null;
+  res.json({
+    available: hasVeo(),
+    qualities: listVideoQualities(duration),
+    styles: listApiVideoStyles(),
+    durations: [4, 6, 8],
+    spentTodayUsd: Number((await videoSpendTodayUsd()).toFixed(2)),
+    budgetUsd: config.ai.videoDailyBudgetUsd,
+    frames: frames ? frames.frames : [],
+    productName: frames && frames.product ? frames.product.product_name : null,
+  });
+}));
+
+app.post('/api/assets/:assetId/generate-video', wrap(async (req, res) => {
+  const { createVideoJob, buildVeoApiPrompt, listVideoJobs } = require('./videoAi');
+  const id = intParam(req.params.assetId);
+  if (!id) return res.status(400).json({ error: 'assetId inválido' });
+
+  // Una pieza a la vez: si ya hay uno corriendo, se devuelve ese (evita pagar dos).
+  const jobs = await listVideoJobs({ assetId: id, limit: 1 });
+  if (jobs[0] && jobs[0].status === 'running') return res.json({ ok: true, job: jobs[0], already: true });
+
+  const info = await videoStartFrames(id);
+  if (!info) return res.status(404).json({ error: 'No existe el asset' });
+  const { rows: crows } = await pool.query(
+    `SELECT c.pillar, c.format, c.pillar_detail, c.theme_title FROM generated_assets a
+     JOIN content_calendar c ON c.id = a.calendar_id WHERE a.id = $1`, [id]
+  );
+  const slot = crows[0] || {};
+  const body = req.body || {};
+  const frame = info.frames.find((f) => f.id === body.frame) || info.frames[0] || null;
+  const prompt = textOrNull(body.prompt) || buildVeoApiPrompt({
+    productName: info.product.product_name,
+    productDescription: info.product.product_description,
+    style: body.style,
+    theme: slot.pillar_detail || slot.theme_title,
+    pillar: slot.pillar,
+    hasStartImage: Boolean(frame),
+  });
+
+  const job = await createVideoJob({
+    assetId: id,
+    prompt,
+    imageUrl: frame ? frame.url : null,
+    quality: body.quality,
+    duration: body.duration,
+    aspectRatio: slot.format === 'feed' ? '9:16' : '9:16', // Reels e historias son verticales
+    format: slot.format || 'story',
+    productNames: info.product.product_name,
+    style: body.style || 'secuencia',
+  });
+  res.json({ ok: true, job });
+}));
+
+app.get('/api/assets/:assetId/video-job', wrap(async (req, res) => {
+  const { listVideoJobs } = require('./videoAi');
+  const id = intParam(req.params.assetId);
+  if (!id) return res.status(400).json({ error: 'assetId inválido' });
+  const jobs = await listVideoJobs({ assetId: id, limit: 1 });
+  res.json(jobs[0] || null);
 }));
 
 // Subir un video propio (ej: generado en Gemini/Veo) y dejarlo listo para publicar como Reel.
@@ -1300,6 +1457,43 @@ app.post('/api/studio/video-prompt', wrap(async (req, res) => {
 }));
 
 // Sube a la biblioteca el resultado generado afuera (video de Veo/Gemini o una imagen).
+// Video con IA (Veo) desde el Estudio: mismo motor que las piezas, pero el
+// resultado va a la biblioteca en vez de engancharse a un slot del calendario.
+app.post('/api/studio/video', wrap(async (req, res) => {
+  const { createVideoJob, buildVeoApiPrompt } = require('./videoAi');
+  const body = req.body || {};
+  const products = await studioProducts(body.productIds);
+  if (!products.length) return res.status(400).json({ error: 'Elegí al menos un producto.' });
+  const format = body.format === 'feed' ? 'feed' : 'story';
+  const first = products[0];
+  const prompt = textOrNull(body.prompt) || buildVeoApiPrompt({
+    productName: products.map((p) => p.name).join(' + '),
+    productDescription: products.length === 1 ? first.description : null,
+    style: body.style,
+    theme: textOrNull(body.theme),
+    hasStartImage: true,
+  });
+  const job = await createVideoJob({
+    studioProductIds: products.map((p) => p.id),
+    prompt,
+    imageUrl: (first.images && first.images[0]) || first.imageUrl || null,
+    quality: body.quality,
+    duration: body.duration,
+    aspectRatio: '9:16',
+    format,
+    productNames: products.map((p) => p.name).join(' + '),
+    style: body.style || 'secuencia',
+  });
+  res.json({ ok: true, job });
+}));
+
+// Estado de los videos del Estudio (los que no están atados a una pieza).
+app.get('/api/studio/video-jobs', wrap(async (req, res) => {
+  const { listVideoJobs } = require('./videoAi');
+  const jobs = await listVideoJobs({ limit: 10 });
+  res.json(jobs.filter((j) => !j.asset_id));
+}));
+
 app.post('/api/studio/upload', uploadVideo.single('file'), wrap(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No se subió ningún archivo.' });
   const mime = req.file.mimetype || 'application/octet-stream';
@@ -1414,4 +1608,10 @@ process.on('uncaughtException', (err) => console.error('[server] uncaughtExcepti
 
 app.listen(config.port, () => {
   console.log(`[server] BLACKS content engine en puerto ${config.port} · IA: ${hasGemini() ? 'Gemini' : 'Groq'} · imágenes IA: ${config.ai.useAiImages}`);
+  // Ajustes guardados desde el panel (ej. modelo de imagen elegido).
+  require('./settings').loadSettings()
+    .then((s) => console.log(`[server] Modelo de imagen: ${s.imageModel}`))
+    .catch(() => {});
+  // Retoma los videos de Veo que quedaron a medio generar (ya están pagados).
+  require('./videoAi').resumeVideoJobs().catch(() => {});
 });

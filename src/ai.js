@@ -1155,6 +1155,85 @@ async function generateJson({ system, prompt, schema, maxTokens = 4000, temperat
   return JSON.parse(content.replace(/```json|```/g, '').trim());
 }
 
+/* =========================================================================
+ * VARIANTES DE COPY (ago-2026)
+ * El copy sale bien, pero a veces uno quiere ver OTRA vuelta sin rehacer la
+ * pieza entera (regenerar cuesta plata: vuelve a generar la imagen). Esto pide
+ * 3 ángulos distintos SOBRE LA MISMA imagen — texto, o sea gratis — y el panel
+ * deja elegir uno. Cada variante pasa por el MISMO control de calidad que el
+ * copy original (frases prohibidas + regla anti-invención de datos).
+ * ========================================================================= */
+const VARIANT_ANGLES = [
+  'BENEFICIO CONCRETO: qué problema real le resuelve al que trabaja (resistencia, comodidad, terminación). Cero adjetivos vacíos.',
+  'SITUACIÓN DE USO: una escena real de trabajo argentino donde esa prenda se nota (arrancá por la situación, no por el producto).',
+  'DIRECTO Y CORTO: al grano, la frase más simple posible que igual dice algo específico. El más corto de los tres.',
+];
+
+async function generateCopyVariants({ caption = '', product = null, pillar = 'producto', objective = 'venta', format = 'feed', postType = 'feed', companyFacts = '', lessons = '', imageContext = '' } = {}) {
+  const productBlock = product
+    ? `PRODUCTO DE LA PIEZA: ${product.name}${product.description ? `\nFicha real (única fuente de características): ${String(product.description).replace(/\s+/g, ' ').slice(0, 600)}` : ''}${productPriceText(product) ? `\n${productPriceText(product)}` : ''}`
+    : 'La pieza NO muestra un producto puntual: es institucional/de marca.';
+
+  const prompt = `Tenés una pieza de Instagram YA DISEÑADA (la imagen no se toca) y su caption actual. Escribí TRES captions alternativos para esa MISMA imagen, cada uno con un ángulo distinto.
+
+CAPTION ACTUAL (el que hay que mejorar/variar):
+"""${caption || '(sin caption todavía)'}"""
+
+${productBlock}
+
+CONTEXTO: pilar ${pillar} · objetivo ${objective} · ${format === 'story' ? 'HISTORIA (caption corto, 1 línea: casi no se lee)' : 'FEED (caption de hasta ~400 caracteres)'}${postType === 'reel' ? ' · REEL' : ''}.
+${imageContext ? `LO QUE MUESTRA LA IMAGEN (no contradigas esto): ${imageContext}` : ''}
+${companyFacts || ''}
+${lessons || ''}
+
+LOS TRES ÁNGULOS (uno por variante, en este orden):
+1. ${VARIANT_ANGLES[0]}
+2. ${VARIANT_ANGLES[1]}
+3. ${VARIANT_ANGLES[2]}
+
+REGLAS:
+- Los tres tienen que ser REALMENTE distintos entre sí y distintos del actual: si dos dicen lo mismo con otras palabras, está mal.
+- Un solo CTA por variante. Hashtags 4 a 6.
+- Nada de datos que no estén en la ficha del producto o en los datos verificados. Ante la duda, no lo digas.
+
+Devolvé JSON: {"variants":[{"angle":"nombre corto del ángulo (máx 3 palabras)","caption":"...","hashtags":"#A #B #C","cta":"..."}]}`;
+
+  const schema = {
+    type: 'OBJECT',
+    properties: {
+      variants: {
+        type: 'ARRAY',
+        items: {
+          type: 'OBJECT',
+          properties: {
+            angle: { type: 'STRING' },
+            caption: { type: 'STRING' },
+            hashtags: { type: 'STRING' },
+            cta: { type: 'STRING' },
+          },
+          required: ['angle', 'caption', 'hashtags'],
+        },
+      },
+    },
+    required: ['variants'],
+  };
+
+  const out = await generateJson({ system: VOICE_CORE, prompt, schema, temperature: 0.95, maxTokens: 2000 });
+  const list = Array.isArray(out && out.variants) ? out.variants : [];
+  return list.slice(0, 3).map((v) => {
+    const clean = {
+      angle: sanitizeText(String(v.angle || '').slice(0, 40)),
+      caption: sanitizeText(String(v.caption || '').trim()),
+      hashtags: sanitizeText(String(v.hashtags || '').trim()),
+      cta: sanitizeText(String(v.cta || '').trim()),
+    };
+    // Mismo control de calidad que el copy original: si algo rompe una regla, el
+    // panel lo muestra con la advertencia en vez de esconderlo.
+    clean.problems = lintCopy({ caption: clean.caption, cta: clean.cta, hashtags: clean.hashtags }, { format, postType, pillar });
+    return clean;
+  }).filter((v) => v.caption);
+}
+
 /**
  * Genera un fondo/lienzo con IA (sin texto) para usar de backdrop de la pieza.
  * Best-effort: si no hay Gemini o falla, devuelve null y se usa el diseño plano.
@@ -2641,6 +2720,7 @@ Devolvé SOLO este JSON:
 
 module.exports = {
   generateCopy,
+  generateCopyVariants,
   generateJson,
   parseCorrection,
   parseSlideCorrection,
