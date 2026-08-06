@@ -746,3 +746,5 @@ button .cost-tag { margin-left: 8px; }
 .fn-alert { display: flex; gap: 10px; align-items: flex-start; background: rgba(232,93,27,.10);
   border: 1px solid rgba(232,93,27,.35); border-radius: 10px; padding: 11px 14px; font-size: 12.5px; line-height: 1.55; margin-top: 12px; }
 .fn-alert .ic { flex: none; color: var(--orange); }
+.fn-tag.warn { color: #e8a33d; font-weight: 700; }
+.fn-fuzzy .fn-bar i { background: repeating-linear-gradient(45deg, var(--orange) 0 8px, #ff8a4d 8px 16px); }

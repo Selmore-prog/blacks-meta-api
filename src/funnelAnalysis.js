@@ -81,6 +81,7 @@ function buildSteps(defs, results) {
       medida: def.medida,
       sinDatos,
       noSecuencial,
+      impreciso: Boolean(def.impreciso),
       sessions: sinDatos ? null : r.cur,
       sessionsPrev: sinDatos ? null : r.prev,
       delta: sinDatos ? null : deltaPct(r.cur, r.prev),
@@ -161,6 +162,12 @@ async function siteFunnels({ current, previous, prefix = '/mayorista' } = {}) {
   // se elige el que tenga números: así el embudo funciona hoy y sigue andando
   // cuando los eventos nuevos tomen el relevo.
   const leadMayEvent = fAnd(fEvent('generate_lead'), { filter: { fieldName: 'customEvent:lead_type', stringFilter: { value: 'mayorista' } } });
+  // Ficha de producto separada por tipo. El view_item de Tiendanube mezcla las
+  // mayoristas (Consultar precio) con las minoristas: para el embudo minorista
+  // eso es ruido puro, porque un producto sin carrito NUNCA puede avanzar al
+  // paso siguiente y hace ver una caída que no es real.
+  const fichaMin = fAnd(fEvent('product_view'), { filter: { fieldName: 'customEvent:product_mode', stringFilter: { value: 'minorista' } } });
+  const fichaMay = fAnd(fEvent('product_view'), { filter: { fieldName: 'customEvent:product_mode', stringFilter: { value: 'mayorista' } } });
   const leadMayClick = fAnd(fEvent('click'), fLink(waMay));
   const leadMinClick = fAnd(fEvent('click'), fLink(waMin));
 
@@ -169,6 +176,7 @@ async function siteFunnels({ current, previous, prefix = '/mayorista' } = {}) {
     { key: 'seccion', label: 'Entraron a la sección mayorista', medida: `Sesiones que vieron ${prefix}`, help: 'Vieron al menos una página de la sección.' },
     { key: 'propuesta', nuevo: true, label: 'Vieron la propuesta B2B', medida: 'Sesiones con view_b2b_landing', help: 'El bloque de descuentos y mínimos estuvo efectivamente en pantalla, no sólo cargado.' },
     { key: 'interes', nuevo: true, label: 'Se metieron a mirar en serio', medida: 'Sesiones con b2b_info_open, scroll_to_products o click_cotizador', help: 'Abrieron trabajos/preguntas, saltaron al catálogo o entraron al cotizador.' },
+    { key: 'ficha_may', nuevo: true, label: 'Miraron una ficha mayorista', medida: 'Sesiones con product_view (mayorista)', help: 'Abrieron un producto de "Consultar precio". Es el paso donde aparece el botón de WhatsApp mayorista.' },
     { key: 'contacto', nuevo: true, label: 'Abrieron un canal de contacto', medida: 'Sesiones con whatsapp_modal_open', help: 'Tocaron el botón flotante y vieron el cartel de minorista/mayorista.' },
     { key: 'consulta', label: 'Consultaron', medida: 'Sesiones con consulta mayorista', help: 'Tocaron el WhatsApp mayorista. Es el final del recorrido B2B: no hay carrito.' },
   ];
@@ -176,17 +184,17 @@ async function siteFunnels({ current, previous, prefix = '/mayorista' } = {}) {
   const minoristaDefs = [
     { key: 'sitio', label: 'Entraron al sitio', medida: 'Todas las sesiones', help: 'Mismo punto de partida que el embudo mayorista.' },
     { key: 'listado', label: 'Vieron un listado de productos', medida: 'Sesiones con view_item_list', help: 'Llegaron a una categoría o al buscador.' },
-    { key: 'ficha', label: 'Abrieron una ficha', medida: 'Sesiones con view_item', help: 'Entraron a mirar un producto puntual.' },
+    { key: 'ficha', label: 'Abrieron una ficha minorista', medida: 'Sesiones con product_view (minorista)', help: 'Abrieron un producto CON precio. Las fichas mayoristas quedan afuera: no tienen carrito y ensuciaban la caída.' },
     { key: 'carrito', label: 'Agregaron al carrito', medida: 'Sesiones con add_to_cart', help: 'Primer compromiso real de compra.' },
     { key: 'checkout', label: 'Empezaron a comprar', medida: 'Sesiones con begin_checkout', help: 'Entraron al checkout.' },
     { key: 'compra', label: 'Compraron', medida: 'Sesiones con purchase', help: 'Compra terminada.' },
   ];
 
-  const OWN = ['view_b2b_landing', 'b2b_info_open', 'scroll_to_products', 'click_cotizador', 'whatsapp_modal_open', 'generate_lead'];
+  const OWN = ['view_b2b_landing', 'b2b_info_open', 'scroll_to_products', 'click_cotizador', 'whatsapp_modal_open', 'generate_lead', 'product_view'];
   const [
     medicion,
     sitio, seccion, propuesta, interes, contactoAbierto, leadMayEv, leadMayCk,
-    listado, ficha, carrito, checkout, compra, leadMinCk,
+    listado, ficha, fichaMinEv, fichaMayEv, carrito, checkout, compra, leadMinCk,
   ] = await Promise.all([
     measurementStart(OWN),
     stepSessions(dateRanges, null),
@@ -198,6 +206,8 @@ async function siteFunnels({ current, previous, prefix = '/mayorista' } = {}) {
     stepSessions(dateRanges, leadMayClick),
     stepSessions(dateRanges, fEvent('view_item_list')),
     stepSessions(dateRanges, fEvent('view_item')),
+    stepSessions(dateRanges, fichaMin).catch(() => ({ cur: 0, prev: 0 })),
+    stepSessions(dateRanges, fichaMay).catch(() => ({ cur: 0, prev: 0 })),
     stepSessions(dateRanges, fEvent('add_to_cart')),
     stepSessions(dateRanges, fEvent('begin_checkout')),
     stepSessions(dateRanges, fEvent('purchase')),
@@ -208,8 +218,21 @@ async function siteFunnels({ current, previous, prefix = '/mayorista' } = {}) {
   const usaEventoPropio = leadMayEv.cur > 0;
   const consultaMay = usaEventoPropio ? leadMayEv : leadMayCk;
 
-  const mayoristaSteps = buildSteps(mayoristaDefs, [sitio, seccion, propuesta, interes, contactoAbierto, consultaMay]);
-  const minoristaSteps = buildSteps(minoristaDefs, [sitio, listado, ficha, carrito, checkout, compra]);
+  // Mientras product_view no tenga datos, se cae al view_item de siempre pero se
+  // avisa que mezcla los dos tipos: mejor un número impreciso y declarado que un
+  // número limpio inventado.
+  const usaFichaPropia = fichaMinEv.cur > 0 || fichaMayEv.cur > 0;
+  const fichaMinorista = usaFichaPropia ? fichaMinEv : ficha;
+  minoristaDefs[2] = usaFichaPropia ? minoristaDefs[2] : {
+    ...minoristaDefs[2],
+    label: 'Abrieron una ficha',
+    medida: 'Sesiones con view_item (incluye mayoristas)',
+    impreciso: true,
+    help: 'Todavía cuenta las fichas mayoristas mezcladas: el evento que las separa (product_view) se instaló recién y no tiene datos consolidados.',
+  };
+
+  const mayoristaSteps = buildSteps(mayoristaDefs, [sitio, seccion, propuesta, interes, fichaMayEv, contactoAbierto, consultaMay]);
+  const minoristaSteps = buildSteps(minoristaDefs, [sitio, listado, fichaMinorista, carrito, checkout, compra]);
 
   return {
     generatedAt: new Date().toISOString(),
@@ -249,6 +272,7 @@ async function siteFunnels({ current, previous, prefix = '/mayorista' } = {}) {
     avisos: [
       'Cada paso cuenta SESIONES que llegaron a ese punto, no personas ni clics: una misma persona que vuelve otro día cuenta dos veces.',
       'Los pasos no son estrictamente secuenciales: alguien puede consultar sin haber visto la propuesta B2B (por ejemplo entrando directo a una ficha de producto). Por eso un escalón puede tener más sesiones que el anterior.',
+      usaFichaPropia ? null : 'El paso "Abrieron una ficha" del embudo minorista todavía incluye las fichas mayoristas: el evento que las separa se instaló recién.',
       usaEventoPropio ? null : 'La consulta mayorista se está midiendo con el clic saliente porque los eventos propios todavía no consolidaron en Analytics.',
       // Comparar contra un día que todavía está corriendo hace ver caídas que no
       // existen: a las 10 de la mañana el día va por un tercio de su tráfico.

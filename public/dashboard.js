@@ -3436,13 +3436,17 @@ function renderFunnelSteps(e) {
         ? `<span class="fn-tag up">+${anNum(s.entranDirecto)} entraron directo</span>`
         : `<span class="fn-tag ${s.lostPct > 60 ? 'bad' : ''}">sigue el ${s.pctOfPrev}% · se caen ${anNum(s.lost)}</span>`;
     const esPeor = e.peor && e.peor.key === s.key;
-    return `<div class="fn-step${esPeor ? ' fn-worst' : ''}" title="${esc(s.help || '')}">
+    // Un paso "impreciso" mide algo más ancho de lo que dice (ej: la ficha
+    // minorista todavía cuenta las mayoristas). Se avisa en la barra misma para
+    // que nadie saque conclusiones de un número que sabemos que está sucio.
+    const marcaImprecisa = s.impreciso ? ' <span class="fn-tag warn">⚠ incluye mayoristas</span>' : '';
+    return `<div class="fn-step${esPeor ? ' fn-worst' : ''}${s.impreciso ? ' fn-fuzzy' : ''}" title="${esc(s.help || '')}">
       <div class="fn-head">
         <span class="fn-label">${i + 1}. ${esc(s.label)}</span>
         <span class="fn-val"><b>${anNum(s.sessions)}</b> <span class="an-dim">${s.pctOfTop}%</span> ${anDelta(s.delta)}</span>
       </div>
       <div class="fn-bar"><i style="width:${Math.max(1.5, s.pctOfTop)}%"></i></div>
-      <div class="fn-note">${flujo} · <span class="an-dim">${esc(s.medida)}</span>${esPeor ? ' <b class="fn-worst-tag">← la peor fuga</b>' : ''}</div>
+      <div class="fn-note">${flujo} · <span class="an-dim">${esc(s.medida)}</span>${marcaImprecisa}${esPeor ? ' <b class="fn-worst-tag">← la peor fuga</b>' : ''}</div>
     </div>`;
   }).join('');
 }
