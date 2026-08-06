@@ -282,6 +282,18 @@
         </div>
         <div id="an-diag-out"></div>
         <div id="an-events-out"></div>
+      </div>
+
+      <!-- EMBUDOS: el recorrido de la gente, mayorista y minorista en paralelo -->
+      <div class="panel an-panel" style="margin-bottom:18px;">
+        <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
+          <div>
+            <h3 style="margin:0;"><span data-ic="route"></span> Embudo: dónde se cae la gente</h3>
+            <p class="hint" style="margin:4px 0 0;">El recorrido completo, paso a paso. Usa las mismas fechas de arriba.</p>
+          </div>
+          <button class="btn-ghost btn-sm" id="an-funnel-btn" onclick="loadFunnels()"><span data-ic="refresh"></span> Ver embudo</button>
+        </div>
+        <div id="an-funnel-out"></div>
         <div class="field" style="margin-top:10px;">
           <label>Contexto para la IA <span class="hint" style="font-weight:400;">(opcional — lo que Analytics no puede saber)</span></label>
           <textarea class="input" id="an-context" rows="2" placeholder="Ej: en julio subimos el presupuesto de Google Ads y estuvimos con menos gente atendiendo el WhatsApp mayorista"></textarea>

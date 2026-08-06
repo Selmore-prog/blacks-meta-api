@@ -3399,6 +3399,81 @@ function exportSectionAnalysis() {
   window.open(`/api/analysis/section/export?${params.toString()}`, '_blank');
 }
 
+/* ============ EMBUDOS (mayorista / minorista) ============
+ * El informe de sección contesta "qué pasó"; el embudo contesta "en qué paso se
+ * rompe". Se dibuja como escalera: el ancho de cada barra es el % sobre el total
+ * de sesiones, así la caída se ve de un vistazo sin leer un solo número. */
+async function loadFunnels() {
+  const out = anEl('an-funnel-out');
+  const btn = anEl('an-funnel-btn');
+  const p = analysisParams();
+  if (!p.from || !p.to) { toast('Elegí las fechas primero', 'err'); return; }
+  btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Calculando…`;
+  out.innerHTML = skeleton('rows', 3);
+  try {
+    const f = await api(`/api/analysis/embudo?${anQuery()}`);
+    renderFunnels(f);
+  } catch (e) {
+    out.innerHTML = `<p class="empty">No pude armar el embudo: ${esc(e.message)}</p>`;
+  } finally {
+    btn.disabled = false; btn.innerHTML = `${icon('refresh')} Ver embudo`;
+  }
+}
+
+function renderFunnelSteps(e) {
+  return e.steps.map((s, i) => {
+    if (s.sinDatos) {
+      return `<div class="fn-step fn-nodata">
+        <div class="fn-head"><span class="fn-label">${i + 1}. ${esc(s.label)}</span><span class="fn-tag">todavía no se medía</span></div>
+        <div class="fn-bar"><i style="width:0"></i></div>
+        <div class="fn-note">${esc(s.medida)}</div>
+      </div>`;
+    }
+    // El "salto" (más gente que en el paso anterior) se marca aparte: no es una
+    // caída negativa, es gente que entró directo por otro lado.
+    const flujo = i === 0 ? '<span class="fn-tag">punto de partida</span>'
+      : s.noSecuencial
+        ? `<span class="fn-tag up">+${anNum(s.entranDirecto)} entraron directo</span>`
+        : `<span class="fn-tag ${s.lostPct > 60 ? 'bad' : ''}">sigue el ${s.pctOfPrev}% · se caen ${anNum(s.lost)}</span>`;
+    const esPeor = e.peor && e.peor.key === s.key;
+    return `<div class="fn-step${esPeor ? ' fn-worst' : ''}" title="${esc(s.help || '')}">
+      <div class="fn-head">
+        <span class="fn-label">${i + 1}. ${esc(s.label)}</span>
+        <span class="fn-val"><b>${anNum(s.sessions)}</b> <span class="an-dim">${s.pctOfTop}%</span> ${anDelta(s.delta)}</span>
+      </div>
+      <div class="fn-bar"><i style="width:${Math.max(1.5, s.pctOfTop)}%"></i></div>
+      <div class="fn-note">${flujo} · <span class="an-dim">${esc(s.medida)}</span>${esPeor ? ' <b class="fn-worst-tag">← la peor fuga</b>' : ''}</div>
+    </div>`;
+  }).join('');
+}
+
+function renderFunnels(f) {
+  const col = (e, extra = '') => `<div class="fn-col">
+      <div class="fn-title">${esc(e.titulo)}</div>
+      <p class="hint" style="margin:2px 0 12px;">${esc(e.subtitulo)}</p>
+      ${renderFunnelSteps(e)}
+      <div class="fn-foot">
+        Conversión final: <b>${e.conversionFinal}%</b> <span class="an-dim">(antes ${e.conversionFinalPrev}%)</span>
+        ${e.peor ? `<br><span class="an-dim">Peor fuga: ${esc(e.peor.label)} — se cae el ${e.peor.lostPct}%</span>` : ''}
+        ${extra}
+      </div>
+    </div>`;
+
+  const m = f.medicion || {};
+  const aviso = m.periodoIncompleto
+    ? `<div class="fn-alert">${icon('alert')} <span>La medición de los pasos nuevos arrancó el <b>${esc(m.desde)}</b> y el período elegido incluye días anteriores: esos escalones se ven más bajos de lo que realmente son. Para leerlo bien, poné el período desde el ${esc(m.desde)}.</span></div>`
+    : '';
+
+  anEl('an-funnel-out').innerHTML = `
+    ${aviso}
+    <div class="fn-grid">
+      ${col(f.mayorista)}
+      ${col(f.minorista, f.minorista.consultasWhatsapp
+    ? `<br><span class="an-dim">Además, ${anNum(f.minorista.consultasWhatsapp.sessions)} sesiones consultaron por WhatsApp minorista ${anDelta(f.minorista.consultasWhatsapp.delta)}</span>` : '')}
+    </div>
+    <ul class="an-warn-list" style="margin-top:14px;">${(f.avisos || []).map((a) => `<li>${esc(a)}</li>`).join('')}</ul>`;
+}
+
 /* ============ init ============ */
 hydrateIcons();
 loadConfig();

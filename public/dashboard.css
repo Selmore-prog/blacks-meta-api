@@ -719,3 +719,30 @@ button .cost-tag { margin-left: 8px; }
   color: var(--orange); border-radius: 100px; padding: 2px 8px; margin-left: 4px; }
 .an-ev-live { color: var(--green); }
 .an-ev-ojo { color: var(--orange); font-size: 11.5px; }
+
+/* ============ EMBUDOS ============ */
+.fn-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(330px, 1fr)); gap: 20px; margin-top: 14px; }
+.fn-col { background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px; padding: 16px 18px; }
+.fn-title { font-size: 14px; font-weight: 800; letter-spacing: -.01em; }
+.fn-step { margin-bottom: 14px; }
+.fn-head { display: flex; align-items: baseline; justify-content: space-between; gap: 10px; }
+.fn-label { font-size: 13px; font-weight: 600; }
+.fn-val { font-size: 13px; white-space: nowrap; }
+.fn-val b { font-size: 15px; }
+/* La barra ES el embudo: el ancho es el % sobre el total, así la caída se ve sola. */
+.fn-bar { height: 9px; background: rgba(255,255,255,.05); border-radius: 100px; margin: 6px 0 4px; overflow: hidden; }
+.fn-bar i { display: block; height: 100%; border-radius: 100px;
+  background: linear-gradient(90deg, var(--orange), #ff8a4d); transition: width .5s var(--ease); }
+.fn-note { font-size: 11.5px; color: var(--muted); line-height: 1.5; }
+.fn-tag { font-size: 11px; color: var(--muted); }
+.fn-tag.bad { color: #ff6b6b; font-weight: 700; }
+.fn-tag.up { color: var(--green); font-weight: 700; }
+.fn-nodata .fn-label, .fn-nodata .fn-note { opacity: .45; }
+.fn-nodata .fn-bar { background: repeating-linear-gradient(90deg, rgba(255,255,255,.06) 0 6px, transparent 6px 12px); }
+.fn-worst { background: rgba(255,107,107,.06); border-left: 3px solid #ff6b6b;
+  margin-left: -18px; padding-left: 15px; padding-block: 6px; }
+.fn-worst-tag { color: #ff6b6b; }
+.fn-foot { margin-top: 14px; padding-top: 12px; border-top: 1px solid var(--line); font-size: 12.5px; line-height: 1.6; }
+.fn-alert { display: flex; gap: 10px; align-items: flex-start; background: rgba(232,93,27,.10);
+  border: 1px solid rgba(232,93,27,.35); border-radius: 10px; padding: 11px 14px; font-size: 12.5px; line-height: 1.55; margin-top: 12px; }
+.fn-alert .ic { flex: none; color: var(--orange); }

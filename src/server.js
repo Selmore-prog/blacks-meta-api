@@ -513,6 +513,14 @@ app.get('/api/analysis/section', wrap(async (req, res) => {
   res.json(await cachedSectionReport(req.query));
 }));
 
+/* EMBUDOS: el recorrido completo, mayorista y minorista, con la caída de cada paso.
+ * Comparte los mismos parámetros de fecha que el informe de sección. */
+app.get('/api/analysis/embudo', wrap(async (req, res) => {
+  const { siteFunnels } = require('./funnelAnalysis');
+  const params = sectionParams(req.query);
+  res.json(await siteFunnels({ ...params }));
+}));
+
 /* Qué se está midiendo, qué está llegando AHORA y qué significa cada evento.
  * Existe porque los eventos nuevos tardan hasta 48 h en aparecer en los informes
  * normales de GA4: sin la vista en tiempo real parece que no funcionan cuando en
