@@ -718,6 +718,39 @@ app.get('/api/metrics/ads', wrap(async (req, res) => {
 // con el stock real de Tiendanube) + diagnóstico de Gemini. Tarda ~30-60 s, así que
 // se corre a demanda (POST) y el resultado queda cacheado en memoria (GET).
 let adsAuditCache = null;
+/* ----------------------- PAUTA COMPARADA (Meta vs Google) -----------------------
+ * Ver src/adsPerformance.js: los dos canales medidos con la MISMA vara para
+ * poder decidir a dónde va el presupuesto. Cache de 10 minutos porque son
+ * varias llamadas a Analytics + Meta y el panel lo pide seguido.
+ * ------------------------------------------------------------------------------ */
+const perfCache = new Map();
+const PERF_TTL_MS = 10 * 60 * 1000;
+
+async function paidReport(days, { fresh = false } = {}) {
+  const key = `d${days}`;
+  const hit = perfCache.get(key);
+  if (!fresh && hit && Date.now() - hit.at < PERF_TTL_MS) return hit.data;
+  const { paidPerformance } = require('./adsPerformance');
+  const data = await paidPerformance({ days });
+  perfCache.set(key, { data, at: Date.now() });
+  return data;
+}
+
+app.get('/api/ads/performance', wrap(async (req, res) => {
+  const days = [7, 14, 30, 60, 90].includes(Number(req.query.days)) ? Number(req.query.days) : 30;
+  res.json(await paidReport(days, { fresh: req.query.fresh === '1' }));
+}));
+
+// Diagnóstico narrativo con IA sobre ese mismo informe (texto: sin costo de imagen).
+app.post('/api/ads/performance/ai', wrap(async (req, res) => {
+  const { analyzePaidPerformance } = require('./adsPerformance');
+  const body = req.body || {};
+  const days = [7, 14, 30, 60, 90].includes(Number(body.days)) ? Number(body.days) : 30;
+  const report = await paidReport(days);
+  if (!report.ok) return res.status(400).json({ error: report.error });
+  res.json(await analyzePaidPerformance(report, { contexto: textOrNull(body.contexto) || '' }));
+}));
+
 app.get('/api/ads/audit', wrap(async (req, res) => {
   res.json(adsAuditCache || { available: false });
 }));

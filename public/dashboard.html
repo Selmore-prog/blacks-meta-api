@@ -25,6 +25,7 @@
       <button class="tab" data-view="studio" onclick="switchTab('studio')"><span data-ic="image"></span><span class="tl">Estudio</span></button>
       <button class="tab" data-view="style" onclick="switchTab('style')"><span data-ic="sparkles"></span><span class="tl">Estilo de marca</span></button>
       <button class="tab" data-view="products" onclick="switchTab('products')"><span data-ic="tag"></span><span class="tl">Productos</span></button>
+      <button class="tab" data-view="ads" onclick="switchTab('ads')"><span data-ic="bolt"></span><span class="tl">Pauta</span></button>
       <button class="tab" data-view="metrics" onclick="switchTab('metrics')"><span data-ic="chart"></span><span class="tl">Métricas</span></button>
       <button class="tab" data-view="analysis" onclick="switchTab('analysis')"><span data-ic="search"></span><span class="tl">Análisis web</span></button>
     </nav>
@@ -216,6 +217,8 @@
       </div>
 
       <div id="mt-pauta" class="mt-pane hidden">
+        <!-- El detalle de Meta vive acá; la comparación con Google está en la sección Pauta. -->
+        <p class="hint" style="margin:0 0 14px;">Esto es el detalle de <b>Meta Ads</b> con sus propios números. Para compararlo contra Google Ads con la misma vara y ver a dónde conviene mover el presupuesto, andá a <a href="#" onclick="switchTab('ads'); return false;">Pauta</a>.</p>
         <div id="ads-summary" style="margin-bottom:20px;"></div>
       </div>
 
@@ -237,6 +240,26 @@
         <!-- Memoria de errores: lecciones que el sistema aprendió del QA y del usuario. -->
         <div id="lessons-panel"></div>
       </div>
+    </section>
+
+    <!-- ===== PAUTA: Meta Ads vs Google Ads con la misma vara ===== -->
+    <section id="view-ads" class="view hidden">
+      <div class="toolbar">
+        <div>
+          <h2>Pauta</h2>
+          <div class="sub">Cuánto ponés en cada canal y cuánto vuelve. Los dos medidos igual, para saber a dónde conviene mover la plata.</div>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <select class="input" id="ads-days" style="width:auto;" onchange="loadAdsPerformance()">
+            <option value="7">Últimos 7 días</option>
+            <option value="30" selected>Últimos 30 días</option>
+            <option value="60">Últimos 60 días</option>
+            <option value="90">Últimos 90 días</option>
+          </select>
+          <button class="btn-ghost" onclick="loadAdsPerformance(true)" title="Volver a pedir los datos"><span data-ic="refresh"></span></button>
+        </div>
+      </div>
+      <div id="ads-perf"><p class="loading">Cargando la inversión…</p></div>
     </section>
 
     <!-- ===== ANÁLISIS WEB: radiografía de una sección del sitio, comparando períodos ===== -->
@@ -315,6 +338,7 @@
     <button class="tab" data-view="studio" onclick="switchTab('studio')"><span data-ic="image"></span><span class="tl">Estudio</span></button>
     <button class="tab" data-view="style" onclick="switchTab('style')"><span data-ic="sparkles"></span><span class="tl">Estilo</span></button>
     <button class="tab" data-view="products" onclick="switchTab('products')"><span data-ic="tag"></span><span class="tl">Productos</span></button>
+    <button class="tab" data-view="ads" onclick="switchTab('ads')"><span data-ic="bolt"></span><span class="tl">Pauta</span></button>
     <button class="tab" data-view="metrics" onclick="switchTab('metrics')"><span data-ic="chart"></span><span class="tl">Métricas</span></button>
     <button class="tab" data-view="analysis" onclick="switchTab('analysis')"><span data-ic="search"></span><span class="tl">Análisis</span></button>
   </nav>

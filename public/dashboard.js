@@ -124,6 +124,7 @@ function switchTab(view) {
   if (view === 'products') loadProducts();
   if (view === 'studio') loadStudio();
   if (view === 'analysis') setupAnalysis();
+  if (view === 'ads') loadAdsPerformance();
 }
 
 /* Sub-pestañas de Métricas (para que la vista no sea un scroll infinito). */
@@ -3339,6 +3340,254 @@ async function loadMetrics() {
     }
     body.innerHTML = html;
   } catch (e) { body.innerHTML = `<p class="empty">Error: ${esc(e.message)}</p>`; }
+}
+
+/* ============ PAUTA: Meta Ads vs Google Ads ============
+ * La pregunta que contesta esta pantalla es una sola: ¿a dónde conviene mover
+ * la plata? Por eso todo está medido con la MISMA vara (Analytics) y lo que
+ * cada plataforma se atribuye a sí misma se muestra aparte, nunca mezclado.
+ */
+const adsMoney = (n) => (n === null || n === undefined ? '—' : `$${Math.round(Number(n)).toLocaleString('es-AR')}`);
+const adsCount = (n) => (n === null || n === undefined ? '—' : Math.round(Number(n)).toLocaleString('es-AR'));
+const adsRoas = (n) => (n === null || n === undefined ? '—' : `${Number(n).toFixed(2).replace('.', ',')}x`);
+
+/** Semáforo del ROAS: por debajo de 1 la campaña se está comiendo la plata. */
+function roasClass(r) {
+  if (r === null || r === undefined) return 'nd';
+  if (r >= 3) return 'top';
+  if (r >= 1.5) return 'ok';
+  if (r >= 1) return 'mid';
+  return 'bad';
+}
+
+let adsPerfData = null;
+
+async function loadAdsPerformance(fresh = false) {
+  const host = document.getElementById('ads-perf');
+  if (!host) return;
+  const days = Number((document.getElementById('ads-days') || {}).value) || 30;
+  host.innerHTML = skeleton('rows', 4);
+  try {
+    const d = await api(`/api/ads/performance?days=${days}${fresh === true ? '&fresh=1' : ''}`);
+    if (!d.ok) { host.innerHTML = `<div class="panel"><p class="hint" style="margin:0;">${esc(d.error)}</p></div>`; return; }
+    adsPerfData = d;
+    renderAdsPerformance(d);
+  } catch (e) {
+    host.innerHTML = `<div class="panel"><p class="hint" style="margin:0;">No pude traer los datos de pauta: ${esc(e.message)}</p></div>`;
+  }
+}
+
+function renderAdsPerformance(d) {
+  const host = document.getElementById('ads-perf');
+  const t = d.totales;
+  const resultadoPos = t.resultado >= 0;
+
+  /* --- 1. El resumen de plata: lo que entra contra lo que sale --- */
+  const resumen = `
+    <div class="panel ads-hero">
+      <div class="ads-kpis">
+        <div class="ads-kpi"><span>Invertido en pauta</span><b>${adsMoney(t.gasto)}</b><i>últimos ${d.days} días</i></div>
+        <div class="ads-kpi"><span>Ventas atribuidas</span><b>${adsMoney(t.ingresos)}</b><i>${adsCount(t.compras)} compras</i></div>
+        <div class="ads-kpi ${roasClass(t.roas)}"><span>ROAS</span><b>${adsRoas(t.roas)}</b><i>vuelve por cada $1</i></div>
+        <div class="ads-kpi ${resultadoPos ? 'top' : 'bad'}"><span>Diferencia</span><b>${adsMoney(t.resultado)}</b><i>facturación menos pauta</i></div>
+        <div class="ads-kpi"><span>Costo por venta</span><b>${adsMoney(t.cac)}</b><i>promedio de los dos</i></div>
+      </div>
+      <p class="hint" style="margin:14px 0 0;">${icon('info')} Además, <b>${adsMoney(d.organico.ingresos)}</b> de facturación (${d.organico.pctIngresos}% del total del sitio) llegó <b>sin pasar por la pauta</b>: orgánico, directo y referidos.</p>
+    </div>`;
+
+  /* --- 2. Canal contra canal, con la misma vara --- */
+  const canalCard = (c) => `
+    <div class="panel ads-channel ${c.id}">
+      <div class="ac-head">
+        <div><h3 style="margin:0;">${esc(c.nombre)}</h3><p class="hint" style="margin:2px 0 0;">${esc(c.detalle)}</p></div>
+        <div class="ac-roas ${roasClass(c.roas)}"><b>${adsRoas(c.roas)}</b><span>ROAS</span></div>
+      </div>
+      <div class="ac-bar"><i style="width:${c.pctGasto}%"></i></div>
+      <p class="hint" style="margin:6px 0 14px;">Se lleva el <b>${c.pctGasto}%</b> del presupuesto (${adsMoney(c.gasto)})</p>
+      <div class="ac-grid">
+        <div><span>Ventas</span><b>${adsMoney(c.ingresos)}</b></div>
+        <div><span>Compras</span><b>${adsCount(c.compras)}</b></div>
+        <div><span>Costo por venta</span><b>${adsMoney(c.cac)}</b></div>
+        <div><span>Visitas al sitio</span><b>${adsCount(c.sesiones)}</b></div>
+        <div><span>Costo por clic</span><b>${adsMoney(c.cpc)}</b></div>
+        <div><span>Compran</span><b>${c.convPct !== null && c.convPct !== undefined ? `${String(c.convPct).replace('.', ',')}%` : '—'}</b></div>
+      </div>
+      ${c.propio ? `<div class="ac-self">
+        <b>Lo que ${esc(c.nombre)} dice de sí mismo:</b> ${adsCount(c.propio.compras)} compras · ${adsMoney(c.propio.ingresos)} · ROAS ${adsRoas(c.propio.roas)}${c.propio.mensajes ? ` · ${c.propio.mensajes} charlas de WhatsApp` : ''}.
+        <span class="hint" style="display:block;margin-top:4px;">Se atribuye toda venta de alguien que vio un anuncio, aunque haya entrado por Google. El de arriba (${adsRoas(c.roas)}) es el comparable.</span>
+      </div>` : ''}
+      ${c.consultas ? `<p class="hint" style="margin:10px 0 0;">${c.consultas} sesión(es) abrieron una consulta de WhatsApp o el cotizador (mayorista).</p>` : ''}
+    </div>`;
+
+  const canales = `<div class="grid-2">${d.canales.map(canalCard).join('')}</div>`;
+
+  /* --- 3. Dónde va la plata vs. de dónde vuelve --- */
+  const maxGasto = Math.max(...d.canales.map((c) => c.gasto), 1);
+  const maxIng = Math.max(...d.canales.map((c) => c.ingresos), 1);
+  const reparto = `
+    <div class="panel">
+      <h3>Dónde va la plata y de dónde vuelve</h3>
+      <p class="hint">Si la barra naranja es larga y la verde corta, ese canal consume más de lo que devuelve.</p>
+      ${d.canales.map((c) => `
+        <div class="ads-split">
+          <div class="as-name">${esc(c.nombre)}</div>
+          <div class="as-bars">
+            <div class="as-row"><span>Invertido</span><div class="as-bar spend"><i style="width:${(c.gasto / maxGasto) * 100}%"></i></div><b>${adsMoney(c.gasto)}</b></div>
+            <div class="as-row"><span>Volvió</span><div class="as-bar rev"><i style="width:${(c.ingresos / maxIng) * 100}%"></i></div><b>${adsMoney(c.ingresos)}</b></div>
+          </div>
+        </div>`).join('')}
+    </div>`;
+
+  /* --- 4. Qué TIPO de campaña rinde mejor --- */
+  const maxTipo = Math.max(...d.tipos.map((x) => x.gasto), 1);
+  const tipos = `
+    <div class="panel">
+      <h3>Qué tipo de campaña rinde mejor</h3>
+      <p class="hint">Ordenado por cuánta plata se lleva cada tipo; el ROAS dice si esa plata vuelve.</p>
+      <div class="ads-types">
+        ${d.tipos.map((x) => `
+          <div class="at-row">
+            <div class="at-name">${esc(x.tipo)}<span class="hint"> · ${x.campanas} campaña${x.campanas > 1 ? 's' : ''}</span></div>
+            <div class="at-bar"><i class="${roasClass(x.roas)}" style="width:${Math.max((x.gasto / maxTipo) * 100, 2)}%"></i></div>
+            <div class="at-spend">${adsMoney(x.gasto)}<span>${x.pctGasto}% del total</span></div>
+            <div class="at-roas ${roasClass(x.roas)}">${adsRoas(x.roas)}</div>
+            <div class="at-cac">${x.cac ? `${adsMoney(x.cac)}<span>por venta</span>` : '<span>sin ventas</span>'}</div>
+          </div>`).join('')}
+      </div>
+    </div>`;
+
+  /* --- 5. Campaña por campaña, con veredicto --- */
+  const VERD = { escalar: 'Escalar', mantener: 'Mantener', ajustar: 'Revisar', revisar: 'Revisar', apagar: 'Apagar', 'sin-datos': 'Sin datos' };
+  const campanas = `
+    <div class="panel">
+      <h3>Campaña por campaña</h3>
+      <p class="hint">Todo con la misma vara. "Apagar" sale cuando una campaña pierde plata y encima se lleva una parte grande del presupuesto.</p>
+      <div class="ads-table-wrap">
+        <table class="ads-table">
+          <thead><tr>
+            <th>Campaña</th><th>Tipo</th><th class="r">Invertido</th><th class="r">Visitas</th>
+            <th class="r">Compras</th><th class="r">Ventas</th><th class="r">ROAS</th><th>Qué hacer</th>
+          </tr></thead>
+          <tbody>
+            ${d.campanas.map((c) => `<tr>
+              <td class="c-name"><span class="ch-dot ${c.canal}"></span>${esc(c.campana)}${c.frecuencia && c.frecuencia >= 3 ? ` <span class="badge qa-warn" title="Cada persona vio el anuncio ${String(c.frecuencia).replace('.', ',')} veces: pasando de 3 se quema la audiencia">frec. ${String(c.frecuencia).replace('.', ',')}</span>` : ''}</td>
+              <td class="c-type">${esc(String(c.tipo).replace(/^(Meta|Google) · /, ''))}</td>
+              <td class="r">${adsMoney(c.gasto)}</td>
+              <td class="r">${adsCount(c.sesiones)}</td>
+              <td class="r">${adsCount(c.compras)}</td>
+              <td class="r">${adsMoney(c.ingresos)}${c.ingresosEstimados ? '<span class="est" title="Repartido según el gasto: Analytics no identifica esta campaña">~</span>' : ''}</td>
+              <td class="r roas ${roasClass(c.roas)}">${adsRoas(c.roas)}</td>
+              <td><span class="verd ${c.veredicto.nivel}" title="${esc(c.veredicto.texto)}">${VERD[c.veredicto.nivel] || c.veredicto.nivel}</span></td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+    </div>`;
+
+  /* --- 6. Embudo comparado --- */
+  const embudoCol = (e) => {
+    if (!e || !e.steps || !e.steps.length) return '';
+    const top = e.steps[0].valor || 1;
+    return `<div class="fn-col">
+      <div class="fn-title">${esc(e.label)}</div>
+      ${e.steps.map((s) => `
+        <div class="fn-step ${e.peor && e.peor.key === s.key ? 'fn-worst' : ''}">
+          <div class="fn-head"><span class="fn-label">${esc(s.label)}</span>
+            <span class="fn-val"><b>${adsCount(s.valor)}</b> ${s.pctDelAnterior !== null ? `<span class="fn-tag ${s.pctDelAnterior < 10 ? 'bad' : ''}">${String(s.pctDelAnterior).replace('.', ',')}%</span>` : ''}</span></div>
+          <div class="fn-bar"><i style="width:${Math.min((s.valor / top) * 100, 100)}%"></i></div>
+        </div>`).join('')}
+      ${e.peor ? `<div class="fn-foot">Peor fuga: <b>${esc(e.peor.label)}</b> — se cae el ${String(e.peor.caida).replace('.', ',')}% de los que venían.</div>` : ''}
+    </div>`;
+  };
+  const embudos = `
+    <div class="panel">
+      <h3>El recorrido de cada canal</h3>
+      <p class="hint">De los que tocan el anuncio, cuántos llegan, agregan al carrito, arrancan el checkout y compran. Sirve para saber si el problema es el anuncio o el sitio.</p>
+      <div class="fn-grid">${embudoCol(d.embudos.meta)}${embudoCol(d.embudos.google)}</div>
+    </div>`;
+
+  /* --- 7. La cuenta de la reasignación --- */
+  const r = d.reasignacion;
+  const reasignacion = r ? `
+    <div class="panel ads-move">
+      <h3>${icon('bolt')} Si movés el presupuesto</h3>
+      <p class="hint">Cuenta del sistema (todavía sin IA): sacarle a lo que pierde plata y darle a lo que rinde, sin cambiar el presupuesto total.</p>
+      <div class="mv-head">
+        <div class="mv-amount"><b>${adsMoney(r.monto)}</b><span>a mover — la mitad de lo que hoy gastan las campañas en rojo</span></div>
+        <div class="mv-arrow">→</div>
+        <div class="mv-gain"><b>+${adsMoney(r.ingresosExtra)}</b><span>de facturación estimada, con el mismo gasto total</span></div>
+      </div>
+      <div class="grid-2" style="margin-top:16px;">
+        <div><h4 class="mv-h">Sacar de acá <span class="hint">· ROAS ${adsRoas(r.roasOrigen)}</span></h4>
+          ${r.desde.map((c) => `<div class="mv-row bad"><span class="ch-dot ${c.canal}"></span><span class="mv-nm">${esc(c.campana)}</span><b>${adsMoney(c.gasto)}</b></div>`).join('')}</div>
+        <div><h4 class="mv-h">Poner acá <span class="hint">· ROAS ${adsRoas(r.roasDestino)}</span></h4>
+          ${r.hacia.map((c) => `<div class="mv-row good"><span class="ch-dot ${c.canal}"></span><span class="mv-nm">${esc(c.campana)}</span><b>${adsRoas(c.roas)}</b></div>`).join('')}</div>
+      </div>
+      <p class="hint" style="margin:14px 0 0;">${icon('alert')} ${esc(r.supuesto)} Y son <b>ventas</b>, no ganancia neta: falta descontar el costo de la mercadería.</p>
+    </div>` : '';
+
+  /* --- 8. Diagnóstico con IA --- */
+  const ia = `
+    <div class="panel">
+      <h3>${icon('sparkles')} Diagnóstico y recomendaciones con IA</h3>
+      <p class="hint">Lee todos los números de arriba y arma el plan: qué tocar, cuánta plata mover y qué esperar.</p>
+      <div class="field">
+        <label>Contexto que los números no saben <span class="hint" style="font-weight:400;">(opcional)</span></label>
+        <textarea class="input" id="ads-ai-ctx" rows="2" placeholder="Ej: la campaña de calzados apunta a un producto que quedamos sin stock; en julio subimos el presupuesto de Google"></textarea>
+      </div>
+      <button class="btn-primary" id="ads-ai-btn">${icon('sparkles')} Analizar la pauta con IA ${costTag('Gratis')}</button>
+      <div id="ads-ai-out"></div>
+    </div>`;
+
+  const avisos = (d.avisos && d.avisos.length) ? `
+    <div class="panel">
+      <h3>Qué tener en cuenta de la medición</h3>
+      <ul class="an-warn-list">${d.avisos.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>
+      <p class="hint" style="margin:10px 0 0;">${esc(d.metodologia)}</p>
+    </div>` : `<div class="panel"><p class="hint" style="margin:0;">${icon('info')} ${esc(d.metodologia)}</p></div>`;
+
+  host.innerHTML = resumen + canales + reparto + tipos + campanas + embudos + reasignacion + ia + avisos;
+  hydrateIcons(host);
+  const btn = host.querySelector('#ads-ai-btn');
+  if (btn) btn.addEventListener('click', () => runAdsAiAnalysis(btn, d.days));
+}
+
+async function runAdsAiAnalysis(btn, days) {
+  const out = document.getElementById('ads-ai-out');
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `${icon('refresh', 'spin')} Analizando la inversión…`;
+  out.innerHTML = '';
+  try {
+    const a = await api('/api/ads/performance/ai', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ days, contexto: document.getElementById('ads-ai-ctx').value }),
+    });
+    const recs = (a.recomendaciones || []).slice().sort((x, y) => (x.prioridad || 9) - (y.prioridad || 9));
+    out.innerHTML = `
+      <div class="ads-ai">
+        <div class="ai-titular">${esc(a.titular || '')}</div>
+        <p class="ai-p">${esc(a.diagnostico || '')}</p>
+        ${a.donde_esta_la_plata ? `<p class="ai-p"><b>Dónde está la plata:</b> ${esc(a.donde_esta_la_plata)}</p>` : ''}
+        ${a.tipo_de_campana_que_mejor_rinde ? `<div class="ai-best">${icon('check')}<span><b>El tipo de campaña que mejor rinde:</b> ${esc(a.tipo_de_campana_que_mejor_rinde)}</span></div>` : ''}
+        ${(a.hallazgos || []).length ? `<h4 class="ai-h">Lo que encontró</h4>
+          ${a.hallazgos.map((h) => `<div class="ai-find ${esc(h.gravedad || 'media')}">
+            <b>${esc(h.titulo)}</b><span>${esc(h.detalle)}</span></div>`).join('')}` : ''}
+        ${recs.length ? `<h4 class="ai-h">Qué hacer, por orden de impacto</h4>
+          ${recs.map((x, i) => `<div class="ai-rec">
+            <div class="ai-rec-n">${i + 1}</div>
+            <div><b>${esc(x.accion)}</b>
+              <div class="ai-rec-where">${esc(x.donde || '')}${x.monto ? ` · <b>${esc(x.monto)}</b>` : ''}</div>
+              <div class="ai-rec-why">${esc(x.por_que)}</div>
+              <div class="ai-rec-imp">${icon('bolt')} ${esc(x.impacto_esperado)}</div>
+            </div></div>`).join('')}` : ''}
+        ${(a.riesgos || []).length ? `<h4 class="ai-h">Riesgos</h4><ul class="an-warn-list">${a.riesgos.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+        ${(a.que_medir_mejor || []).length ? `<h4 class="ai-h">Qué falta medir para decidir mejor</h4><ul class="an-warn-list">${a.que_medir_mejor.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>` : ''}
+      </div>`;
+    hydrateIcons(out);
+  } catch (e) {
+    out.innerHTML = `<p class="hint">No pude analizar: ${esc(e.message)}</p>`;
+  } finally { btn.disabled = false; btn.innerHTML = original; }
 }
 
 /* ============ análisis de cuenta ============ */
