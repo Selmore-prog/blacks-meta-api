@@ -1010,3 +1010,6 @@ button .cost-tag { margin-left: 8px; }
 .seg-tag.mixta { color: #e8a33d; border-color: rgba(232, 163, 61, .4); }
 .c-type-sub { display: block; font-size: 11px; color: var(--muted); }
 .ads-table .roas .na { color: var(--muted); font-weight: 600; font-size: 12px; cursor: help; }
+
+/* Consultas de WhatsApp: origen sin campaña (directo/orgánico). */
+.lead-org { color: var(--muted); font-size: 12.5px; }

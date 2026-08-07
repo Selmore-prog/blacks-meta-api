@@ -3375,6 +3375,59 @@ async function loadAdsPerformance(fresh = false) {
   } catch (e) {
     host.innerHTML = `<div class="panel"><p class="hint" style="margin:0;">No pude traer los datos de pauta: ${esc(e.message)}</p></div>`;
   }
+  loadRecentLeads();
+}
+
+/**
+ * Consultas de WhatsApp recientes con su campaña de origen.
+ * Analytics dice CUÁNTAS consultas trajo cada campaña; esto dice CUÁL fue cada
+ * una. Como el mensaje del cliente ya no lleva ningún código escrito, la forma
+ * de identificar un chat es por la hora: mirás a qué hora te entró el mensaje y
+ * lo buscás acá. Con una o dos consultas por día no hay confusión posible.
+ */
+async function loadRecentLeads() {
+  const host = document.getElementById('ads-leads');
+  if (!host) return;
+  try {
+    const d = await api('/api/leads/recent?days=14');
+    if (!d.items || !d.items.length) {
+      host.innerHTML = `<div class="panel">
+        <h3>Consultas de WhatsApp por campaña</h3>
+        <p class="hint" style="margin:0;">Todavía no se registró ninguna consulta. Empiezan a aparecer acá en cuanto alguien toque el botón de WhatsApp en la tienda (con el archivo de seguimiento ya subido).</p>
+      </div>`;
+      return;
+    }
+    const fecha = (iso) => {
+      const dt = new Date(iso);
+      return dt.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+    };
+    const origen = (i) => {
+      if (!i.campaign && !i.source) return '<span class="lead-org">Directo / orgánico</span>';
+      const canal = /google/i.test(i.source || '') ? 'google' : (/meta|fb|ig/i.test(i.source || '') ? 'meta' : '');
+      return `<span class="ch-dot ${canal}"></span>${esc(i.campaign || i.source)}`;
+    };
+    host.innerHTML = `<div class="panel">
+      <h3>Consultas de WhatsApp por campaña</h3>
+      <p class="hint">Cada vez que alguien toca WhatsApp en la tienda queda anotado acá con la campaña de la que vino. Cuando te entra un mensaje, buscá la hora en esta lista y ya sabés qué campaña te lo trajo — sin escribirle ningún código al cliente en su mensaje.</p>
+      <div class="ads-table-wrap">
+        <table class="ads-table">
+          <thead><tr><th>Cuándo</th><th>Vino de</th><th>Tipo</th><th>Estaba mirando</th><th>Botón</th></tr></thead>
+          <tbody>
+            ${d.items.slice(0, 40).map((i) => `<tr>
+              <td class="c-name">${esc(fecha(i.created_at))}</td>
+              <td>${origen(i)}</td>
+              <td><span class="verd ${i.lead_type === 'mayorista' ? 'escalar' : 'mantener'}">${esc(i.lead_type || '—')}</span></td>
+              <td class="c-type">${esc(i.item_name || i.page_path || '—')}</td>
+              <td class="c-type">${esc(String(i.contact_channel || '').replace(/^whatsapp_/, '').replace(/_/g, ' '))}</td>
+            </tr>`).join('')}
+          </tbody>
+        </table>
+      </div>
+      <p class="hint" style="margin:12px 0 0;">Últimos 14 días · ${d.items.length} consulta(s).</p>
+    </div>`;
+  } catch (e) {
+    host.innerHTML = '';
+  }
 }
 
 function renderAdsPerformance(d) {

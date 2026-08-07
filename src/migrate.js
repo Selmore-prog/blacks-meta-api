@@ -180,6 +180,25 @@ CREATE TABLE IF NOT EXISTS studio_assets (
   created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- CONSULTAS DE WHATSAPP (ago-2026): cada clic al botón de WhatsApp de la tienda
+-- queda anotado con su campaña de origen. Analytics dice CUÁNTAS trajo cada
+-- campaña, pero no deja mirar un chat puntual y saber de dónde salió; con esto
+-- se cruza por hora contra el mensaje que entró, sin escribirle ningún código al
+-- cliente en su propio mensaje.
+CREATE TABLE IF NOT EXISTS lead_clicks (
+  id              SERIAL PRIMARY KEY,
+  lead_type       TEXT,      -- mayorista | minorista
+  contact_channel TEXT,      -- de qué botón salió
+  item_name       TEXT,      -- producto que estaba mirando
+  page_type       TEXT,
+  page_path       TEXT,
+  campaign        TEXT,      -- utm_campaign guardada al entrar
+  source          TEXT,      -- google | meta | ...
+  click_id        TEXT,      -- gclid / fbclid
+  ref             TEXT,      -- código corto (G-MAXP)
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- AJUSTES DEL PANEL (ago-2026): lo que antes era variable de entorno y obligaba a
 -- redeployar (ej. qué modelo de imagen usar) se edita desde el panel y vive acá.
 CREATE TABLE IF NOT EXISTS app_settings (
@@ -214,6 +233,7 @@ CREATE TABLE IF NOT EXISTS video_jobs (
 
 CREATE INDEX IF NOT EXISTS idx_ai_usage_created ON ai_usage (created_at);
 CREATE INDEX IF NOT EXISTS idx_video_jobs_asset ON video_jobs (asset_id, id DESC);
+CREATE INDEX IF NOT EXISTS idx_lead_clicks_created ON lead_clicks (created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_qa_lessons_active ON qa_lessons (active, scope);
 CREATE INDEX IF NOT EXISTS idx_calendar_date ON content_calendar (scheduled_date);
 CREATE INDEX IF NOT EXISTS idx_publish_queue_status ON publish_queue (status, next_attempt_at);

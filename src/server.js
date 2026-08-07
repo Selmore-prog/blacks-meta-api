@@ -62,7 +62,8 @@ app.post('/api/login', (req, res) => {
 
 app.use((req, res, next) => {
   if (!config.dashboardPassword) return next();
-  const open = ['/health', '/api/health', '/api/login', '/login.html', '/favicon.ico'];
+  // /api/leads/click lo llama la TIENDA (otro dominio), no el panel: no puede pedir sesión.
+  const open = ['/health', '/api/health', '/api/login', '/login.html', '/favicon.ico', '/api/leads/click'];
   if (open.includes(req.path) || req.path.startsWith('/api/cron/')) return next(); // cron tiene su propio secret
   if (hasValidSession(req)) return next();
   if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Sesión requerida.', needLogin: true });
@@ -718,6 +719,51 @@ app.get('/api/metrics/ads', wrap(async (req, res) => {
 // con el stock real de Tiendanube) + diagnóstico de Gemini. Tarda ~30-60 s, así que
 // se corre a demanda (POST) y el resultado queda cacheado en memoria (GET).
 let adsAuditCache = null;
+/* ----------------------- CONSULTAS DE WHATSAPP -----------------------
+ * La tienda avisa cada clic al botón de WhatsApp con la campaña de la que vino
+ * esa persona. Sirve para lo que Analytics no puede: mirar un chat concreto y
+ * saber de dónde salió, sin escribirle ningún código al cliente en su mensaje.
+ * Lo llama el navegador del visitante desde OTRO dominio (la tienda), así que
+ * va sin sesión y con CORS abierto — sólo escribe una fila de analítica.
+ * --------------------------------------------------------------------- */
+const leadCors = (req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+};
+
+// sendBeacon manda text/plain para evitar el preflight: se parsea a mano.
+app.post('/api/leads/click', leadCors, express.text({ type: '*/*', limit: '16kb' }), wrap(async (req, res) => {
+  let body = req.body;
+  if (typeof body === 'string') { try { body = JSON.parse(body); } catch (_) { body = null; } }
+  if (!body || typeof body !== 'object') return res.status(400).json({ error: 'payload inválido' });
+
+  const cut = (v, n = 200) => (v == null ? null : String(v).slice(0, n));
+  await pool.query(
+    `INSERT INTO lead_clicks (lead_type, contact_channel, item_name, page_type, page_path, campaign, source, click_id, ref)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9)`,
+    [cut(body.lead_type, 20), cut(body.contact_channel, 60), cut(body.item_name), cut(body.page_type, 40),
+      cut(body.page_path, 300), cut(body.campaign, 150), cut(body.source, 40), cut(body.click_id, 200), cut(body.ref, 20)]
+  );
+  res.json({ ok: true });
+}));
+
+// Últimas consultas, para cruzarlas por hora con los chats que entraron.
+app.get('/api/leads/recent', wrap(async (req, res) => {
+  const days = Math.min(Math.max(Number(req.query.days) || 14, 1), 90);
+  const { rows } = await pool.query(
+    `SELECT id, lead_type, contact_channel, item_name, page_type, page_path, campaign, source, ref,
+            created_at AT TIME ZONE $2 AS hora_local, created_at
+     FROM lead_clicks
+     WHERE created_at >= now() - ($1 || ' days')::interval
+     ORDER BY created_at DESC LIMIT 200`,
+    [String(days), config.timezone]
+  );
+  res.json({ days, items: rows });
+}));
+
 /* ----------------------- PAUTA COMPARADA (Meta vs Google) -----------------------
  * Ver src/adsPerformance.js: los dos canales medidos con la MISMA vara para
  * poder decidir a dónde va el presupuesto. Cache de 10 minutos porque son
