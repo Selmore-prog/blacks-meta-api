@@ -727,18 +727,35 @@ const perfCache = new Map();
 const PERF_TTL_MS = 10 * 60 * 1000;
 
 async function paidReport(days, { fresh = false } = {}) {
-  const key = `d${days}`;
+  const { getLeadValue } = require('./settings');
+  const valorConsulta = await getLeadValue();
+  const key = `d${days}v${valorConsulta}`;
   const hit = perfCache.get(key);
   if (!fresh && hit && Date.now() - hit.at < PERF_TTL_MS) return hit.data;
   const { paidPerformance } = require('./adsPerformance');
-  const data = await paidPerformance({ days });
+  const data = await paidPerformance({ days, valorConsulta });
   perfCache.set(key, { data, at: Date.now() });
   return data;
 }
 
 app.get('/api/ads/performance', wrap(async (req, res) => {
+  const { getLeadValueDetail } = require('./settings');
   const days = [7, 14, 30, 60, 90].includes(Number(req.query.days)) ? Number(req.query.days) : 30;
-  res.json(await paidReport(days, { fresh: req.query.fresh === '1' }));
+  const [data, lead] = await Promise.all([
+    paidReport(days, { fresh: req.query.fresh === '1' }),
+    getLeadValueDetail(),
+  ]);
+  res.json({ ...data, leadValue: lead });
+}));
+
+/* Cuánto vale una consulta mayorista: sin esto, las campañas que van a la
+ * sección sin carrito no se pueden poner en la misma escala que las de venta. */
+app.post('/api/ads/lead-value', wrap(async (req, res) => {
+  const { setLeadValue, getLeadValueDetail } = require('./settings');
+  const b = req.body || {};
+  await setLeadValue({ ticket: Number(b.ticket) || 0, cierrePct: Number(b.cierrePct) || 0, valor: Number(b.valor) || 0 });
+  perfCache.clear(); // el valor entra en el cálculo: hay que recalcular
+  res.json({ ok: true, ...(await getLeadValueDetail()) });
 }));
 
 // Diagnóstico narrativo con IA sobre ese mismo informe (texto: sin costo de imagen).

@@ -76,4 +76,38 @@ async function setImageModel(model) {
   return model;
 }
 
-module.exports = { IMAGE_MODEL_OPTIONS, VALID_IMAGE_MODELS, loadSettings, getSetting, setSetting, setImageModel };
+/**
+ * Cuánto vale para el negocio UNA consulta mayorista (WhatsApp / cotizador).
+ * Es el único número que permite comparar en la misma escala una campaña que
+ * manda a /mayorista (donde no hay carrito, así que nunca va a haber ROAS) con
+ * una que vende online. Lo carga el dueño: ticket mayorista promedio × cuántas
+ * consultas terminan cerrando. 0 = todavía no lo cargó.
+ */
+async function getLeadValue() {
+  const v = Number(await getSetting('valor_consulta_mayorista'));
+  return Number.isFinite(v) && v > 0 ? v : 0;
+}
+
+async function setLeadValue({ ticket = 0, cierrePct = 0, valor = 0 } = {}) {
+  const calculado = valor > 0 ? Number(valor) : Number(ticket) * (Number(cierrePct) / 100);
+  const final = Number.isFinite(calculado) && calculado > 0 ? Math.round(calculado) : 0;
+  await setSetting('valor_consulta_mayorista', String(final));
+  if (ticket) await setSetting('ticket_mayorista', String(Math.round(Number(ticket))));
+  if (cierrePct) await setSetting('cierre_mayorista_pct', String(Number(cierrePct)));
+  return final;
+}
+
+/** Los supuestos con los que se calculó el valor, para poder mostrarlos/editarlos. */
+async function getLeadValueDetail() {
+  const [valor, ticket, cierre] = await Promise.all([
+    getLeadValue(),
+    getSetting('ticket_mayorista'),
+    getSetting('cierre_mayorista_pct'),
+  ]);
+  return { valor, ticket: Number(ticket) || 0, cierrePct: Number(cierre) || 0 };
+}
+
+module.exports = {
+  IMAGE_MODEL_OPTIONS, VALID_IMAGE_MODELS, loadSettings, getSetting, setSetting, setImageModel,
+  getLeadValue, setLeadValue, getLeadValueDetail,
+};

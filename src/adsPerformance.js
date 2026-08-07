@@ -119,6 +119,105 @@ async function gaLeadsByChannel(days) {
   return out;
 }
 
+/* =========================================================================
+ * MAYORISTA vs MINORISTA (la corrección importante)
+ *
+ * La tienda tiene DOS negocios en el mismo sitio: la sección /mayorista, donde
+ * los productos dicen "Consultar precio" y NO tienen carrito, y la tienda
+ * minorista, donde sí se compra. Varias campañas de Google mandan a /mayorista:
+ * medirlas por ROAS es imposible — nunca va a haber una compra ahí. Se miden
+ * por CONSULTAS (el clic real a WhatsApp / el cotizador), que es la conversión
+ * de ese negocio, y por lo que cuesta cada una.
+ * ========================================================================= */
+
+const MAYORISTA_PATH = '/mayorista';
+
+/** Sesiones por campaña separadas según si aterrizan en la sección mayorista. */
+async function gaSegmentByCampaign(days) {
+  const rep = await runReport({
+    dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'yesterday' }],
+    dimensions: [{ name: 'sessionCampaignName' }, { name: 'landingPage' }],
+    metrics: [{ name: 'sessions' }],
+    orderBys: [{ metric: { metricName: 'sessions' }, desc: true }],
+    limit: 300,
+  }).catch(() => null);
+  const out = {};
+  for (const r of rowsOf(rep)) {
+    const campana = dv(r, 0);
+    const landing = dv(r, 1) || '';
+    const s = mv(r, 0);
+    const cur = out[campana] || { mayorista: 0, minorista: 0 };
+    if (landing.indexOf(MAYORISTA_PATH) === 0) cur.mayorista += s;
+    else cur.minorista += s;
+    out[campana] = cur;
+  }
+  return out;
+}
+
+/** Consultas por campaña: WhatsApp, cotizador y formulario. */
+async function gaLeadsByCampaign(days) {
+  const rep = await runReport({
+    dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'yesterday' }],
+    dimensions: [{ name: 'sessionCampaignName' }, { name: 'eventName' }],
+    metrics: [{ name: 'sessions' }, { name: 'eventCount' }],
+    dimensionFilter: {
+      orGroup: {
+        expressions: ['generate_lead', 'click_cotizador', 'whatsapp_modal_open', 'view_b2b_landing', 'phone_click'].map((e) => ({
+          filter: { fieldName: 'eventName', stringFilter: { value: e } },
+        })),
+      },
+    },
+    limit: 200,
+  }).catch(() => null);
+  const out = {};
+  for (const r of rowsOf(rep)) {
+    const campana = dv(r, 0);
+    const evento = dv(r, 1);
+    const cur = out[campana] || { consultas: 0, cotizador: 0, abrieronContacto: 0, vieronPropuesta: 0, telefono: 0 };
+    const eventos = mv(r, 1);
+    if (evento === 'generate_lead') cur.consultas += eventos;
+    else if (evento === 'click_cotizador') cur.cotizador += eventos;
+    else if (evento === 'whatsapp_modal_open') cur.abrieronContacto += mv(r, 0);
+    else if (evento === 'view_b2b_landing') cur.vieronPropuesta += mv(r, 0);
+    else if (evento === 'phone_click') cur.telefono += eventos;
+    out[campana] = cur;
+  }
+  return out;
+}
+
+/** Fichas de producto vistas por campaña, separando mayorista de minorista. */
+async function gaProductViewsByCampaign(days) {
+  const rep = await runReport({
+    dateRanges: [{ startDate: `${days}daysAgo`, endDate: 'yesterday' }],
+    dimensions: [{ name: 'sessionCampaignName' }, { name: 'customEvent:product_mode' }],
+    metrics: [{ name: 'sessions' }],
+    dimensionFilter: { filter: { fieldName: 'eventName', stringFilter: { value: 'product_view' } } },
+    limit: 200,
+  }).catch(() => null);
+  const out = {};
+  for (const r of rowsOf(rep)) {
+    const campana = dv(r, 0);
+    const modo = dv(r, 1);
+    const cur = out[campana] || { mayorista: 0, minorista: 0 };
+    if (modo === 'mayorista') cur.mayorista += mv(r, 0);
+    else if (modo === 'minorista') cur.minorista += mv(r, 0);
+    out[campana] = cur;
+  }
+  return out;
+}
+
+/**
+ * Qué negocio persigue una campaña, según a dónde manda la gente de verdad.
+ * >65% a /mayorista = mayorista; >65% a la tienda = minorista; el resto, mixta.
+ */
+function segmentOf(seg) {
+  if (!seg) return { segmento: 'minorista', pctMayorista: 0 };
+  const total = seg.mayorista + seg.minorista;
+  if (!total) return { segmento: 'minorista', pctMayorista: 0 };
+  const pct = round((seg.mayorista / total) * 100, 1);
+  return { segmento: pct >= 65 ? 'mayorista' : (pct <= 35 ? 'minorista' : 'mixta'), pctMayorista: pct };
+}
+
 /* --------------------------------- Meta Ads --------------------------------- */
 
 async function fbGet(path, params = {}) {
@@ -213,13 +312,36 @@ function googleType(name, canalGa) {
   return 'Google · Otra';
 }
 
-/** Semáforo de cada campaña según su ROAS medido con la vara común. */
-function veredicto(roas, gasto, gastoTotal) {
-  const peso = gastoTotal ? gasto / gastoTotal : 0;
-  if (roas === null) return { nivel: 'sin-datos', texto: 'Sin ingresos atribuidos todavía' };
-  if (roas >= 3) return { nivel: 'escalar', texto: 'Rinde muy bien: candidata a más presupuesto' };
-  if (roas >= 1.5) return { nivel: 'mantener', texto: 'Rinde: mantener' };
-  if (roas >= 1) return { nivel: 'ajustar', texto: 'Apenas se paga sola: revisar antes de escalar' };
+/**
+ * Semáforo de cada campaña, SEGÚN SU NEGOCIO.
+ * Una campaña mayorista no puede tener ROAS: en /mayorista no hay carrito. Se
+ * juzga por lo que cuesta cada consulta. Juzgarla por ventas es el error que
+ * hace apagar campañas que sí están trayendo clientes.
+ */
+function veredicto(c, gastoTotal, valorConsulta = 0) {
+  const peso = gastoTotal ? c.gasto / gastoTotal : 0;
+
+  if (c.segmento === 'mayorista' || (c.segmento === 'mixta' && !c.compras)) {
+    if (!c.consultas) {
+      return peso >= 0.1
+        ? { nivel: 'apagar', texto: 'No trajo ni una consulta y se lleva una parte grande del presupuesto' }
+        : { nivel: 'revisar', texto: 'No trajo ninguna consulta en el período' };
+    }
+    // Con un valor por consulta cargado se puede juzgar igual que una de venta.
+    if (valorConsulta > 0) {
+      const retorno = (c.consultas * valorConsulta) / c.gasto;
+      if (retorno >= 3) return { nivel: 'escalar', texto: `Cada consulta sale ${Math.round(c.gasto / c.consultas).toLocaleString('es-AR')} y vale mucho más: candidata a más presupuesto` };
+      if (retorno >= 1) return { nivel: 'mantener', texto: 'Las consultas que trae valen más de lo que cuestan' };
+      return { nivel: 'revisar', texto: 'Cada consulta cuesta más de lo que vale: revisar' };
+    }
+    return { nivel: 'mantener', texto: `Trae consultas mayoristas (${c.consultas}). Cargá cuánto vale una consulta para saber si conviene` };
+  }
+
+  if (c.roas === null) return { nivel: 'sin-datos', texto: 'Sin ingresos atribuidos todavía' };
+  if (c.roas >= 3) return { nivel: 'escalar', texto: 'Rinde muy bien: candidata a más presupuesto' };
+  if (c.roas >= 1.5) return { nivel: 'mantener', texto: 'Rinde: mantener' };
+  if (c.roas >= 1) return { nivel: 'ajustar', texto: 'Apenas se paga sola: revisar antes de escalar' };
+  if (c.consultas) return { nivel: 'revisar', texto: `No vende por la web pero trajo ${c.consultas} consulta(s): revisar antes de tocarla` };
   if (peso >= 0.1) return { nivel: 'apagar', texto: 'Pierde plata y se lleva una parte grande del presupuesto' };
   return { nivel: 'revisar', texto: 'Pierde plata: revisar o pausar' };
 }
@@ -262,7 +384,9 @@ function kpis(row, { gasto = null, compras = null, ingresos = null } = {}) {
  */
 function buildReassignment(campanas, totales) {
   const conRoas = campanas.filter((c) => c.gasto > 0);
-  const perdedoras = conRoas.filter((c) => c.roas !== null && c.roas < 1)
+  // Una campaña mayorista con consultas NO es perdedora aunque su ROAS sea 0:
+  // su conversión no es una compra web. Sólo entra si no trajo NADA.
+  const perdedoras = conRoas.filter((c) => c.roas !== null && c.roas < 1 && !c.consultas)
     .sort((a, b) => b.gasto - a.gasto);
   const ganadoras = conRoas.filter((c) => c.roas !== null && c.roas >= 2)
     .sort((a, b) => b.roas - a.roas);
@@ -326,7 +450,7 @@ function funnelOf(row, label) {
  * Informe completo. Nunca tira error hacia arriba: si falta una fuente lo dice
  * en `avisos` y muestra lo que sí tiene.
  */
-async function paidPerformance({ days = 30 } = {}) {
+async function paidPerformance({ days = 30, valorConsulta = 0 } = {}) {
   const avisos = [];
   if (!gaEnabled()) {
     return {
@@ -335,11 +459,14 @@ async function paidPerformance({ days = 30 } = {}) {
     };
   }
 
-  const [byChannel, campanasGa, leads, meta] = await Promise.all([
+  const [byChannel, campanasGa, leads, meta, segmentos, leadsCampana, fichas] = await Promise.all([
     gaByChannel(days),
     gaByCampaign(days),
     gaLeadsByChannel(days),
     metaCampaigns(days),
+    gaSegmentByCampaign(days),
+    gaLeadsByCampaign(days),
+    gaProductViewsByCampaign(days),
   ]);
 
   const googleRow = sumChannels(byChannel, GOOGLE_CHANNELS);
@@ -394,21 +521,32 @@ async function paidPerformance({ days = 30 } = {}) {
   const RED = { Display: 'red de Display', 'Cross-network': 'multi-red', 'Paid Search': 'búsqueda', 'Paid Shopping': 'Shopping', 'Paid Video': 'video' };
   const campanasGoogle = campanasGa
     .filter((c) => c.gasto > 0)
-    .map((c) => ({
-      canal: 'google',
-      campana: nombresRepetidos.has(c.campana) && RED[c.canalGa] ? `${c.campana} · ${RED[c.canalGa]}` : c.campana,
-      tipo: googleType(c.campana, c.canalGa),
-      gasto: round(c.gasto, 0),
-      impresiones: c.impresiones,
-      clicks: c.clicks,
-      sesiones: c.sesiones,
-      carritos: c.carritos,
-      checkouts: c.checkouts,
-      compras: c.compras,
-      ingresos: round(c.ingresos, 0),
-      roas: div(c.ingresos, c.gasto),
-      cpc: c.clicks ? round(c.gasto / c.clicks, 0) : null,
-    }));
+    .map((c) => {
+      const seg = segmentOf(segmentos[c.campana]);
+      const lead = leadsCampana[c.campana] || {};
+      return {
+        canal: 'google',
+        campana: nombresRepetidos.has(c.campana) && RED[c.canalGa] ? `${c.campana} · ${RED[c.canalGa]}` : c.campana,
+        tipo: googleType(c.campana, c.canalGa),
+        gasto: round(c.gasto, 0),
+        impresiones: c.impresiones,
+        clicks: c.clicks,
+        sesiones: c.sesiones,
+        carritos: c.carritos,
+        checkouts: c.checkouts,
+        compras: c.compras,
+        ingresos: round(c.ingresos, 0),
+        roas: div(c.ingresos, c.gasto),
+        cpc: c.clicks ? round(c.gasto / c.clicks, 0) : null,
+        ...seg,
+        consultas: lead.consultas || 0,
+        cotizador: lead.cotizador || 0,
+        vieronPropuesta: lead.vieronPropuesta || 0,
+        abrieronContacto: lead.abrieronContacto || 0,
+        fichasMayorista: (fichas[c.campana] || {}).mayorista || 0,
+        fichasMinorista: (fichas[c.campana] || {}).minorista || 0,
+      };
+    });
 
   /* Meta por campaña: Analytics guarda el ID de la campaña de Meta en
    * sessionCampaignName, así que se puede cruzar EXACTO contra la API de Meta
@@ -430,6 +568,8 @@ async function paidPerformance({ days = 30 } = {}) {
 
   const campanasMeta = meta.campaigns.map((c) => {
     const g = gaPorId.get(String(c.id));
+    const seg = segmentOf(segmentos[String(c.id)]);
+    const lead = leadsCampana[String(c.id)] || {};
     const share = gastoSinMatch ? c.gasto / gastoSinMatch : 0;
     const medido = g
       ? { sesiones: g.sesiones, carritos: g.carritos, checkouts: g.checkouts, compras: g.compras, ingresos: round(g.ingresos, 0) }
@@ -454,6 +594,15 @@ async function paidPerformance({ days = 30 } = {}) {
       ingresosEstimados: !g,
       roas: div(medido.ingresos, c.gasto),
       cpc: c.clicks ? round(c.gasto / c.clicks, 0) : null,
+      ...seg,
+      // Las conversaciones de WhatsApp que informa Meta cuentan como consulta:
+      // en Meta el mayorista se atiende por mensajes, no por la web.
+      consultas: (lead.consultas || 0) + (c.mensajes || 0),
+      cotizador: lead.cotizador || 0,
+      vieronPropuesta: lead.vieronPropuesta || 0,
+      abrieronContacto: lead.abrieronContacto || 0,
+      fichasMayorista: (fichas[String(c.id)] || {}).mayorista || 0,
+      fichasMinorista: (fichas[String(c.id)] || {}).minorista || 0,
       propioCompras: c.propioCompras,
       propioIngresos: c.propioIngresos,
       propioRoas: div(c.propioIngresos, c.gasto),
@@ -466,17 +615,26 @@ async function paidPerformance({ days = 30 } = {}) {
 
   const campanas = [...campanasGoogle, ...campanasMeta].sort((a, b) => b.gasto - a.gasto);
   const gastoTotal = round(campanas.reduce((a, c) => a + c.gasto, 0), 0);
-  campanas.forEach((c) => { c.veredicto = veredicto(c.roas, c.gasto, gastoTotal); });
+  campanas.forEach((c) => {
+    c.cpl = c.consultas ? round(c.gasto / c.consultas, 0) : null;      // lo que cuesta cada consulta
+    c.valorConsultas = valorConsulta > 0 ? round(c.consultas * valorConsulta, 0) : null;
+    // "Retorno total": ventas web + valor estimado de las consultas. Es lo único
+    // que permite poner en la misma escala una campaña mayorista y una minorista.
+    c.retornoTotal = valorConsulta > 0 ? round(c.ingresos + (c.valorConsultas || 0), 0) : null;
+    c.roasTotal = valorConsulta > 0 ? div(c.retornoTotal, c.gasto) : null;
+    c.veredicto = veredicto(c, gastoTotal, valorConsulta);
+  });
 
   // Rendimiento por TIPO de campaña (catálogo/Pmax vs búsqueda vs display...).
   const tiposMap = {};
   for (const c of campanas) {
-    const t = tiposMap[c.tipo] || { tipo: c.tipo, canal: c.canal, gasto: 0, ingresos: 0, compras: 0, sesiones: 0, clicks: 0, campanas: 0 };
+    const t = tiposMap[c.tipo] || { tipo: c.tipo, canal: c.canal, gasto: 0, ingresos: 0, compras: 0, sesiones: 0, clicks: 0, consultas: 0, campanas: 0 };
     t.gasto = round(t.gasto + c.gasto, 0);
     t.ingresos = round(t.ingresos + c.ingresos, 0);
     t.compras = round(t.compras + c.compras, 1);
     t.sesiones += c.sesiones;
     t.clicks += c.clicks;
+    t.consultas += c.consultas || 0;
     t.campanas += 1;
     tiposMap[c.tipo] = t;
   }
@@ -484,8 +642,34 @@ async function paidPerformance({ days = 30 } = {}) {
     ...t,
     roas: div(t.ingresos, t.gasto),
     cac: t.compras ? round(t.gasto / t.compras, 0) : null,
+    cpl: t.consultas ? round(t.gasto / t.consultas, 0) : null,
     pctGasto: gastoTotal ? round((t.gasto / gastoTotal) * 100, 1) : 0,
   })).sort((a, b) => b.gasto - a.gasto);
+
+  /* Los DOS negocios por separado: es la lectura que faltaba. La sección
+   * /mayorista no tiene carrito, así que su conversión es la consulta. */
+  const porSegmento = ['minorista', 'mixta', 'mayorista'].map((seg) => {
+    const cs = campanas.filter((c) => c.segmento === seg);
+    if (!cs.length) return null;
+    const gasto = round(cs.reduce((a, c) => a + c.gasto, 0), 0);
+    const ingresos = round(cs.reduce((a, c) => a + c.ingresos, 0), 0);
+    const compras = round(cs.reduce((a, c) => a + c.compras, 0), 1);
+    const consultas = cs.reduce((a, c) => a + (c.consultas || 0), 0);
+    return {
+      segmento: seg,
+      campanas: cs.length,
+      gasto,
+      pctGasto: gastoTotal ? round((gasto / gastoTotal) * 100, 1) : 0,
+      sesiones: cs.reduce((a, c) => a + c.sesiones, 0),
+      ingresos,
+      compras,
+      consultas,
+      roas: div(ingresos, gasto),
+      cac: compras ? round(gasto / compras, 0) : null,
+      cpl: consultas ? round(gasto / consultas, 0) : null,
+      canales: [...new Set(cs.map((c) => c.canal))],
+    };
+  }).filter(Boolean);
 
   const totales = {
     gasto: round(canalMeta.gasto + canalGoogle.gasto, 0),
@@ -506,6 +690,39 @@ async function paidPerformance({ days = 30 } = {}) {
     google: funnelOf(googleRow, 'Google Ads'),
   };
 
+  /* Embudo del negocio MAYORISTA: no termina en una compra sino en una consulta.
+   * Sin esto, las campañas que mandan a /mayorista parecen no convertir nunca. */
+  const mayoristas = campanas.filter((c) => c.segmento === 'mayorista' || c.segmento === 'mixta');
+  const sum = (k) => mayoristas.reduce((a, c) => a + (c[k] || 0), 0);
+  const embudoMayorista = mayoristas.length ? {
+    label: 'Pauta que va a la sección mayorista',
+    steps: [
+      { key: 'clicks', label: 'Clics en el aviso', valor: sum('clicks') },
+      { key: 'sesiones', label: 'Llegaron al sitio', valor: sum('sesiones') },
+      { key: 'fichas', label: 'Abrieron una ficha mayorista', valor: sum('fichasMayorista') },
+      { key: 'consultas', label: 'Consultaron (WhatsApp / cotizador)', valor: sum('consultas') + sum('cotizador') },
+    ],
+  } : null;
+  if (embudoMayorista) {
+    let anterior = null;
+    let peor = null;
+    embudoMayorista.steps = embudoMayorista.steps.map((s) => {
+      const pctDelAnterior = anterior ? round((s.valor / anterior) * 100, 1) : null;
+      anterior = s.valor;
+      // Los caminos no son obligatorios: se puede consultar desde una categoría
+      // sin abrir ninguna ficha. Un paso que da más de 100% no es una fuga, es
+      // un atajo — se marca en vez de dibujar una caída que no existe.
+      const noSecuencial = pctDelAnterior !== null && pctDelAnterior > 105;
+      if (pctDelAnterior !== null && !noSecuencial && (!peor || 100 - pctDelAnterior > peor.caida)) {
+        peor = { key: s.key, label: s.label, caida: round(100 - pctDelAnterior, 1) };
+      }
+      return { ...s, pctDelAnterior, noSecuencial };
+    });
+    embudoMayorista.peor = peor;
+    embudoMayorista.gasto = round(sum('gasto'), 0);
+    embudoMayorista.cpl = sum('consultas') ? round(sum('gasto') / sum('consultas'), 0) : null;
+  }
+
   // Cuánto de lo que se vende NO viene de la pauta (contexto: sin esto el ROAS
   // se lee como si la tienda dependiera sólo de los anuncios).
   const totalSitio = Object.values(byChannel).reduce((a, r) => addRow(a, r), emptyRow());
@@ -524,12 +741,15 @@ async function paidPerformance({ days = 30 } = {}) {
     canales,
     totales,
     tipos,
+    porSegmento,
     campanas,
     embudos,
+    embudoMayorista,
     organico,
+    valorConsulta,
     reasignacion: buildReassignment(campanas, totales),
     avisos,
-    metodologia: 'Gasto de Meta: API de Meta. Gasto de Google: el que Analytics recibe de la cuenta vinculada. Compras e ingresos de los DOS canales: Google Analytics 4, última interacción (misma vara). Lo que cada plataforma se atribuye a sí misma se muestra aparte.',
+    metodologia: 'Gasto de Meta: API de Meta. Gasto de Google: el que Analytics recibe de la cuenta vinculada. Compras e ingresos de los DOS canales: Google Analytics 4, última interacción (misma vara). Lo que cada plataforma se atribuye a sí misma se muestra aparte. Las campañas que van a /mayorista se miden por CONSULTAS, no por ventas: en esa sección no hay carrito.',
   };
 }
 
@@ -547,19 +767,36 @@ function digest(rep) {
     lineas.push(`- ${c.nombre}: gasto ${money(c.gasto)} (${c.pctGasto}% del total) · ingresos ${money(c.ingresos)} · ROAS ${roas(c.roas)} · ${c.compras} compras · CAC ${money(c.cac)} · ${c.sesiones} sesiones · conversión ${c.convPct ?? 's/d'}% · CPC ${money(c.cpc)} · consultas ${c.consultas}` +
       (c.propio ? ` || lo que la plataforma se atribuye a sí misma: ${c.propio.compras} compras / ${money(c.propio.ingresos)} / ROAS ${roas(c.propio.roas)}${c.propio.mensajes ? ` + ${c.propio.mensajes} conversaciones de WhatsApp` : ''}` : ''));
   }
+  lineas.push('\nLOS DOS NEGOCIOS POR SEPARADO (la tienda tiene una sección MAYORISTA con "Consultar precio" y SIN carrito, y una sección minorista donde sí se compra online):');
+  for (const s of rep.porSegmento || []) {
+    const nombre = s.segmento === 'mayorista' ? 'Campañas que van a la sección MAYORISTA (no pueden generar compras web: su conversión es la CONSULTA)'
+      : s.segmento === 'mixta' ? 'Campañas MIXTAS (parte a mayorista, parte a la tienda)'
+        : 'Campañas que van a la tienda MINORISTA (sí pueden vender online)';
+    lineas.push(`- ${nombre}: ${s.campanas} campaña(s) · gasto ${money(s.gasto)} (${s.pctGasto}% del total) · ${s.sesiones} sesiones · ${s.compras} compras / ${money(s.ingresos)} · ${s.consultas} consultas · costo por consulta ${money(s.cpl)} · ROAS ${roas(s.roas)}`);
+  }
+  if (rep.valorConsulta > 0) {
+    lineas.push(`VALOR QUE EL DUEÑO LE ASIGNA A UNA CONSULTA MAYORISTA: ${money(rep.valorConsulta)} (usalo para comparar campañas mayoristas contra minoristas en la misma escala).`);
+  } else {
+    lineas.push('El dueño todavía NO cargó cuánto vale una consulta mayorista, así que las campañas mayoristas no se pueden pasar a pesos: compará su costo por consulta contra el de las otras y recomendá que cargue ese valor.');
+  }
+
   lineas.push('\nPOR TIPO DE CAMPAÑA:');
   for (const t of rep.tipos) {
-    lineas.push(`- ${t.tipo}: ${t.campanas} campaña(s) · gasto ${money(t.gasto)} (${t.pctGasto}%) · ingresos ${money(t.ingresos)} · ROAS ${roas(t.roas)} · CAC ${money(t.cac)}`);
+    lineas.push(`- ${t.tipo}: ${t.campanas} campaña(s) · gasto ${money(t.gasto)} (${t.pctGasto}%) · ingresos ${money(t.ingresos)} · ROAS ${roas(t.roas)} · CAC ${money(t.cac)} · ${t.consultas} consultas (costo por consulta ${money(t.cpl)})`);
   }
-  lineas.push('\nCAMPAÑAS (ordenadas por gasto):');
+  lineas.push('\nCAMPAÑAS (ordenadas por gasto). "destino" dice a qué negocio manda cada una:');
   for (const c of rep.campanas.slice(0, 18)) {
-    lineas.push(`- [${c.canal}] ${c.campana} (${c.tipo}): gasto ${money(c.gasto)} · ${c.sesiones} sesiones · ${c.compras} compras · ingresos ${money(c.ingresos)} · ROAS ${roas(c.roas)} · CPC ${money(c.cpc)}${c.frecuencia ? ` · frecuencia ${c.frecuencia}` : ''}${c.ingresosEstimados ? ' [ingresos repartidos por gasto: Meta sin UTM]' : ''}`);
+    lineas.push(`- [${c.canal}] ${c.campana} (${c.tipo}) destino=${c.segmento.toUpperCase()}${c.segmento === 'mixta' ? ` (${c.pctMayorista}% a mayorista)` : ''}: gasto ${money(c.gasto)} · ${c.sesiones} sesiones · ${c.compras} compras · ingresos ${money(c.ingresos)} · ROAS ${roas(c.roas)} · ${c.consultas} consultas · costo por consulta ${money(c.cpl)} · CPC ${money(c.cpc)}${c.frecuencia ? ` · frecuencia ${c.frecuencia}` : ''}${c.ingresosEstimados ? ' [ingresos repartidos por gasto: Meta sin UTM]' : ''}`);
   }
   lineas.push('\nEMBUDO POR CANAL (sesiones):');
   for (const key of ['meta', 'google']) {
     const e = rep.embudos[key];
     if (!e) continue;
     lineas.push(`- ${e.label}: ${e.steps.map((s) => `${s.label} ${s.valor}${s.pctDelAnterior !== null ? ` (${s.pctDelAnterior}% del paso anterior)` : ''}`).join(' → ')}${e.peor ? ` · peor fuga: ${e.peor.label} (se cae el ${e.peor.caida}%)` : ''}`);
+  }
+  if (rep.embudoMayorista) {
+    const e = rep.embudoMayorista;
+    lineas.push(`- EMBUDO MAYORISTA (termina en consulta, no en compra): ${e.steps.map((s) => `${s.label} ${s.valor}${s.pctDelAnterior !== null ? ` (${s.pctDelAnterior}%)` : ''}`).join(' → ')}${e.peor ? ` · peor fuga: ${e.peor.label} (se cae el ${e.peor.caida}%)` : ''} · costo por consulta ${money(e.cpl)}`);
   }
   if (rep.reasignacion) {
     const r = rep.reasignacion;
@@ -569,7 +806,11 @@ function digest(rep) {
   return lineas.join('\n');
 }
 
-const AI_SYSTEM = `Sos el director de performance de BLACKS Indumentaria (indumentaria de trabajo y calzado de seguridad, Argentina; vende minorista por la tienda online y mayorista/corporativo por WhatsApp). Analizás la inversión publicitaria de Meta Ads y Google Ads y decidís dónde conviene poner la plata.
+const AI_SYSTEM = `Sos el director de performance de BLACKS Indumentaria (indumentaria de trabajo y calzado de seguridad, Argentina). Analizás la inversión publicitaria de Meta Ads y Google Ads y decidís dónde conviene poner la plata.
+
+DATO CENTRAL DEL NEGOCIO (si lo ignorás, tus recomendaciones van a estar mal):
+La tienda tiene DOS negocios en el mismo sitio. La sección /mayorista muestra "Consultar precio" y NO TIENE CARRITO: ahí es IMPOSIBLE que haya una compra online, la conversión es la CONSULTA por WhatsApp o el cotizador. La sección minorista sí vende online. Varias campañas de Google mandan a /mayorista.
+⇒ Una campaña con destino MAYORISTA y ROAS 0 NO está fallando: está midiéndose con la vara equivocada. La juzgás por consultas y por lo que cuesta cada consulta, NUNCA por ROAS. Decirlo explícitamente es parte de tu trabajo.
 
 CÓMO TRABAJÁS:
 - Hablás en español argentino, claro y directo, para un dueño que NO es especialista en pauta. Nada de jerga sin explicar.
@@ -633,7 +874,7 @@ Qué necesito:
 3. "donde_esta_la_plata": dónde se está yendo el presupuesto hoy y cuánto de eso no vuelve.
 4. "hallazgos": lo concreto que encontraste (campañas que queman plata, diferencias de atribución, fugas del embudo, frecuencia alta, CPC caro). Con números.
 5. "recomendaciones": acciones ordenadas por impacto, con monto en pesos cuando corresponda. Incluí explícitamente si conviene mover presupuesto de un canal al otro y cuánto.
-6. "tipo_de_campana_que_mejor_rinde": qué TIPO (catálogo, Performance Max, búsqueda, display, ventas web de Meta, mensajes) rinde mejor y cuál peor, con el ROAS de cada uno.
+6. "tipo_de_campana_que_mejor_rinde": qué TIPO (catálogo, Performance Max, búsqueda, display, ventas web de Meta, mensajes) rinde mejor y cuál peor, con el ROAS de cada uno — separando lo minorista de lo mayorista, que no se comparan igual.
 7. "riesgos": qué puede salir mal si se hacen esos cambios.
 8. "que_medir_mejor": qué falta medir para decidir mejor (ej. UTM en los anuncios de Meta).
 

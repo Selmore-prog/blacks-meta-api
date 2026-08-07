@@ -3421,6 +3421,50 @@ function renderAdsPerformance(d) {
 
   const canales = `<div class="grid-2">${d.canales.map(canalCard).join('')}</div>`;
 
+  /* --- 2b. LOS DOS NEGOCIOS: la tienda mayorista no tiene carrito --- */
+  const SEG_LABEL = {
+    minorista: { t: 'Van a la tienda (se compra online)', d: 'Se miden por ventas y ROAS.' },
+    mayorista: { t: 'Van a la sección mayorista', d: 'Ahí no hay carrito: la conversión es la consulta, no la compra.' },
+    mixta: { t: 'Mixtas', d: 'Mandan tráfico a las dos secciones.' },
+  };
+  const lv = d.leadValue || { valor: 0 };
+  const segmentos = (d.porSegmento && d.porSegmento.length > 1) ? `
+    <div class="panel">
+      <h3>Tus dos negocios, medidos como corresponde</h3>
+      <p class="hint">En <b>/mayorista</b> los productos dicen "Consultar precio" y no tienen carrito: por definición nunca van a generar una compra online. Esas campañas se miden por <b>consultas</b> y por lo que cuesta cada una.</p>
+      <div class="grid-2">
+        ${d.porSegmento.map((s) => `
+          <div class="seg-card ${s.segmento}">
+            <div class="seg-head"><b>${esc(SEG_LABEL[s.segmento].t)}</b><span class="seg-n">${s.campanas} campaña${s.campanas > 1 ? 's' : ''}</span></div>
+            <p class="hint" style="margin:0 0 12px;">${esc(SEG_LABEL[s.segmento].d)}</p>
+            <div class="ac-grid">
+              <div><span>Invertido</span><b>${adsMoney(s.gasto)}</b></div>
+              <div><span>${s.pctGasto}% del total</span><b>${adsCount(s.sesiones)} visitas</b></div>
+              ${s.segmento === 'mayorista'
+    ? `<div><span>Consultas</span><b>${adsCount(s.consultas)}</b></div>
+                 <div><span>Costo por consulta</span><b class="${s.cpl && s.cpl > 40000 ? 'neg' : ''}">${adsMoney(s.cpl)}</b></div>`
+    : `<div><span>Ventas</span><b>${adsMoney(s.ingresos)}</b></div>
+                 <div><span>ROAS</span><b class="roas ${roasClass(s.roas)}">${adsRoas(s.roas)}</b></div>
+                 <div><span>Compras</span><b>${adsCount(s.compras)}</b></div>
+                 <div><span>Consultas</span><b>${adsCount(s.consultas)}</b></div>`}
+            </div>
+          </div>`).join('')}
+      </div>
+      <div class="lead-value">
+        <div>
+          <b>${lv.valor ? `Hoy una consulta mayorista vale ${adsMoney(lv.valor)}` : '¿Cuánto vale para vos una consulta mayorista?'}</b>
+          <p class="hint" style="margin:4px 0 0;">${lv.valor
+    ? 'Con ese número las campañas mayoristas se comparan contra las de venta en la misma escala.'
+    : 'Sin este dato no hay forma de saber si una consulta a $16.000 es buen negocio o no. Poné tu ticket mayorista promedio y cada cuántas consultas cerrás una.'}</p>
+        </div>
+        <div class="lv-form">
+          <label>Ticket mayorista promedio<input class="input" id="lv-ticket" type="number" placeholder="350000" value="${lv.ticket || ''}"/></label>
+          <label>De cada 100 consultas, ¿cuántas cierran?<input class="input" id="lv-cierre" type="number" placeholder="20" value="${lv.cierrePct || ''}"/></label>
+          <button class="btn-primary btn-sm" id="lv-save">Guardar</button>
+        </div>
+      </div>
+    </div>` : '';
+
   /* --- 3. Dónde va la plata vs. de dónde vuelve --- */
   const maxGasto = Math.max(...d.canales.map((c) => c.gasto), 1);
   const maxIng = Math.max(...d.canales.map((c) => c.ingresos), 1);
@@ -3461,22 +3505,26 @@ function renderAdsPerformance(d) {
   const campanas = `
     <div class="panel">
       <h3>Campaña por campaña</h3>
-      <p class="hint">Todo con la misma vara. "Apagar" sale cuando una campaña pierde plata y encima se lleva una parte grande del presupuesto.</p>
+      <p class="hint">Las campañas marcadas <b>Mayorista</b> mandan a la sección sin carrito: ahí el ROAS no existe y se juzgan por <b>consultas</b> y por lo que cuesta cada una. "Apagar" sólo aparece cuando una campaña no trajo <i>ni ventas ni consultas</i>.</p>
       <div class="ads-table-wrap">
         <table class="ads-table">
           <thead><tr>
-            <th>Campaña</th><th>Tipo</th><th class="r">Invertido</th><th class="r">Visitas</th>
-            <th class="r">Compras</th><th class="r">Ventas</th><th class="r">ROAS</th><th>Qué hacer</th>
+            <th>Campaña</th><th>Destino</th><th class="r">Invertido</th><th class="r">Visitas</th>
+            <th class="r">Compras</th><th class="r">Ventas</th><th class="r">ROAS</th>
+            <th class="r">Consultas</th><th class="r">c/consulta</th><th>Qué hacer</th>
           </tr></thead>
           <tbody>
             ${d.campanas.map((c) => `<tr>
               <td class="c-name"><span class="ch-dot ${c.canal}"></span>${esc(c.campana)}${c.frecuencia && c.frecuencia >= 3 ? ` <span class="badge qa-warn" title="Cada persona vio el anuncio ${String(c.frecuencia).replace('.', ',')} veces: pasando de 3 se quema la audiencia">frec. ${String(c.frecuencia).replace('.', ',')}</span>` : ''}</td>
-              <td class="c-type">${esc(String(c.tipo).replace(/^(Meta|Google) · /, ''))}</td>
+              <td class="c-type"><span class="seg-tag ${c.segmento}" title="${c.segmento === 'mayorista' ? 'Manda a /mayorista: ahí no hay carrito, se mide por consultas' : c.segmento === 'mixta' ? `Manda tráfico a las dos secciones (${c.pctMayorista}% a mayorista)` : 'Manda a la tienda: se mide por ventas'}">${c.segmento === 'mayorista' ? 'Mayorista' : c.segmento === 'mixta' ? 'Mixta' : 'Tienda'}</span>
+                <span class="c-type-sub">${esc(String(c.tipo).replace(/^(Meta|Google) · /, ''))}</span></td>
               <td class="r">${adsMoney(c.gasto)}</td>
               <td class="r">${adsCount(c.sesiones)}</td>
               <td class="r">${adsCount(c.compras)}</td>
               <td class="r">${adsMoney(c.ingresos)}${c.ingresosEstimados ? '<span class="est" title="Repartido según el gasto: Analytics no identifica esta campaña">~</span>' : ''}</td>
-              <td class="r roas ${roasClass(c.roas)}">${adsRoas(c.roas)}</td>
+              <td class="r roas ${c.segmento === 'mayorista' ? 'nd' : roasClass(c.roas)}">${c.segmento === 'mayorista' ? '<span class="na" title="En la sección mayorista no hay carrito: el ROAS no aplica">n/a</span>' : adsRoas(c.roas)}</td>
+              <td class="r">${c.consultas ? adsCount(c.consultas) : '—'}</td>
+              <td class="r">${adsMoney(c.cpl)}</td>
               <td><span class="verd ${c.veredicto.nivel}" title="${esc(c.veredicto.texto)}">${VERD[c.veredicto.nivel] || c.veredicto.nivel}</span></td>
             </tr>`).join('')}
           </tbody>
@@ -3493,7 +3541,9 @@ function renderAdsPerformance(d) {
       ${e.steps.map((s) => `
         <div class="fn-step ${e.peor && e.peor.key === s.key ? 'fn-worst' : ''}">
           <div class="fn-head"><span class="fn-label">${esc(s.label)}</span>
-            <span class="fn-val"><b>${adsCount(s.valor)}</b> ${s.pctDelAnterior !== null ? `<span class="fn-tag ${s.pctDelAnterior < 10 ? 'bad' : ''}">${String(s.pctDelAnterior).replace('.', ',')}%</span>` : ''}</span></div>
+            <span class="fn-val"><b>${adsCount(s.valor)}</b> ${s.pctDelAnterior !== null ? (s.noSecuencial
+      ? `<span class="fn-tag" title="No es una fuga: se puede llegar acá sin pasar por el paso anterior">atajo</span>`
+      : `<span class="fn-tag ${s.pctDelAnterior < 10 ? 'bad' : ''}">${String(s.pctDelAnterior).replace('.', ',')}%</span>`) : ''}</span></div>
           <div class="fn-bar"><i style="width:${Math.min((s.valor / top) * 100, 100)}%"></i></div>
         </div>`).join('')}
       ${e.peor ? `<div class="fn-foot">Peor fuga: <b>${esc(e.peor.label)}</b> — se cae el ${String(e.peor.caida).replace('.', ',')}% de los que venían.</div>` : ''}
@@ -3505,6 +3555,13 @@ function renderAdsPerformance(d) {
       <p class="hint">De los que tocan el anuncio, cuántos llegan, agregan al carrito, arrancan el checkout y compran. Sirve para saber si el problema es el anuncio o el sitio.</p>
       <div class="fn-grid">${embudoCol(d.embudos.meta)}${embudoCol(d.embudos.google)}</div>
     </div>`;
+
+  const embudoMay = d.embudoMayorista ? `
+    <div class="panel">
+      <h3>El recorrido del negocio mayorista</h3>
+      <p class="hint">Este embudo NO termina en una compra (en /mayorista no hay carrito) sino en una consulta. ${d.embudoMayorista.cpl ? `Hoy cada consulta sale <b>${adsMoney(d.embudoMayorista.cpl)}</b>.` : ''}</p>
+      <div class="fn-grid">${embudoCol(d.embudoMayorista)}</div>
+    </div>` : '';
 
   /* --- 7. La cuenta de la reasignación --- */
   const r = d.reasignacion;
@@ -3546,10 +3603,25 @@ function renderAdsPerformance(d) {
       <p class="hint" style="margin:10px 0 0;">${esc(d.metodologia)}</p>
     </div>` : `<div class="panel"><p class="hint" style="margin:0;">${icon('info')} ${esc(d.metodologia)}</p></div>`;
 
-  host.innerHTML = resumen + canales + reparto + tipos + campanas + embudos + reasignacion + ia + avisos;
+  host.innerHTML = resumen + canales + segmentos + reparto + tipos + campanas + embudos + embudoMay + reasignacion + ia + avisos;
   hydrateIcons(host);
   const btn = host.querySelector('#ads-ai-btn');
   if (btn) btn.addEventListener('click', () => runAdsAiAnalysis(btn, d.days));
+  const lvBtn = host.querySelector('#lv-save');
+  if (lvBtn) lvBtn.addEventListener('click', async () => {
+    const ticket = Number(host.querySelector('#lv-ticket').value) || 0;
+    const cierrePct = Number(host.querySelector('#lv-cierre').value) || 0;
+    if (!ticket || !cierrePct) { toast('Cargá el ticket y el porcentaje de cierre', 'err'); return; }
+    lvBtn.disabled = true;
+    try {
+      const r = await api('/api/ads/lead-value', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ticket, cierrePct }),
+      });
+      toast(`Listo: cada consulta vale ${adsMoney(r.valor)}`, 'ok');
+      loadAdsPerformance(true);
+    } catch (e) { toast(e.message, 'err'); lvBtn.disabled = false; }
+  });
 }
 
 async function runAdsAiAnalysis(btn, days) {
