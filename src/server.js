@@ -24,6 +24,7 @@ const { listCommercialDates } = require('./commercialDates');
 const { notifyPublishResult, notifyWeeklyReport } = require('./notifier');
 const { generateMonthlyPlan, getPlan, nextPlannableMonth } = require('./planner');
 const { buildInterest } = require('./productInterest');
+const { buildLayout } = require('./homeLayout');
 const { getRails, getRailsConfig, saveRailsConfig, validateConfig, buildPayload,
   invalidate: invalidateRails, RULES, SPECIAL_RULES, SLOT_IDS, LAYOUTS } = require('./homeRails');
 
@@ -789,12 +790,27 @@ app.get('/api/home/rails', publicGetCors, wrap(async (req, res) => {
 // "Home" del panel para armar los desplegables.
 app.get('/api/home/rules', wrap(async (req, res) => {
   const describe = (obj) => Object.entries(obj).map(([id, r]) => ({ id, label: r.label, help: r.help }));
+  // Antigüedad del catálogo: los rieles muestran el precio que está en
+  // products_cache, no el que está en Tiendanube en este segundo. Si el sync
+  // quedó viejo, la tarjeta miente y hay que poder verlo desde el panel.
+  const { rows } = await pool.query('SELECT max(synced_at) AS ultimo FROM products_cache');
+  const ultimo = rows[0] && rows[0].ultimo;
   res.json({
     rules: [...describe(RULES), ...describe(SPECIAL_RULES)],
     slots: SLOT_IDS,
     layouts: LAYOUTS,
     config: await getRailsConfig(),
+    catalogo: {
+      sincronizado: ultimo,
+      minutos: ultimo ? Math.round((Date.now() - new Date(ultimo).getTime()) / 60000) : null,
+    },
   });
+}));
+
+// Esquema recomendado del home: en qué orden conviene poner las secciones,
+// con el número real que justifica cada posición. Ver src/homeLayout.js.
+app.get('/api/home/layout', wrap(async (req, res) => {
+  res.json(await buildLayout());
 }));
 
 // Vista previa: arma los rieles con una config que TODAVÍA NO se guardó, para

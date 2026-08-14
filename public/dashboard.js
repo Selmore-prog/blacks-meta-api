@@ -4398,9 +4398,10 @@ async function loadHomeRails() {
   body.innerHTML = skeleton('rows', 4);
   try {
     const d = await api('/api/home/rules');
-    homeState = { rules: d.rules || [], slots: d.slots || [], layouts: d.layouts || [], config: d.config, preview: null };
+    homeState = { rules: d.rules || [], slots: d.slots || [], layouts: d.layouts || [], config: d.config, preview: null, catalogo: d.catalogo || {} };
     renderHomeRails();
     previewHomeRails({ silent: true });
+    loadHomeLayout();
   } catch (err) {
     body.innerHTML = `<p class="hint">No pude cargar la configuración: ${esc(err.message)}</p>`;
   }
@@ -4453,7 +4454,30 @@ function renderHomeRails() {
     </div>`;
   }).join('');
 
-  body.innerHTML = `
+  // Las tarjetas muestran el precio guardado en el catálogo, no el que tiene
+  // Tiendanube en este segundo. Si acabás de cambiar un precio, esto avisa que
+  // todavía no entró y deja forzarlo sin ir a la pestaña Productos.
+  const cat = homeState.catalogo || {};
+  const mins = cat.minutos;
+  const viejo = mins !== null && mins !== undefined && mins > 75;
+  const cuando = (mins === null || mins === undefined) ? 'nunca'
+    : mins < 2 ? 'recién'
+      : mins < 60 ? `hace ${mins} min`
+        : `hace ${Math.floor(mins / 60)} h ${mins % 60} min`;
+  const frescura = `
+    <div class="hr-fresh ${viejo ? 'stale' : ''}">
+      <span class="hr-fresh-dot"></span>
+      <div>
+        <b>Precios y stock actualizados ${cuando}</b>
+        ${tip('Los rieles muestran lo que está guardado en el catálogo, no lo que tiene Tiendanube en este instante. Se refresca solo cada hora; si acabás de cambiar un precio y lo querés ver ya, usá el botón.')}
+        <p class="hint" style="margin:2px 0 0;">${viejo
+    ? 'Hace rato que no se sincroniza: puede que alguna tarjeta muestre un precio viejo.'
+    : 'Se sincroniza solo cada hora.'}</p>
+      </div>
+      <button class="btn-ghost btn-sm" id="hr-sync" onclick="syncCatalogFromHome(this)">${icon('refresh')} Actualizar ahora</button>
+    </div>`;
+
+  body.innerHTML = frescura + `
     <div class="panel" style="margin-bottom:18px;">
       <h3>${icon('filter')} Reglas generales</h3>
       <div class="grid-2">
@@ -4755,4 +4779,72 @@ function renderInterest() {
 function setInterestFiltro(id) {
   interestFiltro = id;
   renderInterest();
+}
+
+
+/** Fuerza el sync del catálogo desde la pestaña Home y rearma la vista previa. */
+async function syncCatalogFromHome(btn) {
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `${icon('refresh', 'spin')} Actualizando…`;
+  try {
+    // Este endpoint ya invalida la caché de los rieles al terminar.
+    await api('/api/products/sync', { method: 'POST' });
+    toast('Catálogo actualizado.', 'ok');
+    await loadHomeRails();
+  } catch (err) {
+    toast(err.message, 'err');
+    btn.disabled = false;
+    btn.innerHTML = original;
+  }
+}
+
+
+/* =========================================================================
+ * ESQUEMA RECOMENDADO DEL HOME
+ * En qué orden conviene poner las secciones de la landing. Cada bloque trae el
+ * número real que justifica su posición: la idea es poder discutir la
+ * recomendación, no creerla de memoria.
+ * ========================================================================= */
+
+async function loadHomeLayout() {
+  const box = document.getElementById('home-layout');
+  if (!box) return;
+  box.innerHTML = skeleton('rows', 4);
+  try {
+    const d = await api('/api/home/layout');
+    const ICONO = {
+      hero: 'image', confianza: 'check', riel: 'grid', b2b: 'bolt',
+      navegacion: 'list', contenido: 'film', cierre: 'send',
+    };
+    const bloques = d.bloques.map((b) => `
+      <div class="hl-row ${b.destacado ? 'hl-key' : ''}">
+        <span class="hl-pos">${b.pos}</span>
+        <div class="hl-box">
+          <div class="hl-name">${icon(ICONO[b.tipo] || 'list')} ${esc(b.seccion)}
+            ${b.titulo ? `<span class="hl-sub">${esc(b.titulo)}</span>` : ''}
+            ${b.destacado ? '<span class="hl-flag">el cambio más importante</span>' : ''}
+          </div>
+          <p class="hl-que">${esc(b.que)}</p>
+          <p class="hl-why">${esc(b.porQue)}</p>
+          ${b.dato ? `<p class="hl-dato">${icon('chart')} ${esc(b.dato)}</p>` : ''}
+        </div>
+      </div>`).join('');
+
+    box.innerHTML = `
+      <div class="panel">
+        ${panelHead(`${icon('route')} Cómo ordenar tu página de inicio`,
+    'Propuesta de orden usando las secciones reales de tu theme y los datos de tu cuenta. El orden se cambia en Tiendanube; acá se explica por qué conviene cada posición.')}
+        <div class="hl-legend">
+          <span><b>${d.señales.pctMayorista ?? '—'}%</b> de tus consultas son mayoristas</span>
+          <span><b>${d.señales.elegibles}</b> productos entran a los rieles</span>
+          <span><b>${d.señales.ofertas}</b> con precio promocional</span>
+        </div>
+        <div class="hl-list">${bloques}</div>
+        <ul class="hl-notes">${d.notas.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>
+      </div>`;
+    hydrateIcons(box);
+  } catch (err) {
+    box.innerHTML = `<div class="panel"><p class="hint" style="margin:0;">No pude armar el esquema: ${esc(err.message)}</p></div>`;
+  }
 }

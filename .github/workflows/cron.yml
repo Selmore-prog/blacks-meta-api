@@ -2,8 +2,14 @@ name: BLACKS Cron Jobs
 
 on:
   schedule:
-    # Sync de catálogo Tiendanube (precios/stock) a las 09:45 UTC (06:45 ARG)
+    # Sync COMPLETO de catálogo (precios/stock + ventas + catálogo de Meta)
+    # a las 09:45 UTC (06:45 ARG)
     - cron: '45 9 * * *'
+    # Sync LIVIANO de precios y stock, cada hora. Es el que mantiene al día las
+    # tarjetas de los rieles del home: antes el catálogo se refrescaba una vez
+    # por día y un cambio de precio en Tiendanube tardaba hasta 24 h en verse
+    # (medido: un producto con $12.999 en la copia y $18.999 en la tienda).
+    - cron: '20 * * * *'
     # Generación diaria de copy + imagen a las 10:00 UTC (07:00 ARG)
     - cron: '0 10 * * *'
     # Backfill de video de Reels pendientes cada 30 min (corre en el runner, no en Render)
@@ -39,6 +45,31 @@ on:
 
 jobs:
   # Trae precios/stock actualizados de Tiendanube al cache.
+  # Sólo precios y stock: es corto y puede correr cada hora sin costo. No toca
+  # ventas ni el catálogo de Meta, que son más pesados y no cambian tan seguido.
+  sync-products-fast:
+    if: github.event.schedule == '20 * * * *'
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      TIENDANUBE_STORE_ID: ${{ secrets.TIENDANUBE_STORE_ID }}
+      TIENDANUBE_ACCESS_TOKEN: ${{ secrets.TIENDANUBE_ACCESS_TOKEN }}
+      TIENDANUBE_USER_AGENT: ${{ secrets.TIENDANUBE_USER_AGENT }}
+      TIENDANUBE_AUTH_HEADER_STYLE: ${{ secrets.TIENDANUBE_AUTH_HEADER_STYLE }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - run: npm run sync
+      # Con el catálogo fresco, los rieles del home tienen que rearmarse ya:
+      # si no, la caché de 15 min sigue sirviendo el precio viejo.
+      - name: Refrescar los rieles del home
+        run: |
+          curl -sf "${{ secrets.PUBLIC_BASE_URL }}/api/home/rails?force=1" -o /dev/null \
+            || echo "no se pudo refrescar los rieles (se rearman solos en 15 min)"
+
   sync-products:
     if: github.event.schedule == '45 9 * * *' || github.event.inputs.job == 'sync-products'
     runs-on: ubuntu-latest

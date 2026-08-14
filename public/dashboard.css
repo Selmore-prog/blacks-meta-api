@@ -1195,3 +1195,75 @@ button .cost-tag { margin-left: 8px; }
 .an-actions-aux { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--line-soft); }
 .an-actions-aux .btn-sm { font-size: 12px; padding: 6px 11px; min-height: 0; color: var(--muted); }
 .an-actions-aux .btn-sm:hover { color: var(--text); }
+
+/* Frescura del catálogo en la pestaña Home: los rieles sirven el precio
+   guardado, así que la antigüedad del sync tiene que estar a la vista. */
+.hr-fresh {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 12px 16px; margin-bottom: 18px;
+  font-size: 13px;
+}
+.hr-fresh > div { flex: 1; min-width: 220px; }
+.hr-fresh button { margin-left: auto; }
+.hr-fresh-dot { width: 8px; height: 8px; border-radius: 50%; background: var(--green); flex: none; }
+.hr-fresh.stale { border-color: rgba(232, 93, 27, .45); }
+.hr-fresh.stale .hr-fresh-dot { background: var(--orange); }
+
+/* ==========================================================================
+   ESQUEMA RECOMENDADO DEL HOME
+   Lista vertical que imita el orden de la landing: el número a la izquierda es
+   la posición, y cada caja explica por qué va ahí.
+   ========================================================================== */
+.hl-legend {
+  display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 18px;
+}
+.hl-legend span {
+  background: var(--panel-2); border: 1px solid var(--line); border-radius: 999px;
+  padding: 6px 13px; font-size: 12.5px; color: var(--muted);
+}
+.hl-legend b { color: var(--text); font-weight: 800; }
+
+.hl-list { display: flex; flex-direction: column; }
+
+.hl-row { display: flex; gap: 12px; align-items: stretch; }
+/* La línea vertical que une los bloques: da la sensación de "recorrido". */
+.hl-row:not(:last-child) .hl-pos::after {
+  content: ''; position: absolute; top: 26px; bottom: -14px; left: 50%;
+  width: 1px; background: var(--line); transform: translateX(-50%);
+}
+.hl-pos {
+  position: relative; flex: none; width: 26px; height: 26px; border-radius: 50%;
+  background: var(--panel-2); border: 1px solid var(--line);
+  display: flex; align-items: center; justify-content: center;
+  font-size: 11.5px; font-weight: 800; color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+.hl-box {
+  flex: 1; background: var(--panel-2); border: 1px solid var(--line);
+  border-radius: 12px; padding: 12px 14px; margin-bottom: 14px;
+}
+.hl-name { font-size: 13.5px; font-weight: 800; display: flex; align-items: center;
+  gap: 7px; flex-wrap: wrap; margin-bottom: 6px; }
+.hl-sub { font-weight: 600; color: var(--orange); font-size: 12.5px; }
+.hl-flag {
+  background: var(--orange-dim); color: var(--orange); border-radius: 999px;
+  padding: 2px 9px; font-size: 10.5px; font-weight: 800;
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.hl-que { margin: 0 0 5px; font-size: 13px; color: var(--text); }
+.hl-why { margin: 0; font-size: 12.5px; color: var(--muted); line-height: 1.55; }
+.hl-dato {
+  margin: 9px 0 0; font-size: 12px; color: var(--muted);
+  background: var(--bg); border-radius: 8px; padding: 7px 10px; line-height: 1.5;
+}
+.hl-dato .ic { color: var(--orange); }
+
+/* El bloque clave (hoy, el desvío mayorista) se marca en naranja. */
+.hl-row.hl-key .hl-box { border-color: rgba(232, 93, 27, .5); background: var(--orange-dim); }
+.hl-row.hl-key .hl-pos { border-color: var(--orange); color: var(--orange); }
+
+.hl-notes { margin: 18px 0 0; padding-left: 18px; color: var(--muted); font-size: 12.5px; line-height: 1.6; }
+.hl-notes li { margin-bottom: 6px; }
+
+@media (max-width: 640px) { .hl-box { padding: 11px 12px; } }
