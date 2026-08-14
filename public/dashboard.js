@@ -122,6 +122,7 @@ function switchTab(view) {
   if (view === 'style') loadStyle();
   if (view === 'metrics') loadMetrics();
   if (view === 'products') loadProducts();
+  if (view === 'home') loadHomeRails();
   if (view === 'studio') loadStudio();
   if (view === 'analysis') setupAnalysis();
   if (view === 'ads') loadAdsPerformance();
@@ -4306,3 +4307,257 @@ setupStyleTab();
 pollBgTasks();
 setInterval(pollBgTasks, 60 * 1000); // tareas en segundo plano: refresco cada minuto
 setInterval(refreshPubTimers, 30 * 1000); // cuenta regresiva de auto-publicación
+
+/* =========================================================================
+ * HOME DE LA TIENDA — qué muestra cada carrusel automático.
+ *
+ * El theme tiene CUATRO huecos fijos (rail_1..rail_4) que el dueño ubica donde
+ * quiera dentro del orden de la página de inicio, desde el panel de diseño de
+ * Tiendanube. Acá se decide el CONTENIDO de cada hueco: con qué regla se eligen
+ * los productos, cuántos, con qué título y con qué layout.
+ *
+ * Arrastrar una tarjeta NO mueve el riel en la página (eso es cosa de
+ * Tiendanube): intercambia el contenido entre huecos. Está aclarado en la UI
+ * porque es la confusión obvia.
+ * ========================================================================= */
+
+let homeState = { rules: [], slots: [], layouts: [], config: null, preview: null };
+
+async function loadHomeRails() {
+  const body = document.getElementById('home-body');
+  body.innerHTML = skeleton('rows', 4);
+  try {
+    const d = await api('/api/home/rules');
+    homeState = { rules: d.rules || [], slots: d.slots || [], layouts: d.layouts || [], config: d.config, preview: null };
+    renderHomeRails();
+    previewHomeRails({ silent: true });
+  } catch (err) {
+    body.innerHTML = `<p class="hint">No pude cargar la configuración: ${esc(err.message)}</p>`;
+  }
+}
+
+function ruleHelp(id) {
+  const r = homeState.rules.find((x) => x.id === id);
+  return r ? r.help : '';
+}
+
+function renderHomeRails() {
+  const cfg = homeState.config;
+  const body = document.getElementById('home-body');
+  const usados = cfg.rails.map((r) => r.id);
+  const libres = homeState.slots.filter((s) => !usados.includes(s));
+
+  const cards = cfg.rails.map((r, i) => {
+    const opciones = homeState.rules
+      .map((x) => `<option value="${esc(x.id)}" ${x.id === r.rule ? 'selected' : ''}>${esc(x.label)}</option>`).join('');
+    const layouts = homeState.layouts
+      .map((l) => `<option value="${l}" ${l === r.layout ? 'selected' : ''}>${l === 'grid' ? 'Grilla' : 'Carrusel'}</option>`).join('');
+    const fijos = r.rule === 'fijos'
+      ? `<div class="field"><label>Productos elegidos (ids separados por coma)</label>
+           <input class="input" data-hr="product_ids" data-i="${i}" value="${esc((r.product_ids || []).join(', '))}"
+                  placeholder="ej: 12345, 67890" /></div>` : '';
+
+    return `<div class="hr-card" draggable="true" data-i="${i}">
+      <div class="hr-head">
+        <span class="hr-grip" title="Arrastrar para intercambiar con otro hueco">⠿</span>
+        <span class="hr-slot">Hueco ${i + 1}<small>${esc(r.id)}</small></span>
+        <button class="btn-ghost btn-sm" onclick="removeHomeRail(${i})" title="Sacar este riel del home">${icon('trash')}</button>
+      </div>
+      <div class="grid-2">
+        <div class="field"><label>Título que ve el cliente</label>
+          <input class="input" data-hr="title" data-i="${i}" value="${esc(r.title)}" maxlength="80" /></div>
+        <div class="field"><label>Regla</label>
+          <select class="input" data-hr="rule" data-i="${i}">${opciones}</select></div>
+      </div>
+      <p class="hint hr-help">${esc(ruleHelp(r.rule))}</p>
+      ${fijos}
+      <div class="grid-2">
+        <div class="field"><label>Cuántos productos</label>
+          <input class="input" type="number" min="3" max="24" data-hr="limit" data-i="${i}" value="${r.limit}" /></div>
+        <div class="field"><label>Formato</label>
+          <select class="input" data-hr="layout" data-i="${i}">${layouts}</select></div>
+      </div>
+      <div class="field"><label>Link del botón "Ver todos" (opcional)</label>
+        <input class="input" data-hr="url" data-i="${i}" value="${esc(r.url || '')}" placeholder="ej: /productos" /></div>
+      <div class="hr-preview" id="hr-preview-${i}"></div>
+    </div>`;
+  }).join('');
+
+  body.innerHTML = `
+    <div class="panel" style="margin-bottom:18px;">
+      <h3>${icon('filter')} Reglas generales</h3>
+      <div class="grid-2">
+        <div class="field">
+          <label><input type="checkbox" id="hr-dedupe" ${cfg.dedupe !== false ? 'checked' : ''} />
+            No repetir un producto en dos rieles</label>
+          <p class="hint">Recomendado: de tu catálogo sólo entran unos 44 productos a los rieles, así que sin esto el mismo pantalón sale en tres carruseles.</p>
+        </div>
+        <div class="field">
+          <label>Descuento por transferencia (%)</label>
+          <input class="input" type="number" min="0" max="99" id="hr-transfer"
+                 value="${cfg.transfer_discount_pct || ''}" placeholder="vacío = no mostrarlo" />
+          <p class="hint">Si lo cargás, las fichas muestran el precio con transferencia. Ojo: tiene que coincidir con la promoción real de Tiendanube, porque el motor no puede leerla.</p>
+        </div>
+      </div>
+    </div>
+    <div class="hr-list" id="hr-list">${cards || '<p class="hint">No hay ningún riel configurado.</p>'}</div>
+    ${libres.length ? `<button class="btn-ghost" style="margin-top:12px;" onclick="addHomeRail()">${icon('plus')} Agregar riel (quedan ${libres.length} huecos)</button>` : ''}
+    <div class="panel" id="hr-summary" style="margin-top:18px;"><p class="hint">Previsualizando...</p></div>`;
+
+  hydrateIcons(body);
+  bindHomeRailInputs();
+  bindHomeRailDrag();
+}
+
+/** Lee los inputs y actualiza homeState.config sin re-renderizar (no perder foco). */
+function bindHomeRailInputs() {
+  document.querySelectorAll('[data-hr]').forEach((el) => {
+    const ev = el.tagName === 'SELECT' ? 'change' : 'input';
+    el.addEventListener(ev, () => {
+      const i = Number(el.dataset.i);
+      const campo = el.dataset.hr;
+      const rail = homeState.config.rails[i];
+      if (campo === 'limit') rail.limit = Number(el.value) || 12;
+      else if (campo === 'product_ids') {
+        rail.product_ids = el.value.split(',').map((s) => Number(s.trim())).filter(Number.isFinite);
+      } else rail[campo] = el.value;
+      // Cambiar la regla cambia la ayuda y puede sumar el campo de productos fijos.
+      if (campo === 'rule') renderHomeRails();
+    });
+  });
+  const dedupe = document.getElementById('hr-dedupe');
+  if (dedupe) dedupe.addEventListener('change', () => { homeState.config.dedupe = dedupe.checked; });
+  const transfer = document.getElementById('hr-transfer');
+  if (transfer) transfer.addEventListener('input', () => {
+    homeState.config.transfer_discount_pct = transfer.value ? Number(transfer.value) : null;
+  });
+}
+
+/** Arrastrar intercambia el CONTENIDO entre huecos (los ids quedan en orden). */
+function bindHomeRailDrag() {
+  const list = document.getElementById('hr-list');
+  if (!list) return;
+  let origen = null;
+  list.querySelectorAll('.hr-card').forEach((card) => {
+    card.addEventListener('dragstart', () => { origen = Number(card.dataset.i); card.classList.add('hr-dragging'); });
+    card.addEventListener('dragend', () => card.classList.remove('hr-dragging'));
+    card.addEventListener('dragover', (e) => { e.preventDefault(); card.classList.add('hr-over'); });
+    card.addEventListener('dragleave', () => card.classList.remove('hr-over'));
+    card.addEventListener('drop', (e) => {
+      e.preventDefault();
+      card.classList.remove('hr-over');
+      const destino = Number(card.dataset.i);
+      if (origen === null || origen === destino) return;
+      const rails = homeState.config.rails;
+      const [movido] = rails.splice(origen, 1);
+      rails.splice(destino, 0, movido);
+      // Los huecos son posicionales: se reasignan según el orden nuevo.
+      rails.forEach((r, i) => { r.id = homeState.slots[i]; });
+      renderHomeRails();
+      previewHomeRails({ silent: true });
+    });
+  });
+}
+
+function addHomeRail() {
+  const usados = homeState.config.rails.map((r) => r.id);
+  const libre = homeState.slots.find((s) => !usados.includes(s));
+  if (!libre) return;
+  homeState.config.rails.push({ id: libre, rule: 'mas_vendidos', title: 'Los que más se venden', layout: 'carousel', limit: 12, url: null });
+  renderHomeRails();
+  previewHomeRails({ silent: true });
+}
+
+function removeHomeRail(i) {
+  homeState.config.rails.splice(i, 1);
+  homeState.config.rails.forEach((r, n) => { r.id = homeState.slots[n]; });
+  renderHomeRails();
+  previewHomeRails({ silent: true });
+}
+
+async function previewHomeRails({ silent = false } = {}) {
+  const summary = document.getElementById('hr-summary');
+  if (!summary) return;
+  if (!silent) summary.innerHTML = '<p class="loading">Calculando...</p>';
+  try {
+    const data = await api('/api/home/preview', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(homeState.config),
+    });
+    homeState.preview = data;
+    pintarPreviewHome(data);
+    if (!silent) toast('Vista previa actualizada.');
+  } catch (err) {
+    summary.innerHTML = `<p class="hint">${esc(err.message)}</p>`;
+  }
+}
+
+function pintarPreviewHome(data) {
+  const rails = data.rails || [];
+  const total = rails.reduce((a, r) => a + r.products.length, 0);
+  const distintos = new Set(rails.flatMap((r) => r.products.map((p) => p.id))).size;
+  const peso = (JSON.stringify(data).length / 1024).toFixed(1);
+
+  // Miniaturas dentro de cada tarjeta de riel.
+  homeState.config.rails.forEach((cfgRail, i) => {
+    const cont = document.getElementById(`hr-preview-${i}`);
+    if (!cont) return;
+    const r = rails.find((x) => x.id === cfgRail.id);
+    if (!r) {
+      cont.innerHTML = '<p class="hint hr-empty">Con esta regla no llegan a 3 productos, así que el riel no se va a mostrar.</p>';
+      return;
+    }
+    cont.innerHTML = `<div class="hr-thumbs">${r.products.map((p) => `
+      <div class="hr-thumb" title="${esc(p.name)}">
+        <img src="${esc(p.image)}" alt="" onerror="this.style.visibility='hidden'" />
+        ${p.discount_pct ? `<span class="hr-off">${p.discount_pct}%</span>` : ''}
+      </div>`).join('')}</div>
+      <p class="hint hr-count">${r.products.length} productos</p>`;
+  });
+
+  const summary = document.getElementById('hr-summary');
+  const configuradosSinSalir = homeState.config.rails.filter((c) => !rails.some((r) => r.id === c.id));
+  // Dos huecos con la MISMA regla: con "no repetir" activado el segundo se come
+  // las sobras del primero y suele quedar vacío. La causa no es obvia mirando la
+  // pantalla, así que se dice.
+  const reglasRepetidas = [...new Set(
+    homeState.config.rails.map((r) => r.rule)
+      .filter((v, i, a) => a.indexOf(v) !== i)
+  )].map((id) => (homeState.rules.find((x) => x.id === id) || {}).label || id);
+  summary.innerHTML = `
+    <h3>${icon('eye')} Lo que va a ver el cliente</h3>
+    <div class="prod-totals">
+      <div class="stat"><b>${rails.length}</b><span>rieles se muestran</span></div>
+      <div class="stat"><b>${total}</b><span>fichas en total</span></div>
+      <div class="stat"><b>${distintos}</b><span>productos distintos</span></div>
+      <div class="stat"><b>${peso} KB</b><span>pesa la respuesta</span></div>
+    </div>
+    ${configuradosSinSalir.length ? `<p class="hint" style="margin-top:12px;">
+      No se van a mostrar: ${configuradosSinSalir.map((c) => esc(c.title)).join(', ')} — la regla no junta 3 productos elegibles.</p>` : ''}
+    ${reglasRepetidas.length ? `<p class="hint" style="margin-top:12px;">
+      Tenés dos huecos con la misma regla (${reglasRepetidas.map(esc).join(', ')}). Con "no repetir"
+      activado, el segundo sólo recibe lo que sobró del primero y puede quedar vacío.</p>` : ''}
+    ${total !== distintos ? `<p class="hint" style="margin-top:12px;">Hay productos repetidos entre rieles. Activá "no repetir" si no lo querés.</p>` : ''}`;
+  hydrateIcons(summary);
+}
+
+async function publishHomeRails() {
+  const btn = document.getElementById('home-save-btn');
+  btn.disabled = true;
+  try {
+    const r = await api('/api/home/config', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(homeState.config),
+    });
+    homeState.config = r.config;
+    toast(`Publicado: ${r.rails.length} riel(es) en la tienda.`, 'ok');
+    renderHomeRails();
+    pintarPreviewHome({ rails: r.rails });
+  } catch (err) {
+    toast(err.message, 'err');
+  } finally {
+    btn.disabled = false;
+  }
+}

@@ -1013,3 +1013,62 @@ button .cost-tag { margin-left: 8px; }
 
 /* Consultas de WhatsApp: origen sin campaña (directo/orgánico). */
 .lead-org { color: var(--muted); font-size: 12.5px; }
+
+/* ==========================================================================
+   HOME DE LA TIENDA (fase 3)
+   Tarjetas arrastrables: una por hueco del theme (rail_1..rail_4).
+   ========================================================================== */
+.hr-list { display: flex; flex-direction: column; gap: 14px; }
+
+.hr-card {
+  background: var(--panel); border: 1px solid var(--line);
+  border-radius: var(--radius); padding: 16px 18px;
+  transition: border-color .15s ease, opacity .15s ease;
+}
+.hr-card.hr-dragging { opacity: .45; }
+.hr-card.hr-over { border-color: var(--green); }
+
+.hr-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+.hr-grip {
+  cursor: grab; color: var(--muted); font-size: 17px; line-height: 1;
+  letter-spacing: -2px; user-select: none;
+}
+.hr-grip:active { cursor: grabbing; }
+.hr-slot { font-size: 13px; font-weight: 800; letter-spacing: -.2px; flex: 1; }
+.hr-slot small {
+  display: inline-block; margin-left: 8px; font-weight: 500;
+  color: var(--muted); font-size: 11px; font-family: ui-monospace, Menlo, monospace;
+}
+.hr-help { margin: -4px 0 12px !important; }
+
+/* .field label va en mayúsculas por defecto; una etiqueta con checkbox adentro
+   es una frase, no un rótulo, así que se lee en caja normal. */
+#view-home .field label:has(input[type="checkbox"]) {
+  text-transform: none; font-size: 13px; color: var(--text);
+  display: flex; align-items: center; gap: 8px; letter-spacing: 0;
+}
+.hr-empty { margin: 4px 0 0 !important; }
+
+/* Miniaturas de lo que va a salir en ese riel: fila con scroll propio, para
+   que la tarjeta no crezca cuando el riel tiene 24 productos. */
+.hr-thumbs {
+  display: flex; gap: 6px; overflow-x: auto; padding: 4px 0 6px;
+  scrollbar-width: thin;
+}
+.hr-thumb {
+  position: relative; flex: 0 0 52px; height: 52px;
+  border-radius: 8px; overflow: hidden;
+  background: var(--panel-2); border: 1px solid var(--line-soft);
+}
+.hr-thumb img { width: 100%; height: 100%; object-fit: cover; display: block; }
+.hr-off {
+  position: absolute; left: 0; bottom: 0;
+  background: rgba(0, 0, 0, .78); color: #fff;
+  font-size: 9px; font-weight: 800; padding: 1px 4px; border-top-right-radius: 5px;
+}
+.hr-count { margin: 0 !important; font-size: 12px !important; }
+
+@media (max-width: 640px) {
+  .hr-card { padding: 14px; }
+  .hr-thumb { flex-basis: 44px; height: 44px; }
+}

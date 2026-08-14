@@ -23,7 +23,8 @@ const { syncCompanyInfo, getCompanyFacts } = require('./companyInfo');
 const { listCommercialDates } = require('./commercialDates');
 const { notifyPublishResult, notifyWeeklyReport } = require('./notifier');
 const { generateMonthlyPlan, getPlan, nextPlannableMonth } = require('./planner');
-const { getRails, getRailsConfig, invalidate: invalidateRails, RULES, SPECIAL_RULES } = require('./homeRails');
+const { getRails, getRailsConfig, saveRailsConfig, validateConfig, buildPayload,
+  invalidate: invalidateRails, RULES, SPECIAL_RULES, SLOT_IDS, LAYOUTS } = require('./homeRails');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -764,14 +765,30 @@ app.get('/api/home/rails', publicGetCors, wrap(async (req, res) => {
   res.json(payload);
 }));
 
-// Catálogo de reglas disponibles, para el panel (fase 3) y para poder mirar
-// desde afuera con qué criterio se armó cada riel.
+// Catálogo de reglas disponibles + la config actual. Lo consume la pestaña
+// "Home" del panel para armar los desplegables.
 app.get('/api/home/rules', wrap(async (req, res) => {
   const describe = (obj) => Object.entries(obj).map(([id, r]) => ({ id, label: r.label, help: r.help }));
   res.json({
     rules: [...describe(RULES), ...describe(SPECIAL_RULES)],
+    slots: SLOT_IDS,
+    layouts: LAYOUTS,
     config: await getRailsConfig(),
   });
+}));
+
+// Vista previa: arma los rieles con una config que TODAVÍA NO se guardó, para
+// poder ver qué productos van a salir antes de publicar el cambio en la tienda.
+app.post('/api/home/preview', wrap(async (req, res) => {
+  const cfg = validateConfig(req.body);
+  res.json(await buildPayload(cfg));
+}));
+
+// Publicar: valida, guarda e invalida la caché. A partir de acá la tienda ya
+// sirve los rieles nuevos.
+app.post('/api/home/config', wrap(async (req, res) => {
+  const cfg = await saveRailsConfig(req.body);
+  res.json({ ok: true, config: cfg, rails: (await getRails({ force: true })).rails });
 }));
 
 // sendBeacon manda text/plain para evitar el preflight: se parsea a mano.

@@ -25,6 +25,7 @@
       <button class="tab" data-view="studio" onclick="switchTab('studio')"><span data-ic="image"></span><span class="tl">Estudio</span></button>
       <button class="tab" data-view="style" onclick="switchTab('style')"><span data-ic="sparkles"></span><span class="tl">Estilo de marca</span></button>
       <button class="tab" data-view="products" onclick="switchTab('products')"><span data-ic="tag"></span><span class="tl">Productos</span></button>
+      <button class="tab" data-view="home" onclick="switchTab('home')"><span data-ic="grid"></span><span class="tl">Home de la tienda</span></button>
       <button class="tab" data-view="ads" onclick="switchTab('ads')"><span data-ic="bolt"></span><span class="tl">Pauta</span></button>
       <button class="tab" data-view="metrics" onclick="switchTab('metrics')"><span data-ic="chart"></span><span class="tl">Métricas</span></button>
       <button class="tab" data-view="analysis" onclick="switchTab('analysis')"><span data-ic="search"></span><span class="tl">Análisis web</span></button>
@@ -191,6 +192,28 @@
       <div id="products-body"><p class="loading">Cargando productos...</p></div>
     </section>
 
+    <!-- ===== Home de la tienda =====
+         Decide QUÉ muestra cada carrusel automático del home. La POSICIÓN de
+         cada riel dentro de la página se ordena en el panel de diseño de
+         Tiendanube (Página de inicio → arrastrar "★ Riel automático N"). -->
+    <section id="view-home" class="view hidden">
+      <div class="toolbar">
+        <div>
+          <h2>Home de la tienda</h2>
+          <div class="sub">Qué productos arma solo cada carrusel, según ventas y stock reales.</div>
+        </div>
+        <button class="btn-ghost" id="home-preview-btn" onclick="previewHomeRails()"><span data-ic="eye"></span> Previsualizar</button>
+        <button class="btn-primary btn-sm" id="home-save-btn" onclick="publishHomeRails()"><span data-ic="check"></span> Publicar en la tienda</button>
+      </div>
+      <p class="hint" style="margin:0 0 14px;">
+        Los cuatro huecos de abajo son los "★ Riel automático 1-4" que ponés en el orden de la
+        página de inicio, desde el panel de diseño de Tiendanube. Acá elegís <b>qué va adentro</b>
+        de cada uno; allá elegís <b>en qué lugar de la página</b> aparece. Al publicar, la tienda
+        lo toma enseguida.
+      </p>
+      <div id="home-body"><p class="loading">Cargando configuración...</p></div>
+    </section>
+
     <!-- ===== Métricas ===== -->
     <section id="view-metrics" class="view hidden">
       <div class="toolbar">
@@ -340,6 +363,7 @@
     <button class="tab" data-view="studio" onclick="switchTab('studio')"><span data-ic="image"></span><span class="tl">Estudio</span></button>
     <button class="tab" data-view="style" onclick="switchTab('style')"><span data-ic="sparkles"></span><span class="tl">Estilo</span></button>
     <button class="tab" data-view="products" onclick="switchTab('products')"><span data-ic="tag"></span><span class="tl">Productos</span></button>
+    <button class="tab" data-view="home" onclick="switchTab('home')"><span data-ic="grid"></span><span class="tl">Home</span></button>
     <button class="tab" data-view="ads" onclick="switchTab('ads')"><span data-ic="bolt"></span><span class="tl">Pauta</span></button>
     <button class="tab" data-view="metrics" onclick="switchTab('metrics')"><span data-ic="chart"></span><span class="tl">Métricas</span></button>
     <button class="tab" data-view="analysis" onclick="switchTab('analysis')"><span data-ic="search"></span><span class="tl">Análisis</span></button>

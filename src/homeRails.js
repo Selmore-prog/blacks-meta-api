@@ -24,7 +24,7 @@
 
 const pool = require('./db');
 const { eligibleSQL } = require('./productScore');
-const { getSetting } = require('./settings');
+const { getSetting, setSetting } = require('./settings');
 const { runReport, isEnabled: gaEnabled } = require('./analytics');
 
 const DEFAULT_LIMIT = 12;
@@ -275,10 +275,84 @@ async function getRailsConfig() {
   }
 }
 
+/* Los ids posibles NO son libres: el theme tiene exactamente cuatro huecos
+   (rail_1..rail_4 en el orden de la página de inicio). Un riel con otro id se
+   generaría en el JSON y no lo dibujaría nadie. */
+const SLOT_IDS = ['rail_1', 'rail_2', 'rail_3', 'rail_4'];
+const LAYOUTS = ['carousel', 'grid'];
+
+function badRequest(msg) {
+  const err = new Error(msg);
+  err.status = 400;
+  return err;
+}
+
+/**
+ * Valida y normaliza lo que manda el panel. Devuelve la config lista para
+ * guardar; tira 400 con un mensaje en castellano si algo no cierra.
+ */
+function validateConfig(input) {
+  if (!input || typeof input !== 'object') throw badRequest('Falta la configuración.');
+  const rails = Array.isArray(input.rails) ? input.rails : null;
+  if (!rails) throw badRequest('Falta la lista de rieles.');
+  if (rails.length > SLOT_IDS.length) {
+    throw badRequest(`El home tiene ${SLOT_IDS.length} huecos para rieles automáticos; mandaste ${rails.length}.`);
+  }
+
+  const vistos = new Set();
+  const limpios = rails.map((r, i) => {
+    const id = String(r.id || SLOT_IDS[i] || '');
+    if (!SLOT_IDS.includes(id)) {
+      throw badRequest(`"${id}" no es un hueco válido. Los disponibles son: ${SLOT_IDS.join(', ')}.`);
+    }
+    if (vistos.has(id)) throw badRequest(`El hueco ${id} está repetido.`);
+    vistos.add(id);
+
+    if (!RULES[r.rule] && !SPECIAL_RULES[r.rule]) {
+      throw badRequest(`La regla "${r.rule}" no existe.`);
+    }
+    if (r.rule === 'fijos' && !(Array.isArray(r.product_ids) && r.product_ids.length)) {
+      throw badRequest('El riel "Elegidos a mano" necesita al menos un producto.');
+    }
+    const layout = LAYOUTS.includes(r.layout) ? r.layout : 'carousel';
+    const title = String(r.title || '').trim();
+    if (!title) throw badRequest(`El riel ${id} necesita un título.`);
+
+    return {
+      id,
+      rule: r.rule,
+      title: title.slice(0, 80),
+      subtitle: r.subtitle ? String(r.subtitle).trim().slice(0, 160) : null,
+      layout,
+      limit: clampLimit(r.limit),
+      url: r.url ? String(r.url).trim().slice(0, 200) : null,
+      allow_repeat: Boolean(r.allow_repeat),
+      product_ids: Array.isArray(r.product_ids)
+        ? r.product_ids.map(Number).filter(Number.isFinite).slice(0, MAX_LIMIT)
+        : undefined,
+    };
+  });
+
+  const pct = Number(input.transfer_discount_pct);
+  return {
+    transfer_discount_pct: Number.isFinite(pct) && pct > 0 && pct < 100 ? pct : null,
+    dedupe: input.dedupe !== false,
+    rails: limpios,
+  };
+}
+
+async function saveRailsConfig(input) {
+  const cfg = validateConfig(input);
+  await setSetting('home_rails', JSON.stringify(cfg));
+  invalidate(); // la tienda tiene que ver el cambio ya, no en 15 minutos
+  return cfg;
+}
+
 /* ---------------------------- construcción ---------------------------- */
 
-async function buildPayload() {
-  const cfg = await getRailsConfig();
+/** `override` permite armar la vista previa del panel SIN guardar la config. */
+async function buildPayload(override = null) {
+  const cfg = override || await getRailsConfig();
   const transferPct = Number(cfg.transfer_discount_pct) > 0 ? Number(cfg.transfer_discount_pct) : null;
 
   const rails = [];
@@ -349,6 +423,7 @@ function invalidate() {
 }
 
 module.exports = {
-  RULES, SPECIAL_RULES, DEFAULT_CONFIG, CACHE_TTL_MS,
-  getRails, getRailsConfig, buildPayload, invalidate, productPath,
+  RULES, SPECIAL_RULES, DEFAULT_CONFIG, CACHE_TTL_MS, SLOT_IDS, LAYOUTS,
+  getRails, getRailsConfig, saveRailsConfig, validateConfig,
+  buildPayload, invalidate, productPath,
 };
