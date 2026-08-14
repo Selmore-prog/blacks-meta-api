@@ -85,8 +85,10 @@ const RULES = {
 const SPECIAL_RULES = {
   mirado_no_comprado: {
     label: 'Los más mirados',
-    help: 'Mucha visita en Google Analytics y poca venta: o el precio o la foto '
-        + 'están frenando la compra. Requiere GA4 configurado.',
+    help: 'Mucha visita y poca venta, según el termómetro de interés. OJO: si no se '
+        + 'venden NO suele ser por falta de vidriera —ya los están viendo— sino por precio, '
+        + 'fotos o talles incompletos. Antes de ponerlos en el home, mirá la pestaña '
+        + 'Productos y arreglá la ficha. Requiere GA4 configurado.',
   },
   fijos: {
     label: 'Elegidos a mano',
@@ -190,52 +192,40 @@ async function runSqlRule(ruleId, limit, exclude = []) {
   return rows;
 }
 
-const normName = (s) => String(s || '')
-  .toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim();
-
 /**
- * "Los más mirados": cruza las vistas de producto de GA4 contra las ventas
- * reales del catálogo. El cruce es POR NOMBRE porque GA4 recibe el nombre del
- * item, no el id de Tiendanube — los que no matchean simplemente se saltean.
- * Sin GA4 configurado devuelve vacío y el riel no se publica.
+ * "Los más mirados": los productos del cuadrante `miran_no_compran` del
+ * termómetro de interés (mucha visita, poca o ninguna venta).
+ *
+ * Delega en productInterest en vez de repetir la consulta a GA4 acá. Importa
+ * porque ese módulo resuelve dos cosas que esta regla hacía mal cuando tenía su
+ * propia consulta: agrupa las variantes que GA4 informa por separado
+ * ("Zapatilla (Beige, 41)") y, sobre todo, evita contar dos veces las visitas de
+ * los 22 productos que están cargados duplicados en el catálogo —la ficha
+ * minorista y su gemela mayorista comparten nombre—.
+ *
+ * Sin GA4 configurado devuelve vacío y el riel simplemente no se publica.
  */
 async function runViewedNotBoughtRule(limit, exclude = []) {
   if (!gaEnabled()) return [];
-  const report = await runReport({
-    dateRanges: [{ startDate: '28daysAgo', endDate: 'today' }],
-    dimensions: [{ name: 'itemName' }],
-    metrics: [{ name: 'itemsViewed' }],
-    orderBys: [{ metric: { metricName: 'itemsViewed' }, desc: true }],
-    limit: 100,
-  }).catch(() => null);
-  if (!report || !report.rows) return [];
+  const { buildInterest } = require('./productInterest');
+  const interes = await buildInterest({ days: 28 }).catch(() => null);
+  if (!interes) return [];
 
-  const views = new Map();
-  for (const r of report.rows) {
-    // GA4 a veces trae el nombre con la variante entre paréntesis: se agrupa.
-    const base = normName(r.dimensionValues[0].value.replace(/\s*\([^)]*\)\s*$/, ''));
-    views.set(base, (views.get(base) || 0) + Number(r.metricValues[0].value || 0));
-  }
-  if (!views.size) return [];
+  const excluidos = new Set(exclude.map(Number));
+  const ids = interes.productos
+    .filter((p) => p.cuadrante === 'miran_no_compran' && p.elegible && !excluidos.has(p.id))
+    .sort((a, b) => b.views - a.views)
+    .slice(0, limit)
+    .map((p) => p.id);
+  if (!ids.length) return [];
 
   const { rows } = await pool.query(
-    `SELECT ${CARD_COLUMNS}, sales_30d
-       FROM products_cache
-      WHERE ${eligibleSQL()}
-        AND id <> ALL($1::bigint[])`,
-    [exclude]
+    `SELECT ${CARD_COLUMNS} FROM products_cache WHERE id = ANY($1::bigint[])`,
+    [ids]
   );
-
-  return rows
-    .map((row) => ({ row, views: views.get(normName(row.name)) || 0 }))
-    .filter((x) => x.views > 0)
-    // Mucha vista y poca venta. El umbral es relativo: se ordena por vistas por
-    // unidad vendida, así un producto con 400 vistas y 1 venta gana sobre uno
-    // con 500 vistas y 40 ventas.
-    .map((x) => ({ ...x, ratio: x.views / (Number(x.row.sales_30d || 0) + 1) }))
-    .sort((a, b) => b.ratio - a.ratio)
-    .slice(0, limit)
-    .map((x) => x.row);
+  // Se respeta el orden por visitas que trajo el termómetro.
+  const byId = new Map(rows.map((r) => [Number(r.id), r]));
+  return ids.map((id) => byId.get(id)).filter(Boolean);
 }
 
 /** "Elegidos a mano": respeta el orden exacto de la lista de ids. */

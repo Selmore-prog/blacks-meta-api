@@ -2176,6 +2176,7 @@ async function syncProductsFromTiendanube() {
 }
 
 async function loadProducts() {
+  loadInterest(); // termómetro de interés: carga en paralelo, no bloquea la lista
   const body = document.getElementById('products-body');
   body.innerHTML = skeleton('stats') + skeleton('rows', 6);
   try {
@@ -4560,4 +4561,128 @@ async function publishHomeRails() {
   } finally {
     btn.disabled = false;
   }
+}
+
+/* =========================================================================
+ * TERMÓMETRO DE INTERÉS POR PRODUCTO
+ *
+ * Cuatro cuadrantes que separan dos problemas que se parecen y se arreglan
+ * distinto: "no se vende porque nadie lo ve" (falta pauta y lugar en el home)
+ * y "lo ven y no compran" (falla el precio, la foto o los talles).
+ *
+ * Los cortes son las medianas del propio catálogo, no números fijos, así que
+ * se acomodan solos cuando cambia el tráfico.
+ * ========================================================================= */
+
+let interestState = null;
+let interestFiltro = 'miran_no_compran'; // el cuadrante accionable arranca abierto
+
+async function loadInterest({ force = false } = {}) {
+  const box = document.getElementById('interest-body');
+  if (!box) return;
+  box.innerHTML = skeleton('stats') + skeleton('rows', 4);
+  try {
+    interestState = await api(`/api/products/interest?days=28${force ? '&force=1' : ''}`);
+    renderInterest();
+  } catch (err) {
+    box.innerHTML = `<div class="panel"><h3>Termómetro de interés</h3>
+      <p class="hint">No pude calcularlo: ${esc(err.message)}</p></div>`;
+    hydrateIcons(box);
+  }
+}
+
+function renderInterest() {
+  const d = interestState;
+  const box = document.getElementById('interest-body');
+  const t = d.totales;
+  const money = (n) => `$${Number(n || 0).toLocaleString('es-AR')}`;
+  const pct = (n) => `${(Number(n || 0) * 100).toFixed(1)}%`;
+
+  const conteo = {};
+  d.productos.forEach((p) => { conteo[p.cuadrante] = (conteo[p.cuadrante] || 0) + 1; });
+
+  // Aviso de fuentes: qué se pudo medir y qué no. Va arriba y sin vueltas,
+  // porque interpretar la pantalla depende de saberlo.
+  const caidas = Object.entries(d.fuentes).filter(([, v]) => !v.ok);
+  const avisos = caidas.length
+    ? `<p class="hint" style="margin-top:10px;">${caidas.map(([k, v]) =>
+        `<b>${k === 'google_ads' ? 'Google Ads' : k === 'meta_ads' ? 'Meta Ads' : 'Analytics'}:</b> ${esc(v.detalle)}`).join('<br/>')}</p>`
+    : '';
+
+  const chips = Object.entries(d.cuadrantes).map(([id, c]) => `
+    <button class="int-chip ${interestFiltro === id ? 'active' : ''}" onclick="setInterestFiltro('${id}')">
+      ${esc(c.label)} <b>${conteo[id] || 0}</b>
+    </button>`).join('');
+
+  const lista = d.productos.filter((p) => p.cuadrante === interestFiltro);
+  const filas = lista.length ? lista.slice(0, 40).map((p) => `
+    <div class="prod-row">
+      <img src="${esc(p.image_url || '')}" onerror="this.style.visibility='hidden'" />
+      <div class="prod-info">
+        <div class="prod-name">${p.permalink
+          ? `<a href="https://blacksindumentaria.com.ar/productos/${esc(p.permalink)}/" target="_blank" rel="noopener">${esc(p.name)}</a>`
+          : esc(p.name)}</div>
+        <div class="prod-sub">
+          stock ${p.stock ?? '—'}${p.sizes_total > 1 ? ` · talles ${p.sizes_in_stock}/${p.sizes_total}` : ''}
+          · ${money(p.promo_price || p.price)}
+          ${!p.elegible ? `<span class="tag-excl" title="No entra a los rieles del home">${esc(p.motivo_no_elegible || '')}</span>` : ''}
+        </div>
+      </div>
+      <div class="int-metrics">
+        <span title="Personas que vieron la ficha (Analytics)"><b>${p.views}</b>vistas</span>
+        <span title="Veces que lo agregaron al carrito (Analytics)"><b>${p.carts}</b>carrito</span>
+        <span title="Unidades vendidas según las órdenes reales de Tiendanube"><b>${p.sales}</b>ventas</span>
+        <span title="Gasto de Meta en ESTE producto en el período"><b>${p.ad_spend ? money(p.ad_spend) : '—'}</b>pauta</span>
+      </div>
+    </div>`).join('') : '<p class="hint">No hay productos en este grupo.</p>';
+
+  // El hallazgo más caro primero: pauta corriendo hacia fichas que no se pueden
+  // comprar (talles rotos, o la versión mayorista sin precio).
+  const w = d.desperdicio || {};
+  const alerta = w.gasto > 0 ? `
+    <div class="int-alert">
+      <div class="int-alert-num">${money(w.gasto)}</div>
+      <div>
+        <b>Pauta yendo a fichas que no se pueden comprar bien.</b>
+        Son ${w.productos} de los ${w.con_pauta} productos con pauta activa —el
+        <b>${w.porcentaje}% de lo que gastaste en Meta</b>— con la curva de talles rota o sin precio
+        cargado. La visita se paga igual y no puede terminar en compra.
+        <div class="int-alert-list">${w.detalle.slice(0, 5).map((x) =>
+          `<span><b>${money(x.ad_spend)}</b> ${esc(x.name)} <i>${esc(x.motivo || '')}</i></span>`).join('')}</div>
+      </div>
+    </div>` : '';
+
+  box.innerHTML = `
+    <div class="panel">
+      <h3>${icon('chart')} Termómetro de interés — últimos ${d.dias} días</h3>
+      <p class="hint">
+        Cruza las visitas y los carritos de Analytics con las ventas reales de Tiendanube y el
+        gasto de Meta por producto. Sirve para no confundir dos problemas distintos: que no lo
+        vea nadie, o que lo vean y no les convenza.
+      </p>
+      <div class="prod-totals" style="margin-bottom:16px;">
+        <div class="stat"><b>${t.vistas.toLocaleString('es-AR')}</b><span>vistas de producto</span></div>
+        <div class="stat"><b>${t.carritos.toLocaleString('es-AR')}</b><span>agregados al carrito</span></div>
+        <div class="stat"><b>${t.ventas}</b><span>unidades vendidas</span></div>
+        <div class="stat"><b>${money(t.gasto_meta)}</b><span>pauta de Meta</span></div>
+      </div>
+      ${alerta}
+      <div class="int-chips">${chips}</div>
+      <p class="hint int-accion">${esc(d.cuadrantes[interestFiltro].accion)}</p>
+      <div class="int-list">${filas}</div>
+      ${lista.length > 40 ? `<p class="hint">Se muestran los 40 primeros de ${lista.length}.</p>` : ''}
+      <p class="hint" style="margin-top:14px;">
+        Los cortes se recalculan solos con tu catálogo: es "mucho interés" a partir de
+        <b>${d.cortes.views} vistas</b> y "convierte" arriba de <b>${pct(d.cortes.conv)}</b> de conversión.
+      </p>
+      ${avisos}
+      <button class="btn-ghost btn-sm" style="margin-top:12px;" onclick="loadInterest({force:true})">
+        ${icon('refresh')} Recalcular ahora</button>
+    </div>`;
+  hydrateIcons(box);
+}
+
+function setInterestFiltro(id) {
+  interestFiltro = id;
+  renderInterest();
 }

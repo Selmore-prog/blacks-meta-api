@@ -23,6 +23,7 @@ const { syncCompanyInfo, getCompanyFacts } = require('./companyInfo');
 const { listCommercialDates } = require('./commercialDates');
 const { notifyPublishResult, notifyWeeklyReport } = require('./notifier');
 const { generateMonthlyPlan, getPlan, nextPlannableMonth } = require('./planner');
+const { buildInterest } = require('./productInterest');
 const { getRails, getRailsConfig, saveRailsConfig, validateConfig, buildPayload,
   invalidate: invalidateRails, RULES, SPECIAL_RULES, SLOT_IDS, LAYOUTS } = require('./homeRails');
 
@@ -738,6 +739,25 @@ const leadCors = (req, res, next) => {
   if (req.method === 'OPTIONS') return res.sendStatus(204);
   next();
 };
+
+/* ----------------------- TERMÓMETRO DE INTERÉS -----------------------
+ * Vistas y carritos (GA4) + ventas reales (Tiendanube) + gasto de pauta (Meta),
+ * por producto, para separar "no se vende porque nadie lo ve" de "lo ven y no
+ * les convence". Pega contra tres APIs externas y tarda ~2,5 s, así que se
+ * cachea media hora; ?force=1 lo recalcula.
+ * --------------------------------------------------------------------- */
+let interestCache = { data: null, at: 0, days: null };
+const INTEREST_TTL_MS = 30 * 60 * 1000;
+
+app.get('/api/products/interest', wrap(async (req, res) => {
+  const days = Math.min(Math.max(Number(req.query.days) || 28, 7), 90);
+  const fresco = interestCache.data && interestCache.days === days
+    && Date.now() - interestCache.at < INTEREST_TTL_MS;
+  if (fresco && req.query.force !== '1') return res.json(interestCache.data);
+  const data = await buildInterest({ days });
+  interestCache = { data, at: Date.now(), days };
+  res.json(data);
+}));
 
 /* ----------------------- RIELES DEL HOME -----------------------
  * Lo que reemplaza al scraping: la tienda pide UNA vez esta lista (~10 KB) en

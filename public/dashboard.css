@@ -1072,3 +1072,63 @@ button .cost-tag { margin-left: 8px; }
   .hr-card { padding: 14px; }
   .hr-thumb { flex-basis: 44px; height: 44px; }
 }
+
+/* ==========================================================================
+   TERMÓMETRO DE INTERÉS (fase 4)
+   ========================================================================== */
+.int-chips { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 12px; }
+.int-chip {
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--muted);
+  border-radius: 999px; padding: 7px 14px; font-size: 12.5px; font-weight: 600;
+  cursor: pointer; transition: border-color .15s ease, color .15s ease, background .15s ease;
+  font-family: inherit;
+}
+.int-chip:hover { border-color: #3a3a45; color: var(--text); }
+.int-chip.active { background: var(--orange-dim); border-color: var(--orange); color: var(--text); }
+.int-chip b { margin-left: 6px; color: var(--text); font-weight: 800; }
+
+.int-accion {
+  margin: 0 0 14px !important; padding: 10px 12px;
+  background: var(--panel-2); border-left: 2px solid var(--orange);
+  border-radius: 0 8px 8px 0; color: var(--text) !important;
+}
+
+.int-list { display: flex; flex-direction: column; }
+
+/* Las cuatro métricas del producto, en columnas de ancho fijo para que los
+   números queden alineados entre filas y se puedan comparar de un vistazo. */
+.int-metrics { display: flex; gap: 14px; flex-shrink: 0; }
+.int-metrics span {
+  display: flex; flex-direction: column; align-items: flex-end;
+  min-width: 58px; font-size: 10px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .04em;
+}
+.int-metrics b {
+  font-size: 14px; color: var(--text); font-weight: 800;
+  font-variant-numeric: tabular-nums;
+}
+.prod-name a { color: inherit; text-decoration: none; }
+.prod-name a:hover { text-decoration: underline; }
+
+@media (max-width: 720px) {
+  .int-metrics { gap: 10px; flex-wrap: wrap; justify-content: flex-end; }
+  .int-metrics span { min-width: 46px; }
+  .int-metrics b { font-size: 13px; }
+}
+
+/* Alerta de pauta desperdiciada: el número más caro de la pantalla. */
+.int-alert {
+  display: flex; gap: 16px; align-items: flex-start;
+  background: rgba(239, 68, 68, .07); border: 1px solid rgba(239, 68, 68, .3);
+  border-radius: var(--radius); padding: 14px 16px; margin-bottom: 16px;
+  font-size: 13px; line-height: 1.55; color: var(--text);
+}
+.int-alert-num {
+  font-size: 26px; font-weight: 900; letter-spacing: -.5px; color: #fca5a5;
+  font-variant-numeric: tabular-nums; white-space: nowrap; padding-top: 2px;
+}
+.int-alert-list { display: flex; flex-direction: column; gap: 3px; margin-top: 10px; }
+.int-alert-list span { font-size: 12px; color: var(--muted); }
+.int-alert-list b { color: #fca5a5; font-variant-numeric: tabular-nums; margin-right: 6px; }
+.int-alert-list i { font-style: normal; opacity: .75; }
+@media (max-width: 720px) { .int-alert { flex-direction: column; gap: 8px; } }
