@@ -89,9 +89,14 @@ async function gaql(query) {
   const rows = [];
   let pageToken;
   do {
+    // OJO: NO mandar `pageSize` acá. Desde la v20 de la API el endpoint `search`
+    // lo rechaza con PAGE_SIZE_NOT_SUPPORTED — el tamaño de página quedó fijo
+    // en 10.000 filas y el pedido tiene que omitir el campo directamente
+    // (comprobado el 14-ago-2026: con pageSize seteado, hasta una consulta bien
+    // formada y con permisos correctos da 400 antes de llegar a ejecutarse).
     const res = await fetch(
       `https://googleads.googleapis.com/${API_VERSION}/customers/${g.customerId}/googleAds:search`,
-      { method: 'POST', headers, body: JSON.stringify({ query, pageToken, pageSize: 1000 }) }
+      { method: 'POST', headers, body: JSON.stringify({ query, pageToken }) }
     );
     const data = await res.json().catch(() => ({}));
     if (!res.ok) {

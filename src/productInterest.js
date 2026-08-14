@@ -161,7 +161,13 @@ async function fetchGoogleSpend(days) {
     const map = new Map();
     for (const f of filas) {
       if (!f.title) continue;
-      const key = norm(f.title);
+      // El título del feed de Shopping trae la variante entre paréntesis, igual
+      // que GA4 ("Termo Acero (Plateado)", "Zapato (Negro, 38)"): sin pelarla con
+      // baseName() la key nunca coincide con el nombre del producto en el
+      // catálogo. Bug real detectado el 14-ago-2026 al conectar Google Ads por
+      // primera vez: con la key sin pelar, de $115.844 de gasto real sólo se
+      // atribuían $8 — 781 filas del feed, casi ninguna cruzaba.
+      const key = norm(baseName(f.title));
       const acc = map.get(key) || { spend: 0, clicks: 0, conversions: 0 };
       acc.spend += f.cost;
       acc.clicks += f.clicks;
