@@ -245,15 +245,17 @@
 
       <div id="mt-pauta" class="mt-pane hidden">
         <!-- El detalle de Meta vive acá; la comparación con Google está en la sección Pauta. -->
-        <p class="hint" style="margin:0 0 14px;">Esto es el detalle de <b>Meta Ads</b> con sus propios números. Para compararlo contra Google Ads con la misma vara y ver a dónde conviene mover el presupuesto, andá a <a href="#" onclick="switchTab('ads'); return false;">Pauta</a>.</p>
+        <p class="hint" style="margin:0 0 14px;">Detalle de <b>Meta Ads</b> con sus propios números
+          <span class="tip" tabindex="0" role="note" data-tip="Meta se atribuye toda venta de alguien que vio un anuncio, aunque haya entrado por Google. Para comparar los dos canales con la misma vara, usá la sección Pauta.">i</span>
+          · <a href="#" onclick="switchTab('ads'); return false;">comparar con Google en Pauta</a></p>
         <div id="ads-summary" style="margin-bottom:20px;"></div>
       </div>
 
       <div id="mt-contenido" class="mt-pane hidden">
         <div id="reach-chart-panel"></div>
         <div class="panel" style="margin-bottom:20px;">
-          <h3>Análisis de tu cuenta de Instagram</h3>
-          <p class="hint">Mira tus publicaciones reales y detecta qué horario, día, formato y hashtags rindieron mejor (engagement = likes + comentarios).</p>
+          <div class="p-head"><h3>Análisis de tu cuenta de Instagram
+            <span class="tip" tabindex="0" role="note" data-tip="Mira tus publicaciones reales y detecta qué horario, día, formato y hashtags rindieron mejor. Engagement = likes + comentarios.">i</span></h3></div>
           <button class="btn-primary" id="account-btn" onclick="analyzeAccount()"><span data-ic="chart"></span> Analizar mi cuenta</button>
           <div id="account-out"></div>
         </div>
@@ -286,9 +288,9 @@
           <button class="btn-ghost" onclick="loadAdsPerformance(true)" title="Volver a pedir los datos"><span data-ic="refresh"></span></button>
         </div>
       </div>
+      <!-- El contenido se arma en renderAdsPerformance(), repartido en sub-pestañas.
+           La tabla de consultas de WhatsApp es una de ellas (la llena loadRecentLeads). -->
       <div id="ads-perf"><p class="loading">Cargando la inversión…</p></div>
-      <!-- Consultas de WhatsApp con su campaña de origen (se cruzan por hora con el chat). -->
-      <div id="ads-leads"></div>
     </section>
 
     <!-- ===== ANÁLISIS WEB: radiografía de una sección del sitio, comparando períodos ===== -->
@@ -330,12 +332,16 @@
             <div class="an-dates"><input class="input" type="date" id="an-cmp-from"/><span>a</span><input class="input" type="date" id="an-cmp-to"/></div>
           </div>
         </div>
+        <!-- La acción principal separada de las auxiliares: antes eran 5 botones
+             en fila y no se distinguía cuál había que apretar primero. -->
         <div class="an-actions">
           <button class="btn-primary" id="an-run" onclick="loadSectionAnalysis()"><span data-ic="search"></span> Ver informe</button>
           <button class="btn-ghost" id="an-ai" onclick="explainSectionAnalysis()"><span data-ic="sparkles"></span> Explicar con IA</button>
-          <button class="btn-ghost" id="an-export" onclick="exportSectionAnalysis()"><span data-ic="download"></span> Descargar informe</button>
-          <button class="btn-ghost" id="an-diag" onclick="checkAnalysisSources()"><span data-ic="bolt"></span> Probar conexiones</button>
-          <button class="btn-ghost" id="an-ev" onclick="loadEventCatalog()"><span data-ic="list"></span> Qué se está midiendo</button>
+          <button class="btn-ghost" id="an-export" onclick="exportSectionAnalysis()"><span data-ic="download"></span> Descargar</button>
+        </div>
+        <div class="an-actions an-actions-aux">
+          <button class="btn-ghost btn-sm" id="an-diag" onclick="checkAnalysisSources()" title="Probar que Analytics, Search Console y Google Ads respondan">Probar conexiones</button>
+          <button class="btn-ghost btn-sm" id="an-ev" onclick="loadEventCatalog()" title="Diccionario de los eventos que mide la tienda">Qué se está midiendo</button>
         </div>
         <div id="an-diag-out"></div>
         <div id="an-events-out"></div>
@@ -345,8 +351,8 @@
       <div class="panel an-panel" style="margin-bottom:18px;">
         <div style="display:flex; align-items:center; justify-content:space-between; gap:12px; flex-wrap:wrap;">
           <div>
-            <h3 style="margin:0;"><span data-ic="route"></span> Embudo: dónde se cae la gente</h3>
-            <p class="hint" style="margin:4px 0 0;">El recorrido completo, paso a paso. Usa las mismas fechas de arriba.</p>
+            <h3 style="margin:0;"><span data-ic="route"></span> Embudo: dónde se cae la gente
+              <span class="tip" tabindex="0" role="note" data-tip="El recorrido completo paso a paso, con las mismas fechas elegidas arriba. Mayorista termina en consulta; minorista, en compra.">i</span></h3>
           </div>
           <button class="btn-ghost btn-sm" id="an-funnel-btn" onclick="loadFunnels()"><span data-ic="refresh"></span> Ver embudo</button>
         </div>

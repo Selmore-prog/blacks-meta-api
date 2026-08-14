@@ -42,6 +42,35 @@ function icon(name, extra = '') {
   const fill = name === 'play' ? 'currentColor' : 'none';
   return `<svg class="ic ${extra}" viewBox="0 0 24 24" fill="${fill}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${ICONS[name] || ''}</svg>`;
 }
+/* ==========================================================================
+ * COMPONENTES DE LECTURA COMPARTIDOS
+ *
+ * `tip()` reemplaza a los párrafos de ayuda: la explicación vive en un ⓘ y el
+ * panel muestra el número, que es a lo que se entra. `panelHead()` unifica el
+ * encabezado (título + ⓘ + acciones a la derecha) para que las tres pantallas
+ * de análisis se vean iguales.
+ * ========================================================================== */
+
+/** ⓘ con explicación. `pos='tip-end'` cuando está pegado al borde derecho. */
+function tip(text, pos = '') {
+  if (!text) return '';
+  return `<span class="tip ${pos}" tabindex="0" role="note" data-tip="${esc(text)}">i</span>`;
+}
+
+/** Encabezado de panel: <h3> + ⓘ opcional + acciones opcionales a la derecha. */
+function panelHead(title, tipText = '', actions = '') {
+  return `<div class="p-head"><h3>${title}${tip(tipText)}</h3>${
+    actions ? `<div class="p-actions">${actions}</div>` : ''}</div>`;
+}
+
+/* Abrir/cerrar el globo al tocar. Delegado en document para que valga también
+   para los ⓘ que se crean después (los paneles se renderizan por innerHTML). */
+document.addEventListener('click', (e) => {
+  const t = e.target.closest ? e.target.closest('.tip') : null;
+  document.querySelectorAll('.tip.tip-open').forEach((x) => { if (x !== t) x.classList.remove('tip-open'); });
+  if (t) { t.classList.toggle('tip-open'); e.stopPropagation(); }
+});
+
 function hydrateIcons(root = document) {
   root.querySelectorAll('[data-ic]').forEach((el) => { el.innerHTML = icon(el.dataset.ic); el.removeAttribute('data-ic'); });
 }
@@ -3394,8 +3423,9 @@ async function loadRecentLeads() {
     const d = await api('/api/leads/recent?days=14');
     if (!d.items || !d.items.length) {
       host.innerHTML = `<div class="panel">
-        <h3>Consultas de WhatsApp por campaña</h3>
-        <p class="hint" style="margin:0;">Todavía no se registró ninguna consulta. Empiezan a aparecer acá en cuanto alguien toque el botón de WhatsApp en la tienda (con el archivo de seguimiento ya subido).</p>
+        ${panelHead('Consultas de WhatsApp por campaña',
+    'Cada vez que alguien toca WhatsApp en la tienda queda anotado con la campaña de la que vino.')}
+        <p class="hint" style="margin:0;">Todavía no se registró ninguna consulta. Empiezan a aparecer acá en cuanto alguien toque el botón de WhatsApp en la tienda.</p>
       </div>`;
       return;
     }
@@ -3409,8 +3439,8 @@ async function loadRecentLeads() {
       return `<span class="ch-dot ${canal}"></span>${esc(i.campaign || i.source)}`;
     };
     host.innerHTML = `<div class="panel">
-      <h3>Consultas de WhatsApp por campaña</h3>
-      <p class="hint">Cada vez que alguien toca WhatsApp en la tienda queda anotado acá con la campaña de la que vino. Cuando te entra un mensaje, buscá la hora en esta lista y ya sabés qué campaña te lo trajo — sin escribirle ningún código al cliente en su mensaje.</p>
+      ${panelHead('Consultas de WhatsApp por campaña',
+    'Cada vez que alguien toca WhatsApp en la tienda queda anotado con la campaña de la que vino. Cuando te entra un mensaje, buscá la hora en esta lista y ya sabés qué campaña te lo trajo, sin escribirle ningún código al cliente.')}
       <div class="ads-table-wrap">
         <table class="ads-table">
           <thead><tr><th>Cuándo</th><th>Vino de</th><th>Tipo</th><th>Estaba mirando</th><th>Botón</th></tr></thead>
@@ -3430,6 +3460,11 @@ async function loadRecentLeads() {
   } catch (e) {
     host.innerHTML = '';
   }
+}
+
+/** Placeholder para una sub-pestaña sin datos, para no dejarla en blanco. */
+function vacio(msg) {
+  return `<div class="panel"><p class="hint" style="margin:0;">${icon('info')} ${esc(msg)}</p></div>`;
 }
 
 function renderAdsPerformance(d) {
@@ -3485,8 +3520,8 @@ function renderAdsPerformance(d) {
   const lv = d.leadValue || { valor: 0 };
   const segmentos = (d.porSegmento && d.porSegmento.length > 1) ? `
     <div class="panel">
-      <h3>Tus dos negocios, medidos como corresponde</h3>
-      <p class="hint">En <b>/mayorista</b> los productos dicen "Consultar precio" y no tienen carrito: por definición nunca van a generar una compra online. Esas campañas se miden por <b>consultas</b> y por lo que cuesta cada una.</p>
+      ${panelHead('Tus dos negocios, medidos como corresponde',
+    'En /mayorista los productos dicen "Consultar precio" y no tienen carrito: por definición nunca van a generar una compra online. Esas campañas se miden por consultas y por lo que cuesta cada una.')}
       <div class="grid-2">
         ${d.porSegmento.map((s) => `
           <div class="seg-card ${s.segmento}">
@@ -3525,8 +3560,8 @@ function renderAdsPerformance(d) {
   const maxIng = Math.max(...d.canales.map((c) => c.ingresos), 1);
   const reparto = `
     <div class="panel">
-      <h3>Dónde va la plata y de dónde vuelve</h3>
-      <p class="hint">Si la barra naranja es larga y la verde corta, ese canal consume más de lo que devuelve.</p>
+      ${panelHead('Dónde va la plata y de dónde vuelve',
+    'Si la barra naranja (lo invertido) es más larga que la verde (lo que volvió), ese canal consume más de lo que devuelve.')}
       ${d.canales.map((c) => `
         <div class="ads-split">
           <div class="as-name">${esc(c.nombre)}</div>
@@ -3541,8 +3576,8 @@ function renderAdsPerformance(d) {
   const maxTipo = Math.max(...d.tipos.map((x) => x.gasto), 1);
   const tipos = `
     <div class="panel">
-      <h3>Qué tipo de campaña rinde mejor</h3>
-      <p class="hint">Ordenado por cuánta plata se lleva cada tipo; el ROAS dice si esa plata vuelve.</p>
+      ${panelHead('Qué tipo de campaña rinde mejor',
+    'Ordenado por cuánta plata se lleva cada tipo. El ROAS de la derecha dice si esa plata vuelve.')}
       <div class="ads-types">
         ${d.tipos.map((x) => `
           <div class="at-row">
@@ -3559,8 +3594,8 @@ function renderAdsPerformance(d) {
   const VERD = { escalar: 'Escalar', mantener: 'Mantener', ajustar: 'Revisar', revisar: 'Revisar', apagar: 'Apagar', 'sin-datos': 'Sin datos' };
   const campanas = `
     <div class="panel">
-      <h3>Campaña por campaña</h3>
-      <p class="hint">Las campañas marcadas <b>Mayorista</b> mandan a la sección sin carrito: ahí el ROAS no existe y se juzgan por <b>consultas</b> y por lo que cuesta cada una. "Apagar" sólo aparece cuando una campaña no trajo <i>ni ventas ni consultas</i>.</p>
+      ${panelHead('Campaña por campaña',
+    'Las campañas marcadas Mayorista mandan a la sección sin carrito: ahí el ROAS no aplica y se juzgan por consultas y por lo que cuesta cada una. "Apagar" sólo aparece cuando una campaña no trajo ni ventas ni consultas.')}
       <div class="ads-table-wrap">
         <table class="ads-table">
           <thead><tr>
@@ -3606,15 +3641,16 @@ function renderAdsPerformance(d) {
   };
   const embudos = `
     <div class="panel">
-      <h3>El recorrido de cada canal</h3>
-      <p class="hint">De los que tocan el anuncio, cuántos llegan, agregan al carrito, arrancan el checkout y compran. Sirve para saber si el problema es el anuncio o el sitio.</p>
+      ${panelHead('El recorrido de cada canal',
+    'De los que tocan el anuncio, cuántos llegan, agregan al carrito, arrancan el checkout y compran. Sirve para saber si el problema es el anuncio o el sitio.')}
       <div class="fn-grid">${embudoCol(d.embudos.meta)}${embudoCol(d.embudos.google)}</div>
     </div>`;
 
   const embudoMay = d.embudoMayorista ? `
     <div class="panel">
-      <h3>El recorrido del negocio mayorista</h3>
-      <p class="hint">Este embudo NO termina en una compra (en /mayorista no hay carrito) sino en una consulta. ${d.embudoMayorista.cpl ? `Hoy cada consulta sale <b>${adsMoney(d.embudoMayorista.cpl)}</b>.` : ''}</p>
+      ${panelHead('El recorrido del negocio mayorista',
+    'Este embudo NO termina en una compra (en /mayorista no hay carrito) sino en una consulta.')}
+      ${d.embudoMayorista.cpl ? `<p class="hint">Hoy cada consulta sale <b>${adsMoney(d.embudoMayorista.cpl)}</b>.</p>` : ''}
       <div class="fn-grid">${embudoCol(d.embudoMayorista)}</div>
     </div>` : '';
 
@@ -3622,8 +3658,8 @@ function renderAdsPerformance(d) {
   const r = d.reasignacion;
   const reasignacion = r ? `
     <div class="panel ads-move">
-      <h3>${icon('bolt')} Si movés el presupuesto</h3>
-      <p class="hint">Cuenta del sistema (todavía sin IA): sacarle a lo que pierde plata y darle a lo que rinde, sin cambiar el presupuesto total.</p>
+      ${panelHead(`${icon('bolt')} Si movés el presupuesto`,
+    'Cuenta del sistema, todavía sin IA: sacarle a lo que pierde plata y darle a lo que rinde, sin cambiar el presupuesto total.')}
       <div class="mv-head">
         <div class="mv-amount"><b>${adsMoney(r.monto)}</b><span>a mover — la mitad de lo que hoy gastan las campañas en rojo</span></div>
         <div class="mv-arrow">→</div>
@@ -3641,8 +3677,8 @@ function renderAdsPerformance(d) {
   /* --- 8. Diagnóstico con IA --- */
   const ia = `
     <div class="panel">
-      <h3>${icon('sparkles')} Diagnóstico y recomendaciones con IA</h3>
-      <p class="hint">Lee todos los números de arriba y arma el plan: qué tocar, cuánta plata mover y qué esperar.</p>
+      ${panelHead(`${icon('sparkles')} Diagnóstico y recomendaciones con IA`,
+    'Lee todos los números de las otras pestañas y arma el plan: qué tocar, cuánta plata mover y qué esperar.')}
       <div class="field">
         <label>Contexto que los números no saben <span class="hint" style="font-weight:400;">(opcional)</span></label>
         <textarea class="input" id="ads-ai-ctx" rows="2" placeholder="Ej: la campaña de calzados apunta a un producto que quedamos sin stock; en julio subimos el presupuesto de Google"></textarea>
@@ -3653,12 +3689,45 @@ function renderAdsPerformance(d) {
 
   const avisos = (d.avisos && d.avisos.length) ? `
     <div class="panel">
-      <h3>Qué tener en cuenta de la medición</h3>
+      ${panelHead('Qué tener en cuenta de la medición',
+    'Límites de la medición que conviene conocer antes de tomar decisiones con estos números.')}
       <ul class="an-warn-list">${d.avisos.map((a) => `<li>${esc(a)}</li>`).join('')}</ul>
       <p class="hint" style="margin:10px 0 0;">${esc(d.metodologia)}</p>
     </div>` : `<div class="panel"><p class="hint" style="margin:0;">${icon('info')} ${esc(d.metodologia)}</p></div>`;
 
-  host.innerHTML = resumen + canales + segmentos + reparto + tipos + campanas + embudos + embudoMay + reasignacion + ia + avisos;
+  /* --- Armado final: sub-pestañas en vez de 12 paneles apilados ---------------
+     Antes esto era un scroll de 12 paneles seguidos: para llegar a la tabla de
+     campañas había que pasar por el reparto, los tipos y los embudos. Ahora cada
+     grupo responde una pregunta distinta y se entra directo a la que interesa.
+     Los avisos de metodología van al final de "Resumen", que es donde se leen
+     los totales que esos avisos matizan. -------------------------------------- */
+  const panes = [
+    { id: 'resumen', label: 'Resumen', html: resumen + canales + reparto + avisos },
+    { id: 'negocios', label: 'Mayorista vs. tienda', html: segmentos || vacio('Todavía no hay campañas suficientes para separar los dos negocios.') },
+    { id: 'campanas', label: 'Campañas', html: tipos + campanas },
+    { id: 'embudos', label: 'Embudos', html: embudos + embudoMay },
+    { id: 'plan', label: 'Qué hacer', html: (reasignacion || '') + ia },
+    // La tabla de consultas la llena loadRecentLeads() DESPUÉS de este render.
+    // Vive acá adentro y no suelta abajo de todo como antes, donde sumaba casi
+    // 3.000 px de scroll a una pantalla que ya era larga.
+    { id: 'consultas', label: 'Consultas', html: '<div id="ads-leads"></div>' },
+  ];
+
+  host.innerHTML = `
+    <div class="mt-tabs ads-tabs">
+      ${panes.map((p, i) => `<button class="mtab ${i === 0 ? 'active' : ''}" data-adspane="${p.id}">${p.label}</button>`).join('')}
+    </div>
+    <div class="sub-panes">
+      ${panes.map((p, i) => `<div class="sub-pane ${i === 0 ? '' : 'hidden'}" id="ads-pane-${p.id}">${p.html}</div>`).join('')}
+    </div>`;
+
+  host.querySelectorAll('[data-adspane]').forEach((b) => {
+    b.addEventListener('click', () => {
+      host.querySelectorAll('.mtab').forEach((x) => x.classList.toggle('active', x === b));
+      host.querySelectorAll('.sub-pane').forEach((x) => x.classList.toggle('hidden', x.id !== `ads-pane-${b.dataset.adspane}`));
+    });
+  });
+
   hydrateIcons(host);
   const btn = host.querySelector('#ads-ai-btn');
   if (btn) btn.addEventListener('click', () => runAdsAiAnalysis(btn, d.days));

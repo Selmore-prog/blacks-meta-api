@@ -1139,3 +1139,59 @@ button .cost-tag { margin-left: 8px; }
 .int-fuente b { font-weight: 700; margin-right: 6px; }
 .int-fuente.ok b { color: var(--green); }
 .int-fuente.off b { color: #f59e0b; }
+
+/* ==========================================================================
+   COMPONENTES COMPARTIDOS DE LECTURA (ago-2026)
+
+   Nacieron de un problema concreto: Pauta renderizaba 12 paneles apilados con
+   22 párrafos de explicación. El texto era correcto pero tapaba los números,
+   que son lo que se viene a mirar. La explicación pasa a un ⓘ y el panel
+   queda con el dato a la vista.
+   ========================================================================== */
+
+/* --- ⓘ con explicación al pasar por encima (o al tocarlo, en mobile) --- */
+.tip {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 15px; height: 15px; border-radius: 50%; flex: none;
+  border: 1px solid var(--line); color: var(--muted);
+  font-size: 9.5px; font-weight: 800; font-style: normal; font-family: inherit;
+  cursor: help; position: relative; vertical-align: 1px; user-select: none;
+  transition: color .15s ease, border-color .15s ease;
+}
+.tip:hover, .tip:focus-visible { border-color: var(--orange); color: var(--orange); outline: none; }
+
+.tip::after {
+  content: attr(data-tip);
+  position: absolute; bottom: calc(100% + 9px); left: 50%; transform: translateX(-50%);
+  width: max-content; max-width: 290px;
+  background: var(--panel-2); color: var(--text);
+  border: 1px solid var(--line); border-radius: 10px;
+  padding: 9px 12px; font-size: 12px; font-weight: 500; line-height: 1.5;
+  text-align: left; letter-spacing: 0; text-transform: none; white-space: normal;
+  box-shadow: var(--shadow-lift); z-index: 60;
+  opacity: 0; visibility: hidden; transition: opacity .14s ease;
+  pointer-events: none;
+}
+/* .tip-open lo pone el JS al tocar. No alcanza con :hover y :focus: en un
+   celular no hay hover, y :focus depende de que la ventana tenga el foco del
+   sistema, así que en la práctica el globo no se abría al tocarlo. */
+.tip:hover::after, .tip:focus::after, .tip.tip-open::after { opacity: 1; visibility: visible; }
+.tip.tip-open { border-color: var(--orange); color: var(--orange); }
+
+/* Cerca del borde derecho el globo centrado se sale de pantalla: se ancla al borde. */
+.tip.tip-end::after { left: auto; right: -4px; transform: none; }
+
+/* --- Encabezado de panel: título + ⓘ + acciones a la derecha --- */
+.p-head { display: flex; align-items: center; gap: 8px; margin-bottom: 15px; flex-wrap: wrap; }
+.p-head h3 { margin: 0 !important; display: inline-flex; align-items: center; gap: 7px; }
+.p-head .p-actions { margin-left: auto; display: flex; gap: 8px; align-items: center; }
+.p-head + .hint { margin-top: -8px; }
+
+/* --- Sub-pestañas dentro de una vista (mismo patrón que Métricas) --- */
+.sub-panes > .sub-pane.hidden { display: none !important; }
+
+/* Acciones auxiliares de Análisis web: más chicas y separadas de la principal,
+   para que se vea de una cuál es el botón que hay que apretar. */
+.an-actions-aux { margin-top: 8px; padding-top: 10px; border-top: 1px solid var(--line-soft); }
+.an-actions-aux .btn-sm { font-size: 12px; padding: 6px 11px; min-height: 0; color: var(--muted); }
+.an-actions-aux .btn-sm:hover { color: var(--text); }
