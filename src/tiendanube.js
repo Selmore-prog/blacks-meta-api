@@ -77,7 +77,14 @@ function normalizeProduct(product) {
     image_url: mainImage,
     images: images.length ? images : (mainImage ? [mainImage] : []),
     description,
-    permalink: product.permalink || null,
+    // OJO: la API NO devuelve `permalink`. Devuelve `handle` (objeto multi-idioma,
+    // ej. {es: "cofias-descartables"}) y `canonical_url` (URL completa). Por
+    // buscar una clave inexistente, esta columna quedó en NULL en los 352
+    // productos del catálogo desde el primer sync (bug detectado ago-2026 al
+    // armar los rieles del home, que sí necesitan la URL).
+    permalink: pickText(product.handle)
+      || (product.canonical_url ? String(product.canonical_url).replace(/\/+$/, '').split('/').pop() : null)
+      || null,
     raw: product,
   };
 }

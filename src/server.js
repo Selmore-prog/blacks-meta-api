@@ -23,6 +23,7 @@ const { syncCompanyInfo, getCompanyFacts } = require('./companyInfo');
 const { listCommercialDates } = require('./commercialDates');
 const { notifyPublishResult, notifyWeeklyReport } = require('./notifier');
 const { generateMonthlyPlan, getPlan, nextPlannableMonth } = require('./planner');
+const { getRails, getRailsConfig, invalidate: invalidateRails, RULES, SPECIAL_RULES } = require('./homeRails');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -62,8 +63,11 @@ app.post('/api/login', (req, res) => {
 
 app.use((req, res, next) => {
   if (!config.dashboardPassword) return next();
-  // /api/leads/click lo llama la TIENDA (otro dominio), no el panel: no puede pedir sesión.
-  const open = ['/health', '/api/health', '/api/login', '/login.html', '/favicon.ico', '/api/leads/click'];
+  // Las llama la TIENDA (otro dominio), no el panel: no pueden pedir sesión.
+  // /api/home/rails es de sólo lectura y devuelve lo mismo que ya se ve en la
+  // vidriera pública (nombre, foto, precio y stock), así que no expone nada.
+  const open = ['/health', '/api/health', '/api/login', '/login.html', '/favicon.ico',
+    '/api/leads/click', '/api/home/rails'];
   if (open.includes(req.path) || req.path.startsWith('/api/cron/')) return next(); // cron tiene su propio secret
   if (hasValidSession(req)) return next();
   if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Sesión requerida.', needLogin: true });
@@ -734,6 +738,42 @@ const leadCors = (req, res, next) => {
   next();
 };
 
+/* ----------------------- RIELES DEL HOME -----------------------
+ * Lo que reemplaza al scraping: la tienda pide UNA vez esta lista (~10 KB) en
+ * vez de bajarse 12 páginas de producto completas (2.095 KB). Devuelve los
+ * productos ya elegidos por regla —ventas, stock, curva de talles— así que el
+ * home se actualiza solo y nunca muestra algo agotado.
+ * Sólo lectura, sin sesión, desde otro dominio. Ver src/homeRails.js.
+ * --------------------------------------------------------------- */
+const publicGetCors = (req, res, next) => {
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+  if (req.method === 'OPTIONS') return res.sendStatus(204);
+  next();
+};
+
+// Un GET simple no dispara preflight, así que hoy no hace falta; se registra
+// igual para que agregar un header en el futuro no rompa la llamada en silencio.
+app.options('/api/home/rails', publicGetCors);
+
+app.get('/api/home/rails', publicGetCors, wrap(async (req, res) => {
+  const payload = await getRails({ force: req.query.force === '1' });
+  // El CDN/navegador puede servirlo hasta 5 min sin preguntar, y hasta 30 min
+  // más mientras revalida atrás: ninguna visita espera por esto.
+  res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=1800');
+  res.json(payload);
+}));
+
+// Catálogo de reglas disponibles, para el panel (fase 3) y para poder mirar
+// desde afuera con qué criterio se armó cada riel.
+app.get('/api/home/rules', wrap(async (req, res) => {
+  const describe = (obj) => Object.entries(obj).map(([id, r]) => ({ id, label: r.label, help: r.help }));
+  res.json({
+    rules: [...describe(RULES), ...describe(SPECIAL_RULES)],
+    config: await getRailsConfig(),
+  });
+}));
+
 // sendBeacon manda text/plain para evitar el preflight: se parsea a mano.
 app.post('/api/leads/click', leadCors, express.text({ type: '*/*', limit: '16kb' }), wrap(async (req, res) => {
   let body = req.body;
@@ -908,7 +948,11 @@ app.get('/api/insights/weekly-reach', wrap(async (req, res) => {
 // hay un producto nuevo y todavía no aparece en el buscador del panel).
 app.post('/api/products/sync', wrap(async (req, res) => {
   const { syncProducts } = require('../scripts/sync-products');
-  res.json({ ok: true, ...(await syncProducts()) });
+  const result = await syncProducts();
+  // El catálogo cambió: los rieles del home tienen que rearmarse con el stock
+  // nuevo en vez de esperar a que venza la caché de 15 minutos.
+  invalidateRails();
+  res.json({ ok: true, ...result });
 }));
 
 app.get('/api/products', wrap(async (req, res) => {
