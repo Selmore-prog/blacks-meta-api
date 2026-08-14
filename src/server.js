@@ -69,8 +69,11 @@ app.use((req, res, next) => {
   // Las llama la TIENDA (otro dominio), no el panel: no pueden pedir sesión.
   // /api/home/rails es de sólo lectura y devuelve lo mismo que ya se ve en la
   // vidriera pública (nombre, foto, precio y stock), así que no expone nada.
+  // /api/tiendanube/oauth/callback lo llama TIENDANUBE redirigiendo al dueño
+  // de la tienda: tampoco puede pedir sesión del panel. Va protegido con su
+  // propio "state" de un solo uso (ver más abajo).
   const open = ['/health', '/api/health', '/api/login', '/login.html', '/favicon.ico',
-    '/api/leads/click', '/api/home/rails'];
+    '/api/leads/click', '/api/home/rails', '/api/tiendanube/oauth/callback'];
   if (open.includes(req.path) || req.path.startsWith('/api/cron/')) return next(); // cron tiene su propio secret
   if (hasValidSession(req)) return next();
   if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Sesión requerida.', needLogin: true });
@@ -825,6 +828,84 @@ app.post('/api/home/preview', wrap(async (req, res) => {
 app.post('/api/home/config', wrap(async (req, res) => {
   const cfg = await saveRailsConfig(req.body);
   res.json({ ok: true, config: cfg, rails: (await getRails({ force: true })).rails });
+}));
+
+/* =========================================================================
+ * AUTORIZACIÓN OAuth de la app de Tiendanube (Partners)
+ *
+ * Se usa UNA sola vez para conseguir el access_token de la app registrada en
+ * Partners (TIENDANUBE_APP_ID + TIENDANUBE_APP_CLIENT_SECRET). Ese token, a
+ * diferencia del de Google, NO vence nunca por sí solo (confirmado en la doc
+ * oficial de Tiendanube): sólo se invalida si se genera uno nuevo para la
+ * misma app o si se desinstala la app del panel de la tienda. O sea que este
+ * flujo se corre una vez y no hace falta repetirlo — si el token empieza a
+ * fallar más adelante, la causa es una de esas dos, no una expiración.
+ *
+ * Requiere que en Partners, dentro de la configuración de la app, la
+ * "Redirect URL" apunte exactamente a
+ * ${PUBLIC_BASE_URL}/api/tiendanube/oauth/callback
+ * ========================================================================= */
+let tnOauthState = null; // { value, expira } — de un solo uso, vive 5 min (lo que dura el code de Tiendanube)
+
+// Sólo para estas dos páginas HTML de diagnóstico: no hay un esc() global en
+// el server (el del dashboard vive en el navegador, en dashboard.js).
+const escHtml = (s) => String(s == null ? '' : s)
+  .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+app.get('/api/tiendanube/oauth/start', wrap(async (req, res) => {
+  const appId = process.env.TIENDANUBE_APP_ID;
+  if (!appId) {
+    return res.status(400).send('Falta TIENDANUBE_APP_ID en las variables de entorno.');
+  }
+  tnOauthState = { value: crypto.randomBytes(16).toString('hex'), expira: Date.now() + 5 * 60_000 };
+  const url = `https://www.tiendanube.com/apps/${appId}/authorize?state=${tnOauthState.value}`;
+  res.redirect(url);
+}));
+
+app.get('/api/tiendanube/oauth/callback', wrap(async (req, res) => {
+  const { code, state, error } = req.query;
+  const fail = (msg) => res.status(400).send(`<!doctype html><meta charset="utf-8">
+    <body style="font-family:system-ui;background:#111;color:#eee;padding:40px;max-width:640px;margin:0 auto">
+    <h2>No se pudo autorizar</h2><p>${msg}</p>
+    <p><a href="/api/tiendanube/oauth/start" style="color:#e85d1b">Volver a intentar</a></p>`);
+
+  if (error) return fail(`Tiendanube devolvió: ${error}`);
+  if (!code) return fail('Faltó el código de autorización.');
+  if (!tnOauthState || state !== tnOauthState.value) {
+    return fail('El "state" no coincide o ya se usó. Volvé a arrancar el proceso desde el botón.');
+  }
+  if (Date.now() > tnOauthState.expira) return fail('Se venció el tiempo (5 min). Volvé a arrancar.');
+  tnOauthState = null; // de un solo uso
+
+  const appId = process.env.TIENDANUBE_APP_ID;
+  const secret = process.env.TIENDANUBE_APP_CLIENT_SECRET;
+  if (!appId || !secret) return fail('Faltan TIENDANUBE_APP_ID o TIENDANUBE_APP_CLIENT_SECRET en el servidor.');
+
+  const tokenRes = await fetch('https://www.tiendanube.com/apps/authorize/token', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ client_id: appId, client_secret: secret, grant_type: 'authorization_code', code }),
+  });
+  const data = await tokenRes.json().catch(() => ({}));
+  if (!tokenRes.ok || !data.access_token) {
+    return fail(`Tiendanube respondió: ${escHtml(JSON.stringify(data))}`);
+  }
+
+  // El token se MUESTRA una sola vez acá. No se guarda solo en ningún lado:
+  // hay que copiarlo a mano a TIENDANUBE_ACCESS_TOKEN (.env local y variables
+  // de Render) y reiniciar el servicio. Así queda igual que hoy: una única
+  // variable de entorno, sin que el motor tenga que administrar el secreto.
+  res.send(`<!doctype html><meta charset="utf-8">
+    <body style="font-family:system-ui;background:#111;color:#eee;padding:40px;max-width:640px;margin:0 auto;line-height:1.6">
+    <h2>✔ Autorizado</h2>
+    <p>Copiá este valor a <code>TIENDANUBE_ACCESS_TOKEN</code> en tu <code>.env</code> local y en las variables de
+    entorno de Render, y reiniciá el servicio. Esta pantalla no vuelve a mostrarlo.</p>
+    <textarea readonly onclick="this.select()" style="width:100%;height:70px;background:#000;color:#0f0;
+      font-family:monospace;font-size:13px;padding:10px;border-radius:8px;border:1px solid #333">${escHtml(data.access_token)}</textarea>
+    <p style="color:#999;font-size:13px">Tienda (user_id): ${escHtml(String(data.user_id || ''))} ·
+    Permisos otorgados: ${escHtml(String(data.scope || ''))}</p>
+    <p style="color:#999;font-size:13px">Este token de Tiendanube NO vence solo. Sólo se invalida si volvés a correr
+    esta autorización (genera uno nuevo) o si desinstalás la app desde el panel de la tienda.</p>`);
 }));
 
 // sendBeacon manda text/plain para evitar el preflight: se parsea a mano.
