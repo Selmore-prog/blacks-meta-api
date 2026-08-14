@@ -12,15 +12,18 @@
  *  · VENTAS → Tiendanube (`products_cache.sales_30d`, calculado de órdenes
  *    reales). GA4 también informa compras, pero pierde las de quien bloquea
  *    el tag; para plata mandan las órdenes, no la analítica.
- *  · GASTO EN PAUTA → Meta Ads, desglosado por producto. Se cruza POR NOMBRE
- *    porque los ids de Meta son del catálogo (variantes), no de Tiendanube:
- *    medido en ago-2026, el id no matchea NUNCA y el nombre matchea 200/200.
+ *  · GASTO EN PAUTA → Meta Ads y Google Ads, desglosados por producto. Los dos
+ *    se cruzan POR NOMBRE: el id de Meta es de la variante del catálogo (medido
+ *    en ago-2026, el id no matchea NUNCA y el nombre matchea 200/200) y el de
+ *    Google es del feed de Merchant Center. Se guardan por separado
+ *    (`ad_spend_meta` / `ad_spend_google`) además de sumados.
  *
  * LO QUE NO SE PUEDE MEDIR, dicho de frente
- *  · Gasto de GOOGLE por producto: no está. La API de Google Ads no está
- *    configurada en este proyecto, y aunque lo estuviera, `advertiserAdCost`
- *    de GA4 es por sesión y no se puede repartir entre los productos que esa
- *    sesión miró. O sea que el "gasto" de acá es SÓLO Meta, y así se muestra.
+ *  · De Google sólo entra el gasto de SHOPPING y PERFORMANCE MAX, que son las
+ *    campañas que Google reparte por artículo del feed. Búsqueda y Display no
+ *    aparecen, y no es un olvido: ahí se anuncia una palabra o un lugar, no un
+ *    producto, y repartir ese gasto entre productos sería inventarlo. Lo mismo
+ *    con `advertiserAdCost` de GA4, que es por sesión y no por ítem.
  *  · GA4 guarda el nombre CON la variante ("Zapatilla Trekking (Beige, 41)"):
  *    1198 nombres distintos para 352 productos. Se agrupa sacando el paréntesis
  *    final; sin eso, cada talle contaría como un producto aparte.
@@ -133,6 +136,48 @@ async function fetchMetaSpend(days) {
   return { ok: true, reason: null, map };
 }
 
+/* -------------------------------- Google Ads -------------------------------- */
+
+const iso = (d) => d.toISOString().slice(0, 10);
+
+/**
+ * Gasto de Google por producto, de las campañas Shopping y Performance Max.
+ * Se cruza por NOMBRE igual que Meta: el id del feed de Merchant Center no
+ * tiene por qué coincidir con el de Tiendanube, pero el título del feed sale
+ * del mismo catálogo, así que matchea.
+ *
+ * Búsqueda y Display quedan afuera a propósito, no por olvido: su gasto no es
+ * atribuible a un producto y repartirlo sería inventar.
+ */
+async function fetchGoogleSpend(days) {
+  const { isEnabled, missingConfig, productSpend } = require('./googleAds');
+  if (!isEnabled()) {
+    return { ok: false, reason: `Google Ads no está configurado. Falta: ${missingConfig().join(' · ')}.`, map: new Map() };
+  }
+  const end = new Date();
+  const start = new Date(Date.now() - days * 864e5);
+  try {
+    const filas = await productSpend({ start: iso(start), end: iso(end) });
+    const map = new Map();
+    for (const f of filas) {
+      if (!f.title) continue;
+      const key = norm(f.title);
+      const acc = map.get(key) || { spend: 0, clicks: 0, conversions: 0 };
+      acc.spend += f.cost;
+      acc.clicks += f.clicks;
+      acc.conversions += f.conversions;
+      map.set(key, acc);
+    }
+    return {
+      ok: true,
+      reason: filas.length ? null : 'Conectado, pero no hay campañas de Shopping ni Performance Max con gasto en el período.',
+      map,
+    };
+  } catch (err) {
+    return { ok: false, reason: `Google Ads no respondió: ${err.message}`, map: new Map() };
+  }
+}
+
 /* -------------------------------- cuadrantes -------------------------------- */
 
 /**
@@ -187,9 +232,10 @@ function clasificar(p, cortes) {
 const ratio = (a, b) => (b > 0 ? Math.round((a / b) * 10000) / 10000 : 0);
 
 async function buildInterest({ days = DEFAULT_DAYS } = {}) {
-  const [ga, meta, catalogo] = await Promise.all([
+  const [ga, meta, google, catalogo] = await Promise.all([
     fetchGaItems(days),
     fetchMetaSpend(days),
+    fetchGoogleSpend(days),
     pool.query(`SELECT id, name, brand, price, promo_price, stock, sizes_total, sizes_in_stock,
                        size_coverage, published, image_url, sales_30d,
                        COALESCE(permalink, raw->'handle'->>'es') AS permalink
@@ -222,6 +268,8 @@ async function buildInterest({ days = DEFAULT_DAYS } = {}) {
     const g = esDueño ? (ga.map.get(key) || vacio) : vacio;
     const m = esDueño ? (meta.map.get(key) || { spend: 0, impressions: 0, clicks: 0 })
       : { spend: 0, impressions: 0, clicks: 0 };
+    const gg = esDueño ? (google.map.get(key) || { spend: 0, clicks: 0, conversions: 0 })
+      : { spend: 0, clicks: 0, conversions: 0 };
     const sales = Number(row.sales_30d || 0);
     const precio = Number(row.promo_price || row.price || 0);
     const eleg = contentEligibility(row);
@@ -242,8 +290,13 @@ async function buildInterest({ days = DEFAULT_DAYS } = {}) {
       // Ingreso estimado con el precio actual: es lo que se puede afirmar sin
       // guardar el precio histórico de cada orden.
       revenue: Math.round(sales * precio),
-      ad_spend: Math.round(m.spend),
-      ad_clicks: m.clicks,
+      // Gasto separado por plataforma y sumado. Se guardan los dos por separado
+      // porque cubren cosas distintas: Meta desglosa toda la cuenta, Google sólo
+      // Shopping y Performance Max (Búsqueda y Display no son atribuibles a un producto).
+      ad_spend_meta: Math.round(m.spend),
+      ad_spend_google: Math.round(gg.spend),
+      ad_spend: Math.round(m.spend + gg.spend),
+      ad_clicks: m.clicks + gg.clicks,
       cart_rate: ratio(g.carts, g.views),
       conv_rate: ratio(sales, g.views),
       // Gasto de Meta dividido por TODAS las ventas del producto (vengan de donde
@@ -255,7 +308,7 @@ async function buildInterest({ days = DEFAULT_DAYS } = {}) {
       // medido en ago-2026 daba 98,78 en un producto con $12.148 de pauta, un
       // número que invita a subir el presupuesto por una razón falsa. Mejor dos
       // columnas honestas —gasto y ventas— que un ratio inventado.
-      cost_per_sale: m.spend > 0 && sales > 0 ? Math.round(m.spend / sales) : null,
+      cost_per_sale: (m.spend + gg.spend) > 0 && sales > 0 ? Math.round((m.spend + gg.spend) / sales) : null,
       elegible: eleg.ok,
       motivo_no_elegible: eleg.reason,
     };
@@ -300,7 +353,9 @@ async function buildInterest({ days = DEFAULT_DAYS } = {}) {
     vistas: conSenal.reduce((a, p) => a + p.views, 0),
     carritos: conSenal.reduce((a, p) => a + p.carts, 0),
     ventas: productos.reduce((a, p) => a + p.sales, 0),
-    gasto_meta: productos.reduce((a, p) => a + p.ad_spend, 0),
+    gasto_meta: productos.reduce((a, p) => a + p.ad_spend_meta, 0),
+    gasto_google: productos.reduce((a, p) => a + p.ad_spend_google, 0),
+    gasto_pauta: productos.reduce((a, p) => a + p.ad_spend, 0),
     ingreso: productos.reduce((a, p) => a + p.revenue, 0),
   };
 
@@ -311,10 +366,11 @@ async function buildInterest({ days = DEFAULT_DAYS } = {}) {
       analytics: { ok: ga.ok, detalle: ga.reason, items_leidos: ga.itemsLeidos || 0 },
       meta_ads: { ok: meta.ok, detalle: meta.reason },
       google_ads: {
-        ok: false,
-        detalle: 'El gasto de Google por producto no se puede obtener: la API de Google Ads '
-               + 'no está configurada y el costo que informa GA4 es por sesión, no por producto. '
-               + 'Todo el "gasto" de esta pantalla es de Meta.',
+        ok: google.ok,
+        detalle: google.ok
+          ? (google.reason || 'Gasto de Shopping y Performance Max. Búsqueda y Display no aparecen: '
+             + 'su gasto no se puede atribuir a un producto.')
+          : google.reason,
       },
     },
     cortes,

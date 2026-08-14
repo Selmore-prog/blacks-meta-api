@@ -22,7 +22,17 @@ const config = require('./config');
  * `node scripts/google-ads-token.js` y se guarda en .env.
  * ========================================================================= */
 
-const API_VERSION = 'v18';
+/* VERSIÓN DE LA API — ojo con esto, es la causa de error más tonta y más cara.
+ * Google saca una versión nueva cada ~3 meses y da de baja las viejas al año y
+ * pico. Una versión dada de baja NO devuelve un error entendible: devuelve 404,
+ * como si la cuenta no existiera.
+ * Comprobado el 13-ago-2026 pegándole a la API: v16, v17, v18 y v19 devuelven
+ * 404 (dadas de baja) y v20 a v25 responden 401 (vivas, sólo falta autenticar).
+ * Este archivo estaba fijo en v18, o sea que no habría funcionado ni con las
+ * credenciales perfectas. Queda configurable para poder subirla sin tocar código.
+ * Para saber cuál es la última: https://developers.google.com/google-ads/api/docs/release-notes
+ */
+const API_VERSION = process.env.GOOGLE_ADS_API_VERSION || 'v24';
 
 function isEnabled() {
   const g = config.googleAds;
@@ -89,6 +99,13 @@ async function gaql(query) {
       const detail = data.error && data.error.details && JSON.stringify(data.error.details).slice(0, 300);
       if (/developer token/i.test(err)) {
         throw new Error(`Google Ads rechazó el developer token: ${err}. Si la cuenta todavía tiene acceso "de prueba", hay que pedir acceso básico en el API Center.`);
+      }
+      // Una versión dada de baja devuelve 404 sin explicar nada: sin este aviso
+      // se pierden horas revisando permisos que estaban bien.
+      if (res.status === 404) {
+        throw new Error(`Google Ads devolvió 404 con la versión ${API_VERSION} de la API. `
+          + 'Casi siempre significa que esa versión ya fue dada de baja (no que la cuenta no exista). '
+          + 'Subí GOOGLE_ADS_API_VERSION a una más nueva y volvé a probar.');
       }
       if (res.status === 403 || res.status === 401) {
         throw new Error(`Google Ads no da acceso a la cuenta ${g.customerId}: ${err}. Revisá que el usuario que autorizó tenga permiso sobre esa cuenta y que GOOGLE_ADS_LOGIN_CUSTOMER_ID sea la administradora.`);
@@ -158,6 +175,53 @@ async function searchTerms({ start, end, limit = 60 } = {}) {
 }
 
 /**
+ * GASTO POR PRODUCTO — Shopping y Performance Max.
+ *
+ * Es el equivalente al desglose `product_id` de Meta y sale de
+ * `shopping_performance_view`, la única vista de Google Ads que reparte el
+ * gasto por artículo del feed. Cubre las campañas de Shopping y las Performance
+ * Max que tengan feed; una campaña de Búsqueda o Display NO aparece acá, porque
+ * su gasto no es atribuible a un producto (se anuncia una palabra, no un ítem).
+ *
+ * `segments.product_item_id` es el id del feed de Merchant Center. Como puede
+ * no coincidir con el id de Tiendanube, se devuelve también el título, que es
+ * con lo que después se cruza por nombre (igual que con Meta).
+ */
+async function productSpend({ start, end } = {}) {
+  const rows = await gaql(`
+    SELECT segments.product_item_id, segments.product_title,
+           metrics.cost_micros, metrics.impressions, metrics.clicks,
+           metrics.conversions, metrics.conversions_value
+    FROM shopping_performance_view
+    WHERE segments.date BETWEEN '${start}' AND '${end}'
+  `);
+
+  // Una misma fila puede venir partida por día o por campaña: se acumula por producto.
+  const porProducto = new Map();
+  for (const r of rows) {
+    const seg = r.segments || {};
+    const id = seg.productItemId || '';
+    const title = seg.productTitle || '';
+    const key = id || title;
+    if (!key) continue;
+    const acc = porProducto.get(key) || { itemId: id, title, cost: 0, impressions: 0, clicks: 0, conversions: 0, value: 0 };
+    acc.cost += Number(r.metrics.costMicros || 0) / 1e6;
+    acc.impressions += Number(r.metrics.impressions || 0);
+    acc.clicks += Number(r.metrics.clicks || 0);
+    acc.conversions += Number(r.metrics.conversions || 0);
+    acc.value += Number(r.metrics.conversionsValue || 0);
+    porProducto.set(key, acc);
+  }
+
+  return [...porProducto.values()].map((p) => ({
+    ...p,
+    cost: Math.round(p.cost * 100) / 100,
+    conversions: Math.round(p.conversions * 10) / 10,
+    value: Math.round(p.value),
+  })).sort((a, b) => b.cost - a.cost);
+}
+
+/**
  * Informe de pauta comparando dos períodos, listo para cruzar con Analytics.
  * Nunca tira error hacia arriba: si no está configurado o Google dice que no,
  * devuelve enabled:false con el motivo en castellano.
@@ -201,4 +265,7 @@ async function adsReport({ current, previous } = {}) {
   }
 }
 
-module.exports = { isEnabled, missingConfig, adsReport, campaignSpend, searchTerms, gaql };
+module.exports = {
+  isEnabled, missingConfig, adsReport, campaignSpend, searchTerms, productSpend, gaql,
+  API_VERSION,
+};

@@ -1132,3 +1132,10 @@ button .cost-tag { margin-left: 8px; }
 .int-alert-list b { color: #fca5a5; font-variant-numeric: tabular-nums; margin-right: 6px; }
 .int-alert-list i { font-style: normal; opacity: .75; }
 @media (max-width: 720px) { .int-alert { flex-direction: column; gap: 8px; } }
+
+/* Estado de las tres fuentes del termómetro: qué se pudo medir y qué no. */
+.int-fuentes { display: flex; flex-direction: column; gap: 6px; margin-top: 12px; }
+.int-fuente { font-size: 12px; line-height: 1.5; color: var(--muted); }
+.int-fuente b { font-weight: 700; margin-right: 6px; }
+.int-fuente.ok b { color: var(--green); }
+.int-fuente.off b { color: #f59e0b; }

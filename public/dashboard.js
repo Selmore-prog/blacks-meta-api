@@ -4603,11 +4603,12 @@ function renderInterest() {
 
   // Aviso de fuentes: qué se pudo medir y qué no. Va arriba y sin vueltas,
   // porque interpretar la pantalla depende de saberlo.
-  const caidas = Object.entries(d.fuentes).filter(([, v]) => !v.ok);
-  const avisos = caidas.length
-    ? `<p class="hint" style="margin-top:10px;">${caidas.map(([k, v]) =>
-        `<b>${k === 'google_ads' ? 'Google Ads' : k === 'meta_ads' ? 'Meta Ads' : 'Analytics'}:</b> ${esc(v.detalle)}`).join('<br/>')}</p>`
-    : '';
+  const nombreFuente = { google_ads: 'Google Ads', meta_ads: 'Meta Ads', analytics: 'Analytics' };
+  const avisos = `<div class="int-fuentes">${Object.entries(d.fuentes).map(([k, v]) =>
+    `<div class="int-fuente ${v.ok ? 'ok' : 'off'}">
+       <b>${v.ok ? '\u25CF' : '\u25CB'} ${nombreFuente[k] || k}</b>
+       ${v.detalle ? `<span>${esc(v.detalle)}</span>` : '<span>Conectado.</span>'}
+     </div>`).join('')}</div>`;
 
   const chips = Object.entries(d.cuadrantes).map(([id, c]) => `
     <button class="int-chip ${interestFiltro === id ? 'active' : ''}" onclick="setInterestFiltro('${id}')">
@@ -4632,7 +4633,7 @@ function renderInterest() {
         <span title="Personas que vieron la ficha (Analytics)"><b>${p.views}</b>vistas</span>
         <span title="Veces que lo agregaron al carrito (Analytics)"><b>${p.carts}</b>carrito</span>
         <span title="Unidades vendidas según las órdenes reales de Tiendanube"><b>${p.sales}</b>ventas</span>
-        <span title="Gasto de Meta en ESTE producto en el período"><b>${p.ad_spend ? money(p.ad_spend) : '—'}</b>pauta</span>
+        <span title="Pauta en ESTE producto: Meta ${money(p.ad_spend_meta || 0)} + Google ${money(p.ad_spend_google || 0)}"><b>${p.ad_spend ? money(p.ad_spend) : '—'}</b>pauta</span>
       </div>
     </div>`).join('') : '<p class="hint">No hay productos en este grupo.</p>';
 
@@ -4645,7 +4646,7 @@ function renderInterest() {
       <div>
         <b>Pauta yendo a fichas que no se pueden comprar bien.</b>
         Son ${w.productos} de los ${w.con_pauta} productos con pauta activa —el
-        <b>${w.porcentaje}% de lo que gastaste en Meta</b>— con la curva de talles rota o sin precio
+        <b>${w.porcentaje}% de lo que gastaste en pauta</b>— con la curva de talles rota o sin precio
         cargado. La visita se paga igual y no puede terminar en compra.
         <div class="int-alert-list">${w.detalle.slice(0, 5).map((x) =>
           `<span><b>${money(x.ad_spend)}</b> ${esc(x.name)} <i>${esc(x.motivo || '')}</i></span>`).join('')}</div>
@@ -4657,14 +4658,14 @@ function renderInterest() {
       <h3>${icon('chart')} Termómetro de interés — últimos ${d.dias} días</h3>
       <p class="hint">
         Cruza las visitas y los carritos de Analytics con las ventas reales de Tiendanube y el
-        gasto de Meta por producto. Sirve para no confundir dos problemas distintos: que no lo
-        vea nadie, o que lo vean y no les convenza.
+        gasto de pauta por producto (Meta + Google Shopping/Performance Max). Sirve para no
+        confundir dos problemas distintos: que no lo vea nadie, o que lo vean y no les convenza.
       </p>
       <div class="prod-totals" style="margin-bottom:16px;">
         <div class="stat"><b>${t.vistas.toLocaleString('es-AR')}</b><span>vistas de producto</span></div>
         <div class="stat"><b>${t.carritos.toLocaleString('es-AR')}</b><span>agregados al carrito</span></div>
         <div class="stat"><b>${t.ventas}</b><span>unidades vendidas</span></div>
-        <div class="stat"><b>${money(t.gasto_meta)}</b><span>pauta de Meta</span></div>
+        <div class="stat"><b>${money(t.gasto_pauta ?? t.gasto_meta)}</b><span>pauta (Meta + Google)</span></div>
       </div>
       ${alerta}
       <div class="int-chips">${chips}</div>
