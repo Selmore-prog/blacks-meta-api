@@ -85,9 +85,16 @@ async function backup() {
     }
     if (!Array.isArray(lote) || !lote.length) break;
     for (const c of lote) {
+      // `parent` es OBLIGATORIO acá: sin él no se puede reconstruir el árbol de
+      // navegación. Faltaba en la primera versión y cuando un PUT huerfanó 42
+      // categorías el backup no servía para restaurarlas — hubo que sacar los
+      // padres de raw->categories de products_cache, de pura suerte.
       categorias.push({
-        id: c.id, name: txt(c.name), handle: txt(c.handle),
+        id: c.id, name: c.name, handle: c.handle,
+        parent: c.parent === undefined ? null : c.parent,
+        subcategories: c.subcategories || [],
         visibility: c.visibility,
+        google_shopping_category: c.google_shopping_category,
         seo_title: c.seo_title, seo_description: c.seo_description, description: c.description,
       });
     }

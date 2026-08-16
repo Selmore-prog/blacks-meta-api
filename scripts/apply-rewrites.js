@@ -166,15 +166,22 @@ async function aplicarCategorias(limite) {
          quedaron sin nombre ni URL hasta restaurarlas desde el backup.
          Los productos NO tienen este problema (ahí el PUT parcial funciona),
          es específico de categorías. */
-      await pedir(`${API}/categories/${c.id}`, {
-        method: 'PUT',
-        body: JSON.stringify({
-          name: c.name,
-          handle: c.handle,
-          seo_title: { es: r.seo_title },
-          seo_description: { es: r.seo_description },
-        }),
-      });
+      /* El PUT de categorías REEMPLAZA: todo campo que no se mande queda vacío.
+         Verificado a los golpes el 16-ago-2026:
+          · sin `name`/`handle` → la categoría pierde nombre y URL (404).
+          · sin `parent`      → queda colgada de la raíz y DESAPARECE del menú.
+            Así se huerfanaron 42 categorías y el árbol mayorista perdió
+            Indumentaria de Trabajo, Calzado de Seguridad y EPP.
+         `description` sólo se manda si tiene contenido: vacío da 422. */
+      const cuerpo = {
+        name: c.name,
+        handle: c.handle,
+        parent: c.parent,
+        seo_title: { es: r.seo_title },
+        seo_description: { es: r.seo_description },
+      };
+      if (txt(c.description).trim()) cuerpo.description = c.description;
+      await pedir(`${API}/categories/${c.id}`, { method: 'PUT', body: JSON.stringify(cuerpo) });
       console.log(`${marca} ✓ ${nombre.slice(0, 40).padEnd(42)} ${r.seo_title.length}/60`);
       progreso.hechos[c.id] = { estado: 'ok', seo_title: r.seo_title };
       ok += 1;
