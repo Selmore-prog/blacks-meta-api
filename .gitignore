@@ -8,3 +8,6 @@ public/generated/
 .DS_Store
 
 eval-out/
+
+# Backups del catálogo: contienen el contenido completo de la tienda.
+backups/
