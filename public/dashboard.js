@@ -4982,7 +4982,7 @@ function renderFlash() {
         <input class="input" id="flash-default-pct" type="number" min="1" max="90" ${editDisabled} value="${cfg.default_pct || 20}" /></div>
     </div>
     <div class="field"><label>Link del botón "Ver todas" (opcional)</label>
-      <input class="input" id="flash-url" value="${esc(cfg.url || '/productos')}" placeholder="/productos" /></div>
+      <input class="input" id="flash-url" value="${esc(cfg.url || '')}" placeholder="Vacío = sin botón 'Ver todas'" /></div>
 
     <div class="grid-2">
       <div class="field"><label>Calcular el % sobre ${tip('Elegí sobre qué precio se aplica el descuento. "Precio actual": si el producto ya tiene una oferta, el % se suma sobre esa (nunca sube el precio que se ve). "Precio real": siempre sobre el precio sin descuento — ojo, si el producto ya tenía una oferta mayor, esto podría dejar un precio más alto que el actual.')}</label>

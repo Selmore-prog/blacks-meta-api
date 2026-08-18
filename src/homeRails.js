@@ -378,7 +378,10 @@ async function buildPayload(override = null) {
     });
   }
 
-  return { generated_at: new Date().toISOString(), ttl: CACHE_TTL_MS / 1000, rails };
+  // ttl = cuánto cachea el CLIENTE (sessionStorage del theme). Corto (30s) para que
+  // un cambio publicado desde el panel se vea enseguida al recargar la tienda. No es
+  // el caché interno del motor (ese es CACHE_TTL_MS y se invalida solo al guardar).
+  return { generated_at: new Date().toISOString(), ttl: 30, rails };
 }
 
 /* ---------------------------- caché ----------------------------

@@ -37,7 +37,7 @@ const WRITE_DELAY_MS = 300;
 const DEFAULT = {
   title: 'Ofertas flash',
   subtitle: null,
-  url: '/productos',
+  url: null,              // vacío = NO se muestra el botón "Ver todas"
   ends_at: null,          // ISO. null = sin contador (igual se puede usar, pero el timer no aparece)
   default_pct: 20,
   // Sobre qué precio se calcula el %:

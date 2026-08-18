@@ -795,7 +795,9 @@ app.get('/api/home/rails', publicGetCors, wrap(async (req, res) => {
   ]);
   // El CDN/navegador puede servirlo hasta 5 min sin preguntar, y hasta 30 min
   // más mientras revalida atrás: ninguna visita espera por esto.
-  res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=1800');
+  // 30s de caché fuerte + revalidación en 2ª plano: los cambios del panel se ven
+  // en ~30s y las visitas nunca esperan (SWR sirve lo viejo mientras refresca).
+  res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=300');
   res.json({ ...payload, flash });
 }));
 
