@@ -40,6 +40,14 @@ const DEFAULT = {
   url: '/productos',
   ends_at: null,          // ISO. null = sin contador (igual se puede usar, pero el timer no aparece)
   default_pct: 20,
+  // Sobre qué precio se calcula el %:
+  //   'current' (default) = sobre el precio que se muestra HOY (si ya tiene oferta,
+  //             el flash se stackea sobre la oferta; si no, sobre el precio regular).
+  //             Es el más seguro: nunca sube el precio visible.
+  //   'regular' = siempre sobre el precio regular (sin descuento). Ojo: si el producto
+  //             ya tenía una oferta mayor, esto podría SUBIR el precio mostrado.
+  discount_base: 'current',
+  accent: '#111111',      // color de las pastillas del contador en el theme
   items: [],              // [{ id, pct? }]  pct opcional: si falta, usa default_pct
   active: false,
   applied_at: null,
@@ -81,7 +89,7 @@ async function getConfigDetailed() {
   const items_detail = cfg.items.map((i) => {
     const r = byId.get(Number(i.id));
     if (!r) return { id: Number(i.id), missing: true, pct: i.pct || null };
-    return { id: Number(r.id), name: r.name, image: r.image_url, price: money(r.price), stock: r.stock === null ? null : Number(r.stock), pct: i.pct || null };
+    return { id: Number(r.id), name: r.name, image: r.image_url, price: money(r.price), promo_now: money(r.promo_price), stock: r.stock === null ? null : Number(r.stock), pct: i.pct || null };
   });
   return { ...cfg, items_detail };
 }
@@ -94,6 +102,17 @@ async function putConfig(cfg) {
 
 /* Efectivo por producto: override del ítem o el default de la campaña. */
 const effectivePct = (item, cfg) => clampPct(item.pct) || clampPct(cfg.default_pct) || 20;
+
+/* Precio BASE sobre el que se aplica el %, según discount_base.
+   'current' con una oferta vigente (promo < price) usa esa oferta; si no, el precio
+   regular. 'regular' siempre el precio regular. */
+function pickBase(price, promo, base) {
+  const reg = Number(price);
+  const pr = Number(promo);
+  if (base === 'current' && Number.isFinite(pr) && pr > 0 && pr < reg) return pr;
+  return reg;
+}
+const validHex = (v) => typeof v === 'string' && /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(v.trim());
 
 /* ---------------------------- buscador (sólo minoristas) ---------------------------- */
 
@@ -153,8 +172,11 @@ async function saveConfig(input) {
 
   // Con la oferta ACTIVA no se cambian productos ni %: hay que terminarla primero
   // (si no, quedarían precios escritos en Tiendanube sin su libreta de restauración).
+  const accentActive = validHex(input.accent) ? input.accent.trim() : (current.accent || DEFAULT.accent);
   if (current.active) {
-    const next = { ...current, title, subtitle, url, ends_at };
+    // Con la oferta activa sólo cambian cosas de PRESENTACIÓN (no la base ni el %,
+    // que ya están escritos en Tiendanube con su libreta de restauración).
+    const next = { ...current, title, subtitle, url, ends_at, accent: accentActive };
     await putConfig(next);
     return next;
   }
@@ -183,7 +205,8 @@ async function saveConfig(input) {
     .filter((id) => validIds.has(id))
     .map((id) => (pctById.has(id) ? { id, pct: pctById.get(id) } : { id }));
 
-  const next = { ...current, title, subtitle, url, ends_at, default_pct, items, active: false };
+  const discount_base = input.discount_base === 'regular' ? 'regular' : 'current';
+  const next = { ...current, title, subtitle, url, ends_at, default_pct, discount_base, accent: accentActive, items, active: false };
   await putConfig(next);
   return { ...next, rejected };
 }
@@ -223,31 +246,35 @@ async function _activate() {
     // Guardamos el promo a nivel producto del cache para restaurar el "display".
     productsBook.push({ id: Number(prod.id), prior_promo_price: money(prod.promo_price) });
 
+    // La variante "de precio" (la que Tiendanube muestra) define el promo de display
+    // que va al cache — así el resto del sitio ve el mismo número que la vidriera.
+    const pricedVariant = variants.find((v) => Number(v.price) > 0);
+    let displayPromo = null;
+
     for (const v of variants) {
       const price = Number(v.price);
       if (!Number.isFinite(price) || price <= 0) continue; // variante sin precio: se saltea
-      const promo = money(price * (1 - pct / 100));
+      // El % se aplica sobre la BASE elegida (precio actual vs. regular).
+      const base = pickBase(price, v.promotional_price, cfg.discount_base);
+      const promo = money(base * (1 - pct / 100));
       if (!(promo > 0) || promo >= price) continue;
       if (writes >= MAX_WRITES) { errors.push(`Tope de ${MAX_WRITES} escrituras alcanzado.`); break; }
       try {
         await setVariantPromotionalPrice(prod.id, v.id, promo);
         variantsBook.push({ product_id: Number(prod.id), variant_id: v.id, prior_promo: v.promotional_price ? money(v.promotional_price) : null });
+        if (pricedVariant && v.id === pricedVariant.id) displayPromo = promo;
         writes += 1;
         await sleep(WRITE_DELAY_MS);
       } catch (err) {
         errors.push(`Producto ${prod.id} variante ${v.id}: ${err.message}`);
       }
     }
-  }
 
-  // Reflejar el precio nuevo en el cache local ya, sin esperar el próximo sync:
-  // así el resto del sitio (y el riel "ofertas") lo ve en el acto.
-  for (const prod of chosen) {
-    const pct = pctOf.get(Number(prod.id)) || cfg.default_pct;
-    await pool.query(
-      'UPDATE products_cache SET promo_price = ROUND((price * (1 - $2::numeric/100))::numeric, 2) WHERE id = $1 AND price > 0',
-      [Number(prod.id), pct]
-    ).catch(() => {});
+    // Reflejar el precio de display en el cache ya, sin esperar el próximo sync,
+    // para que el resto del sitio (y el riel "ofertas") lo vea en el acto.
+    if (displayPromo != null) {
+      await pool.query('UPDATE products_cache SET promo_price = $2 WHERE id = $1', [Number(prod.id), displayPromo]).catch(() => {});
+    }
   }
 
   const next = {
@@ -331,8 +358,12 @@ async function computeBlock() {
 
   const products = chosen.map((r) => {
     const price = money(r.price);
-    const pct = pctOf.get(Number(r.id)) || cfg.default_pct;
-    const promo = money(price * (1 - pct / 100));
+    // Con la oferta activa el cache ya tiene el promo de flash (lo escribió activate,
+    // respetando la base elegida). Mostramos ESE número y derivamos el % del par
+    // precio/promo, así el badge nunca miente sea cual sea la base.
+    const promo = money(r.promo_price);
+    const finalP = (promo && price && promo < price) ? promo : price;
+    const disc = (price && finalP < price) ? Math.round(((price - finalP) / price) * 100) : null;
     const images = Array.isArray(r.images) ? r.images : [];
     return {
       id: Number(r.id),
@@ -341,12 +372,12 @@ async function computeBlock() {
       image: r.image_url,
       image_hover: images.find((src) => src && src !== r.image_url) || null,
       price,
-      promo_price: promo,
-      discount_pct: pct,
+      promo_price: finalP,
+      discount_pct: disc,
       stock: r.stock === null ? null : Number(r.stock),
       low_stock: r.stock !== null && Number(r.stock) > 0 && Number(r.stock) <= 8,
     };
-  }).filter((c) => c.url && c.image && c.promo_price > 0);
+  }).filter((c) => c.url && c.image && c.promo_price > 0 && c.promo_price < c.price);
 
   if (products.length < 1) return { active: false };
 
@@ -357,6 +388,7 @@ async function computeBlock() {
     url: cfg.url || null,
     ends_at: cfg.ends_at || null,
     server_now: new Date().toISOString(), // ancla para el contador: no dependemos del reloj del cliente
+    accent: cfg.accent || DEFAULT.accent,
     products,
   };
 }

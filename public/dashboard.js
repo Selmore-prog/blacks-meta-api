@@ -4871,9 +4871,36 @@ function flashEffPct(it) {
   const p = Number(it.pct);
   return Number.isFinite(p) && p >= 1 && p <= 90 ? p : flashDefaultPct();
 }
-function flashFinal(it) {
+function flashBase(it) {
+  const cfg = flashState.cfg || {};
   const price = Number(it.price) || 0;
-  return Math.round(price * (1 - flashEffPct(it) / 100));
+  const promo = Number(it.promo_now);
+  if (cfg.discount_base === 'regular') return price;
+  // 'current' (default): si hay oferta vigente, el % se aplica sobre ESA (se stackea).
+  return (Number.isFinite(promo) && promo > 0 && promo < price) ? promo : price;
+}
+function flashFinal(it) {
+  // Con la oferta ACTIVA el precio ya está escrito: es el promo vigente del cache.
+  if (flashState.cfg && flashState.cfg.active) {
+    const p = Number(it.promo_now);
+    return (Number.isFinite(p) && p > 0) ? p : (Number(it.price) || 0);
+  }
+  return Math.round(flashBase(it) * (1 - flashEffPct(it) / 100));
+}
+/* % REAL respecto del precio regular (lo que ve el cliente tachado). */
+function flashRealPct(it) {
+  const price = Number(it.price) || 0;
+  const final = flashFinal(it);
+  return price > 0 && final < price ? Math.round(((price - final) / price) * 100) : flashEffPct(it);
+}
+/* Línea de precio del chip (misma en el render y al tipear el %). */
+function flashPriceLineHtml(it) {
+  const final = flashFinal(it);
+  const active = !!(flashState.cfg && flashState.cfg.active);
+  const promoNow = Number(it.promo_now);
+  const warn = (!active && Number.isFinite(promoNow) && promoNow > 0 && final >= promoNow)
+    ? ' <span style="color:var(--orange);font-weight:600;">⚠ no baja del precio actual</span>' : '';
+  return `<span class="fc-final">${flashMoney(final)}</span> <s>${flashMoney(it.price)}</s> · -${flashRealPct(it)}%${warn}`;
 }
 /* ISO (UTC) -> valor para <input type="datetime-local"> en hora LOCAL. */
 function isoToLocalInput(iso) {
@@ -4907,7 +4934,7 @@ async function loadFlash() {
     flashState.cfg = cfg;
     // La lista elegida se hidrata con el detalle que trae el backend.
     flashState.chosen = (cfg.items_detail || []).filter((x) => !x.missing).map((x) => ({
-      id: x.id, name: x.name, image: x.image, price: x.price, stock: x.stock, pct: x.pct || null,
+      id: x.id, name: x.name, image: x.image, price: x.price, promo_now: x.promo_now || null, stock: x.stock, pct: x.pct || null,
     }));
     renderFlash();
   } catch (err) {
@@ -4957,6 +4984,16 @@ function renderFlash() {
     <div class="field"><label>Link del botón "Ver todas" (opcional)</label>
       <input class="input" id="flash-url" value="${esc(cfg.url || '/productos')}" placeholder="/productos" /></div>
 
+    <div class="grid-2">
+      <div class="field"><label>Calcular el % sobre ${tip('Elegí sobre qué precio se aplica el descuento. "Precio actual": si el producto ya tiene una oferta, el % se suma sobre esa (nunca sube el precio que se ve). "Precio real": siempre sobre el precio sin descuento — ojo, si el producto ya tenía una oferta mayor, esto podría dejar un precio más alto que el actual.')}</label>
+        <select class="input" id="flash-base" ${editDisabled}>
+          <option value="current" ${(cfg.discount_base || 'current') !== 'regular' ? 'selected' : ''}>El precio actual (con descuento vigente)</option>
+          <option value="regular" ${cfg.discount_base === 'regular' ? 'selected' : ''}>El precio real (sin descuento)</option>
+        </select></div>
+      <div class="field"><label>Color del contador ${tip('Color de las pastillas del contador en el home. Se puede cambiar aunque la oferta esté activa.')}</label>
+        <input class="input" id="flash-accent" type="color" value="${esc(cfg.accent || '#111111')}" style="height:42px; padding:4px; cursor:pointer;" /></div>
+    </div>
+
     <div class="field">
       <label>Productos en oferta ${tip('Buscá por nombre. Sólo aparecen productos minoristas (con precio y stock). El orden en que los agregás es el orden en que se ven en el home.')}</label>
       ${active
@@ -4997,7 +5034,7 @@ function renderFlashChosen() {
       ${it.image ? `<img src="${esc(it.image)}" alt="">` : ''}
       <div class="fc-info">
         <div class="fc-name">${esc(it.name || ('#' + it.id))}</div>
-        <div class="fc-price"><span class="fc-final">${flashMoney(final)}</span> <s>${flashMoney(it.price)}</s> · -${flashEffPct(it)}%</div>
+        <div class="fc-price">${flashPriceLineHtml(it)}</div>
       </div>
       <div class="fc-pct">
         <input class="input" type="number" min="1" max="90" data-flash-pct="${i}" value="${pctVal}"
@@ -5015,10 +5052,8 @@ function renderFlashChosen() {
       flashState.chosen[i].pct = (Number.isFinite(v) && v >= 1 && v <= 90) ? Math.round(v) : null;
       // Actualiza sólo el precio final de esa fila (sin re-render, no perder foco).
       const chip = el.closest('.flash-chip');
-      const fin = chip && chip.querySelector('.fc-final');
       const meta = chip && chip.querySelector('.fc-price');
-      if (fin) fin.textContent = flashMoney(flashFinal(flashState.chosen[i]));
-      if (meta) meta.innerHTML = `<span class="fc-final">${flashMoney(flashFinal(flashState.chosen[i]))}</span> <s>${flashMoney(flashState.chosen[i].price)}</s> · -${flashEffPct(flashState.chosen[i])}%`;
+      if (meta) meta.innerHTML = flashPriceLineHtml(flashState.chosen[i]);
     });
   });
 }
@@ -5037,6 +5072,10 @@ function bindFlashInputs() {
   if (ends) ends.addEventListener('input', () => { cfg.ends_at = localInputToIso(ends.value); });
   const dp = document.getElementById('flash-default-pct');
   if (dp) dp.addEventListener('input', renderFlashChosen); // el % general cambia los precios preview
+  const baseSel = document.getElementById('flash-base');
+  if (baseSel) baseSel.addEventListener('change', () => { cfg.discount_base = baseSel.value; renderFlashChosen(); });
+  const accent = document.getElementById('flash-accent');
+  if (accent) accent.addEventListener('input', () => { cfg.accent = accent.value; });
 
   const input = document.getElementById('flash-search-input');
   const results = document.getElementById('flash-results');
@@ -5084,7 +5123,7 @@ async function flashDoSearch(q) {
 function flashAdd(prod) {
   if (flashState.chosen.some((c) => c.id === prod.id)) return;
   if (flashState.chosen.length >= 12) { toast('La sección admite hasta 12 productos.', 'warn'); return; }
-  flashState.chosen.push({ id: prod.id, name: prod.name, image: prod.image, price: prod.price, stock: prod.stock, pct: null });
+  flashState.chosen.push({ id: prod.id, name: prod.name, image: prod.image, price: prod.price, promo_now: prod.promo_price || null, stock: prod.stock, pct: null });
   const input = document.getElementById('flash-search-input');
   const results = document.getElementById('flash-results');
   if (input) input.value = '';
@@ -5105,6 +5144,8 @@ function flashPayload() {
     url: cfg.url,
     ends_at: cfg.ends_at || null,
     default_pct: Number(cfg.default_pct) || 20,
+    discount_base: cfg.discount_base === 'regular' ? 'regular' : 'current',
+    accent: cfg.accent || '#111111',
     items: flashState.chosen.map((c) => (c.pct ? { id: c.id, pct: c.pct } : { id: c.id })),
   };
 }
