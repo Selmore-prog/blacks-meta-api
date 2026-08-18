@@ -27,6 +27,7 @@ const { buildInterest } = require('./productInterest');
 const { buildLayout } = require('./homeLayout');
 const { getRails, getRailsConfig, saveRailsConfig, validateConfig, buildPayload,
   invalidate: invalidateRails, RULES, SPECIAL_RULES, SLOT_IDS, LAYOUTS } = require('./homeRails');
+const flashSale = require('./flashSale');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -184,6 +185,10 @@ function authCron(req, res, next) {
 }
 
 app.post('/api/cron/generate-daily', authCron, wrap(async (req, res) => {
+  // Red de seguridad: si el contador de una oferta flash venció, restaura precios.
+  // (El camino principal es perezoso, al leer el home; esto cubre el caso de que
+  // nadie visite la tienda justo cuando vence.)
+  await flashSale.maybeAutoEnd().catch((e) => console.error('[flash] auto-end cron:', e.message));
   res.json({ ok: true, ...(await generateDaily()) });
 }));
 
@@ -782,11 +787,16 @@ const publicGetCors = (req, res, next) => {
 app.options('/api/home/rails', publicGetCors);
 
 app.get('/api/home/rails', publicGetCors, wrap(async (req, res) => {
-  const payload = await getRails({ force: req.query.force === '1' });
+  // Rieles + bloque de ofertas flash en la MISMA respuesta: el theme hace un
+  // solo fetch para todo el home (ver home-dynamic-rail.tpl y home-flash-sale.tpl).
+  const [payload, flash] = await Promise.all([
+    getRails({ force: req.query.force === '1' }),
+    flashSale.getBlock().catch((e) => { console.error('[flash] getBlock:', e.message); return { active: false }; }),
+  ]);
   // El CDN/navegador puede servirlo hasta 5 min sin preguntar, y hasta 30 min
   // más mientras revalida atrás: ninguna visita espera por esto.
   res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=1800');
-  res.json(payload);
+  res.json({ ...payload, flash });
 }));
 
 // Catálogo de reglas disponibles + la config actual. Lo consume la pestaña
@@ -828,6 +838,35 @@ app.post('/api/home/preview', wrap(async (req, res) => {
 app.post('/api/home/config', wrap(async (req, res) => {
   const cfg = await saveRailsConfig(req.body);
   res.json({ ok: true, config: cfg, rails: (await getRails({ force: true })).rails });
+}));
+
+// ---- OFERTAS FLASH (sección de ofertas con contador) --------------------
+// Descuento REAL: al activar, el motor escribe el promotional_price nativo en
+// las variantes de los productos elegidos (ver src/flashSale.js). Todo detrás
+// de la sesión del panel, salvo el bloque de lectura que viaja en /api/home/rails.
+
+app.get('/api/flash', wrap(async (req, res) => {
+  res.json(await flashSale.getConfigDetailed());
+}));
+
+// Buscador predictivo SÓLO minoristas para elegir los productos a mano.
+app.get('/api/flash/search', wrap(async (req, res) => {
+  res.json(await flashSale.search(req.query.q));
+}));
+
+// Guarda la configuración (productos, %, fecha de fin) SIN aplicar precios.
+app.post('/api/flash', wrap(async (req, res) => {
+  res.json({ ok: true, config: await flashSale.saveConfig(req.body) });
+}));
+
+// Aplica el descuento real en Tiendanube. Puede tardar (una escritura por variante).
+app.post('/api/flash/activate', wrap(async (req, res) => {
+  res.json(await flashSale.activate());
+}));
+
+// Restaura los precios anteriores y apaga la sección.
+app.post('/api/flash/end', wrap(async (req, res) => {
+  res.json(await flashSale.end());
 }));
 
 /* =========================================================================

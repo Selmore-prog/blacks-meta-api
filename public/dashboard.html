@@ -209,6 +209,11 @@
         <button class="btn-ghost" id="home-preview-btn" onclick="previewHomeRails()"><span data-ic="eye"></span> Previsualizar</button>
         <button class="btn-primary btn-sm" id="home-save-btn" onclick="publishHomeRails()"><span data-ic="check"></span> Publicar en la tienda</button>
       </div>
+
+      <!-- ===== Ofertas flash (sección de ofertas con contador) =====
+           El buscador y el % viven acá; al activar, el motor escribe el precio de
+           oferta real en Tiendanube. Ver src/flashSale.js y home-flash-sale.tpl. -->
+      <div id="flash-panel"><p class="loading">Cargando ofertas flash…</p></div>
       <p class="hint" style="margin:0 0 14px;">
         Los cuatro huecos de abajo son los "★ Riel automático 1-4" que ponés en el orden de la
         página de inicio, desde el panel de diseño de Tiendanube. Acá elegís <b>qué va adentro</b>

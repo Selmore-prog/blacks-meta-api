@@ -128,6 +128,43 @@ function productColors(product) {
 }
 
 /**
+ * Request genérico a la API de Tiendanube (para escrituras: PUT/POST/DELETE).
+ * Reusa el mismo estilo de auth y User-Agent que las lecturas. Tira Error con
+ * .status en cualquier respuesta no-2xx, con el cuerpo recortado para poder
+ * diagnosticar sin volcar toda la respuesta al log.
+ */
+async function tnRequest(method, path, body) {
+  const url = `${config.tiendanube.apiBase}/${config.tiendanube.storeId}${path}`;
+  const res = await fetch(url, {
+    method,
+    headers: { ...buildAuthHeader(), 'User-Agent': config.tiendanube.userAgent, 'Content-Type': 'application/json' },
+    body: body === undefined ? undefined : JSON.stringify(body),
+  });
+  const text = await res.text().catch(() => '');
+  let data = null;
+  try { data = text ? JSON.parse(text) : null; } catch (_) { /* respuesta no-JSON */ }
+  if (!res.ok) {
+    const err = new Error(`Tiendanube ${method} ${path} -> ${res.status}: ${String(text).slice(0, 200)}`);
+    err.status = res.status;
+    throw err;
+  }
+  return data;
+}
+
+/**
+ * Fija (o limpia) el PRECIO DE OFERTA nativo de una variante.
+ *   value = número  -> pone ese promotional_price (lo que Tiendanube muestra tachado).
+ *   value = null    -> limpia la oferta (vuelve al precio regular).
+ * Es el mecanismo del "descuento REAL" de la sección de ofertas flash: al ser
+ * el precio de oferta nativo, el tachado aparece solo en toda la tienda y aplica
+ * en el checkout, sin callbacks ni scripts. El precio REGULAR nunca se toca.
+ */
+async function setVariantPromotionalPrice(productId, variantId, value) {
+  const promotional_price = value === null || value === undefined ? null : String(value);
+  return tnRequest('PUT', `/products/${productId}/variants/${variantId}`, { promotional_price });
+}
+
+/**
  * Trae UN producto puntual con su precio/stock actual (para refrescar justo antes de generar/publicar).
  * Devuelve el producto normalizado o null si no existe / falla.
  */
@@ -218,4 +255,4 @@ async function fetchSalesSince(sinceISO) {
   return sales;
 }
 
-module.exports = { fetchAllProducts, fetchProduct, fetchSalesSince, normalizeProduct, detectBrand, pickText, productColors };
+module.exports = { fetchAllProducts, fetchProduct, fetchSalesSince, normalizeProduct, detectBrand, pickText, productColors, tnRequest, setVariantPromotionalPrice };

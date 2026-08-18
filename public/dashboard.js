@@ -1,6 +1,7 @@
 /* ============ iconos (SVG inline, sin emojis) ============ */
 const ICONS = {
   bolt: '<polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/>',
+  save: '<path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/>',
   refresh: '<polyline points="23 4 23 10 17 10"/><polyline points="1 20 1 14 7 14"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/>',
   check: '<polyline points="20 6 9 17 4 12"/>',
   edit: '<path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.12 2.12 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>',
@@ -151,7 +152,7 @@ function switchTab(view) {
   if (view === 'style') loadStyle();
   if (view === 'metrics') loadMetrics();
   if (view === 'products') loadProducts();
-  if (view === 'home') loadHomeRails();
+  if (view === 'home') { loadHomeRails(); loadFlash(); }
   if (view === 'studio') loadStudio();
   if (view === 'analysis') setupAnalysis();
   if (view === 'ads') loadAdsPerformance();
@@ -4847,4 +4848,305 @@ async function loadHomeLayout() {
   } catch (err) {
     box.innerHTML = `<div class="panel"><p class="hint" style="margin:0;">No pude armar el esquema: ${esc(err.message)}</p></div>`;
   }
+}
+
+/* ==========================================================================
+ * OFERTAS FLASH (pestaña Home)
+ *
+ * El dueño elige productos MINORISTAS con el buscador predictivo, les pone un %
+ * y una fecha de fin. "Guardar" persiste la config; "Activar" hace que el motor
+ * escriba el precio de oferta REAL en Tiendanube (una escritura por variante) y
+ * "Terminar" restaura los precios. Cuando está activa no se pueden cambiar los
+ * productos (habría precios escritos sin su libreta de restauración): primero se
+ * termina. Ver src/flashSale.js.
+ * ========================================================================== */
+let flashState = { cfg: null, chosen: [], searchTimer: null, busy: false };
+
+function flashMoney(n) {
+  if (n === null || n === undefined || n === '') return '';
+  return '$' + Number(n).toLocaleString('es-AR', { maximumFractionDigits: 0 });
+}
+function flashDefaultPct() { return Number(flashState.cfg && flashState.cfg.default_pct) || 20; }
+function flashEffPct(it) {
+  const p = Number(it.pct);
+  return Number.isFinite(p) && p >= 1 && p <= 90 ? p : flashDefaultPct();
+}
+function flashFinal(it) {
+  const price = Number(it.price) || 0;
+  return Math.round(price * (1 - flashEffPct(it) / 100));
+}
+/* ISO (UTC) -> valor para <input type="datetime-local"> en hora LOCAL. */
+function isoToLocalInput(iso) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d.getTime())) return '';
+  const off = d.getTimezoneOffset() * 60000;
+  return new Date(d.getTime() - off).toISOString().slice(0, 16);
+}
+function localInputToIso(val) {
+  if (!val) return null;
+  const d = new Date(val); // el navegador lo interpreta en hora local
+  return isNaN(d.getTime()) ? null : d.toISOString();
+}
+function flashTimeLeft(iso) {
+  if (!iso) return '';
+  let left = new Date(iso).getTime() - Date.now();
+  if (left <= 0) return 'vencida';
+  const d = Math.floor(left / 86400000); left -= d * 86400000;
+  const h = Math.floor(left / 3600000); left -= h * 3600000;
+  const m = Math.floor(left / 60000);
+  return (d ? d + 'd ' : '') + h + 'h ' + m + 'm';
+}
+
+async function loadFlash() {
+  const box = document.getElementById('flash-panel');
+  if (!box) return;
+  box.innerHTML = '<div class="panel">' + skeleton('rows', 3) + '</div>';
+  try {
+    const cfg = await api('/api/flash');
+    flashState.cfg = cfg;
+    // La lista elegida se hidrata con el detalle que trae el backend.
+    flashState.chosen = (cfg.items_detail || []).filter((x) => !x.missing).map((x) => ({
+      id: x.id, name: x.name, image: x.image, price: x.price, stock: x.stock, pct: x.pct || null,
+    }));
+    renderFlash();
+  } catch (err) {
+    box.innerHTML = `<div class="panel"><p class="hint">No pude cargar las ofertas flash: ${esc(err.message)}</p></div>`;
+  }
+}
+
+function renderFlash() {
+  const cfg = flashState.cfg || {};
+  const active = !!cfg.active;
+  const box = document.getElementById('flash-panel');
+
+  const banner = active
+    ? `<div class="flash-banner"><span data-ic="bolt"></span>
+         <div><b>Oferta activa</b> — ${flashState.chosen.length} productos con precio de oferta escrito en Tiendanube.
+         ${cfg.ends_at ? `Termina en <b>${esc(flashTimeLeft(cfg.ends_at))}</b>.` : 'Sin fecha de fin.'}</div>
+         <button class="btn-ghost btn-sm" onclick="flashEnd()" style="margin-left:auto;">${icon('trash')} Terminar y restaurar precios</button>
+       </div>`
+    : `<div class="flash-banner warn"><span data-ic="info"></span>
+         <div>Inactiva. Elegí productos, revisá los precios y tocá <b>Activar</b>: recién ahí se escribe el descuento real en la tienda.</div>
+       </div>`;
+
+  const metaDisabled = ''; // el título/fecha se pueden editar aún activa
+  const editDisabled = active ? 'disabled' : '';
+
+  box.innerHTML = `
+  <div class="panel flash-panel">
+    <div class="p-head">
+      <h3>${icon('bolt')} Ofertas flash ${tip('Sección de ofertas con contador para el home. Al activar, el motor le pone el precio de oferta NATIVO a cada producto elegido, así el tachado aparece en toda la tienda y el descuento aplica de verdad en el checkout. Al terminar (o cuando vence el contador) restaura los precios.')}</h3>
+      <span class="flash-status ${active ? 'on' : 'off'}">${active ? 'Activa' : 'Inactiva'}</span>
+    </div>
+
+    ${banner}
+
+    <div class="grid-2">
+      <div class="field"><label>Título que ve el cliente</label>
+        <input class="input" id="flash-title" maxlength="80" value="${esc(cfg.title || 'Ofertas flash')}" /></div>
+      <div class="field"><label>Subtítulo (opcional)</label>
+        <input class="input" id="flash-subtitle" maxlength="160" value="${esc(cfg.subtitle || '')}" placeholder="ej: Sólo por hoy, hasta agotar stock" /></div>
+    </div>
+    <div class="grid-2">
+      <div class="field"><label>Termina el ${tip('Cuando llega esta fecha/hora, la sección desaparece del home y los precios se restauran solos.')}</label>
+        <input class="input" id="flash-ends" type="datetime-local" value="${isoToLocalInput(cfg.ends_at)}" /></div>
+      <div class="field"><label>Descuento por defecto (%) ${tip('Se aplica a los productos que no tengan un % propio. Podés pisarlo producto por producto en la lista.')}</label>
+        <input class="input" id="flash-default-pct" type="number" min="1" max="90" ${editDisabled} value="${cfg.default_pct || 20}" /></div>
+    </div>
+    <div class="field"><label>Link del botón "Ver todas" (opcional)</label>
+      <input class="input" id="flash-url" value="${esc(cfg.url || '/productos')}" placeholder="/productos" /></div>
+
+    <div class="field">
+      <label>Productos en oferta ${tip('Buscá por nombre. Sólo aparecen productos minoristas (con precio y stock). El orden en que los agregás es el orden en que se ven en el home.')}</label>
+      ${active
+        ? '<p class="hint">Para cambiar los productos o los %, primero <b>Terminá</b> la oferta.</p>'
+        : `<div class="flash-search">
+             <input class="input" id="flash-search-input" placeholder="Buscar producto para agregar…" autocomplete="off" />
+             <div class="flash-results" id="flash-results"></div>
+           </div>`}
+      <div class="flash-chosen" id="flash-chosen"></div>
+      ${!active && flashState.chosen.length > 1 ? '<p class="flash-order-hint">Se muestran en este orden en el home.</p>' : ''}
+    </div>
+
+    <div class="flash-actions">
+      ${active
+        ? `<button class="btn-primary btn-sm" onclick="flashSave(true)">${icon('check')} Guardar cambios (título / fecha)</button>`
+        : `<button class="btn-ghost btn-sm" onclick="flashSave(false)">${icon('save')} Guardar borrador</button>
+           <button class="btn-primary btn-sm" onclick="flashActivate()">${icon('bolt')} Activar oferta real</button>`}
+    </div>
+  </div>`;
+
+  hydrateIcons(box);
+  renderFlashChosen();
+  bindFlashInputs();
+}
+
+function renderFlashChosen() {
+  const wrap = document.getElementById('flash-chosen');
+  if (!wrap) return;
+  const active = !!(flashState.cfg && flashState.cfg.active);
+  if (!flashState.chosen.length) {
+    wrap.innerHTML = '<p class="hint" style="margin:6px 2px;">Todavía no elegiste productos.</p>';
+    return;
+  }
+  wrap.innerHTML = flashState.chosen.map((it, i) => {
+    const final = flashFinal(it);
+    const pctVal = it.pct ? it.pct : '';
+    return `<div class="flash-chip ${active ? 'dim' : ''}">
+      ${it.image ? `<img src="${esc(it.image)}" alt="">` : ''}
+      <div class="fc-info">
+        <div class="fc-name">${esc(it.name || ('#' + it.id))}</div>
+        <div class="fc-price"><span class="fc-final">${flashMoney(final)}</span> <s>${flashMoney(it.price)}</s> · -${flashEffPct(it)}%</div>
+      </div>
+      <div class="fc-pct">
+        <input class="input" type="number" min="1" max="90" data-flash-pct="${i}" value="${pctVal}"
+               placeholder="${flashDefaultPct()}" ${active ? 'disabled' : ''} title="% para este producto (vacío = usa el general)" />
+        <span>%</span>
+      </div>
+      ${active ? '' : `<button class="fc-remove" onclick="flashRemove(${i})" title="Quitar">&times;</button>`}
+    </div>`;
+  }).join('');
+
+  wrap.querySelectorAll('[data-flash-pct]').forEach((el) => {
+    el.addEventListener('input', () => {
+      const i = Number(el.dataset.flashPct);
+      const v = Number(el.value);
+      flashState.chosen[i].pct = (Number.isFinite(v) && v >= 1 && v <= 90) ? Math.round(v) : null;
+      // Actualiza sólo el precio final de esa fila (sin re-render, no perder foco).
+      const chip = el.closest('.flash-chip');
+      const fin = chip && chip.querySelector('.fc-final');
+      const meta = chip && chip.querySelector('.fc-price');
+      if (fin) fin.textContent = flashMoney(flashFinal(flashState.chosen[i]));
+      if (meta) meta.innerHTML = `<span class="fc-final">${flashMoney(flashFinal(flashState.chosen[i]))}</span> <s>${flashMoney(flashState.chosen[i].price)}</s> · -${flashEffPct(flashState.chosen[i])}%`;
+    });
+  });
+}
+
+function bindFlashInputs() {
+  const cfg = flashState.cfg;
+  const bind = (id, key, num) => {
+    const el = document.getElementById(id);
+    if (el) el.addEventListener('input', () => { cfg[key] = num ? Number(el.value) : el.value; });
+  };
+  bind('flash-title', 'title');
+  bind('flash-subtitle', 'subtitle');
+  bind('flash-url', 'url');
+  bind('flash-default-pct', 'default_pct', true);
+  const ends = document.getElementById('flash-ends');
+  if (ends) ends.addEventListener('input', () => { cfg.ends_at = localInputToIso(ends.value); });
+  const dp = document.getElementById('flash-default-pct');
+  if (dp) dp.addEventListener('input', renderFlashChosen); // el % general cambia los precios preview
+
+  const input = document.getElementById('flash-search-input');
+  const results = document.getElementById('flash-results');
+  if (input && results) {
+    input.addEventListener('input', () => {
+      clearTimeout(flashState.searchTimer);
+      const q = input.value.trim();
+      if (q.length < 2) { results.classList.remove('open'); results.innerHTML = ''; return; }
+      flashState.searchTimer = setTimeout(() => flashDoSearch(q), 250);
+    });
+    input.addEventListener('focus', () => { if (results.innerHTML) results.classList.add('open'); });
+    document.addEventListener('click', (e) => {
+      if (!e.target.closest('.flash-search')) results.classList.remove('open');
+    });
+  }
+}
+
+async function flashDoSearch(q) {
+  const results = document.getElementById('flash-results');
+  if (!results) return;
+  try {
+    const rows = await api('/api/flash/search?q=' + encodeURIComponent(q));
+    const chosenIds = new Set(flashState.chosen.map((c) => c.id));
+    const avail = rows.filter((r) => !chosenIds.has(r.id));
+    if (!avail.length) {
+      results.innerHTML = '<div class="flash-empty">Sin resultados minoristas nuevos para "' + esc(q) + '".</div>';
+    } else {
+      results.innerHTML = avail.map((r) => `
+        <div class="flash-result" onclick='flashAdd(${JSON.stringify(r).replace(/'/g, "&#39;")})'>
+          ${r.image ? `<img src="${esc(r.image)}" alt="">` : ''}
+          <div class="fr-info">
+            <div class="fr-name">${esc(r.name)}</div>
+            <div class="fr-meta">${flashMoney(r.price)}${r.stock != null ? ' · ' + r.stock + ' en stock' : ''}</div>
+          </div>
+          <span class="fr-add">+</span>
+        </div>`).join('');
+    }
+    results.classList.add('open');
+  } catch (err) {
+    results.innerHTML = `<div class="flash-empty">${esc(err.message)}</div>`;
+    results.classList.add('open');
+  }
+}
+
+function flashAdd(prod) {
+  if (flashState.chosen.some((c) => c.id === prod.id)) return;
+  if (flashState.chosen.length >= 12) { toast('La sección admite hasta 12 productos.', 'warn'); return; }
+  flashState.chosen.push({ id: prod.id, name: prod.name, image: prod.image, price: prod.price, stock: prod.stock, pct: null });
+  const input = document.getElementById('flash-search-input');
+  const results = document.getElementById('flash-results');
+  if (input) input.value = '';
+  if (results) { results.classList.remove('open'); results.innerHTML = ''; }
+  renderFlashChosen();
+}
+
+function flashRemove(i) {
+  flashState.chosen.splice(i, 1);
+  renderFlashChosen();
+}
+
+function flashPayload() {
+  const cfg = flashState.cfg || {};
+  return {
+    title: cfg.title,
+    subtitle: cfg.subtitle,
+    url: cfg.url,
+    ends_at: cfg.ends_at || null,
+    default_pct: Number(cfg.default_pct) || 20,
+    items: flashState.chosen.map((c) => (c.pct ? { id: c.id, pct: c.pct } : { id: c.id })),
+  };
+}
+
+async function flashSave(silent) {
+  try {
+    await api('/api/flash', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(flashPayload()) });
+    toast(silent ? 'Cambios guardados.' : 'Borrador guardado.', 'ok');
+    await loadFlash();
+  } catch (err) { toast(err.message, 'warn'); }
+}
+
+async function flashActivate() {
+  if (!flashState.chosen.length) { toast('Elegí al menos un producto.', 'warn'); return; }
+  if (!flashState.cfg.ends_at) { toast('Poné una fecha de fin para el contador.', 'warn'); return; }
+  const n = flashState.chosen.length;
+  if (!confirm(`Vas a escribir el precio de oferta REAL en Tiendanube para ${n} producto(s).\n\nEl tachado y el precio nuevo van a aparecer en toda la tienda. Al terminar (o cuando venza el contador) se restauran solos.\n\n¿Activar ahora?`)) return;
+  const btn = (typeof window !== 'undefined' && window.event && window.event.target) ? window.event.target.closest('button') : null;
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Aplicando precios… no cierres esta pestaña'; }
+  try {
+    await api('/api/flash', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(flashPayload()) });
+    const r = await api('/api/flash/activate', { method: 'POST' });
+    if (r.errores && r.errores.length) {
+      toast(`Activada con ${r.errores.length} error(es). Revisá los precios.`, 'warn');
+      console.warn('[flash] errores al activar:', r.errores);
+    } else {
+      toast(`Oferta activa: ${r.variantes_escritas} precios escritos en ${r.productos} productos.`, 'ok');
+    }
+    await loadFlash();
+    if (typeof previewHomeRails === 'function') previewHomeRails({ silent: true });
+  } catch (err) {
+    toast(err.message, 'warn');
+    if (btn) { btn.disabled = false; btn.innerHTML = 'Activar oferta real'; }
+  }
+}
+
+async function flashEnd() {
+  if (!confirm('¿Terminar la oferta y restaurar los precios anteriores en Tiendanube?')) return;
+  try {
+    const r = await api('/api/flash/end', { method: 'POST' });
+    toast(`Oferta terminada: ${r.restauradas} precios restaurados.`, 'ok');
+    await loadFlash();
+    if (typeof previewHomeRails === 'function') previewHomeRails({ silent: true });
+  } catch (err) { toast(err.message, 'warn'); }
 }
