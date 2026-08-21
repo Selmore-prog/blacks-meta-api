@@ -1053,6 +1053,43 @@ app.post('/api/cron/sync-catalog', authCron, wrap(async (req, res) => {
   res.json({ ok: true, ...(await syncCatalogAvailability({ apply: true })) });
 }));
 
+/* --------------------- CONJUNTO CURADO DE ANUNCIOS ---------------------- *
+ * Arma el product set con el que conviene anunciar (sin mayorista, sin curva
+ * rota, en temporada, un item por producto). NO toca el catálogo: sólo
+ * escribe la lista del conjunto. apply=false es un dry-run completo.        */
+app.post('/api/catalog/ad-set', wrap(async (req, res) => {
+  const { buildAdSet } = require('./adCatalogSet');
+  res.json(await buildAdSet({ apply: Boolean(req.body && req.body.apply) }));
+}));
+
+// Último cálculo guardado, para abrir el panel sin esperar los 20-40 s que
+// tarda recalcular (catálogo de Meta + GA4 + Meta Ads + Google Ads).
+app.get('/api/catalog/ad-set', wrap(async (req, res) => {
+  const { rows } = await pool.query(
+    `SELECT m.product_id, m.retailer_id, m.in_set, m.score, m.tier, m.season, m.reason,
+            m.fail_streak, m.entered_at, m.updated_at,
+            p.name, p.brand, p.image_url, p.stock, p.sizes_in_stock, p.sizes_total,
+            p.price, p.promo_price, p.sales_30d
+       FROM ad_set_members m JOIN products_cache p ON p.id = m.product_id
+      ORDER BY m.in_set DESC, m.score DESC NULLS LAST`
+  );
+  const calculado = rows.length ? rows.reduce((a, r) => (r.updated_at > a ? r.updated_at : a), rows[0].updated_at) : null;
+  res.json({
+    calculado_at: calculado,
+    en_el_conjunto: rows.filter((r) => r.in_set).length,
+    productos: rows.filter((r) => r.in_set),
+    fuera: rows.filter((r) => !r.in_set),
+  });
+}));
+
+// Versión cron: cada 6 h. El stock se mueve en el día, pero el elenco de los
+// anuncios no debe cambiar cada hora — con la histéresis del módulo, rotar
+// cuatro veces por día es suficiente y no desordena la entrega de Meta.
+app.post('/api/cron/ad-set', authCron, wrap(async (req, res) => {
+  const { buildAdSet } = require('./adCatalogSet');
+  res.json({ ok: true, ...(await buildAdSet({ apply: true })) });
+}));
+
 // Atribución por pieza: sesiones/compras de Google Analytics cuyas campañas empiezan
 // con engine_ (los links con UTM que arma el motor llevan engine_<calendarId>).
 let attributionCache = { data: null, at: 0 };

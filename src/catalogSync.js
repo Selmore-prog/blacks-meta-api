@@ -138,4 +138,4 @@ async function syncCatalogAvailability({ apply = false } = {}) {
   return summary;
 }
 
-module.exports = { syncCatalogAvailability, tiendanubeVariantMap, fbGet, fetchAllCatalogItems };
+module.exports = { syncCatalogAvailability, tiendanubeVariantMap, fbGet, fbPost, fetchAllCatalogItems };

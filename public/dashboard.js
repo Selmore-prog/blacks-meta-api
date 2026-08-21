@@ -3050,6 +3050,7 @@ async function loadAdsSummary() {
         <div style="margin-top:16px; display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
           <button class="btn-primary btn-sm" id="ads-audit-btn">${icon('sparkles')} Auditar campañas con IA ${costTag('Gratis')}</button>
           <button class="btn-ghost btn-sm" id="cat-sync-btn">${icon('refresh')} Revisar catálogo vs stock</button>
+          <button class="btn-ghost btn-sm" id="ad-set-btn">${icon('tag')} Conjunto de anuncios</button>
           <span class="hint" style="margin:0;">Analiza campañas, anuncios y catálogos (cruzado con tu stock real) y detecta lo que la agencia no ve.</span>
         </div>
         <div id="ads-audit-out"></div>
@@ -3057,6 +3058,7 @@ async function loadAdsSummary() {
     const btn = el.querySelector('#ads-audit-btn');
     btn.addEventListener('click', () => runAdsAudit(btn));
     el.querySelector('#cat-sync-btn').addEventListener('click', (e) => openCatalogSync(e.currentTarget));
+    el.querySelector('#ad-set-btn').addEventListener('click', (e) => openAdSet(e.currentTarget));
     // Si ya hay una auditoría hecha en esta sesión del server, mostrarla al entrar.
     try {
       const cached = await api('/api/ads/audit');
@@ -3112,6 +3114,71 @@ async function openCatalogSync(btn) {
       toast(`Listo: ${r.correcciones_necesarias} correcciones enviadas a Meta (se aplican en unos minutos).`, 'ok');
     } catch (err) {
       toast(`No se pudo corregir: ${err.message}`, 'err');
+      b.disabled = false; b.innerHTML = `${icon('check')} Reintentar`;
+    }
+  });
+}
+
+/**
+ * CONJUNTO CURADO DE ANUNCIOS.
+ * Muestra qué productos merecen pauta hoy y por qué los demás quedaron afuera,
+ * y recién con confirmación escribe el product set en Meta. NO toca el catálogo:
+ * el catálogo lo sigue manejando Tiendanube, acá sólo se arma la lista del
+ * conjunto contra la que corren los anuncios.
+ */
+async function openAdSet(btn) {
+  btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Calculando… (20-40 s)`;
+  let d;
+  try {
+    d = await api('/api/catalog/ad-set', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apply: false }) });
+  } catch (e) {
+    toast(`No pude calcular el conjunto: ${e.message}`, 'err');
+    btn.disabled = false; btn.innerHTML = `${icon('tag')} Conjunto de anuncios`;
+    return;
+  }
+  btn.disabled = false; btn.innerHTML = `${icon('tag')} Conjunto de anuncios`;
+
+  const fila = (p) => `<div class="dl-row">
+      <span title="${esc(p.name)}"><b>${p.tier}</b> · ${esc(String(p.name).slice(0, 40))}</span>
+      <span class="hint" style="margin:0; white-space:nowrap;">
+        ${p.score} pts · ${esc(p.temporada)} · ${p.sizes_in_stock}/${p.sizes_total} talles · ${p.stock} u.${p.sales_30d ? ` · ${p.sales_30d} vtas` : ''}
+      </span>
+    </div>`;
+
+  const motivos = Object.entries(d.excluidos_por_motivo || {})
+    .map(([m, n]) => `<div class="dl-row"><span>${esc(m)}</span><span class="hint" style="margin:0;">${n} producto${n === 1 ? '' : 's'}</span></div>`)
+    .join('');
+
+  const body = `
+    <p class="hint" style="margin-top:0;">De los <b>${d.productos_evaluados}</b> productos de la tienda, <b>${d.en_el_conjunto}</b> merecen pauta hoy. El catálogo de Meta <b>no se toca</b>: se escribe sólo la lista del conjunto.</p>
+    <div class="prod-totals" style="margin-bottom:14px;">
+      <div class="stat"><b>${d.en_el_conjunto}</b><span>Productos en el conjunto</span></div>
+      <div class="stat"><b style="color:var(--orange)">${d.duplicados_evitados}</b><span>Tarjetas repetidas evitadas (mismo producto en otro talle)</span></div>
+      <div class="stat"><b>${d.tier_a}</b><span>Tier A (los de mayor puntaje, para el conjunto TOP)</span></div>
+      <div class="stat"><b>${d.excluidos}</b><span>Quedaron afuera</span></div>
+    </div>
+    <p class="hint"><b>Por qué quedaron afuera</b>${d.interes_ga4 ? '' : ' · (sin datos de Analytics en esta corrida: el puntaje salió sólo de ventas, stock, curva y temporada)'}</p>
+    ${motivos}
+    <p class="hint" style="margin-top:14px;"><b>Los 12 primeros del conjunto</b> — puntaje = ventas 30 d + interés en la web + curva de talles + profundidad de stock + temporada.</p>
+    ${(d.productos || []).slice(0, 12).map(fila).join('')}
+    ${d.en_el_conjunto > 12 ? `<p class="hint">…y ${d.en_el_conjunto - 12} más.</p>` : ''}
+    ${d.aviso ? `<p class="hint" style="color:var(--orange)">${esc(d.aviso)}</p>` : ''}
+    <p class="hint">Se escriben tres conjuntos en Meta: <b>Motor · Curado</b> (uno por producto, para campañas de venta), <b>Motor · Curado TOP</b> (sólo los tier A) y <b>Motor · Remarketing</b> (todo lo comprable, sin deduplicar, para que el anuncio de recuperación pueda mostrar el talle exacto que la persona miró). Se rearman solos cada 6 h.</p>
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:6px;">
+      <button class="btn-discard" id="as-cancel">Ahora no</button>
+      <button class="btn-primary" id="as-apply">${icon('check')} Actualizar los conjuntos en Meta</button>
+    </div>`;
+  const ov = showInfoModal('Conjunto curado de anuncios', body);
+  ov.querySelector('#as-cancel').addEventListener('click', () => ov.remove());
+  ov.querySelector('#as-apply').addEventListener('click', async (e) => {
+    const b = e.currentTarget; b.disabled = true; b.innerHTML = `${icon('refresh', 'spin')} Actualizando…`;
+    try {
+      const r = await api('/api/catalog/ad-set', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apply: true }) });
+      ov.remove();
+      if (!r.applied) toast(r.aviso || 'No se aplicó el conjunto.', 'err');
+      else toast(`Conjuntos actualizados: ${r.en_el_conjunto} productos (TOP: ${r.tier_a}). Meta tarda unos minutos.`, 'ok');
+    } catch (err) {
+      toast(`No se pudo actualizar: ${err.message}`, 'err');
       b.disabled = false; b.innerHTML = `${icon('check')} Reintentar`;
     }
   });

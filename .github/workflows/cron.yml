@@ -18,6 +18,10 @@ on:
     # publica cada pieza cuando llega SU horario programado (hora argentina).
     # Ventana 10:00-23:00 UTC = 07:00-20:00 ARG (fuera de eso no hay slots).
     - cron: '0 10-23 * * *'
+    # Conjunto curado de anuncios (product set de Meta) cada 6 h: 03:10, 09:10,
+    # 15:10 y 21:10 UTC. No va cada hora a propósito — el elenco de los anuncios
+    # no debe cambiar todo el tiempo, y el módulo ya tiene histéresis.
+    - cron: '10 3,9,15,21 * * *'
     # Sincronización semanal de métricas e insights los lunes a las 12:00 UTC
     - cron: '0 12 * * 1'
     # Datos verificados de la empresa (web oficial -> IA): domingos 11:00 UTC
@@ -42,6 +46,7 @@ on:
           - analyze-style
           - generate-plan
           - sync-company-info
+          - ad-set
 
 jobs:
   # Trae precios/stock actualizados de Tiendanube al cache.
@@ -98,6 +103,28 @@ jobs:
             -H "Content-Type: application/json" \
             "${{ secrets.PUBLIC_BASE_URL }}/api/cron/sync-catalog" \
             || echo "sync-catalog falló (no bloquea el sync de productos)"
+      # Y con el catálogo ya alineado, se rearma el conjunto curado de anuncios:
+      # así a la mañana los anuncios ya salen contra el elenco del día.
+      - name: Rearmar el conjunto curado de anuncios
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            "${{ secrets.PUBLIC_BASE_URL }}/api/cron/ad-set" \
+            || echo "ad-set falló (se rearma en la próxima pasada de 6 h)"
+
+  # Conjunto curado de anuncios: reevalúa qué productos merecen pauta y reescribe
+  # el product set de Meta. No toca el catálogo, sólo la lista del conjunto.
+  ad-set:
+    if: github.event.schedule == '10 3,9,15,21 * * *' || github.event.inputs.job == 'ad-set'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Rearmar el conjunto curado de anuncios
+        run: |
+          curl -sf -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            "${{ secrets.PUBLIC_BASE_URL }}/api/cron/ad-set"
 
   # Genera copy + imagen (Puppeteer/Gemini) en el runner de GitHub (no en Render)
   # para no competir por la RAM del free tier.

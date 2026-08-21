@@ -231,6 +231,24 @@ CREATE TABLE IF NOT EXISTS video_jobs (
   updated_at         TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Conjunto curado de anuncios (product set de Meta). Guarda la DECISIÓN por
+-- producto, no el catálogo: qué entró, con qué puntaje y por qué quedó afuera.
+-- fail_streak es la histéresis: un producto sale del conjunto recién cuando
+-- falla 2 corridas seguidas por un motivo blando (temporada, curva), así los
+-- anuncios no cambian de elenco todos los días.
+CREATE TABLE IF NOT EXISTS ad_set_members (
+  product_id   BIGINT PRIMARY KEY REFERENCES products_cache(id),
+  retailer_id  TEXT,           -- variante representativa que va al conjunto
+  in_set       BOOLEAN DEFAULT false,
+  score        NUMERIC,
+  tier         TEXT,           -- A | B | C
+  season       TEXT,           -- verano | invierno | media | todo
+  reason       TEXT,           -- motivo de exclusión, en castellano (null = está adentro)
+  fail_streak  INTEGER DEFAULT 0,
+  entered_at   TIMESTAMPTZ,
+  updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 CREATE INDEX IF NOT EXISTS idx_ai_usage_created ON ai_usage (created_at);
 CREATE INDEX IF NOT EXISTS idx_video_jobs_asset ON video_jobs (asset_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_lead_clicks_created ON lead_clicks (created_at DESC);
@@ -241,6 +259,7 @@ CREATE INDEX IF NOT EXISTS idx_commercial_dates_date ON commercial_dates (event_
 CREATE INDEX IF NOT EXISTS idx_assets_calendar ON generated_assets (calendar_id);
 CREATE INDEX IF NOT EXISTS idx_insights_meta_post_id ON post_insights (meta_post_id);
 CREATE INDEX IF NOT EXISTS idx_products_stock ON products_cache (stock);
+CREATE INDEX IF NOT EXISTS idx_ad_set_members_in_set ON ad_set_members (in_set, score DESC);
 `;
 
 // Columnas nuevas agregadas de forma incremental (no rompen datos existentes).
