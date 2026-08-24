@@ -1,5 +1,6 @@
 const pool = require('../src/db');
 const { seedCalendar, getPendingForDate } = require('../src/calendar');
+const artDirection = require('../src/artDirection');
 const { generateCopy } = require('../src/ai');
 const { renderPostBuffer } = require('../src/imageRenderer');
 const { fetchProduct, productColors } = require('../src/tiendanube');
@@ -465,10 +466,11 @@ function templateCandidates(slot, { visualProduct } = {}) {
 
 /**
  * Plantilla visual: override manual > elección del cerebro (aiPick, si es una candidata
- * válida) > rotación por seed del slot > fullbleed. La rotación garantiza que, sin
- * elección de IA, la misma combinación pilar+producto no repita siempre el mismo diseño.
+ * válida) > rotación sobre las candidatas que NO se usaron hace poco > fullbleed.
+ * En los tres caminos el menú viene ya filtrado por la memoria de diseño, así que
+ * ninguno puede devolver la plantilla de la pieza anterior si hay alternativa.
  */
-function chooseTemplate(slot, { override, visualProduct, aiPick } = {}) {
+function chooseTemplate(slot, { override, visualProduct, aiPick, recientes = [] } = {}) {
   if (VALID_TEMPLATES.includes(override)) return override;
   // La plantilla 'educativo' es una tarjeta tipográfica CON MUCHO texto y una foto
   // chica de apoyo: pensada para feed/carrusel estático. En un Reel (post_type='reel')
@@ -481,7 +483,11 @@ function chooseTemplate(slot, { override, visualProduct, aiPick } = {}) {
   const candidates = templateCandidates(slot, { visualProduct });
   // El cerebro eligió una plantilla entre las candidatas válidas: la respetamos.
   if (aiPick && candidates.includes(aiPick)) return aiPick;
-  return candidates[Number(slot.id) % candidates.length];
+  // Rotación de respaldo. `slot.id % n` no garantizaba variedad: los ids no son
+  // consecutivos dentro de un mismo pilar, así que salían tres fullbleed seguidas.
+  // Ahora primero se descartan las plantillas de las últimas piezas.
+  const frescas = artDirection.withoutRecent(candidates, recientes);
+  return frescas[Number(slot.id) % frescas.length];
 }
 
 function interactionChip(slot, sticker = null) {
@@ -690,6 +696,9 @@ async function generateForSlot(slot, overrides = {}) {
   const occasion = await getCommercialContextForDate(slot.scheduled_date, { daysAhead: 0 }).catch(() => null);
   const recentIds = await recentlyFeaturedIds().catch(() => []);
   const recentPieces = await recentPieceSummaries().catch(() => []);
+  // MEMORIA DE DISEÑO: con qué plantilla y variante salieron las últimas piezas, y con
+  // qué palabras vienen arrancando los copys. Se usa para que el feed no se repita.
+  const design = await artDirection.directionFor().catch(() => ({ recientes: [], arranquesUsados: [] }));
   const isCarousel = Boolean(slot.carousel) && format === 'feed'; // los carruseles de la API de Meta son de feed
 
   // ============ DIRECTOR CREATIVO (análisis previo de la pieza) ============
@@ -702,8 +711,12 @@ async function generateForSlot(slot, overrides = {}) {
   if (!noProductBrief && !slot.forced_product_id) {
     try {
       const { planPiece } = require('../src/creativeDirector');
+      // El menú que ve el director YA viene sin las plantillas de las últimas piezas:
+      // elegía siempre la más "segura" y el feed salía clonado (29 de 72 piezas con
+      // fullbleed en 45 días). Ver src/artDirection.js.
       const planTemplateOptions = (!isCarousel && slot.post_type !== 'reel' && !overrides.template)
-        ? (PILLAR_TEMPLATE_POOL[slot.pillar] || ['fullbleed', 'minimal']).map((t) => ({ name: t, desc: TEMPLATE_INFO[t] || '' }))
+        ? artDirection.withoutRecent(PILLAR_TEMPLATE_POOL[slot.pillar] || ['fullbleed', 'minimal'], design.recientes)
+          .map((t) => ({ name: t, desc: TEMPLATE_INFO[t] || '' }))
         : [];
       directorPlan = await planPiece({
         slot: effectiveSlot, wholesale, companyFacts, recentPieces,
@@ -827,7 +840,8 @@ async function generateForSlot(slot, overrides = {}) {
   // misma llamada del copy. Si el director YA eligió plantilla, no se vuelve a pedir.
   const canPickTemplate = !isCarousel && slot.post_type !== 'reel' && !overrides.template && !(directorPlan && directorPlan.template);
   const templateOptions = canPickTemplate
-    ? templateCandidates(effectiveSlot, { visualProduct }).map((t) => ({ name: t, desc: TEMPLATE_INFO[t] || '' }))
+    ? artDirection.withoutRecent(templateCandidates(effectiveSlot, { visualProduct }), design.recientes)
+      .map((t) => ({ name: t, desc: TEMPLATE_INFO[t] || '' }))
     : null;
 
   const copy = await generateCopy({
@@ -857,6 +871,8 @@ async function generateForSlot(slot, overrides = {}) {
     commercialContext,
     topCaptions: await topPerformingCaptions().catch(() => []),
     recentPieces,
+    // Las primeras palabras de los últimos captions: prohibidas como arranque.
+    usedOpeners: design.arranquesUsados,
   });
 
   // ============ AUDITORÍA FACTUAL (fase QA del director) ============
@@ -912,9 +928,29 @@ async function generateForSlot(slot, overrides = {}) {
   // Plantilla visual: override manual > elección del director creativo > elección del
   // cerebro del copy > pool del pilar filtrado por fotos reales > variedad por seed.
   // artMode 'tipografica' manda sobre todo: la pieza va sin foto, como afiche de diseño.
-  const template = artMode === 'tipografica'
+  let template = artMode === 'tipografica'
     ? 'poster'
-    : chooseTemplate(effectiveSlot, { override: overrides.template, visualProduct, aiPick: (directorPlan && directorPlan.template) || copy.template });
+    : chooseTemplate(effectiveSlot, { override: overrides.template, visualProduct, aiPick: (directorPlan && directorPlan.template) || copy.template, recientes: design.recientes });
+
+  // 'fullbleed' SIN NINGUNA FOTO ya se renderizaba como afiche por dentro (el propio
+  // buildFullbleedHtml delega en buildPosterHtml: sin foto quedaba un degradado con el
+  // titular flotando). Pero afuera seguía llamándose 'fullbleed', y eso tenía dos
+  // consecuencias: no se buscaba la foto de ambiente del afiche —la pieza salía con el
+  // tercio superior vacío— y la memoria de diseño anotaba una plantilla que no era la
+  // que se vio. Se resuelve el nombre acá, antes de todo lo que depende de él.
+  if (template === 'fullbleed' && !visualImageUrl && !overrides.template) {
+    template = 'poster';
+    console.log(`[generate-daily] Slot #${slot.id}: la pieza quedó sin foto — la plantilla pasa de 'fullbleed' a 'poster' (que es como se renderiza igual, pero así consigue fondo de ambiente).`);
+  }
+
+  // VARIANTE DE COMPOSICIÓN dentro de la plantilla: dos piezas con la misma plantilla
+  // no tienen por qué verse iguales. Se elige la que hace más que no se usa con ESTA
+  // plantilla, así el feed alterna solo (ver src/artDirection.js).
+  const variant = artDirection.pickVariant(template, design.recientes, Number(slot.id) || 0);
+  // Diseño EFECTIVO que se va a guardar ("plantilla:variante"). Es la memoria que lee
+  // la próxima pieza para no repetirse, así que tiene que reflejar lo que realmente se
+  // renderizó — si el self-healing cambia de plantilla, se actualiza más abajo.
+  let designTag = artDirection.encodeDesign(template, variant);
 
   // FOTO DE AMBIENTE PARA EL AFICHE. Cuando el director decide "tarjeta sin foto",
   // visualProduct queda en null y la pieza se renderiza sin NINGUNA imagen: el afiche
@@ -1153,6 +1189,8 @@ async function generateForSlot(slot, overrides = {}) {
     const renderOpts = {
       format,
       template,
+      // Variante de composición dentro de la plantilla (ver src/artDirection.js).
+      variant,
       overlayTitle,
       price: showPrice && product ? product.price : null,
       promoPrice: showPrice && product ? product.promo_price : null,
@@ -1254,6 +1292,7 @@ async function generateForSlot(slot, overrides = {}) {
     // guardar una "receta" fiel a la imagen final y poder corregirla después sin tocar
     // la escena (foto IA ya pagada). Ver correctPiece + POST /api/assets/:id/correct.
     let finalTemplate = template;
+    let finalVariant = variant;
     let finalSeed = Number(slot.id);
     let render = await renderPostBuffer(renderOpts);
     pieceCostUsd += render.costUsd || 0;
@@ -1291,6 +1330,7 @@ async function generateForSlot(slot, overrides = {}) {
           const healed = await renderPostBuffer({
             ...renderOpts,
             template: 'fullbleed', // la plantilla más robusta: se adapta con y sin foto
+            variant: 'clasico',    // y su composición más probada (el curado no experimenta)
             layoutSeed: Number(slot.id) + 31, // otro layout, por si el problema era de posición
             ...(aiScene ? { bgImageUrl: aiScene } : {}),
             useAiProductScene: false, useAiDiagram: false, useAiBackground: false, // cero gasto nuevo
@@ -1301,7 +1341,10 @@ async function generateForSlot(slot, overrides = {}) {
             healed.clippedText, slot.id
           );
           const keepHealed = recheck.ok || recheck.issues.length <= check.issues.length;
-          if (keepHealed) { render = healed; finalTemplate = 'fullbleed'; finalSeed = Number(slot.id) + 31; }
+          if (keepHealed) {
+            render = healed; finalTemplate = 'fullbleed'; finalVariant = 'clasico'; finalSeed = Number(slot.id) + 31;
+            designTag = artDirection.encodeDesign(finalTemplate, finalVariant);
+          }
           if (!recheck.ok) {
             // La nota refleja los problemas del render que QUEDÓ (curado u original).
             const worst = (keepHealed ? recheck.issues : check.issues).join(' · ');
@@ -1350,6 +1393,9 @@ async function generateForSlot(slot, overrides = {}) {
       const recipe = {
         format: renderOpts.format,
         template: finalTemplate,
+        // La variante también viaja en la receta: si no, "Corregir el texto" volvía a
+        // renderizar la pieza con la composición clásica y el diseño cambiaba solo.
+        variant: finalVariant,
         overlayTitle: renderOpts.overlayTitle,
         price: renderOpts.price,
         promoPrice: renderOpts.promoPrice,
@@ -1440,7 +1486,10 @@ async function generateForSlot(slot, overrides = {}) {
     // BUG REAL (jul-2026): TODO carrusel quedaba etiquetado 'educativo', aunque los
     // carruseles fotográficos renderizan slides fullbleed/grid — el panel mostraba una
     // plantilla que no era. La etiqueta ahora refleja lo que se renderizó de verdad.
-    [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson, slides ? (isStepCarousel ? 'educativo' : 'fullbleed') : template, storyTeaserPath, pieceCostUsd, copy.gen_model || null, copy.qa_notes || null, copy.sticker ? JSON.stringify(copy.sticker) : null, slidesMetaJson]
+    // Se guarda el diseño EFECTIVO ("plantilla:variante"): antes se guardaba la
+    // plantilla elegida aunque el self-healing la hubiera cambiado, y esa columna es
+    // justo la memoria que usa artDirection para no repetir el diseño de la próxima.
+    [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson, slides ? (isStepCarousel ? 'educativo' : 'fullbleed') : designTag, storyTeaserPath, pieceCostUsd, copy.gen_model || null, copy.qa_notes || null, copy.sticker ? JSON.stringify(copy.sticker) : null, slidesMetaJson]
   );
 
   // Si el slot ya tenía versiones encoladas para publicar (se está regenerando una

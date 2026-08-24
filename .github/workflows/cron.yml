@@ -72,8 +72,24 @@ jobs:
       # si no, la caché de 15 min sigue sirviendo el precio viejo.
       - name: Refrescar los rieles del home
         run: |
-          curl -sf "${{ secrets.PUBLIC_BASE_URL }}/api/home/rails?force=1" -o /dev/null \
+          curl -sf --retry 3 --retry-all-errors --retry-delay 10 --max-time 120 "${{ secrets.PUBLIC_BASE_URL }}/api/home/rails?force=1" -o /dev/null \
             || echo "no se pudo refrescar los rieles (se rearman solos en 15 min)"
+      # AVISO SI EL SYNC FALLA. Motivo real (ago-2026): el token de Tiendanube guardado
+      # acá venció, `npm run sync` devolvió 401 y el sync horario de precios/stock falló
+      # 9 días seguidos sin que nadie se enterara — el panel seguía mostrando stock viejo
+      # y había que sincronizar a mano. Una falla silenciosa tiene que sonar.
+      # REQUIERE los secrets TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID (hoy NO están
+      # cargados en este repo: sin ellos el paso no hace nada y no rompe nada). Cómo
+      # sacarlos, en el encabezado de src/notifier.js. Mientras tanto el aviso visible
+      # es el chip "Catálogo desactualizado" de la barra superior del panel.
+      - name: Avisar por Telegram si el sync falló
+        if: failure()
+        run: |
+          curl -sf -X POST \
+            "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${{ secrets.TELEGRAM_CHAT_ID }}\",\"text\":\"BLACKS - FALLO el sync de Tiendanube (precios y stock). El panel esta mostrando datos viejos. Revisa el log: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            > /dev/null || echo "no se pudo avisar por Telegram"
 
   sync-products:
     if: github.event.schedule == '45 9 * * *' || github.event.inputs.job == 'sync-products'
@@ -98,7 +114,7 @@ jobs:
       # no bloquea el sync (queda para la próxima corrida).
       - name: Sincronizar catálogo de Meta con el stock real
         run: |
-          curl -sf -X POST \
+          curl -sf --retry 4 --retry-all-errors --retry-delay 15 --max-time 180 -X POST \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
             "${{ secrets.PUBLIC_BASE_URL }}/api/cron/sync-catalog" \
@@ -107,11 +123,27 @@ jobs:
       # así a la mañana los anuncios ya salen contra el elenco del día.
       - name: Rearmar el conjunto curado de anuncios
         run: |
-          curl -sf -X POST \
+          curl -sf --retry 4 --retry-all-errors --retry-delay 15 --max-time 180 -X POST \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
             "${{ secrets.PUBLIC_BASE_URL }}/api/cron/ad-set" \
             || echo "ad-set falló (se rearma en la próxima pasada de 6 h)"
+      # AVISO SI EL SYNC FALLA. Motivo real (ago-2026): el token de Tiendanube guardado
+      # acá venció, `npm run sync` devolvió 401 y el sync horario de precios/stock falló
+      # 9 días seguidos sin que nadie se enterara — el panel seguía mostrando stock viejo
+      # y había que sincronizar a mano. Una falla silenciosa tiene que sonar.
+      # REQUIERE los secrets TELEGRAM_BOT_TOKEN y TELEGRAM_CHAT_ID (hoy NO están
+      # cargados en este repo: sin ellos el paso no hace nada y no rompe nada). Cómo
+      # sacarlos, en el encabezado de src/notifier.js. Mientras tanto el aviso visible
+      # es el chip "Catálogo desactualizado" de la barra superior del panel.
+      - name: Avisar por Telegram si el sync falló
+        if: failure()
+        run: |
+          curl -sf -X POST \
+            "https://api.telegram.org/bot${{ secrets.TELEGRAM_BOT_TOKEN }}/sendMessage" \
+            -H "Content-Type: application/json" \
+            -d "{\"chat_id\":\"${{ secrets.TELEGRAM_CHAT_ID }}\",\"text\":\"BLACKS - FALLO el sync de Tiendanube (precios y stock). El panel esta mostrando datos viejos. Revisa el log: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
+            > /dev/null || echo "no se pudo avisar por Telegram"
 
   # Conjunto curado de anuncios: reevalúa qué productos merecen pauta y reescribe
   # el product set de Meta. No toca el catálogo, sólo la lista del conjunto.
@@ -121,7 +153,7 @@ jobs:
     steps:
       - name: Rearmar el conjunto curado de anuncios
         run: |
-          curl -sf -X POST \
+          curl -sf --retry 4 --retry-all-errors --retry-delay 15 --max-time 180 -X POST \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
             "${{ secrets.PUBLIC_BASE_URL }}/api/cron/ad-set"
@@ -166,7 +198,7 @@ jobs:
       - name: Consultar si hay renders pendientes
         id: check
         run: |
-          PENDING=$(curl -sf \
+          PENDING=$(curl -sf --retry 3 --retry-all-errors --retry-delay 10 --max-time 120 \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             "${{ secrets.PUBLIC_BASE_URL }}/api/cron/has-pending-renders" \
             | grep -o '"pending":[a-z]*' | cut -d: -f2 || echo "true")
@@ -200,7 +232,7 @@ jobs:
     steps:
       - name: Llamar al endpoint de publicación
         run: |
-          curl -sf -X POST \
+          curl -sf --retry 4 --retry-all-errors --retry-delay 15 --max-time 180 -X POST \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
             "${{ secrets.PUBLIC_BASE_URL }}/api/cron/publish-daily"
@@ -211,7 +243,7 @@ jobs:
     steps:
       - name: Llamar al endpoint de insights
         run: |
-          curl -sf -X POST \
+          curl -sf --retry 4 --retry-all-errors --retry-delay 15 --max-time 180 -X POST \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
             "${{ secrets.PUBLIC_BASE_URL }}/api/cron/sync-insights"
@@ -223,7 +255,7 @@ jobs:
     steps:
       - name: Generar plan del mes siguiente
         run: |
-          curl -sf -X POST \
+          curl -sf --retry 4 --retry-all-errors --retry-delay 15 --max-time 180 -X POST \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
             "${{ secrets.PUBLIC_BASE_URL }}/api/cron/generate-plan"
@@ -236,7 +268,7 @@ jobs:
     steps:
       - name: Refrescar datos de la empresa
         run: |
-          curl -sf -X POST \
+          curl -sf --retry 4 --retry-all-errors --retry-delay 15 --max-time 180 -X POST \
             -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
             -H "Content-Type: application/json" \
             "${{ secrets.PUBLIC_BASE_URL }}/api/cron/sync-company-info"

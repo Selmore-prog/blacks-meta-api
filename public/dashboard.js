@@ -253,6 +253,27 @@ function costTag(label) {
   return `<span class="cost-tag ${free ? 'free' : 'paid'}">${label}</span>`;
 }
 
+/**
+ * Chip "Catálogo: hace X" en la barra superior.
+ *
+ * Por qué existe: el sync horario de precios y stock desde Tiendanube se cayó 9 días
+ * seguidos (ago-2026, token vencido en GitHub Actions) y no se notaba desde el panel —
+ * los precios y el stock que se ven acá salen de products_cache, no de Tiendanube en
+ * vivo. Pasadas 3 horas sin sincronizar el chip se pone naranja y, tocándolo,
+ * sincroniza al toque. Una falla silenciosa pasa a ser visible el mismo día.
+ */
+function catalogChip(cat) {
+  if (!cat || cat.minutos === null || cat.minutos === undefined) return '';
+  const m = Number(cat.minutos);
+  const edad = m < 90 ? `hace ${Math.max(1, Math.round(m))} min`
+    : m < 60 * 36 ? `hace ${Math.round(m / 60)} h`
+      : `hace ${Math.round(m / 1440)} días`;
+  // 3 h de margen: el cron corre cada hora, así que un atraso de GitHub Actions
+  // (son habituales) no tiene que encender la alarma.
+  if (m <= 180) return `<span class="chip ok" id="chip-catalogo" title="Precios y stock traídos de Tiendanube ${edad}."><span class="dot"></span>Catálogo ${edad}</span>`;
+  return `<span class="chip warn chip-btn" id="chip-catalogo" title="El sync automático con Tiendanube no corre desde ${edad}: los precios y el stock que ves pueden estar viejos. Tocá para sincronizar ahora."><span class="dot"></span>Catálogo desactualizado (${edad})</span>`;
+}
+
 async function loadConfig() {
   try {
     const c = await api('/api/config');
@@ -264,7 +285,9 @@ async function loadConfig() {
       : `<span class="chip ok"><span class="dot"></span>Generación gratis</span>`;
     const meta = c.metaReady ? `<span class="chip ok"><span class="dot"></span>Meta conectado</span>`
       : `<span class="chip warn"><span class="dot"></span>Meta sin conectar</span>`;
-    chips.innerHTML = ai + img + meta;
+    chips.innerHTML = ai + img + meta + catalogChip(c.catalogo);
+    const stale = chips.querySelector('#chip-catalogo.warn');
+    if (stale) stale.addEventListener('click', () => syncProductsFromTiendanube());
     // Costos en los botones que generan: plan y estilo son texto (gratis siempre);
     // "Generar hoy" depende de si las imágenes IA están activadas.
     const tagInto = (el, label) => { if (el && !el.querySelector('.cost-tag')) el.insertAdjacentHTML('beforeend', costTag(label)); };
@@ -2193,16 +2216,20 @@ async function saveWholesale(e) {
 
 /** Trae el catálogo completo de Tiendanube ahora mismo (no espera al cron diario). */
 async function syncProductsFromTiendanube() {
+  // Se puede disparar desde el botón de Productos o desde el chip de la barra
+  // superior (que aparece en cualquier pestaña): el botón puede no existir.
   const btn = document.getElementById('products-sync-btn');
-  const original = btn.innerHTML;
-  btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Sincronizando… (~20-30 s)`;
+  const original = btn ? btn.innerHTML : null;
+  if (btn) { btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Sincronizando… (~20-30 s)`; }
+  else toast('Sincronizando el catálogo con Tiendanube… (~20-30 s)');
   try {
     const d = await api('/api/products/sync', { method: 'POST' });
     toast(`Catálogo sincronizado: ${d.count} producto(s)`, 'ok');
-    loadProducts();
+    loadConfig(); // refresca el chip de antigüedad
+    if (document.getElementById('products-body')) loadProducts();
   } catch (e) {
     toast(e.message, 'err');
-  } finally { btn.disabled = false; btn.innerHTML = original; }
+  } finally { if (btn) { btn.disabled = false; btn.innerHTML = original; } }
 }
 
 async function loadProducts() {
@@ -3071,6 +3098,14 @@ async function loadAdsSummary() {
  * Catálogo vs stock real: primero un DRY-RUN (no toca nada) que muestra qué talles
  * están mal en Meta; después, con confirmación, aplica las correcciones por API.
  * Esto arregla el caso "tengo stock del pantalón pero Meta lo muestra agotado".
+ *
+ * Se muestra AGRUPADO POR PRODUCTO y con un tilde por talle, porque la duda real
+ * del dueño era "¿si acepto me saca el producto entero de la publicidad?". No:
+ * en el catálogo cada talle es un item aparte, así que corregir un talle agotado
+ * saca ESE talle y el producto sigue saliendo con los demás. El único caso en que
+ * el producto entero deja de mostrarse es cuando NINGÚN talle queda disponible —
+ * y esa fila se marca en naranja, con el saldo "quedan N de M talles" recalculado
+ * en vivo a medida que se tilda o destilda.
  */
 async function openCatalogSync(btn) {
   btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Revisando catálogo…`;
@@ -3088,30 +3123,103 @@ async function openCatalogSync(btn) {
     toast(`Catálogo al día: ${d.matchean_con_tiendanube} variantes revisadas, ninguna desincronizada.`, 'ok');
     return;
   }
+
+  const productos = d.productos || [];
+  // Fila de talle: tilde + qué dice Meta + qué dice el stock real + a qué se corrige.
+  const filaTalle = (c) => {
+    const gana = c.corregir_a === 'in stock';
+    return `<label class="cs-talle">
+      <input type="checkbox" class="cs-fix" data-id="${esc(c.retailer_id)}" data-prod="${esc(c.producto_id)}" data-a="${esc(c.corregir_a)}" checked>
+      <span class="cs-talle-name">Talle ${esc(c.talle || '—')}</span>
+      <span class="cs-talle-state">Meta dice <b>${c.en_meta === 'in stock' ? 'disponible' : 'agotado'}</b> · stock real ${esc(String(c.stock_real))}</span>
+      <span class="cs-talle-fix ${gana ? 'ok' : 'off'}">${gana ? 'lo muestra' : 'lo esconde'}</span>
+    </label>`;
+  };
+
+  const filaProducto = (p) => `<div class="cs-prod" data-prod="${esc(p.producto_id)}">
+      <div class="cs-prod-head">
+        <label class="cs-prod-title">
+          <input type="checkbox" class="cs-prod-all" checked>
+          <b title="${esc(p.producto)}">${esc(p.producto)}</b>
+        </label>
+        <span class="cs-saldo" data-visibles="${p.visibles_ahora}" data-total="${p.talles_en_catalogo}"></span>
+      </div>
+      ${p.cambios.map(filaTalle).join('')}
+    </div>`;
+
   const body = `
-    <p class="hint" style="margin-top:0;">Se revisaron <b>${d.items_revisados}</b> items del catálogo (${d.matchean_con_tiendanube} matchean con Tiendanube). Hay <b>${d.correcciones_necesarias}</b> talles con la disponibilidad MAL en Meta:</p>
+    <p class="hint" style="margin-top:0;">Se revisaron <b>${d.items_revisados}</b> talles del catálogo (${d.matchean_con_tiendanube} matchean con Tiendanube). Hay <b>${d.correcciones_necesarias}</b> con la disponibilidad MAL en Meta, en <b>${d.productos_afectados}</b> producto${d.productos_afectados === 1 ? '' : 's'}:</p>
     <div class="prod-totals" style="margin-bottom:14px;">
       <div class="stat"><b style="color:var(--orange)">${d.a_poner_en_stock}</b><span>Talles CON stock real que Meta esconde (no salen en anuncios)</span></div>
       <div class="stat"><b>${d.a_poner_sin_stock}</b><span>Talles agotados que Meta muestra como disponibles</span></div>
     </div>
-    ${(d.ejemplos || []).map((f) => `<div class="dl-row">
-      <span title="${esc(f.producto)}">${esc(String(f.producto).slice(0, 46))}</span>
-      <span class="hint" style="margin:0; white-space:nowrap;">Meta: ${esc(f.en_meta)} · real: ${esc(String(f.stock_real))} → <b style="color:var(--text)">${esc(f.corregir_a)}</b></span>
-    </div>`).join('')}
-    ${d.correcciones_necesarias > (d.ejemplos || []).length ? `<p class="hint">…y ${d.correcciones_necesarias - d.ejemplos.length} más.</p>` : ''}
-    <p class="hint">La corrección se manda por API al catálogo (sólo el campo disponibilidad). Meta tarda unos minutos en procesarla. El cron la repite solo todos los días a la mañana, después de refrescar el stock.</p>
+    <div class="reel-note" style="margin-bottom:14px;">
+      <b>Esto se corrige talle por talle, no producto por producto.</b> En el catálogo de Meta cada talle es un item separado: marcar un talle como agotado lo saca de los anuncios, pero el producto <b>sigue apareciendo</b> con los talles que sí tenés. Abajo, al lado de cada producto, ves cuántos talles le quedan visibles con lo que tenés tildado.
+      ${d.productos_que_desaparecen ? `<br><br><span style="color:var(--orange)"><b>Ojo:</b> ${d.productos_que_desaparecen} producto${d.productos_que_desaparecen === 1 ? '' : 's'} se quedaría${d.productos_que_desaparecen === 1 ? '' : 'n'} sin ningún talle disponible (no tenés stock de ninguno) y dejaría${d.productos_que_desaparecen === 1 ? '' : 'n'} de mostrarse. Están marcados en naranja: si querés seguir mostrándolo igual, destildá sus talles.</span>` : ''}
+    </div>
+    <div style="display:flex; gap:8px; align-items:center; margin-bottom:6px;">
+      <button class="btn-ghost btn-sm" id="cs-all">Tildar todo</button>
+      <button class="btn-ghost btn-sm" id="cs-none">Destildar todo</button>
+      <button class="btn-ghost btn-sm" id="cs-only-in">Sólo los que Meta esconde</button>
+    </div>
+    <div class="cs-list">${productos.map(filaProducto).join('')}</div>
+    <p class="hint">La corrección se manda por API al catálogo (sólo el campo disponibilidad, nada más). Meta tarda unos minutos en procesarla. El cron la repite solo todas las mañanas, después de refrescar el stock de Tiendanube.</p>
     <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:6px;">
       <button class="btn-discard" id="cs-cancel">Ahora no</button>
-      <button class="btn-primary" id="cs-apply">${icon('check')} Corregir ${d.correcciones_necesarias} en Meta</button>
+      <button class="btn-primary" id="cs-apply">${icon('check')} Corregir los tildados</button>
     </div>`;
   const ov = showInfoModal('Catálogo de Meta vs stock real', body);
+
+  const applyBtn = ov.querySelector('#cs-apply');
+  // Recalcula, para cada producto, cuántos talles le quedan visibles en los anuncios
+  // con la selección actual, y avisa cuando esa cuenta llega a cero.
+  const refresh = () => {
+    let total = 0;
+    ov.querySelectorAll('.cs-prod').forEach((box) => {
+      const boxes = [...box.querySelectorAll('.cs-fix')];
+      const marcados = boxes.filter((b) => b.checked);
+      total += marcados.length;
+      const saldo = box.querySelector('.cs-saldo');
+      const visibles = Number(saldo.dataset.visibles);
+      const talles = Number(saldo.dataset.total);
+      const delta = marcados.reduce((acc, b) => acc + (b.dataset.a === 'in stock' ? 1 : -1), 0);
+      const despues = Math.max(0, visibles + delta);
+      const seVa = despues === 0;
+      box.classList.toggle('cs-warn', seVa);
+      saldo.className = `cs-saldo${seVa ? ' warn' : ''}`;
+      saldo.textContent = seVa
+        ? 'se queda sin talles → deja de mostrarse en anuncios'
+        : `quedan ${despues} de ${talles} talles en anuncios`;
+      const all = box.querySelector('.cs-prod-all');
+      all.checked = marcados.length === boxes.length;
+      all.indeterminate = marcados.length > 0 && marcados.length < boxes.length;
+    });
+    applyBtn.disabled = total === 0;
+    applyBtn.innerHTML = `${icon('check')} Corregir ${total} talle${total === 1 ? '' : 's'} en Meta`;
+  };
+
+  ov.addEventListener('change', (e) => {
+    if (e.target.classList.contains('cs-prod-all')) {
+      e.target.closest('.cs-prod').querySelectorAll('.cs-fix').forEach((b) => { b.checked = e.target.checked; });
+    }
+    refresh();
+  });
+  const setAll = (fn) => { ov.querySelectorAll('.cs-fix').forEach((b) => { b.checked = fn(b); }); refresh(); };
+  ov.querySelector('#cs-all').addEventListener('click', () => setAll(() => true));
+  ov.querySelector('#cs-none').addEventListener('click', () => setAll(() => false));
+  ov.querySelector('#cs-only-in').addEventListener('click', () => setAll((b) => b.dataset.a === 'in stock'));
+  refresh();
+
   ov.querySelector('#cs-cancel').addEventListener('click', () => ov.remove());
-  ov.querySelector('#cs-apply').addEventListener('click', async (e) => {
-    const b = e.currentTarget; b.disabled = true; b.innerHTML = `${icon('refresh', 'spin')} Corrigiendo…`;
+  applyBtn.addEventListener('click', async (e) => {
+    const b = e.currentTarget;
+    const only = [...ov.querySelectorAll('.cs-fix')].filter((c) => c.checked).map((c) => c.dataset.id);
+    if (!only.length) return;
+    b.disabled = true; b.innerHTML = `${icon('refresh', 'spin')} Corrigiendo…`;
     try {
-      const r = await api('/api/catalog/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apply: true }) });
+      const r = await api('/api/catalog/sync', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ apply: true, only }) });
       ov.remove();
-      toast(`Listo: ${r.correcciones_necesarias} correcciones enviadas a Meta (se aplican en unos minutos).`, 'ok');
+      toast(`Listo: ${r.aplicadas} corrección${r.aplicadas === 1 ? '' : 'es'} enviada${r.aplicadas === 1 ? '' : 's'} a Meta (se aplican en unos minutos).`, 'ok');
     } catch (err) {
       toast(`No se pudo corregir: ${err.message}`, 'err');
       b.disabled = false; b.innerHTML = `${icon('check')} Reintentar`;

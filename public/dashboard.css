@@ -1327,3 +1327,38 @@ button .cost-tag { margin-left: 8px; }
 
 .flash-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; flex-wrap: wrap; }
 .flash-order-hint { font-size: .74rem; color: var(--muted); margin: 8px 2px 0; }
+
+/* ---------- catálogo de Meta vs stock real (selección por talle) ---------- */
+/* Cada producto es un bloque con sus talles desalineados; el saldo de la derecha
+   dice cuántos talles le quedan visibles en los anuncios con lo que está tildado.
+   Se pone en naranja sólo cuando el producto se quedaría sin ningún talle (el
+   único caso en que deja de mostrarse entero). */
+.cs-list { max-height: 46vh; overflow-y: auto; margin-bottom: 14px; padding-right: 4px; }
+.cs-prod { border: 1px solid var(--line); border-radius: 12px; padding: 10px 12px; margin-bottom: 10px; background: var(--panel-2); }
+.cs-prod.cs-warn { border-color: rgba(232, 93, 27, .45); background: rgba(232, 93, 27, .06); }
+.cs-prod-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; flex-wrap: wrap; }
+.cs-prod-title { display: inline-flex; align-items: center; gap: 8px; min-width: 0; cursor: pointer; }
+.cs-prod-title b { font-size: 13.5px; font-weight: 700; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.cs-saldo { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.cs-saldo.warn { color: var(--orange); font-weight: 700; }
+.cs-talle { display: grid; grid-template-columns: auto 1fr auto auto; align-items: center; gap: 10px;
+  padding: 7px 0 7px 24px; border-top: 1px solid var(--line); font-size: 12.5px; cursor: pointer; }
+.cs-talle-name { font-weight: 600; }
+.cs-talle-state { color: var(--muted); font-size: 11.5px; white-space: nowrap; }
+.cs-talle-fix { font-size: 10px; font-weight: 700; border-radius: 100px; padding: 2px 8px; white-space: nowrap; }
+.cs-talle-fix.ok { color: var(--green); border: 1px solid rgba(34, 197, 94, .35); background: rgba(34, 197, 94, .08); }
+.cs-talle-fix.off { color: var(--muted); border: 1px solid var(--line); }
+.cs-talle input, .cs-prod-title input { accent-color: var(--orange); width: 15px; height: 15px; cursor: pointer; }
+@media (max-width: 600px) {
+  .cs-talle { grid-template-columns: auto 1fr auto; padding-left: 12px; }
+  .cs-talle-state { grid-column: 2 / -1; white-space: normal; }
+}
+
+/* Chip de antigüedad del catálogo. Cuando el sync con Tiendanube se atrasa tiene que
+   VERSE (fue una falla silenciosa de 9 días): naranja, con cursor de botón porque
+   tocándolo sincroniza al instante. `.chip.warn` genérico es gris a propósito para
+   avisos tibios; este caso no es tibio. */
+#chip-catalogo.warn { color: var(--orange); border-color: rgba(232, 93, 27, .45);
+  background: rgba(232, 93, 27, .08); cursor: pointer; }
+#chip-catalogo.warn:hover { filter: brightness(1.15); }
+#chip-catalogo.warn .dot { background: var(--orange); }

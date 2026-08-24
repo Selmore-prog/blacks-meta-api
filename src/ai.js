@@ -132,7 +132,7 @@ function productPriceText(product) {
   return regular ? `, precio ${fmt(regular)}` : '';
 }
 
-function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visualProduct, brandProfile, interactionHint, wantSticker, carousel, slideCount = 3, wholesale, commercialContext, topCaptions, objective, recentPieces, companyFacts, templateOptions, directorNotes, lessons, imageContext }) {
+function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visualProduct, brandProfile, interactionHint, wantSticker, carousel, slideCount = 3, wholesale, commercialContext, topCaptions, objective, recentPieces, usedOpeners, companyFacts, templateOptions, directorNotes, lessons, imageContext }) {
   let productInfo = product
     ? `Producto a destacar: ${product.name}${product.brand ? ` (marca ${product.brand})` : ''}${productPriceText(product)}${typeof product.stock === 'number' ? `, stock ${product.stock}` : ''}.`
     : 'No hay un producto puntual; el foco es la marca/línea en general.';
@@ -227,6 +227,15 @@ La pregunta y las opciones tienen que ser concretas y fáciles de contestar en 2
     ? `\n\nCONTENIDO RECIENTE DE LA CUENTA (lo último generado/publicado). PROHIBIDO repetir estos temas, ganchos, ángulos o frases — si el producto o tema coincide, encaralo desde un ángulo CLARAMENTE distinto:\n${recentPieces.map((r) => `- ${r}`).join('\n')}`
     : '';
 
+  // ARRANQUES YA GASTADOS. El bloque de arriba pide "no repitas temas", pero nunca le
+  // mostraba al modelo CÓMO venía empezando cada caption — y en el feed lo único que se
+  // lee antes del "ver más" son las primeras palabras. Medición real (45 días, 72
+  // piezas): 8 arrancaban con "llevate las", 5 con "equipá a", 4 con "aprovechá la"…
+  // ~40% del feed abría con una de 8 fórmulas. Ver src/artDirection.js (recentOpeners).
+  const noRepeatOpeners = (Array.isArray(usedOpeners) && usedOpeners.length)
+    ? `\n\nARRANQUES YA USADOS (las primeras palabras de los últimos captions). PROHIBIDO empezar con cualquiera de estos, ni con una variante mínima ("llevate las" / "llevate el" / "llevá las" cuentan como el mismo):\n${usedOpeners.map((o) => `- "${o}…"`).join('\n')}\nArrancá de otra forma: una afirmación concreta, un dato, una pregunta, una escena de trabajo, una objeción. Nunca con el verbo imperativo de venta que ya se usó.`
+    : '';
+
   // En educativo, la nota de temporada NO lista prendas (era otra puerta por la que
   // se colaban "buzos, camperas, softshell" en piezas que no deben vender).
   const seasonLine = pillar === 'educativo'
@@ -272,7 +281,7 @@ La pregunta y las opciones tienen que ser concretas y fáciles de contestar en 2
 Pilar de contenido: ${pillar}${OBJECTIVE_GUIDE[objective] ? `\n${OBJECTIVE_GUIDE[objective]}` : ''}
 Ángulo/detalle: ${pillarDetail || 'sin detalle adicional'}${director}${imageCtx}
 ${productInfo}${wholesaleInfo}${educationalGuard}${facts}
-Temporada: ${seasonLine}${commercial}${winners}${noRepeat}${lessons || ''}${numbersRule}${interaction}${stickerSpec}${storyPointsSpec}${templates}${voice}
+Temporada: ${seasonLine}${commercial}${winners}${noRepeat}${noRepeatOpeners}${lessons || ''}${numbersRule}${interaction}${stickerSpec}${storyPointsSpec}${templates}${voice}
 
 ${carousel ? (['educativo', 'mayorista'].includes(pillar)
     ? `\nCARRUSEL PASO A PASO: devolvé "slides": un array de ${slideCount} objetos {"title","text"}. Es una GUÍA accionable, no un folleto: (1) portada con gancho que promete el resultado ("Guía de talles sin equivocarte", "Cómo comprar al por mayor"), (2-${slideCount - 1}) PASOS numerados y concretos — "title" tipo "PASO 1 — MEDÍ TU CINTURA" y "text" con la instrucción exacta (qué hacer, con qué, qué número anotar), (${slideCount}) cierre con el beneficio + CTA${pillar === 'educativo' ? ' (CTA educativo: guardar/compartir/comentar — nunca comprar)' : ''}. Cada paso tiene que poder hacerse EN EL MOMENTO. Nada repetido entre slides.${pillar === 'educativo' ? ' NINGÚN slide nombra productos/prendas propias como solución.' : ''}\n`
@@ -367,7 +376,25 @@ function lintSticker(sticker) {
 }
 
 /** Revisa un copy generado y devuelve la lista de problemas (vacía = pasa). */
-function lintCopy(copy, { format = 'feed', postType = 'feed', pillar = null, wantSticker = false } = {}) {
+/**
+ * Normaliza el arranque de un caption para compararlo con los ya usados: sin acentos,
+ * sin signos y con el verbo llevado a su raíz. Así "Llevate las", "Llevate el" y
+ * "Llevá las" se reconocen como el MISMO arranque (que es como se lee en el feed).
+ */
+function openerKey(text) {
+  const limpio = String(text || '').split('\n')[0].trim()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  const palabras = limpio.split(' ').filter(Boolean).slice(0, 2);
+  if (!palabras.length) return '';
+  // La 1a palabra pierde la desinencia verbal y la 2a el artículo/número: lo que
+  // queda es la fórmula ("llevate las" y "lleva el" comparten "llev").
+  const raiz = palabras[0].replace(/(ate|te|a|as|e|es|i|o)$/, '');
+  const segunda = /^(el|la|los|las|un|una|unos|unas|tu|tus|su|sus)$/.test(palabras[1] || '') ? '' : (palabras[1] || '');
+  return `${raiz} ${segunda}`.trim();
+}
+
+function lintCopy(copy, { format = 'feed', postType = 'feed', pillar = null, wantSticker = false, usedOpeners = [] } = {}) {
   const problems = [];
   const all = [copy.overlay, copy.caption, copy.cta,
     ...(copy.slides || []).map((s) => `${s.title} ${s.text}`),
@@ -413,6 +440,14 @@ function lintCopy(copy, { format = 'feed', postType = 'feed', pillar = null, wan
   const points = Array.isArray(copy.story_points) ? copy.story_points : [];
   const longPoint = points.find((p) => String(p).length > 32);
   if (longPoint) problems.push(`punto de historia muy largo ("${String(longPoint).slice(0, 32)}…"): máx ~4 palabras`);
+
+  // ARRANQUE REPETIDO. El prompt ya los lista como prohibidos, pero el modelo igual
+  // vuelve a caer en la fórmula que le sale sola. Acá se verifica en código y se
+  // dispara el reintento con feedback, que es lo que de verdad lo corrige.
+  const arranque = openerKey(copy.caption);
+  if (arranque && Array.isArray(usedOpeners) && usedOpeners.some((o) => openerKey(o) === arranque)) {
+    problems.push(`el caption arranca con una fórmula ya usada ("${arranque}…"): empezá de otra manera`);
+  }
 
   return problems;
 }
@@ -1669,7 +1704,50 @@ Devolvé SOLO este JSON:
  * arma la toma a medida (detalle/hero/flatlay/contexto + cuánto fondo); si no, usa la
  * escena ambientada genérica de siempre.
  */
-function shotDirection(shotSpec, scene) {
+/**
+ * SETS DE ESTUDIO. El fondo "limpio" era UNA sola descripción fija (ciclorama gris
+ * carbón, luz de tres puntos) y es el que pide el director de fotografía en la mayoría
+ * de las tomas: todas las fotos de producto generadas terminaban con el mismo set y el
+ * feed se veía clonado ("cuando se genera una foto de producto no siempre tengan el
+ * mismo diseño"). Ahora son seis sets, todos de nivel campaña y todos con la marca
+ * intacta — cambia el material del piso, el color del fondo y el carácter de la luz.
+ */
+const STUDIO_SETS = [
+  'ciclorama / seamless sweep sin esquinas (infinity cove) en gris medio a gris carbón, con degradado direccional suave y viñeta sutil que enmarca el producto. Iluminación de estudio de tres puntos con reflejo especular controlado',
+  'plataforma de hormigón pulido gris cálido sobre fondo del mismo tono, con una única luz dura lateral que talla sombras largas y definidas (look editorial de campaña deportiva)',
+  'fondo de papel de color arena / greige con un degradado vertical suave, producto apoyado sobre una base escalonada de yeso mate; luz difusa amplia de softbox grande, sombras suaves y limpias',
+  'fondo negro profundo con luz de recorte (rim light) que dibuja el contorno del producto, y un haz cenital estrecho que lo separa del fondo. Alto contraste, negros con detalle, estética de aviso premium',
+  'superficie de acero cepillado con reflejo especular controlado y fondo gris grafito en degradado; dos luces frías cruzadas que resaltan la textura del material (look industrial de catálogo técnico)',
+  'fondo blanco roto (off-white) tipo estudio de moda, producto sobre un cubo de madera clara; luz natural simulada entrando de un ventanal, sombra suave hacia un costado, aire alrededor',
+];
+
+/** Set de estudio determinístico por seed (mismo criterio que sceneFromPool). */
+function studioSet(seed = null) {
+  const n = seed !== null && Number.isFinite(Number(seed))
+    ? Math.abs(Math.trunc(Number(seed)))
+    : Math.floor(Math.random() * 99991);
+  return STUDIO_SETS[(n * 7 + 2) % STUDIO_SETS.length];
+}
+
+// Superficies para el fondo "sutil" (apenas sugerido). Antes era una lista fija de tres
+// materiales dentro de una sola frase: el modelo elegía casi siempre el primero.
+const SUBTLE_SURFACES = [
+  'hormigón pulido gris',
+  'chapa mate gris acero',
+  'madera oscura veteada',
+  'papel de color arena mate',
+  'goma industrial negra texturada',
+  'piedra clara tipo travertino',
+];
+
+function subtleSurface(seed = null) {
+  const n = seed !== null && Number.isFinite(Number(seed))
+    ? Math.abs(Math.trunc(Number(seed)))
+    : Math.floor(Math.random() * 99991);
+  return SUBTLE_SURFACES[(n * 7 + 4) % SUBTLE_SURFACES.length];
+}
+
+function shotDirection(shotSpec, scene, seed = null) {
   if (!shotSpec) {
     return `- El producto es EL héroe y punto focal absoluto de la composición: nítido, con micro-texturas de tela/cuero ultradetalladas, ocupando la posición de máximo impacto visual en la regla de los tercios.
 - Lente Hasselblad 85mm f/1.8 prime lens, macro commercial product photography, enfoque selectivo milimétrico en los detalles y terminaciones del producto.
@@ -1680,8 +1758,8 @@ ${scene.describe()}
   const bgLine = bg === 'contexto'
     ? scene.describe()
     : bg === 'sutil'
-      ? `- Fondo MUY simple: una superficie de trabajo neutra (hormigón pulido, chapa mate o madera oscura) apenas sugerida y totalmente desenfocada. Casi sin escenario — el foco absoluto es el producto.`
-      : `- Fondo de ESTUDIO FOTOGRÁFICO PROFESIONAL (no blanco plano ni recorte): ciclorama / seamless sweep sin esquinas (infinity cove) en gris medio a gris carbón, con degradado direccional suave y una viñeta sutil que enmarca el producto. El producto apoyado con SOMBRA DE CONTACTO realista (o sutil reflejo en superficie pulida). Iluminación de estudio de tres puntos con reflejo especular controlado, calidad de lookbook premium (Nike/Zara). El producto llena buena parte del cuadro — NADA de un objeto chiquito perdido en un mar de blanco.`;
+      ? `- Fondo MUY simple: una superficie de ${subtleSurface(seed)} apenas sugerida y totalmente desenfocada. Casi sin escenario — el foco absoluto es el producto.`
+      : `- SET DE ESTUDIO de esta pieza (usá ESTE, no el genérico de siempre): ${studioSet(seed)}. No es blanco plano ni recorte: el producto va apoyado con SOMBRA DE CONTACTO realista (o sutil reflejo si la superficie es pulida), calidad de lookbook premium (Nike/Zara), llenando buena parte del cuadro — NADA de un objeto chiquito perdido en un mar de blanco.`;
   const focus = shotSpec.focus || 'la calidad y terminación del producto';
   const typeLine = {
     detalle: `- TOMA DE DETALLE / MACRO EXTREMO: recortá MUY CERCA a ${focus}. SÓLO esa parte del producto llena el cuadro (ocupa >70% del encuadre). NO muestres el producto entero, NO recompongas la escena, NO agregues banderas, props ni objetos de fondo — es un zoom fotográfico macro de e-commerce sobre ese detalle puntual, con fondo de estudio liso y desenfocado. Se ven las costuras, la textura del material y las terminaciones a máximo detalle. Enfoque milimétrico, profundidad de campo mínima.`,
@@ -1728,7 +1806,7 @@ async function generateProductScene({ productImageUrl, productImageUrls = [], pr
 CONTEXTO DE LA PIEZA: ${theme || productName || 'indumentaria laboral y seguridad industrial'}.${briefBlock(brief, { allowScenery })}${allowScenery ? occasionGuidance(occasion) : ''}
 
 DIRECCIÓN DE FOTOGRAFÍA Y ÓPTICA COMERCIAL:
-${shotDirection(shotSpec, scene)}
+${shotDirection(shotSpec, scene, seed)}
 - Color grading premium: ciencia de color Kodak Portra 400, con acentos naranja quemado (#C1440C) sutiles.
 ${brandStyle && allowScenery ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
 

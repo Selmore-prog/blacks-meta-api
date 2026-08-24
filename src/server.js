@@ -157,8 +157,19 @@ app.get(['/health', '/api/health'], wrap(async (req, res) => {
 }));
 
 // --- Config para el panel (qué está activo) ---
-app.get('/api/config', (req, res) => {
+app.get('/api/config', wrap(async (req, res) => {
   const { currentImagePriceUsd } = require('./ai');
+  // Antigüedad del catálogo en la barra superior. Existe por un bug real (ago-2026):
+  // el token de Tiendanube guardado en GitHub Actions venció y el sync horario de
+  // precios/stock falló 9 días seguidos SIN QUE SE VIERA EN NINGÚN LADO — el panel
+  // seguía mostrando el stock viejo y había que sincronizar a mano. Un chip que se
+  // pone en naranja pasadas unas horas convierte una falla silenciosa en una visible.
+  let sincronizado = null;
+  try {
+    const { rows } = await pool.query('SELECT max(synced_at) AS ultimo FROM products_cache');
+    sincronizado = (rows[0] && rows[0].ultimo) || null;
+  } catch (_) { /* si la DB no responde, el chip simplemente no aparece */ }
+
   res.json({
     ai: hasGemini() ? 'gemini' : (config.groq.apiKey ? 'groq' : 'none'),
     aiImages: config.ai.useAiImages,
@@ -170,8 +181,12 @@ app.get('/api/config', (req, res) => {
     metaReady: Boolean(config.meta.igUserId && config.meta.pageAccessToken),
     timezone: config.timezone,
     brand: config.brand.name,
+    catalogo: {
+      sincronizado,
+      minutos: sincronizado ? Math.round((Date.now() - new Date(sincronizado).getTime()) / 60000) : null,
+    },
   });
-});
+}));
 
 /* ----------------------- Cron (GitHub Actions) ----------------------- */
 function authCron(req, res, next) {
@@ -1041,9 +1056,14 @@ app.post('/api/ads/audit', wrap(async (req, res) => {
 
 // Sincroniza la disponibilidad del catálogo de Meta con el stock real de Tiendanube.
 // apply=false (default): dry-run, sólo informa. apply=true: corrige por API.
+// only: array de retailer_id (id de variante) — corrige SÓLO esos talles y deja el
+// resto del catálogo intacto. Es lo que manda el panel cuando el dueño destilda
+// alguna fila; sin `only` se corrige todo lo desalineado (lo que hace el cron).
 app.post('/api/catalog/sync', wrap(async (req, res) => {
   const { syncCatalogAvailability } = require('./catalogSync');
-  res.json(await syncCatalogAvailability({ apply: Boolean(req.body && req.body.apply) }));
+  const body = req.body || {};
+  const only = Array.isArray(body.only) ? body.only.map(String).filter(Boolean) : null;
+  res.json(await syncCatalogAvailability({ apply: Boolean(body.apply), only }));
 }));
 
 // Versión cron: corre todos los días después del sync de productos (06:45 ARG),

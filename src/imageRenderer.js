@@ -234,16 +234,38 @@ function extractSpecTags(description, max = 3, { productName = '', maxLen = 42 }
   //    sin sentido ("impacto de partículas").
   const strong = plain.split(/[.;:•|\n]+|\s[-–—]\s/).map((s) => s.trim()).filter(Boolean);
 
+  // PARES "Etiqueta: valor". El corte por dos puntos deja la etiqueta suelta, y cuando
+  // la etiqueta es genérica de una sola palabra ("Costuras:", "Cierre:", "Material:")
+  // lo que sobrevive es justamente lo que NO informa: la ficha salía impresa con
+  // "02 Costuras · 03 Cierre" (caso real de un pantalón Pampero, cuya ficha decía
+  // "Costuras: Triple costura en laterales y entrepierna para mayor durabilidad").
+  // Acá se rescata el VALOR compactado, que es el dato de verdad.
+  const pairs = [];
+  const pairRe = /(?:^|[.;•|\n])\s*([A-Za-zÁÉÍÓÚÑáéíóúñ][A-Za-zÁÉÍÓÚÑáéíóúñ\s]{2,24}?)\s*:\s*([^.;•|\n]{6,120})/g;
+  let m = pairRe.exec(plain);
+  while (m) {
+    const valor = compactFact(m[2].trim(), maxLen);
+    if (valor && valor.split(/\s+/).length >= 2) pairs.push({ text: valor, fromFragment: false });
+    m = pairRe.exec(plain);
+  }
+
   // 2) Tramo corto = candidato tal cual. Tramo largo = recién ahí lo abro por comas
   //    (marcado como fragmento, que se filtra más duro).
-  const candidates = [];
+  const candidates = [...pairs];
   for (const seg of strong) {
     if (seg.length <= 52) { candidates.push({ text: seg, fromFragment: false }); continue; }
     for (const piece of seg.split(/,\s*/)) candidates.push({ text: piece.trim(), fromFragment: true });
   }
 
+  // Encabezado de sección PEGADO al dato. Las fichas de Tiendanube se escriben sin
+  // puntuación entre el título y lo que sigue ("...durabilidad Características Tela
+  // gabardina elastizada"), así que HEADING_RE —que exige que TODO el texto sea el
+  // título— no lo agarra y el chip salía con el encabezado adentro.
+  const LEADING_HEADING = /^(caracter[ií]sticas?( principales| destacadas| t[eé]cnicas)?|ficha t[eé]cnica|descripci[oó]n( del producto)?|detalles?|especificaciones|informaci[oó]n( adicional)?|beneficios?|ventajas?|composici[oó]n|materiales?)\s+/i;
+
   const clean = (raw) => {
     let t = String(raw).replace(/^[\s\-–—•*:·>]+/, '').replace(/[\s:,;·]+$/, '').trim();
+    t = t.replace(LEADING_HEADING, '').trim();
     t = t.replace(/\s{2,}/g, ' ');
     return t;
   };
@@ -258,6 +280,9 @@ function extractSpecTags(description, max = 3, { productName = '', maxLen = 42 }
       for (const c of list) {
         const t = clean(c.text);
         if (t.length < 5 || t.length > maxLen) continue;
+        // Una sola palabra no es una característica, es la etiqueta de la sección
+        // ("Costuras", "Cierre", "Bolsillos"). Impresa en la ficha no dice nada.
+        if (t.split(/\s+/).length < 2) continue;
         if (!/[a-záéíóúñ]{3,}/i.test(t)) continue;              // puro número/símbolo
         if (DANGLING_END.test(t)) continue;                      // fragmento colgado
         if (HEADING_RE.test(t)) continue;                        // título de sección
@@ -599,6 +624,21 @@ function buildFullbleedHtml(opts) {
   const site = String(config.brand.site || '').toUpperCase();
   const transfer = String(config.brand.transferNote || '').toUpperCase();
 
+  /* ===================== VARIANTE DE COMPOSICIÓN =====================
+   * `fullbleed` era el 40% del feed y siempre con la MISMA composición: scrim
+   * radial, tarjeta de precio de vidrio abajo a la izquierda, CTA centrado. Tres
+   * piezas seguidas se veían clonadas en la grilla del perfil.
+   *
+   * Estas cuatro variantes cambian el LAYOUT, no la marca (negro + naranja quemado +
+   * Anton/Inter siguen igual en todas). La elige src/artDirection.js rotando por
+   * antigüedad de uso, así el feed alterna solo. 'clasico' es la de siempre, byte
+   * por byte, y sigue siendo el fallback ante cualquier valor desconocido. */
+  const variant = ['clasico', 'banda', 'esquina', 'marco'].includes(opts.variant) ? opts.variant : 'clasico';
+  // 'marco' es la única que invierte el fondo: papel claro con la foto enmarcada,
+  // como un aviso de revista. Cambia tinta, logo y cápsulas.
+  const onPaper = variant === 'marco';
+  const ink = onPaper ? '#141519' : '#fff';
+
   const hasCover = Boolean(bgImageUrl || productImageUrl);
   // SIN NINGUNA FOTO esta plantilla no tiene nada que mostrar: quedaba un degradado
   // oscuro con el titular flotando y dos tercios del lienzo vacíos ("es muy simplona la
@@ -613,7 +653,9 @@ function buildFullbleedHtml(opts) {
 
   // Foto A SANGRE (escena IA, o foto real marcada como cover) vs. tarjeta de estudio
   // contenida (recorte de catálogo con fondo plano).
-  const fullBleedCover = Boolean(bgImageUrl || (productImageUrl && opts.coverImage));
+  // En 'marco' NUNCA va a sangre: la gracia de esa variante es la foto enmarcada
+  // sobre papel, con el bloque de texto debajo.
+  const fullBleedCover = !onPaper && Boolean(bgImageUrl || (productImageUrl && opts.coverImage));
   // La foto real recorta al modelo (torso cortado): el corte duro contra el blanco de
   // la tarjeta se lee como error. Lo desvanecemos. Ver planHeroShot/photoFraming.
   const softTop = !fullBleedCover && opts.photoFraming === 'recorte_cuerpo';
@@ -626,7 +668,7 @@ function buildFullbleedHtml(opts) {
   // por dato, con tilde vectorial. Antes iban los tres dentro de una sola cápsula larga
   // que cruzaba la pieza de lado a lado como una "cinta" pegada a la foto.
   const points = Array.isArray(opts.storyPoints) ? opts.storyPoints.filter(Boolean).slice(0, 3) : [];
-  const chipsHtml = specChipsHtml(points, g);
+  const chipsHtml = specChipsHtml(points, g, { onPaper });
 
   const couponHtml = opts.couponCode
     ? `<div class="coupon"><span class="cpn-lbl">CUPÓN</span><span class="cpn-code">${esc(opts.couponCode)}</span></div>`
@@ -637,7 +679,17 @@ function buildFullbleedHtml(opts) {
   // renglón "AHORA" gastaba una línea en no informar nada). Jerarquía: qué → antes/off
   // → cuánto → beneficio.
   const priceLabel = overlayTitle ? `<div class="pname">${esc(overlayTitle)}</div>` : '';
-  const priceCardHtml = price
+  // VARIANTE 'esquina': el precio no va en tarjeta sino como etiqueta angular pegada al
+  // borde derecho (tipo cartel de vidriera), y el nombre del producto pasa a ser un
+  // titular gigante abajo a la izquierda. Es la composición que más se despega de la
+  // clásica sin tocar la identidad.
+  const priceTagHtml = (variant === 'esquina' && price)
+    ? `<div class="ptag">
+        ${hasPromo ? `<span class="ptag-off">-${off}% OFF</span><span class="ptag-antes">$${formatPrice(price)}</span>` : '<span class="ptag-lbl">PRECIO</span>'}
+        <span class="ptag-now">$${formatPrice(now)}</span>
+      </div>`
+    : '';
+  const priceCardHtml = (price && variant !== 'esquina')
     ? `<div class="pcard">
         ${priceLabel}
         ${hasPromo
@@ -660,7 +712,9 @@ function buildFullbleedHtml(opts) {
 
   // Sin foto la pieza se sostiene con tipografía: titular grande + los datos reales
   // como checklist apilado (llena el centro en vez de dejar un hueco muerto).
-  const headlineHtml = overlayTitle && !price && !opts.ctaHeadline
+  // En 'esquina' el titular convive CON el precio (el precio se fue a la etiqueta
+  // angular): ahí el nombre del producto es el que llena el tercio inferior.
+  const headlineHtml = overlayTitle && !opts.ctaHeadline && (!price || variant === 'esquina')
     ? `<div class="headline">${esc(overlayTitle)}</div>`
     : '';
   const checklistHtml = !hasCover && points.length ? pointsChecklistHtml(points, g, accent) : '';
@@ -680,7 +734,17 @@ function buildFullbleedHtml(opts) {
   if (opts.ctaHeadline) {
     bodyHtml = ctaCardHtml;
   } else if (price) {
-    bodyHtml = `${bodyChipsHtml}${headlineHtml}${priceCardHtml}${checklistHtml}${couponHtml}`;
+    // 'esquina': titular gigante a la izquierda y etiqueta de precio a la derecha, en
+    // la MISMA fila. Va por flex y no en absoluto a propósito — con la etiqueta
+    // posicionada a mano se montaba encima del producto (la foto está centrada y su
+    // alto depende de cuánto texto haya).
+    // El beneficio por transferencia es un argumento de venta real: en 'esquina' no
+    // entra en la etiqueta (la agrandaba de más), así que va como renglón bajo el
+    // titular, que es donde hay aire.
+    const transferLine = transfer ? `<div class="tline">${boltSvg('#FF8B4D', isStory ? 24 : 21)}<span>${esc(transfer)}</span></div>` : '';
+    bodyHtml = variant === 'esquina'
+      ? `${bodyChipsHtml}<div class="lastrow"><div class="lastrow-txt">${headlineHtml}${transferLine}</div>${priceTagHtml}</div>${checklistHtml}${couponHtml}`
+      : `${bodyChipsHtml}${headlineHtml}${priceCardHtml}${checklistHtml}${couponHtml}`;
   } else {
     bodyHtml = `${bodyChipsHtml}${headlineHtml}${checklistHtml}${couponHtml}`;
   }
@@ -692,7 +756,9 @@ function buildFullbleedHtml(opts) {
     ? `<div class="interaction">${esc(interactionLabel)}</div>`
     : (opts.ctaLabel ? `<div class="ctapill"><span>${esc(opts.ctaLabel)}</span>${arrowSvg('#fff', isStory ? 24 : 21)}</div>` : '');
 
-  const brandHtml = showBrand ? brandMarkHtml(logos, { dark: false, heightPx: logoHeightPx(isStory), maxWidthPx: logoMaxWidthPx(logoHeightPx(isStory)) }) : '';
+  // dark:true = el fondo donde apoya es CLARO (papel de la variante 'marco') y hace
+  // falta el logo de tinta oscura. Ver brandMarkHtml.
+  const brandHtml = showBrand ? brandMarkHtml(logos, { dark: onPaper, heightPx: logoHeightPx(isStory), maxWidthPx: logoMaxWidthPx(logoHeightPx(isStory)) }) : '';
   const badgeHtml = badgeText ? `<div class="badge">${esc(badgeText)}</div>` : '';
 
   // La zona elástica es la de la FOTO cuando hay foto; si no hay, es la del contenido
@@ -700,15 +766,79 @@ function buildFullbleedHtml(opts) {
   const heroFlex = hasCover ? '1 1 auto' : '0 0 auto';
   const bodyFlex = hasCover ? '0 0 auto' : '1 1 auto';
 
-  const heroZoneHtml = (hasCover && !fullBleedCover)
-    ? heroPhotoHtml({
-      bgImageUrl: null, productImageUrl, box: null, fill: true, softTop,
-      shadow: 'rgba(0,0,0,.6)', darkBg: true,
-    }).html
-    : '';
+  // FOTO ENMARCADA de la variante 'marco': la imagen va recortada dentro de un
+  // rectángulo con esquinas suaves, como pegada sobre el papel. No se usa
+  // heroPhotoHtml acá porque su tarjeta de estudio aplica mix-blend-mode:multiply —
+  // sirve para un recorte de catálogo sobre blanco, pero ensucia una escena
+  // fotográfica completa (que es justo lo que suele traer esta plantilla).
+  const marcoPhotoHtml = () => {
+    const src = bgImageUrl || productImageUrl;
+    if (!src) return '';
+    // La escena IA llena el marco (object-fit:cover); el recorte de catálogo se
+    // muestra entero sobre un fondo claro para no cortarle el producto.
+    const esEscena = Boolean(bgImageUrl);
+    return `<div style="position:relative; width:100%; height:100%; border-radius:${isStory ? 26 : 20}px;
+      overflow:hidden; background:#fbfaf8; box-shadow:0 26px 60px rgba(20,21,25,.26), inset 0 0 0 1px rgba(20,21,25,.1);">
+      <img src="${esc(src)}" alt="" style="width:100%; height:100%; object-fit:${esEscena ? 'cover' : 'contain'}; ${esEscena ? '' : 'padding:26px;'}"/>
+    </div>`;
+  };
+
+  const heroZoneHtml = onPaper
+    ? marcoPhotoHtml()
+    : ((hasCover && !fullBleedCover)
+      ? heroPhotoHtml({
+        bgImageUrl: null, productImageUrl, box: null, fill: true, softTop,
+        shadow: 'rgba(0,0,0,.6)', darkBg: true,
+      }).html
+      : '');
 
   // Sin foto: fondo OSCURO de marca (el texto de esta plantilla es blanco).
   const bgFallback = 'linear-gradient(165deg, #0a0b0e 0%, #13161c 55%, #1c2029 100%)';
+
+  /* ---------- CSS que cambia según la variante ---------- */
+  // Cada variante es un tratamiento distinto del MISMO material. Lo que cambia es
+  // dónde cae el peso visual; la marca (negro, naranja quemado, Anton + Inter) no.
+  const scrimCss = {
+    // Viñeta radial + sombra abajo: la de siempre, sirve para cualquier foto.
+    clasico: `radial-gradient(circle at 50% 38%, rgba(0,0,0,0) 38%, rgba(0,0,0,.48) 100%),
+      linear-gradient(to bottom, rgba(0,0,0,.62) 0%, rgba(0,0,0,0) 24%, rgba(0,0,0,0) 46%, rgba(8,9,11,.92) 100%)`,
+    // Lower-third: la foto queda limpia arriba, todo el peso oscuro va abajo.
+    banda: `linear-gradient(to bottom, rgba(0,0,0,.55) 0%, rgba(0,0,0,0) 20%, rgba(0,0,0,0) 40%, rgba(8,9,11,.7) 62%, rgba(8,9,11,.97) 100%)`,
+    // Diagonal: oscurece la esquina inferior izquierda (donde va el titular) y deja
+    // respirar la derecha, donde entra la etiqueta de precio.
+    esquina: `linear-gradient(115deg, rgba(6,7,9,.9) 0%, rgba(6,7,9,.45) 42%, rgba(0,0,0,0) 70%),
+      linear-gradient(to bottom, rgba(0,0,0,.5) 0%, rgba(0,0,0,0) 26%, rgba(0,0,0,0) 55%, rgba(8,9,11,.85) 100%)`,
+    marco: 'none',
+  }[variant];
+
+  // La tarjeta de precio: de vidrio flotante (clásico) a banda sólida de ancho completo
+  // (banda) o a bloque de tinta sobre papel (marco).
+  const pcardCss = {
+    clasico: `align-self:flex-start; border-radius:${isStory ? 32 : 26}px;
+      background:linear-gradient(158deg, rgba(24,25,31,.82) 0%, rgba(10,11,14,.74) 100%);
+      backdrop-filter:blur(26px); -webkit-backdrop-filter:blur(26px);
+      border:1px solid rgba(255,255,255,.16);
+      box-shadow:0 28px 70px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.16);`,
+    // La banda sale de la columna y llega a los bordes de la pieza (por eso los
+    // márgenes negativos de padX): en la grilla del perfil, una barra que corta el
+    // cuadro de lado a lado se distingue de la tarjeta flotante ya a tamaño miniatura,
+    // que es donde de verdad se nota si dos piezas se parecen.
+    banda: `align-self:stretch; border-radius:0; background:#0c0d11;
+      margin-left:-${padX}px; margin-right:-${padX}px;
+      padding-left:${padX}px !important; padding-right:${padX}px !important;
+      border-top:${isStory ? 8 : 6}px solid ${accent};
+      box-shadow:0 -24px 60px rgba(0,0,0,.55);`,
+    esquina: `align-self:flex-start; border-radius:${isStory ? 32 : 26}px; background:rgba(10,11,14,.7);
+      backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px); border:1px solid rgba(255,255,255,.14);`,
+    marco: `align-self:stretch; border-radius:${isStory ? 22 : 18}px; background:#141519;
+      border:none; border-left:${isStory ? 10 : 8}px solid ${accent};
+      box-shadow:0 18px 40px rgba(20,21,25,.22);`,
+  }[variant];
+
+  // 'marco' cambia el lienzo entero: papel cálido con grano de impresión.
+  const canvasBg = onPaper
+    ? `#efece5`
+    : (hasCover ? '#0a0a0c' : bgFallback);
 
   return `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/>
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -717,16 +847,17 @@ function buildFullbleedHtml(opts) {
   <style>
     * { margin:0; padding:0; box-sizing:border-box; }
     html,body { width:${w}px; height:${h}px; overflow:hidden; font-family:'Inter','Helvetica Neue',Arial,sans-serif; }
-    .canvas { position:relative; width:${w}px; height:${h}px; background:${hasCover ? '#0a0a0c' : bgFallback}; color:#fff; overflow:hidden; }
+    .canvas { position:relative; width:${w}px; height:${h}px; background:${canvasBg}; color:${ink}; overflow:hidden; }
+    /* Grano de impresión de la variante 'marco': sin esto el papel se ve como un
+       rectángulo beige de CSS, no como papel. */
+    ${onPaper ? `.grain { position:absolute; inset:0; z-index:1; pointer-events:none; opacity:.5; background-image:${grainCss(0.18, 0.9)}; }` : ''}
     /* Glow volumétrico ambiental de estudio (piezas sin foto) */
     .glow { position:absolute; top:40%; left:50%; transform:translate(-50%, -50%); width:850px; height:850px;
       background:radial-gradient(circle, rgba(232,93,27,.22) 0%, rgba(0,0,0,0) 65%); pointer-events:none; z-index:1; }
     .bg { position:absolute; inset:-40px; width:calc(100% + 80px); height:calc(100% + 80px);
       object-fit:cover; filter:blur(28px) brightness(.5) saturate(.85); z-index:0; }
     /* Scrim editorial multicapa: viñeta oscura en bordes + sombra de legibilidad abajo */
-    .scrim { position:absolute; inset:0; z-index:2; background:
-      radial-gradient(circle at 50% 38%, rgba(0,0,0,0) 38%, rgba(0,0,0,.48) 100%),
-      linear-gradient(to bottom, rgba(0,0,0,.62) 0%, rgba(0,0,0,0) 24%, rgba(0,0,0,0) 46%, rgba(8,9,11,.92) 100%); }
+    .scrim { position:absolute; inset:0; z-index:2; background: ${scrimCss}; }
 
     /* ===== COLUMNA PRINCIPAL: el aire entre bloques lo garantiza el flex ===== */
     .stack { position:absolute; top:${g.safeTop}px; bottom:${g.safeBottom}px; left:${padX}px; right:${padX}px;
@@ -734,7 +865,8 @@ function buildFullbleedHtml(opts) {
     .zone-top { flex:0 0 auto; display:flex; align-items:flex-start; justify-content:space-between; gap:24px; }
     .zone-chips { flex:0 0 auto; margin-top:${isStory ? 30 : 22}px; }
     .zone-chips:empty { display:none; }
-    .zone-hero { flex:${heroFlex}; position:relative; min-height:0; display:flex; align-items:center; justify-content:center;
+    .zone-hero { flex:${heroFlex}; position:relative; min-height:${onPaper ? (isStory ? 900 : 620) : 0}px;
+      display:flex; align-items:center; justify-content:center;
       margin:${isStory ? 34 : 24}px 0 ${isStory ? 46 : 32}px; }
     .zone-hero:empty { margin:0; }
     .zone-body { flex:${bodyFlex}; min-height:0; display:flex; flex-direction:column; align-items:flex-start;
@@ -744,22 +876,39 @@ function buildFullbleedHtml(opts) {
     .zone-foot { flex:0 0 auto; display:flex; align-items:center; justify-content:center; gap:12px; margin-top:${isStory ? 30 : 20}px; }
 
     .wordmark { font-family:'Anton',sans-serif; font-size:${isStory ? 64 : 54}px; letter-spacing:8px;
-      color:#fff; text-shadow:0 4px 20px rgba(0,0,0,.8); }
+      color:${ink}; ${onPaper ? '' : 'text-shadow:0 4px 20px rgba(0,0,0,.8);'} }
     /* Badge editorial metálico/naranja */
     .badge { flex:0 0 auto; background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); color:#fff;
       font-weight:800; font-size:${isStory ? 21 : 18}px; padding:11px 24px; border-radius:100px; text-transform:uppercase;
       letter-spacing:3px; box-shadow:0 10px 25px rgba(232,93,27,.45); border:1px solid rgba(255,255,255,.25); }
 
-    .headline { font-family:'Anton',sans-serif; font-size:${isStory ? 80 : 66}px; line-height:.96;
-      letter-spacing:.5px; text-transform:uppercase; color:#fff; max-width:100%; text-shadow:0 6px 30px rgba(0,0,0,.7); }
+    .headline { font-family:'Anton',sans-serif; font-size:${variant === 'esquina' ? (isStory ? 74 : 60) : (isStory ? 80 : 66)}px; line-height:.96;
+      letter-spacing:.5px; text-transform:uppercase; color:${ink}; max-width:100%;
+      ${onPaper ? '' : 'text-shadow:0 6px 30px rgba(0,0,0,.7);'} }
+
+    /* VARIANTE 'esquina': fila inferior con el titular gigante a la izquierda y el
+       precio como bloque naranja sólido a la derecha. Bordes duros, sin vidrio: es la
+       composición de afiche, la que más se despega de la tarjeta de siempre. */
+    .lastrow { display:flex; align-items:flex-end; justify-content:space-between;
+      gap:${isStory ? 30 : 22}px; width:100%; }
+    .lastrow-txt { flex:1 1 auto; min-width:0; }
+    .tline { display:flex; align-items:center; gap:10px; margin-top:${isStory ? 16 : 12}px;
+      font-size:${isStory ? 22 : 19}px; font-weight:600; letter-spacing:.4px; color:rgba(255,255,255,.9); }
+    .ptag { flex:0 0 auto; display:flex; flex-direction:column; align-items:flex-end;
+      gap:${isStory ? 4 : 2}px; background:linear-gradient(135deg, #FF6B1A 0%, ${accent} 100%); color:#fff;
+      padding:${isStory ? '20px 28px 22px' : '16px 22px 18px'};
+      border-radius:${isStory ? 18 : 14}px; box-shadow:0 18px 44px rgba(0,0,0,.5); }
+    .ptag-off { font-size:${isStory ? 24 : 20}px; font-weight:800; letter-spacing:2px; }
+    .ptag-lbl { font-size:${isStory ? 22 : 19}px; font-weight:800; letter-spacing:4px; opacity:.85; }
+    .ptag-antes { font-size:${isStory ? 26 : 22}px; font-weight:600; opacity:.82;
+      text-decoration:line-through; text-decoration-thickness:2px; }
+    .ptag-now { font-family:'Anton',sans-serif; font-size:${isStory ? 84 : 70}px; line-height:.92;
+      letter-spacing:-1px; white-space:nowrap; }
 
     /* ===== Tarjeta de precio / ficha de producto ===== */
-    .pcard { align-self:flex-start; max-width:100%; text-align:left;
-      background:linear-gradient(158deg, rgba(24,25,31,.82) 0%, rgba(10,11,14,.74) 100%);
-      backdrop-filter:blur(26px); -webkit-backdrop-filter:blur(26px);
-      border:1px solid rgba(255,255,255,.16); border-radius:${isStory ? 32 : 26}px;
+    .pcard { max-width:100%; text-align:left; color:#fff;
       padding:${isStory ? '28px 38px 30px' : '22px 30px 24px'};
-      box-shadow:0 28px 70px rgba(0,0,0,.6), inset 0 1px 0 rgba(255,255,255,.16); }
+      ${pcardCss} }
     /* El ancho deja aire a la derecha a propósito: con el texto llegando justo al borde
        de la tarjeta, la última palabra "se lee" cortada (y el QA visual la reportaba
        como texto mutilado sin estarlo). */
@@ -791,27 +940,35 @@ function buildFullbleedHtml(opts) {
       text-transform:uppercase; padding-right:14px; border-right:2px dashed #c9c9cf; }
     .cpn-code { font-family:'Anton',sans-serif; font-size:${isStory ? 48 : 42}px; letter-spacing:2px; color:#141416; }
 
-    .interaction { background:rgba(255,255,255,.18); border:1px solid rgba(255,255,255,.5);
-      backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);
+    /* Sobre papel el vidrio blanco es invisible: ahí la cápsula va con tinta oscura. */
+    .interaction { background:${onPaper ? 'rgba(20,21,25,.06)' : 'rgba(255,255,255,.18)'};
+      border:1px solid ${onPaper ? 'rgba(20,21,25,.22)' : 'rgba(255,255,255,.5)'};
+      ${onPaper ? '' : 'backdrop-filter:blur(10px); -webkit-backdrop-filter:blur(10px);'}
       padding:${isStory ? '17px 34px' : '13px 27px'}; border-radius:100px; font-size:${isStory ? 27 : 22}px;
-      font-weight:700; color:#fff; white-space:nowrap; box-shadow:0 12px 30px rgba(0,0,0,.4); }
+      font-weight:700; color:${ink}; white-space:nowrap;
+      box-shadow:0 12px 30px rgba(0,0,0,${onPaper ? '.08' : '.4'}); }
     .ctapill { display:inline-flex; align-items:center; gap:${isStory ? 14 : 11}px;
       background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); border:1px solid rgba(255,255,255,.3);
       padding:${isStory ? '19px 38px' : '14px 29px'}; border-radius:100px; font-size:${isStory ? 28 : 22}px;
       font-weight:800; letter-spacing:.4px; color:#fff; white-space:nowrap;
       box-shadow:0 16px 36px rgba(232,93,27,.5), inset 0 1px 0 rgba(255,255,255,.3); }
 
-    .tick { width:13px; height:13px; background:${accent}; border-radius:3px; box-shadow:0 0 12px ${accent}; flex:0 0 auto; }
-    .site { font-size:${isStory ? 25 : 22}px; font-weight:700; letter-spacing:3px; color:#fff; text-shadow:0 1px 6px rgba(0,0,0,.6); }
+    .tick { width:13px; height:13px; background:${accent}; border-radius:3px; ${onPaper ? '' : `box-shadow:0 0 12px ${accent};`} flex:0 0 auto; }
+    .site { font-size:${isStory ? 25 : 22}px; font-weight:700; letter-spacing:3px; color:${ink};
+      ${onPaper ? '' : 'text-shadow:0 1px 6px rgba(0,0,0,.6);'} }
   </style></head><body>
     <div class="canvas">
-      ${hasCover ? (
+      ${onPaper
+    // 'marco': papel con grano, sin foto de fondo ni scrim — la foto va enmarcada
+    // adentro de la columna (zone-hero) como en un aviso impreso.
+    ? '<div class="grain"></div>'
+    : (hasCover ? (
     // Escena IA (bgImageUrl) o foto real marcada cover → a sangre + scrim.
     // Foto real de catálogo → fondo desenfocado + tarjeta de estudio DENTRO de la columna.
-    fullBleedCover
-      ? `<img src="${esc(bgImageUrl || productImageUrl)}" alt="" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:0;"/><div class="scrim"></div>`
-      : `<img class="bg" src="${esc(productImageUrl)}" alt=""/><div class="scrim"></div>`
-  ) : '<div class="glow"></div>'}
+      fullBleedCover
+        ? `<img src="${esc(bgImageUrl || productImageUrl)}" alt="" style="position:absolute; inset:0; width:100%; height:100%; object-fit:cover; z-index:0;"/><div class="scrim"></div>`
+        : `<img class="bg" src="${esc(productImageUrl)}" alt=""/><div class="scrim"></div>`
+    ) : '<div class="glow"></div>')}
       <div class="stack">
         <div class="zone-top">${brandHtml}${badgeHtml}</div>
         <div class="zone-chips">${topChipsHtml}</div>
@@ -1176,12 +1333,21 @@ function buildEducativoHtml(opts) {
  * sola cápsula que cruzaba la pieza de lado a lado y quedaba pegada a la foto—, que era
  * parte del "está todo muy amontonado". Fuente única para todas las plantillas.
  */
-function specChipsHtml(points, g, { marginBottom = 0 } = {}) {
+function specChipsHtml(points, g, { marginBottom = 0, onPaper = false } = {}) {
   // El largo se garantiza ACÁ: el prompt pide datos cortos y el modelo igual devuelve
   // frases de 70+ caracteres, que impresas quedan chicas y en tres renglones (ilegibles
   // en el celular). Ver compactFact.
   const list = (points || []).map((p) => compactFact(p, 30)).filter(Boolean).slice(0, 3);
   if (!list.length) return '';
+  // onPaper: la variante 'marco' de fullbleed va sobre fondo claro — las cápsulas de
+  // vidrio oscuro sobre papel se ven sucias, así que ahí van con tinta oscura.
+  if (onPaper) {
+    const chipClaro = (p) => `<span style="display:inline-flex; align-items:center; gap:${g.isStory ? 11 : 9}px;
+      background:rgba(20,21,25,.06); border:1px solid rgba(20,21,25,.16);
+      border-radius:100px; padding:${g.isStory ? '15px 36px 15px 24px' : '13px 30px 13px 20px'};
+      font-size:${g.isStory ? 30 : 28}px; font-weight:600; letter-spacing:.2px; color:#1c1d21;">${checkSvg('#C1440C', g.isStory ? 24 : 22)}${esc(p)}</span>`;
+    return `<div style="display:flex; flex-wrap:wrap; gap:${g.isStory ? 14 : 11}px; margin-bottom:${marginBottom}px;">${list.map(chipClaro).join('')}</div>`;
+  }
   const chip = (p) => `<span style="display:inline-flex; align-items:center; gap:${g.isStory ? 11 : 9}px;
     background:rgba(10,11,14,.5); border:1px solid rgba(255,255,255,.2);
     backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
