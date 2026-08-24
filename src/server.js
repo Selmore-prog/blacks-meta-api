@@ -142,6 +142,18 @@ app.get('/', (req, res) => {
   res.sendFile(path.join(__dirname, '..', 'public', 'dashboard.html'));
 });
 
+// Qué commit está corriendo y desde cuándo. Render expone RENDER_GIT_COMMIT en el
+// entorno del servicio; si no está (corriendo local), queda 'local'.
+// Existe porque después de pushear no había forma de saber si Render ya había
+// desplegado: todo lo que cambia en el panel (estáticos y /api/config) está detrás
+// del login, y /api/health no decía qué versión servía. Con esto se confirma un
+// deploy desde afuera, sin iniciar sesión.
+const BUILD = {
+  commit: (process.env.RENDER_GIT_COMMIT || 'local').slice(0, 7),
+  branch: process.env.RENDER_GIT_BRANCH || null,
+  startedAt: new Date().toISOString(),
+};
+
 // --- Health check (Render y monitoreo) ---
 app.get(['/health', '/api/health'], wrap(async (req, res) => {
   let db = 'ok';
@@ -153,6 +165,7 @@ app.get(['/health', '/api/health'], wrap(async (req, res) => {
     aiImages: config.ai.useAiImages,
     timezone: config.timezone,
     time: new Date().toISOString(),
+    build: BUILD,
   });
 }));
 
