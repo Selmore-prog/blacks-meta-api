@@ -875,6 +875,14 @@ app.post('/api/media/copy', wrap(async (req, res) => {
   res.json(await copyImages({ fromId: b.fromId, toIds: b.toIds, imageIds: b.imageIds }));
 }));
 
+// REEMPLAZO: sustituye las fotos del destino por las del origen. Sube primero, re-vincula
+// las variantes y recién entonces borra las viejas (ver src/productMedia.js).
+app.post('/api/media/replace', wrap(async (req, res) => {
+  const { replaceImages } = require('./productMedia');
+  const b = req.body || {};
+  res.json(await replaceImages({ fromId: b.fromId, toId: b.toId, imageIds: b.imageIds }));
+}));
+
 app.post('/api/media/variant-images', wrap(async (req, res) => {
   const { setVariantImages } = require('./productMedia');
   const b = req.body || {};

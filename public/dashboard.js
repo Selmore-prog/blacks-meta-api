@@ -2330,6 +2330,17 @@ async function loadMediaTools() {
       <label class="hint" style="display:block; margin:14px 0 4px;">Publicaciones de DESTINO (podés elegir varias)</label>
       ${mediaSearchBox('mt-to', 'Buscá por nombre…')}
       <div id="mt-to-sel" style="margin-top:8px;"></div>
+      <div style="display:flex; gap:14px; align-items:center; margin-top:14px; flex-wrap:wrap;">
+        <label class="hint" style="margin:0; display:inline-flex; align-items:center; gap:7px; cursor:pointer;">
+          <input type="radio" name="mt-modo" value="agregar" checked style="accent-color:var(--orange);"/>
+          <span><b>Agregar</b> al final (no toca las que ya están)</span>
+        </label>
+        <label class="hint" style="margin:0; display:inline-flex; align-items:center; gap:7px; cursor:pointer;">
+          <input type="radio" name="mt-modo" value="reemplazar" style="accent-color:var(--orange);"/>
+          <span><b>Reemplazar</b> las del destino</span>
+        </label>
+      </div>
+      <p class="hint" id="mt-modo-aviso" style="margin:8px 0 0;"></p>
       <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
         <button class="btn-primary btn-sm" id="mt-copy" disabled>${icon('image')} Copiar fotos</button>
       </div>
@@ -2372,6 +2383,9 @@ async function loadMediaTools() {
   });
 
   document.getElementById('mt-copy').addEventListener('click', copiarFotos);
+  document.querySelectorAll('input[name="mt-modo"]').forEach((r) => {
+    r.addEventListener('change', () => { renderDestinos(); refreshCopyBtn(); });
+  });
 }
 
 function chipHtml(p, btnId) {
@@ -2414,17 +2428,37 @@ function renderPhotoPicker() {
   });
 }
 
+function modoActual() {
+  const r = document.querySelector('input[name="mt-modo"]:checked');
+  return r ? r.value : 'agregar';
+}
+
 function refreshCopyBtn() {
   const b = document.getElementById('mt-copy');
   if (!b) return;
   const n = mediaState.elegidas.size;
   const d = mediaState.destinos.length;
-  b.disabled = !mediaState.origen || !n || !d;
-  // 'publicación' pierde el acento en plural: publicaciones, no "publicaciónes".
-  b.innerHTML = `${icon('image')} Copiar ${n} foto${n === 1 ? '' : 's'} a ${d} ${d === 1 ? 'publicación' : 'publicaciones'}`;
+  const modo = modoActual();
+  const aviso = document.getElementById('mt-modo-aviso');
+  if (aviso) {
+    aviso.innerHTML = modo === 'reemplazar'
+      ? '<b style="color:var(--orange)">Reemplazar borra las fotos actuales del destino.</b> Primero se suben las nuevas, después se re-vinculan las variantes a la foto de su color, y recién entonces se borran las viejas. Si algo falla al subir, no se borra nada. Un destino por vez.'
+      : 'Las fotos se agregan al final. Nada de lo que ya está se toca.';
+  }
+  // En reemplazo va UN destino por vez: es una operación destructiva y conviene verla
+  // terminar antes de la siguiente, no dispararla sobre cinco publicaciones a ciegas.
+  const destinosOk = modo === 'reemplazar' ? d === 1 : d >= 1;
+  b.disabled = !mediaState.origen || !n || !destinosOk;
+  b.innerHTML = modo === 'reemplazar'
+    ? `${icon('refresh')} Reemplazar por ${n} foto${n === 1 ? '' : 's'}`
+    : `${icon('image')} Copiar ${n} foto${n === 1 ? '' : 's'} a ${d} ${d === 1 ? 'publicación' : 'publicaciones'}`;
+  if (modo === 'reemplazar' && d > 1) {
+    b.innerHTML = `${icon('refresh')} Dejá un solo destino para reemplazar`;
+  }
 }
 
 async function copiarFotos() {
+  if (modoActual() === 'reemplazar') return reemplazarFotos();
   const n = mediaState.elegidas.size;
   const destinos = mediaState.destinos;
   // Confirmación explícita: esto agrega fotos en la tienda en vivo y deshacerlo
@@ -2449,6 +2483,36 @@ async function copiarFotos() {
     toast('Fotos copiadas. Sincronizá el catálogo para verlas acá.', 'ok');
   } catch (e) {
     toast(`No se pudieron copiar: ${e.message}`, 'err');
+  } finally { refreshCopyBtn(); }
+}
+
+/** Reemplaza las fotos del destino. Destructivo: pide confirmación con los números. */
+async function reemplazarFotos() {
+  const destino = mediaState.destinos[0];
+  const n = mediaState.elegidas.size;
+  let actuales = '?';
+  try { actuales = (await api(`/api/media/product/${destino.id}`)).imagenes.length; } catch (_) {}
+  if (!confirm(`REEMPLAZAR las fotos de "${destino.name}".\n\n· Se suben ${n} foto(s) desde "${mediaState.origen.name}".\n· Se re-vinculan sus variantes a la foto de su color.\n· Se BORRAN sus ${actuales} foto(s) actuales.\n\nSi alguna subida falla, no se borra nada. ¿Confirmás?`)) return;
+  const b = document.getElementById('mt-copy');
+  b.disabled = true; b.innerHTML = `${icon('refresh', 'spin')} Reemplazando… (puede tardar)`;
+  try {
+    const r = await api('/api/media/replace', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fromId: mediaState.origen.id, toId: destino.id, imageIds: [...mediaState.elegidas] }),
+    });
+    const out = document.getElementById('mt-copy-out');
+    if (r.abortado) {
+      out.innerHTML = `<p class="hint" style="color:var(--orange)"><b>Se abortó.</b> ${esc(r.mensaje)}</p>`;
+      toast('El reemplazo se abortó: no se borró ninguna foto.', 'err');
+    } else {
+      out.innerHTML = `<div class="dl-row"><span>${esc(destino.name)}</span>
+        <span class="hint" style="margin:0;">${r.copiadas} subidas · ${r.borradas} viejas borradas · ${r.variantes_revinculadas} variantes re-vinculadas</span></div>
+        ${r.colores_sin_equivalente && r.colores_sin_equivalente.length ? `<p class="hint" style="color:var(--orange)">Sin foto equivalente para: ${r.colores_sin_equivalente.map(esc).join(', ')}. Asignásela abajo, en "Foto principal de cada color".</p>` : ''}
+        ${r.errores && r.errores.length ? `<p class="hint">${r.errores.length} aviso(s): ${esc(r.errores.slice(0, 3).join(' · '))}</p>` : ''}`;
+      toast(`Reemplazo listo: ${r.copiadas} fotos nuevas, ${r.borradas} borradas.`, 'ok');
+    }
+  } catch (e) {
+    toast(`No se pudo reemplazar: ${e.message}`, 'err');
   } finally { refreshCopyBtn(); }
 }
 
