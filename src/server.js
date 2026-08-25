@@ -850,6 +850,37 @@ app.get('/api/home/rules', wrap(async (req, res) => {
   });
 }));
 
+/* --------------------- FOTOS DE PRODUCTO (Tiendanube) ------------------- *
+ * Copiar fotos de una publicación a otra sin descargarlas, y asignar la foto
+ * principal de cada variante (la que se ve al clickear el color). Ver
+ * src/productMedia.js. Los tres endpoints que escriben lo hacen en la TIENDA
+ * EN VIVO, así que el panel pide confirmación antes de llamarlos.               */
+app.get('/api/media/search', wrap(async (req, res) => {
+  const { searchProducts } = require('./productMedia');
+  res.json(await searchProducts(req.query.q));
+}));
+
+app.get('/api/media/product/:id', wrap(async (req, res) => {
+  const { getImages, getVariantGroups } = require('./productMedia');
+  const [imagenes, grupos] = await Promise.all([
+    getImages(req.params.id),
+    getVariantGroups(req.params.id).catch(() => []),
+  ]);
+  res.json({ imagenes, grupos });
+}));
+
+app.post('/api/media/copy', wrap(async (req, res) => {
+  const { copyImages } = require('./productMedia');
+  const b = req.body || {};
+  res.json(await copyImages({ fromId: b.fromId, toIds: b.toIds, imageIds: b.imageIds }));
+}));
+
+app.post('/api/media/variant-images', wrap(async (req, res) => {
+  const { setVariantImages } = require('./productMedia');
+  const b = req.body || {};
+  res.json(await setVariantImages({ productId: b.productId, asignaciones: b.asignaciones }));
+}));
+
 /* ------------------------- BANNERS DEL HOME ---------------------------- *
  * Recomienda qué banners poner en el carrusel de arriba y en la grilla del
  * cuerpo, con el número real que justifica cada uno, y los renderiza listos

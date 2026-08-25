@@ -153,6 +153,7 @@ function switchTab(view) {
   if (view === 'metrics') loadMetrics();
   if (view === 'products') loadProducts();
   if (view === 'home') { loadHomeRails(); loadFlash(); }
+  if (view === 'products') loadMediaTools();
   if (view === 'studio') loadStudio();
   if (view === 'analysis') setupAnalysis();
   if (view === 'ads') loadAdsPerformance();
@@ -2265,6 +2266,234 @@ async function syncProductsFromTiendanube() {
   } catch (e) {
     toast(e.message, 'err');
   } finally { if (btn) { btn.disabled = false; btn.innerHTML = original; } }
+}
+
+/* ============ FOTOS DE PRODUCTO (copiar / asignar a variantes) ============
+ * Dos tareas manuales que comían tiempo: repetir las mismas fotos en otra
+ * publicación (el mismo pantalón como minorista y como mayorista, los packs x2)
+ * y elegir qué foto muestra cada color al clickearlo en la ficha.
+ * Las fotos NO se descargan ni se vuelven a subir: se le pasa la URL a
+ * Tiendanube y la trae de su lado (ver src/productMedia.js).
+ */
+const mediaState = { origen: null, destinos: [], fotos: [], elegidas: new Set(), grupos: [] };
+
+/** Buscador predictivo reutilizable: llama a onPick con el producto elegido. */
+function mediaSearchBox(id, placeholder, onPick) {
+  return `<div class="mt-search">
+    <input type="text" id="${id}" placeholder="${placeholder}" autocomplete="off"/>
+    <div class="mt-results" id="${id}-res"></div>
+  </div>`;
+}
+
+function wireSearch(id, onPick) {
+  const input = document.getElementById(id);
+  const box = document.getElementById(`${id}-res`);
+  if (!input) return;
+  let t = null;
+  input.addEventListener('input', () => {
+    clearTimeout(t);
+    const q = input.value.trim();
+    if (q.length < 2) { box.innerHTML = ''; return; }
+    // 250 ms de espera: escribir "pantalon" son 8 pulsaciones y no hacen falta 8 consultas.
+    t = setTimeout(async () => {
+      try {
+        const hits = await api(`/api/media/search?q=${encodeURIComponent(q)}`);
+        box.innerHTML = hits.map((h) => `<div class="mt-hit" data-id="${h.id}" data-name="${esc(h.name)}" data-img="${esc(h.image_url || '')}">
+            <img src="${esc(h.image_url || '')}" alt=""/><b>${esc(h.name)}</b><span>${h.fotos} fotos</span>
+          </div>`).join('') || '<div class="mt-hit"><span>Sin resultados</span></div>';
+        box.querySelectorAll('.mt-hit[data-id]').forEach((el) => {
+          el.addEventListener('click', () => {
+            onPick({ id: el.dataset.id, name: el.dataset.name, image_url: el.dataset.img });
+            box.innerHTML = ''; input.value = '';
+          });
+        });
+      } catch (_) { box.innerHTML = ''; }
+    }, 250);
+  });
+  document.addEventListener('click', (e) => { if (!box.contains(e.target) && e.target !== input) box.innerHTML = ''; });
+}
+
+async function loadMediaTools() {
+  const box = document.getElementById('media-tools');
+  if (!box) return;
+  box.innerHTML = `
+    <div class="card" style="display:block;">
+      <h3>Fotos de producto</h3>
+      <p class="hint" style="margin-top:0;">Copiá las fotos de una publicación a otra sin descargarlas (se las pasa la URL a Tiendanube y las trae de su lado), y elegí qué foto muestra cada color al clickearlo en la ficha. <b>Los cambios se aplican en la tienda en vivo.</b></p>
+
+      <h4 style="font-size:13px; margin:18px 0 8px;">1 · Copiar fotos a otras publicaciones</h4>
+      <label class="hint" style="display:block; margin-bottom:4px;">Producto de ORIGEN (de dónde salen las fotos)</label>
+      ${mediaSearchBox('mt-from', 'Buscá por nombre…')}
+      <div id="mt-from-sel" style="margin-top:8px;"></div>
+      <div id="mt-photos"></div>
+
+      <label class="hint" style="display:block; margin:14px 0 4px;">Publicaciones de DESTINO (podés elegir varias)</label>
+      ${mediaSearchBox('mt-to', 'Buscá por nombre…')}
+      <div id="mt-to-sel" style="margin-top:8px;"></div>
+      <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
+        <button class="btn-primary btn-sm" id="mt-copy" disabled>${icon('image')} Copiar fotos</button>
+      </div>
+      <div id="mt-copy-out"></div>
+
+      <h4 style="font-size:13px; margin:26px 0 8px;">2 · Foto principal de cada color</h4>
+      <p class="hint" style="margin-top:0;">Es la foto que se ve al clickear un color en la ficha. Elegí el producto y asignale una foto a cada color de una vez (no variante por variante).</p>
+      ${mediaSearchBox('mt-var', 'Buscá el producto…')}
+      <div id="mt-var-out"></div>
+    </div>`;
+
+  wireSearch('mt-from', async (p) => {
+    mediaState.origen = p; mediaState.elegidas = new Set();
+    document.getElementById('mt-from-sel').innerHTML = chipHtml(p, 'mt-clear-from');
+    document.getElementById('mt-clear-from').addEventListener('click', () => {
+      mediaState.origen = null; mediaState.fotos = []; mediaState.elegidas = new Set();
+      document.getElementById('mt-from-sel').innerHTML = '';
+      document.getElementById('mt-photos').innerHTML = '';
+      refreshCopyBtn();
+    });
+    const d = await api(`/api/media/product/${p.id}`);
+    mediaState.fotos = d.imagenes || [];
+    mediaState.fotos.forEach((f) => mediaState.elegidas.add(String(f.id)));
+    renderPhotoPicker();
+    refreshCopyBtn();
+  });
+
+  wireSearch('mt-to', (p) => {
+    if (mediaState.destinos.some((d) => d.id === p.id)) return;
+    mediaState.destinos.push(p);
+    renderDestinos();
+    refreshCopyBtn();
+  });
+
+  wireSearch('mt-var', async (p) => {
+    const out = document.getElementById('mt-var-out');
+    out.innerHTML = skeleton('rows', 3);
+    const d = await api(`/api/media/product/${p.id}`);
+    renderVariantAssign(p, d);
+  });
+
+  document.getElementById('mt-copy').addEventListener('click', copiarFotos);
+}
+
+function chipHtml(p, btnId) {
+  return `<span class="mt-chip"><img src="${esc(p.image_url || '')}" alt=""/>${esc(p.name)}<button id="${btnId}" title="Quitar">×</button></span>`;
+}
+
+function renderDestinos() {
+  const el = document.getElementById('mt-to-sel');
+  el.innerHTML = mediaState.destinos.map((p, i) => chipHtml(p, `mt-del-${i}`)).join('');
+  mediaState.destinos.forEach((_, i) => {
+    const b = document.getElementById(`mt-del-${i}`);
+    if (b) b.addEventListener('click', () => { mediaState.destinos.splice(i, 1); renderDestinos(); refreshCopyBtn(); });
+  });
+}
+
+function renderPhotoPicker() {
+  const el = document.getElementById('mt-photos');
+  if (!mediaState.fotos.length) { el.innerHTML = '<p class="hint">Este producto no tiene fotos.</p>'; return; }
+  el.innerHTML = `
+    <div style="display:flex; align-items:center; gap:10px; margin-top:10px;">
+      <span class="hint" style="margin:0;">${mediaState.fotos.length} fotos · tocá para excluir alguna</span>
+      <button class="btn-ghost btn-sm" id="mt-all">Todas</button>
+      <button class="btn-ghost btn-sm" id="mt-none">Ninguna</button>
+    </div>
+    <div class="mt-grid">${mediaState.fotos.map((f) => `
+      <div class="mt-ph ${mediaState.elegidas.has(String(f.id)) ? 'sel' : ''}" data-id="${f.id}"><img src="${esc(f.src)}" alt=""/></div>`).join('')}</div>`;
+  el.querySelectorAll('.mt-ph').forEach((ph) => {
+    ph.addEventListener('click', () => {
+      const id = ph.dataset.id;
+      if (mediaState.elegidas.has(id)) mediaState.elegidas.delete(id); else mediaState.elegidas.add(id);
+      ph.classList.toggle('sel');
+      refreshCopyBtn();
+    });
+  });
+  el.querySelector('#mt-all').addEventListener('click', () => {
+    mediaState.fotos.forEach((f) => mediaState.elegidas.add(String(f.id))); renderPhotoPicker(); refreshCopyBtn();
+  });
+  el.querySelector('#mt-none').addEventListener('click', () => {
+    mediaState.elegidas.clear(); renderPhotoPicker(); refreshCopyBtn();
+  });
+}
+
+function refreshCopyBtn() {
+  const b = document.getElementById('mt-copy');
+  if (!b) return;
+  const n = mediaState.elegidas.size;
+  const d = mediaState.destinos.length;
+  b.disabled = !mediaState.origen || !n || !d;
+  // 'publicación' pierde el acento en plural: publicaciones, no "publicaciónes".
+  b.innerHTML = `${icon('image')} Copiar ${n} foto${n === 1 ? '' : 's'} a ${d} ${d === 1 ? 'publicación' : 'publicaciones'}`;
+}
+
+async function copiarFotos() {
+  const n = mediaState.elegidas.size;
+  const destinos = mediaState.destinos;
+  // Confirmación explícita: esto agrega fotos en la tienda en vivo y deshacerlo
+  // implica borrarlas una por una desde el panel de Tiendanube.
+  if (!confirm(`Se van a agregar ${n} foto(s) a ${destinos.length} publicación(es) de tu tienda:\n\n${destinos.map((d) => `· ${d.name}`).join('\n')}\n\nLas fotos se AGREGAN al final; no se borra ni se reemplaza nada. ¿Confirmás?`)) return;
+  const b = document.getElementById('mt-copy');
+  b.disabled = true; b.innerHTML = `${icon('refresh', 'spin')} Copiando…`;
+  try {
+    const r = await api('/api/media/copy', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        fromId: mediaState.origen.id,
+        toIds: destinos.map((d) => d.id),
+        imageIds: [...mediaState.elegidas],
+      }),
+    });
+    document.getElementById('mt-copy-out').innerHTML = r.destinos.map((d) => {
+      const nombre = (destinos.find((x) => String(x.id) === String(d.producto_id)) || {}).name || d.producto_id;
+      return `<div class="dl-row"><span>${esc(nombre)}</span>
+        <span class="hint" style="margin:0;">${d.copiadas} copiadas${d.errores.length ? ` · <b style="color:var(--orange)">${d.errores.length} con error</b>` : ''}</span></div>`;
+    }).join('');
+    toast('Fotos copiadas. Sincronizá el catálogo para verlas acá.', 'ok');
+  } catch (e) {
+    toast(`No se pudieron copiar: ${e.message}`, 'err');
+  } finally { refreshCopyBtn(); }
+}
+
+function renderVariantAssign(producto, d) {
+  const out = document.getElementById('mt-var-out');
+  const imgs = d.imagenes || [];
+  const grupos = d.grupos || [];
+  if (!grupos.length) { out.innerHTML = '<p class="hint">Este producto no tiene variantes.</p>'; return; }
+  out.innerHTML = `
+    <p class="hint" style="margin:10px 0 0;"><b>${esc(producto.name)}</b> · ${grupos.length} color(es), ${grupos.reduce((a, g) => a + g.cantidad, 0)} variantes</p>
+    ${grupos.map((g, i) => `
+      <div class="mt-color">
+        <b>${esc(g.color)}</b>
+        <span class="hint">${g.cantidad} talles</span>
+        ${g.consistente ? '' : '<span class="mt-warn">los talles de este color muestran fotos distintas</span>'}
+        <select id="mt-img-${i}" style="margin-left:auto; max-width:220px;">
+          <option value="">— sin cambios —</option>
+          ${imgs.map((im, k) => `<option value="${im.id}" ${g.imageIds.includes(im.id) ? 'selected' : ''}>Foto ${k + 1}${g.imageIds.includes(im.id) ? ' (actual)' : ''}</option>`).join('')}
+        </select>
+      </div>`).join('')}
+    <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:12px;">
+      <button class="btn-primary btn-sm" id="mt-save-var">${icon('check')} Aplicar en la tienda</button>
+    </div>`;
+
+  document.getElementById('mt-save-var').addEventListener('click', async (e) => {
+    const asignaciones = grupos.map((g, i) => {
+      const sel = document.getElementById(`mt-img-${i}`).value;
+      // Sin cambio, o ya era la foto asignada: no se manda nada (evita escrituras inútiles).
+      if (!sel || g.imageIds.includes(Number(sel))) return null;
+      return { imageId: Number(sel), variantIds: g.variantes.map((v) => v.id) };
+    }).filter(Boolean);
+    if (!asignaciones.length) { toast('No cambiaste ninguna foto.', 'err'); return; }
+    const total = asignaciones.reduce((a, x) => a + x.variantIds.length, 0);
+    if (!confirm(`Se va a cambiar la foto principal de ${total} variante(s) en tu tienda. ¿Confirmás?`)) return;
+    const b = e.currentTarget; b.disabled = true; b.innerHTML = `${icon('refresh', 'spin')} Aplicando…`;
+    try {
+      const r = await api('/api/media/variant-images', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ productId: producto.id, asignaciones }),
+      });
+      toast(`${r.actualizadas} variante(s) actualizada(s)${r.errores.length ? ` · ${r.errores.length} con error` : ''}.`, r.errores.length ? 'err' : 'ok');
+    } catch (err) {
+      toast(`No se pudo aplicar: ${err.message}`, 'err');
+    } finally { b.disabled = false; b.innerHTML = `${icon('check')} Aplicar en la tienda`; }
+  });
 }
 
 async function loadProducts() {
