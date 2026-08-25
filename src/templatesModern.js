@@ -201,12 +201,19 @@ function buildRecorteHtml(opts, g, head) {
       font-size:${isStory ? 26 : 23}px; letter-spacing:${isStory ? 7 : 6}px; color:${ACCENT};">${esc(String(kicker).toUpperCase())}</div>` : ''}
 
     <!-- TITULAR (z-index 2): queda DEBAJO de la prenda (z-index 3) -->
+    <!--
+      Los renglones NO van centrados: el primero se apoya a la IZQUIERDA y el segundo a la
+      DERECHA. Centrados, la prenda (que también está al centro) les tapaba justo el medio
+      y el titular quedaba "PANTAL___CAZADOR". Apoyados en los costados, cada uno cruza la
+      silueta por un borde: se conserva el efecto de pasar por detrás y la palabra se sigue
+      leyendo. Es además una composición más editorial que el bloque centrado.
+    -->
     ${fitted ? `
-    <div style="position:absolute; top:${l1Top}px; left:0; right:0; z-index:2; text-align:center;
+    <div style="position:absolute; top:${l1Top}px; left:${g.padX}px; right:${g.padX}px; z-index:2; text-align:left;
       font-family:'Anton',sans-serif; font-size:${fitted.size}px; line-height:.86; color:#fff;
       text-transform:uppercase; letter-spacing:-1px; white-space:nowrap;
       text-shadow:0 8px 40px rgba(0,0,0,.55);">${esc(fitted.l1)}</div>
-    ${fitted.l2 ? `<div style="position:absolute; top:${l2Top}px; left:0; right:0; z-index:2; text-align:center;
+    ${fitted.l2 ? `<div style="position:absolute; top:${l2Top}px; left:${g.padX}px; right:${g.padX}px; z-index:2; text-align:right;
       font-family:'Anton',sans-serif; font-size:${fitted.size}px; line-height:.86; color:transparent;
       -webkit-text-stroke:2px rgba(255,255,255,.62); text-transform:uppercase; letter-spacing:-1px;
       white-space:nowrap;">${esc(fitted.l2)}</div>` : ''}` : ''}
@@ -395,7 +402,7 @@ function buildEditorialHtml(opts, g, head) {
   </body></html>`;
 }
 
-module.exports = { buildRecorteHtml, buildFichaHtml, buildEditorialHtml, cutoutLayer, priceBlock, ACCENT };
+module.exports = { buildRecorteHtml, buildFichaHtml, buildEditorialHtml, cutoutLayer, priceBlock, fitTwoLines, ACCENT };
 
 /* ========================================================================== *
  * 4) BANNER — para el home de la tienda (carrusel ancho y grilla cuadrada).   *

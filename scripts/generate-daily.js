@@ -480,15 +480,18 @@ function templateCandidates(slot, { visualProduct, cutoutOk = null } = {}) {
  * plantilla que después no puede dibujar la silueta arruina la pieza entera.
  */
 async function probeCutout(visualProduct) {
-  if (!visualProduct) return false;
+  if (!visualProduct) return null;
   const url = (Array.isArray(visualProduct.images) && visualProduct.images[0])
     || visualProduct.image_url || null;
-  if (!url) return false;
+  if (!url) return null;
   try {
     const { cutoutFromUrl } = require('../src/productCutout');
-    return Boolean(await cutoutFromUrl(url));
+    const cut = await cutoutFromUrl(url);
+    // Se devuelve la CAJA además del sí/no: el brief la necesita para calcular cuánto
+    // taparía la prenda al titular y decidir si el efecto es legible.
+    return cut ? { ok: true, box: cut.box } : null;
   } catch (_) {
-    return false;
+    return null;
   }
 }
 
@@ -516,6 +519,33 @@ function chooseTemplate(slot, { override, visualProduct, aiPick, recientes = [],
   // Ahora primero se descartan las plantillas de las últimas piezas.
   const frescas = artDirection.withoutRecent(candidates, recientes);
   return frescas[Number(slot.id) % frescas.length];
+}
+
+/*
+ * PIEZAS DE RANKING ("lo más vendido del mes", "los favoritos", "top 5").
+ *
+ * Falla real: una pieza titulada "Lo más elegido de agosto" salió con la foto de UN solo
+ * producto (un poncho de lluvia). El dato era cierto —es uno de los más vendidos— pero
+ * una pieza que promete un ranking y muestra un producto no cumple lo que anuncia: el
+ * que la ve espera una lista. Cuando el tema es un ranking, la pieza tiene que mostrar
+ * VARIOS productos reales, ordenados por ventas.
+ */
+const TEMA_DE_RANKING = /(lo m[aá]s (vendido|elegido|buscado|pedido)|los? m[aá]s (vendidos?|elegidos?|buscados?)|favoritos?|top\s*\d|ranking|los \d+ m[aá]s|m[aá]s vendidos del mes|best\s*sellers?)/i;
+
+function esPiezaDeRanking(slot) {
+  return TEMA_DE_RANKING.test(`${slot.theme_title || ''} ${slot.pillar_detail || ''}`);
+}
+
+/** Los N productos más vendidos con foto, para armar la grilla del ranking. */
+async function productosDelRanking(limite = 4) {
+  const { rows } = await pool.query(
+    `SELECT id, name, price, promo_price, image_url, sales_30d
+       FROM products_cache
+      WHERE ${eligibleSQL()} AND image_url IS NOT NULL
+      ORDER BY sales_30d DESC NULLS LAST, id
+      LIMIT $1`, [limite]
+  );
+  return rows;
 }
 
 /**
@@ -877,7 +907,9 @@ async function generateForSlot(slot, overrides = {}) {
   // misma llamada del copy. Si el director YA eligió plantilla, no se vuelve a pedir.
   const canPickTemplate = !isCarousel && slot.post_type !== 'reel' && !overrides.template && !(directorPlan && directorPlan.template);
   // Se prueba UNA vez por pieza y se reusa en las dos decisiones de plantilla.
-  const cutoutOk = await probeCutout(visualProduct);
+  const sonda = await probeCutout(visualProduct);
+  const cutoutOk = Boolean(sonda && sonda.ok);
+  const cutoutBox = sonda ? sonda.box : null;
   const templateOptions = canPickTemplate
     ? artDirection.withoutRecent(templateCandidates(effectiveSlot, { visualProduct, cutoutOk }), design.recientes)
       .map((t) => ({ name: t, desc: TEMPLATE_INFO[t] || '' }))
@@ -1261,6 +1293,7 @@ async function generateForSlot(slot, overrides = {}) {
         : null,
       deck: copy.deck || copy.subtitle || null,
       cutoutOk,
+      cutoutBox,
       format,
     });
     for (const nota of brief.notas) console.log(`[generate-daily] Brief · slot #${slot.id}: ${nota}`);
@@ -1269,6 +1302,26 @@ async function generateForSlot(slot, overrides = {}) {
       variant = artDirection.pickVariant(template, design.recientes, Number(slot.id) || 0);
       designTag = artDirection.encodeDesign(template, variant);
       console.log(`[generate-daily] Brief · slot #${slot.id}: la plantilla queda en '${template}' (el contenido no sostenía la elegida).`);
+    }
+
+    /*
+     * RANKING: si el tema promete una lista ("lo más vendido del mes"), la pieza muestra
+     * VARIOS productos, no uno. Se arma con la grilla y las fotos reales de los más
+     * vendidos, ordenadas por ventas. Si no hay al menos 3, no es un ranking creíble y
+     * la pieza sigue como estaba.
+     */
+    let rankingUrls = null;
+    if (!isCarousel && !isReel && esPiezaDeRanking(slot) && !overrides.template) {
+      const top = await productosDelRanking(4).catch(() => []);
+      if (top.length >= 3) {
+        rankingUrls = top.map((p) => p.image_url).filter(Boolean);
+        template = 'grid';
+        variant = 'clasico';
+        designTag = artDirection.encodeDesign(template, variant);
+        console.log(`[generate-daily] Slot #${slot.id}: el tema es un ranking — la pieza pasa a una grilla con ${rankingUrls.length} productos reales (${top.map((p) => p.name.slice(0, 22)).join(', ')}).`);
+      } else {
+        console.warn(`[generate-daily] Slot #${slot.id}: el tema promete un ranking pero sólo hay ${top.length} producto(s) elegible(s) con foto — no alcanza para una lista creíble.`);
+      }
     }
 
     const renderOpts = {
@@ -1349,6 +1402,21 @@ async function generateForSlot(slot, overrides = {}) {
     };
 
     // ============ DIRECCIÓN DE ARTE PEDIDA A MANO ============
+    /*
+     * RANKING: se aplica DESPUÉS de armar renderOpts, no adentro del literal — ahí lo
+     * pisaba la clave `productImageUrls` que viene más abajo y la grilla salía con cuatro
+     * tomas del MISMO pantalón en vez de los cuatro productos más vendidos.
+     * El titular también cambia: en una pieza de ranking tiene que anunciar la lista, no
+     * nombrar un producto (decía "Pantalón Cargo Slim Fit" sobre una grilla de cuatro).
+     */
+    if (rankingUrls) {
+      renderOpts.productImageUrls = rankingUrls;
+      renderOpts.productImageUrl = rankingUrls[0];
+      renderOpts.overlayTitle = stripEmoji(fixSpelling(slot.theme_title || overlayTitle));
+      renderOpts.useAiProductScene = false; // la grilla muestra fotos REALES del catálogo
+      renderOpts.useAiBackground = false;
+    }
+
     // El dueño eligió el modo desde el panel: pisa lo que decidió el director creativo.
     // 'generativa' es el caso clave de las promos/fechas comerciales sin producto: sin
     // esto no había forma de pedir una imagen generada y la pieza salía tipográfica.

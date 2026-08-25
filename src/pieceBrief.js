@@ -67,6 +67,37 @@ function tituloCorto(productName, fallback) {
 }
 
 /**
+ * ¿Se va a poder LEER el titular con la prenda delante?
+ *
+ * Falla real (historia del Cargo Cazador): la silueta ocupaba el 51% del ancho y el
+ * titular quedó "PANTAL___CAZADOR" / "GU__RE__ZADO". El efecto de texto por detrás sólo
+ * funciona si la prenda tapa una porción CHICA de cada renglón: lo tapado se reconstruye
+ * solo en la cabeza del lector si ve el principio y el final de la palabra. Pasado cierto
+ * punto ya no se reconstruye nada y la pieza queda, además, con aire de collage pegado.
+ *
+ * Devuelve la fracción tapada del renglón más comprometido (0 = nada, 1 = todo).
+ */
+function tapadoDelTitular(titulo, box, { width = 1080, padX = 60, maxSize = 150 } = {}) {
+  if (!box) return 0;
+  const { fitTwoLines } = require('./templatesModern');
+  const fitted = fitTwoLines(titulo, { maxWidth: width - padX * 2, maxSize });
+  if (!fitted) return 0;
+  const anchoSujeto = (box.x1 - box.x0) * width;
+  // Anton avanza ~0,42em por carácter (el mismo factor que usa la plantilla para el cuerpo).
+  const anchoL1 = Math.max(1, fitted.l1.length * fitted.size * 0.42);
+  /*
+   * Se mide SÓLO el primer renglón (el sólido, blanco): es el que lleva el mensaje.
+   * El segundo va en contorno y es decorativo — que la prenda lo cruce es parte del
+   * efecto, no un defecto. Medir el más corto de los dos degradaba todas las piezas de
+   * pantalón, incluidas las que se leían perfecto.
+   *
+   * Además la plantilla desplaza los renglones a los costados en vez de centrarlos, así
+   * que la prenda tapa como mucho la MITAD de lo que taparía centrada.
+   */
+  return Math.min(1, (anchoSujeto * 0.5) / anchoL1);
+}
+
+/**
  * Revisa el plan de la pieza y lo corrige. Devuelve
  * { template, specs, displayTitle, deck, notas[], degradado }.
  *
@@ -81,6 +112,7 @@ function reviewPiece({
   specs = null,
   deck = null,
   cutoutOk = false,
+  cutoutBox = null,
   format = 'feed',
 } = {}) {
   const notas = [];
@@ -115,13 +147,7 @@ function reviewPiece({
     }
   }
 
-  // 3) 'recorte' sin silueta es un rectángulo oscuro vacío.
-  if (out === 'recorte' && !cutoutOk) {
-    notas.push('El titular por detrás de la prenda no tiene silueta que lo tape: paso a fullbleed.');
-    out = 'fullbleed';
-  }
-
-  // 4) TITULAR CORTO para 'recorte'.
+  // 3) TITULAR CORTO para 'recorte' (hace falta antes de medir la legibilidad).
   let display = displayTitle;
   if (out === 'recorte') {
     const corto = tituloCorto(product && product.name, title);
@@ -130,6 +156,31 @@ function reviewPiece({
       display = corto;
     }
   }
+
+  // 3.a) 'recorte' sin silueta es un rectángulo oscuro vacío.
+  if (out === 'recorte' && !cutoutOk) {
+    notas.push('El titular por detrás de la prenda no tiene silueta que lo tape: paso a fullbleed.');
+    out = 'fullbleed';
+  }
+
+  /*
+   * 3.b) LEGIBILIDAD DEL TITULAR. Si la prenda tapa demasiado, la pieza se cambia por una
+   * con ESCENA GENERADA del producto (fullbleed la pide sola): queda moderna igual y sin
+   * el recorte pegado. El umbral 0,42 sale de medir el caso que falló: con 51% tapado el
+   * titular era ilegible; hasta ~40% se sigue reconstruyendo la palabra.
+   */
+  if (out === 'recorte' && cutoutBox) {
+    const tapado = tapadoDelTitular(display || title || (product && product.name), cutoutBox, {
+      width: format === 'story' ? 1080 : 1080,
+      padX: format === 'story' ? 84 : 60,
+      maxSize: format === 'story' ? 168 : 150,
+    });
+    if (tapado > 0.5) {
+      notas.push(`La prenda taparía el ${Math.round(tapado * 100)}% del titular y no se leería: en vez del recorte, la pieza va con una escena generada del producto.`);
+      out = 'fullbleed';
+    }
+  }
+
 
   // 5) 'editorial' sin bajada NI puntos vuelve a ser la tarjeta con el pozo vacío que se
   // quiso eliminar. Sin material de apoyo, conviene una pieza de foto.
@@ -148,4 +199,4 @@ function reviewPiece({
   };
 }
 
-module.exports = { reviewPiece, tipoDePrenda, specCoherente, tituloCorto };
+module.exports = { reviewPiece, tipoDePrenda, specCoherente, tituloCorto, tapadoDelTitular };

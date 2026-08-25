@@ -164,6 +164,36 @@ async function publishToFacebook({ imageUrl, videoUrl, caption }) {
 }
 
 /**
+ * Espera a que Meta termine de procesar un contenedor antes de publicarlo.
+ *
+ * Existe por un error real en producción: "Media ID is not available" (code 9007,
+ * "El contenido multimedia no está listo para publicarse"). El camino de imagen única
+ * ya hacía este polling, pero el de CARRUSEL publicaba de inmediato — y un carrusel
+ * tarda MÁS en procesarse, porque Meta tiene que terminar cada hijo y después el
+ * contenedor. Subir la imagen no es lo mismo que tenerla lista.
+ *
+ * Devuelve cuando el contenedor está FINISHED; lanza si falla, expira o se agota el
+ * tiempo. `etiqueta` sólo sirve para que el log diga de cuál de los contenedores habla.
+ */
+async function waitForContainer(id, { etiqueta = 'contenedor', maxAttempts = 30, everyMs = 4000 } = {}) {
+  const { pageAccessToken, apiVersion } = config.meta;
+  for (let intento = 1; intento <= maxAttempts; intento += 1) {
+    const r = await fetch(
+      `https://graph.facebook.com/${apiVersion}/${id}?fields=status_code&access_token=${pageAccessToken}`
+    );
+    const d = await r.json();
+    if (d.error) throw new Error(`Error consultando estado de ${etiqueta}: ${JSON.stringify(d.error)}`);
+    if (d.status_code === 'FINISHED') return;
+    if (d.status_code === 'ERROR' || d.status_code === 'EXPIRED') {
+      throw new Error(`${etiqueta} falló al procesarse (estado ${d.status_code}).`);
+    }
+    console.log(`[metaPublisher] ${etiqueta} ${id}: ${d.status_code} (${intento}/${maxAttempts})`);
+    await sleep(everyMs);
+  }
+  throw new Error(`Timeout esperando a que Meta procese ${etiqueta} (${maxAttempts * everyMs / 1000}s).`);
+}
+
+/**
  * Publica un CARRUSEL de imágenes en Instagram (feed). Crea un contenedor por imagen
  * (is_carousel_item), luego el contenedor CAROUSEL con los children y publica.
  */
@@ -184,16 +214,41 @@ async function publishCarouselToInstagram({ imageUrls, caption }) {
     childIds.push(d.id);
   }
 
+  // Cada hijo tiene que estar procesado ANTES de armar el contenedor del carrusel:
+  // si se manda `children` con uno todavía en curso, Meta devuelve 9007 al publicar.
+  for (const [i, id] of childIds.entries()) {
+    await waitForContainer(id, { etiqueta: `slide ${i + 1}/${childIds.length}` });
+  }
+
   const cp = new URLSearchParams({ media_type: 'CAROUSEL', children: childIds.join(','), access_token: pageAccessToken });
   if (caption) cp.append('caption', caption);
   const cr = await fetch(`${base}/media`, { method: 'POST', body: cp });
   const cd = await cr.json();
   if (!cr.ok || cd.error) throw new Error(`Error creando contenedor de carrusel: ${JSON.stringify(cd.error || cd)}`);
 
-  const pubp = new URLSearchParams({ creation_id: cd.id, access_token: pageAccessToken });
-  const pr = await fetch(`${base}/media_publish`, { method: 'POST', body: pubp });
-  const pd = await pr.json();
-  if (!pr.ok || pd.error) throw new Error(`Error publicando carrusel: ${JSON.stringify(pd.error || pd)}`);
+  // Y el contenedor del carrusel también: es el que devolvía "Media ID is not available".
+  await waitForContainer(cd.id, { etiqueta: 'carrusel' });
+
+  /*
+   * Reintento ante el 9007 ("Media ID is not available"). Aunque el contenedor ya diga
+   * FINISHED, Meta a veces tarda unos segundos más en dejarlo publicable — es una carrera
+   * conocida de su lado. Como el contenedor ya está armado, reintentar es gratis y no
+   * duplica nada: si saliera publicado, la segunda llamada fallaría por otro motivo.
+   * Cualquier otro error se propaga en el primer intento, sin reintentos inútiles.
+   */
+  let pd = null;
+  for (let intento = 1; intento <= 3; intento += 1) {
+    const pubp = new URLSearchParams({ creation_id: cd.id, access_token: pageAccessToken });
+    const pr = await fetch(`${base}/media_publish`, { method: 'POST', body: pubp });
+    pd = await pr.json();
+    if (pr.ok && !pd.error) break;
+    const code = pd && pd.error && pd.error.code;
+    if (code !== 9007 || intento === 3) {
+      throw new Error(`Error publicando carrusel: ${JSON.stringify(pd.error || pd)}`);
+    }
+    console.warn(`[metaPublisher] El carrusel todavía no estaba listo (9007). Reintento ${intento}/3 en 10s...`);
+    await sleep(10000);
+  }
 
   dailyPublishCount += 1;
   console.log(`[metaPublisher] Carrusel publicado (${imageUrls.length} slides). ID: ${pd.id}`);
@@ -202,6 +257,7 @@ async function publishCarouselToInstagram({ imageUrls, caption }) {
 
 module.exports = {
   publishToInstagram,
+  waitForContainer,
   publishToFacebook,
   publishCarouselToInstagram,
 };
