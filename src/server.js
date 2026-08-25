@@ -11,6 +11,7 @@ const { publishAssetById, publishDailyAuto, getPublishQueueStatus, cancelQueuedF
 const { syncPostInsights, analyzePerformance } = require('./insights');
 const { getBrandProfile } = require('./brandProfile');
 const { uploadAsset } = require('./storage');
+const works = require('./works');
 const styleService = require('./styleService');
 const { importDriveFolder } = require('./driveService');
 const { analyzeAccountPerformance } = require('./accountAnalyzer');
@@ -76,6 +77,9 @@ app.use((req, res, next) => {
   const open = ['/health', '/api/health', '/api/login', '/login.html', '/favicon.ico',
     '/api/leads/click', '/api/home/rails', '/api/tiendanube/oauth/callback'];
   if (open.includes(req.path) || req.path.startsWith('/api/cron/')) return next(); // cron tiene su propio secret
+  // La ficha de producto MAYORISTA (otro dominio) pide sus trabajos: sólo lectura
+  // y devuelve fotos que ya son públicas en la vidriera. Ver src/works.js.
+  if (req.method === 'GET' && req.path.startsWith('/api/works/product/')) return next();
   if (hasValidSession(req)) return next();
   if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Sesión requerida.', needLogin: true });
   return res.redirect('/login.html');
@@ -962,6 +966,63 @@ app.post('/api/flash/activate', wrap(async (req, res) => {
 // Restaura los precios anteriores y apaga la sección.
 app.post('/api/flash/end', wrap(async (req, res) => {
   res.json(await flashSale.end());
+}));
+
+/* ======================= TRABAJOS REALIZADOS (bordados) ===================
+ * Biblioteca de fotos de prendas ya personalizadas, para mostrarlas en la ficha
+ * MAYORISTA ("así queda tu logo en esta prenda"). Se sube una vez y se engancha
+ * a los productos donde aplica. Ver src/works.js y, en el theme,
+ * snipplets/product/product-works.tpl.
+ *
+ * Todo pide sesión del panel salvo GET /api/works/product/:id, que lo llama la
+ * tienda desde otro dominio (sólo lectura).                                   */
+
+app.get('/api/works', wrap(async (req, res) => {
+  res.json({ works: await works.list(), techniques: works.TECHNIQUES });
+}));
+
+app.get('/api/works/search', wrap(async (req, res) => {
+  res.json(await works.searchProducts(req.query.q));
+}));
+
+// La foto viaja como multipart; el resto de los campos, como texto en el mismo form.
+app.post('/api/works', upload.single('file'), wrap(async (req, res) => {
+  const b = req.body || {};
+  let products = [];
+  try { products = JSON.parse(b.products || '[]'); } catch (_) { products = []; }
+  res.json(await works.create({
+    file: req.file,
+    technique: b.technique,
+    client: b.client,
+    garment: b.garment,
+    caption: b.caption,
+    products,
+  }));
+}));
+
+app.patch('/api/works/:id', wrap(async (req, res) => {
+  res.json(await works.update(req.params.id, req.body || {}));
+}));
+
+app.post('/api/works/reorder', wrap(async (req, res) => {
+  res.json(await works.reorder((req.body || {}).ids));
+}));
+
+app.delete('/api/works/:id', wrap(async (req, res) => {
+  res.json(await works.remove(req.params.id));
+}));
+
+// PÚBLICO: lo consume la ficha de producto de la tienda.
+app.options('/api/works/product/:id', publicGetCors);
+app.get('/api/works/product/:id', publicGetCors, wrap(async (req, res) => {
+  const items = await works.forProduct(req.params.id).catch((e) => {
+    console.error('[works] forProduct:', e.message);
+    return [];
+  });
+  // Las fotos casi no cambian: caché largo y revalidación en 2º plano, para que
+  // ninguna ficha espere por esto y el motor no reciba una consulta por visita.
+  res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=3600');
+  res.json({ items });
 }));
 
 /* =========================================================================
