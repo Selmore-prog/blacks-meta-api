@@ -249,30 +249,6 @@ CREATE TABLE IF NOT EXISTS ad_set_members (
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
--- TRABAJOS REALIZADOS · fotos de prendas ya bordadas/estampadas, para mostrar en
--- las fichas mayoristas ("así queda tu logo en esta prenda"). Ver src/works.js.
--- Un trabajo SIN filas en work_products es "general": aparece de relleno en
--- cualquier ficha, así la sección nunca queda con una sola foto suelta.
-CREATE TABLE IF NOT EXISTS works (
-  id          SERIAL PRIMARY KEY,
-  image_url   TEXT NOT NULL,                 -- Supabase Storage (carpeta trabajos/)
-  technique   TEXT NOT NULL DEFAULT 'bordado', -- bordado | estampado | dtf | sublimado | vinilo
-  client      TEXT,                          -- empresa o rubro; null si no hay permiso para nombrarla
-  garment     TEXT,                          -- tipo de prenda, texto libre (camisa, chomba, campera)
-  caption     TEXT,                          -- pie de foto opcional
-  position    INTEGER NOT NULL DEFAULT 0,
-  active      BOOLEAN NOT NULL DEFAULT true,
-  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-CREATE TABLE IF NOT EXISTS work_products (
-  work_id     INTEGER NOT NULL REFERENCES works(id) ON DELETE CASCADE,
-  product_id  BIGINT  NOT NULL,              -- id de Tiendanube; sin FK a propósito:
-                                             -- un trabajo puede apuntar a un producto
-                                             -- que todavía no entró en products_cache
-  PRIMARY KEY (work_id, product_id)
-);
-
 CREATE INDEX IF NOT EXISTS idx_ai_usage_created ON ai_usage (created_at);
 CREATE INDEX IF NOT EXISTS idx_video_jobs_asset ON video_jobs (asset_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_lead_clicks_created ON lead_clicks (created_at DESC);
@@ -284,8 +260,6 @@ CREATE INDEX IF NOT EXISTS idx_assets_calendar ON generated_assets (calendar_id)
 CREATE INDEX IF NOT EXISTS idx_insights_meta_post_id ON post_insights (meta_post_id);
 CREATE INDEX IF NOT EXISTS idx_products_stock ON products_cache (stock);
 CREATE INDEX IF NOT EXISTS idx_ad_set_members_in_set ON ad_set_members (in_set, score DESC);
-CREATE INDEX IF NOT EXISTS idx_work_products_product ON work_products (product_id);
-CREATE INDEX IF NOT EXISTS idx_works_active ON works (active, position);
 `;
 
 // Columnas nuevas agregadas de forma incremental (no rompen datos existentes).
@@ -376,6 +350,9 @@ async function migrate() {
   console.log('[migrate] Creando y actualizando tablas si no existen...');
   await pool.query(SQL);
   await pool.query(ALTER_SQL);
+  // Trabajos realizados (bordados): el esquema vive en su propio módulo porque
+  // también se crea solo, la primera vez que se usa la feature. Ver src/works.js.
+  await pool.query(require('./works').SCHEMA_SQL);
   // Asegurar la fila unica del perfil de marca.
   await pool.query(`INSERT INTO brand_profile (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
   // Fila unica de datos verificados de la empresa (se llena con el primer sync).

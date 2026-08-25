@@ -25,6 +25,50 @@ const { uploadAsset } = require('./storage');
  * Nada de esto escribe en Tiendanube. Las fotos viven en Supabase Storage.
  */
 
+/**
+ * Esquema. Vive acá y no sólo en migrate.js porque `npm start` NO corre las
+ * migraciones (el Dockerfile arranca `node src/server.js` a secas): si el dueño
+ * deploya sin acordarse de `npm run migrate`, el panel tira
+ * `relation "works" does not exist`. Con esto las tablas se crean solas la
+ * primera vez que alguien toca la feature. Todo `IF NOT EXISTS`, así que correrlo
+ * de más no hace nada. migrate.js importa esta misma constante.
+ */
+const SCHEMA_SQL = `
+CREATE TABLE IF NOT EXISTS works (
+  id          SERIAL PRIMARY KEY,
+  image_url   TEXT NOT NULL,
+  technique   TEXT NOT NULL DEFAULT 'bordado',
+  client      TEXT,
+  garment     TEXT,
+  caption     TEXT,
+  orden       INTEGER NOT NULL DEFAULT 0,
+  active      BOOLEAN NOT NULL DEFAULT true,
+  created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS work_products (
+  work_id     INTEGER NOT NULL REFERENCES works(id) ON DELETE CASCADE,
+  product_id  BIGINT  NOT NULL,
+  PRIMARY KEY (work_id, product_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_work_products_product ON work_products (product_id);
+CREATE INDEX IF NOT EXISTS idx_works_active ON works (active, orden);
+`;
+
+// Se ejecuta UNA vez por proceso: guardamos la promesa, no un booleano, para que
+// dos pedidos simultáneos al arrancar no disparen el CREATE dos veces.
+let schemaReady = null;
+function ensureSchema() {
+  if (!schemaReady) {
+    schemaReady = pool.query(SCHEMA_SQL).catch((err) => {
+      schemaReady = null; // si falló, que el próximo pedido lo reintente
+      throw err;
+    });
+  }
+  return schemaReady;
+}
+
 const TECHNIQUES = ['bordado', 'estampado', 'dtf', 'sublimado', 'vinilo'];
 
 /** Cuántas fotos como máximo devuelve la ficha (la tira muestra 3 y el resto va al visor). */
@@ -67,9 +111,10 @@ function extFromMime(mime) {
 
 /** Todos los trabajos con sus productos vinculados. Lo consume el panel. */
 async function list() {
+  await ensureSchema();
   const { rows } = await pool.query(
     `SELECT w.id, w.image_url, w.technique, w.client, w.garment, w.caption,
-            w.position, w.active, w.created_at,
+            w.orden, w.active, w.created_at,
             COALESCE(
               json_agg(json_build_object('id', p.product_id, 'name', pc.name)
                        ORDER BY pc.name NULLS LAST)
@@ -79,7 +124,7 @@ async function list() {
        LEFT JOIN work_products p ON p.work_id = w.id
        LEFT JOIN products_cache pc ON pc.id = p.product_id
       GROUP BY w.id
-      ORDER BY w.position ASC, w.id DESC`
+      ORDER BY w.orden ASC, w.id DESC`
   );
   return rows;
 }
@@ -92,23 +137,24 @@ async function list() {
 async function forProduct(productId) {
   const id = Number(productId);
   if (!Number.isFinite(id) || id <= 0) return [];
+  await ensureSchema();
 
   const { rows } = await pool.query(
     `WITH propios AS (
-       SELECT w.*, 0 AS rank
+       SELECT w.*, 0 AS prioridad
          FROM works w
          JOIN work_products p ON p.work_id = w.id
         WHERE w.active AND p.product_id = $1
      ),
      generales AS (
-       SELECT w.*, 1 AS rank
+       SELECT w.*, 1 AS prioridad
          FROM works w
         WHERE w.active
           AND NOT EXISTS (SELECT 1 FROM work_products p WHERE p.work_id = w.id)
      )
-     SELECT id, image_url, technique, client, garment, caption, rank
+     SELECT id, image_url, technique, client, garment, caption, prioridad
        FROM (SELECT * FROM propios UNION ALL SELECT * FROM generales) t
-      ORDER BY rank ASC, position ASC, id DESC
+      ORDER BY prioridad ASC, orden ASC, id DESC
       LIMIT $2`,
     [id, MAX_PER_PRODUCT]
   );
@@ -118,7 +164,7 @@ async function forProduct(productId) {
     technique: r.technique,
     client: r.client,
     caption: r.caption || null,
-    own: r.rank === 0,
+    own: r.prioridad === 0,
   }));
 }
 
@@ -126,6 +172,7 @@ async function forProduct(productId) {
 async function searchProducts(q, limite = 12) {
   const texto = String(q || '').trim();
   if (texto.length < 2) return [];
+  await ensureSchema();
   const { rows } = await pool.query(
     `SELECT id, name, price, image_url
        FROM products_cache
@@ -147,6 +194,7 @@ async function searchProducts(q, limite = 12) {
 
 /** Sube el archivo a Supabase y crea el trabajo. `file` es el objeto de multer. */
 async function create({ file, technique, client, garment, caption, products }) {
+  await ensureSchema();
   if (!file || !file.buffer) throw new Error('Falta la foto.');
   const ext = extFromMime(file.mimetype);
   if (!ext) throw new Error('La foto tiene que ser JPG, PNG, WEBP o AVIF.');
@@ -162,8 +210,8 @@ async function create({ file, technique, client, garment, caption, products }) {
   try {
     await cli.query('BEGIN');
     const { rows } = await cli.query(
-      `INSERT INTO works (image_url, technique, client, garment, caption, position)
-       VALUES ($1, $2, $3, $4, $5, COALESCE((SELECT max(position) + 1 FROM works), 0))
+      `INSERT INTO works (image_url, technique, client, garment, caption, orden)
+       VALUES ($1, $2, $3, $4, $5, COALESCE((SELECT max(orden) + 1 FROM works), 0))
        RETURNING id`,
       [url, cleanTechnique(technique), cleanText(client), cleanText(garment, 60), cleanText(caption, 160)]
     );
@@ -183,6 +231,7 @@ async function create({ file, technique, client, garment, caption, products }) {
 async function update(id, body = {}) {
   const workId = Number(id);
   if (!Number.isFinite(workId)) throw new Error('Trabajo inexistente.');
+  await ensureSchema();
 
   const sets = [];
   const vals = [];
@@ -233,6 +282,7 @@ async function linkProducts(cli, workId, ids) {
 async function remove(id) {
   const workId = Number(id);
   if (!Number.isFinite(workId)) throw new Error('Trabajo inexistente.');
+  await ensureSchema();
   await pool.query('DELETE FROM works WHERE id = $1', [workId]);
   return { ok: true };
 }
@@ -241,6 +291,7 @@ async function remove(id) {
 async function reorder(ids) {
   // No reusamos cleanProductIds acá: ese recorta a 60 (tope de vínculos por trabajo)
   // y truncar un reordenamiento dejaría trabajos con la posición vieja.
+  await ensureSchema();
   const orden = [];
   for (const raw of Array.isArray(ids) ? ids : []) {
     const n = Number(raw);
@@ -250,7 +301,7 @@ async function reorder(ids) {
   try {
     await cli.query('BEGIN');
     for (let i = 0; i < orden.length; i++) {
-      await cli.query('UPDATE works SET position = $1 WHERE id = $2', [i, orden[i]]);
+      await cli.query('UPDATE works SET orden = $1 WHERE id = $2', [i, orden[i]]);
     }
     await cli.query('COMMIT');
   } catch (err) {
@@ -262,4 +313,4 @@ async function reorder(ids) {
   return { ok: true };
 }
 
-module.exports = { list, forProduct, searchProducts, create, update, remove, reorder, TECHNIQUES };
+module.exports = { list, forProduct, searchProducts, create, update, remove, reorder, ensureSchema, SCHEMA_SQL, TECHNIQUES };
