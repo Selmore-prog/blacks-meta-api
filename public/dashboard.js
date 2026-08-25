@@ -634,6 +634,21 @@ function setCalView(mode) {
   renderCalView();
 }
 
+/**
+ * Densidad del calendario: 'comoda' (la de siempre) o 'compacta'.
+ * Se guarda en el navegador porque es una preferencia de lectura, no un dato del
+ * negocio: no tiene por qué viajar al servidor ni compartirse entre usuarios.
+ */
+function setCalDensity(modo) {
+  calDensity = modo === 'compacta' ? 'compacta' : 'comoda';
+  try { localStorage.setItem('calDensity', calDensity); } catch (_) {}
+  document.body.classList.toggle('cal-compact', calDensity === 'compacta');
+  document.querySelectorAll('.density-toggle button').forEach((b) => {
+    b.classList.toggle('on', b.dataset.density === calDensity);
+  });
+}
+let calDensity = (() => { try { return localStorage.getItem('calDensity') || 'comoda'; } catch (_) { return 'comoda'; } })();
+
 function renderCalView() {
   const list = document.getElementById('calendar-list');
   const grid = document.getElementById('calendar-grid');
@@ -644,6 +659,7 @@ function renderCalView() {
   const items = getFiltered();
   const countEl = document.getElementById('f-count');
   if (countEl) countEl.textContent = `${items.length} de ${calItems.length} piezas`;
+  montarDensidad();
   renderFocusBar();
   if (calView === 'list') renderCalList(items);
   else if (calView === 'grid') renderCalGrid(items);
@@ -651,6 +667,25 @@ function renderCalView() {
   renderCalMore();
   refreshPubTimers();
   renderBulkBar();
+}
+
+/** Dibuja el interruptor de densidad una sola vez, al lado del contador de piezas. */
+function montarDensidad() {
+  const countEl = document.getElementById('f-count');
+  if (!countEl || document.querySelector('.density-toggle')) {
+    document.body.classList.toggle('cal-compact', calDensity === 'compacta');
+    return;
+  }
+  const box = document.createElement('span');
+  box.className = 'density-toggle';
+  box.innerHTML = `
+    <button data-density="comoda" title="Tarjetas grandes, con todo el detalle">Cómoda</button>
+    <button data-density="compacta" title="Más piezas a la vista, sin las etiquetas de contexto">Compacta</button>`;
+  countEl.insertAdjacentElement('afterend', box);
+  box.querySelectorAll('button').forEach((b) => {
+    b.addEventListener('click', () => setCalDensity(b.dataset.density));
+  });
+  setCalDensity(calDensity);
 }
 
 /* ============ SELECCIÓN MÚLTIPLE (acciones en lote) ============
@@ -4578,6 +4613,7 @@ async function loadHomeRails() {
     renderHomeRails();
     previewHomeRails({ silent: true });
     loadHomeLayout();
+    loadHomeBanners();
   } catch (err) {
     body.innerHTML = `<p class="hint">No pude cargar la configuración: ${esc(err.message)}</p>`;
   }
@@ -4982,6 +5018,92 @@ async function syncCatalogFromHome(btn) {
  * número real que justifica su posición: la idea es poder discutir la
  * recomendación, no creerla de memoria.
  * ========================================================================= */
+
+/**
+ * BANNERS RECOMENDADOS DEL HOME.
+ *
+ * Cada tarjeta muestra el texto exacto que va impreso, el dato real que justifica el
+ * banner, y un botón que lo renderiza a la medida REAL del theme (1920x724 el carrusel,
+ * 1200x1200 la grilla) para descargarlo y subirlo al panel de diseño de Tiendanube.
+ * No se publica solo: ese panel no tiene API.
+ */
+async function loadHomeBanners() {
+  const box = document.getElementById('home-banners');
+  if (!box) return;
+  box.innerHTML = skeleton('rows', 3);
+  try {
+    const d = await api('/api/home/banners');
+    const ctx = d.contexto || {};
+    const tarjeta = (b, i) => `
+      <div class="hb-card" data-idx="${i}">
+        <div class="hb-head">
+          <span class="hb-tag ${b.superficie === 'slider' ? 'slider' : ''}">${b.superficie === 'slider' ? 'Carrusel' : 'Grilla'} · ${b.posicion}</span>
+          <span class="hint" style="margin:0;">${esc(b.objetivo)}</span>
+        </div>
+        <div class="hb-copy">
+          <div class="hb-kicker">${esc(String(b.kicker || '').toUpperCase())}</div>
+          <div class="hb-title">${esc(b.titular)}</div>
+          ${b.bajada ? `<div class="hb-sub">${esc(b.bajada)}</div>` : ''}
+          <div class="hb-cta">${esc(b.cta)} → <span class="hint" style="margin:0;">${esc(b.url)}</span></div>
+        </div>
+        <p class="hint hb-why"><b>Por qué:</b> ${esc(b.porque)}</p>
+        ${b.queMostrar ? `<p class="hint hb-why"><b>Qué mostrar:</b> ${esc(b.queMostrar)}</p>` : ''}
+        ${b.queEvitar ? `<p class="hint hb-why hb-evitar"><b>Qué evitar:</b> ${esc(b.queEvitar)}</p>` : ''}
+        <div class="hb-actions">
+          <button class="btn-ghost btn-sm hb-render">${icon('image')} Ver un ejemplo armado</button>
+        </div>
+        <div class="hb-out"></div>
+      </div>`;
+
+    const g = d.guia || {};
+    const lista = (titulo, items, clase = '') => (items && items.length ? `
+      <div class="hb-guia ${clase}">
+        <div class="hb-guia-t">${titulo}</div>
+        <ul>${items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
+      </div>` : '');
+
+    box.innerHTML = `
+      <div class="card">
+        <h3>Qué poner en los banners del home</h3>
+        <p class="hint" style="margin-top:0;">Indicaciones concretas para el carrusel de arriba y la grilla del cuerpo, con el dato real que las justifica. Los banners los armás y los subís desde el panel de diseño de Tiendanube (esa parte no tiene API); acá está el qué y el porqué.</p>
+        <div class="prod-totals" style="margin-bottom:16px;">
+          <div class="stat"><b>${ctx.pctMayorista !== null && ctx.pctMayorista !== undefined ? ctx.pctMayorista + '%' : '—'}</b><span>De las consultas son mayoristas (${ctx.mayoristaLeads || 0} contra ${ctx.minoristaLeads || 0} en 60 días)</span></div>
+          <div class="stat"><b>${ctx.descuentoMaximo ? ctx.descuentoMaximo + '%' : '—'}</b><span>Descuento real más alto vigente (${(ctx.enOferta || []).length} productos rebajados)</span></div>
+          <div class="stat"><b>${esc(ctx.temporada || '—')}</b><span>Temporada que conviene empujar</span></div>
+        </div>
+        ${lista('Lo que hoy está fallando en tu home', g.problemas, 'mal')}
+        ${lista('Reglas para cualquier banner', g.reglas)}
+        ${lista('Medidas exactas de tu theme', g.medidas)}
+        ${g.cadencia ? `<p class="hint" style="margin:14px 0 18px;"><b>Cada cuánto revisarlos:</b> ${esc(g.cadencia)}</p>` : ''}
+        <h4 style="margin:22px 0 12px; font-size:14px;">Los banners que conviene poner ahora</h4>
+        ${(d.recomendaciones || []).map(tarjeta).join('')}
+      </div>`;
+
+    box.querySelectorAll('.hb-render').forEach((btn) => {
+      btn.addEventListener('click', async (e) => {
+        const card = e.currentTarget.closest('.hb-card');
+        const idx = Number(card.dataset.idx);
+        const b = e.currentTarget;
+        b.disabled = true; b.innerHTML = `${icon('refresh', 'spin')} Renderizando…`;
+        try {
+          const r = await api('/api/home/banners/render', {
+            method: 'POST', headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ index: idx }),
+          });
+          card.querySelector('.hb-out').innerHTML = `
+            <img src="${esc(r.url)}" style="width:100%; border-radius:10px; margin-top:12px; border:1px solid var(--line);"/>
+            <div class="hint" style="margin-top:6px;">${r.width}×${r.height} px · <a href="${esc(r.url)}" target="_blank" rel="noopener" style="color:var(--orange)">abrir para descargar</a></div>`;
+          b.innerHTML = `${icon('refresh')} Volver a generar`;
+        } catch (err) {
+          toast(`No pude generar el banner: ${err.message}`, 'err');
+          b.innerHTML = `${icon('image')} Reintentar`;
+        } finally { b.disabled = false; }
+      });
+    });
+  } catch (err) {
+    box.innerHTML = `<p class="hint">No pude cargar los banners: ${esc(err.message)}</p>`;
+  }
+}
 
 async function loadHomeLayout() {
   const box = document.getElementById('home-layout');

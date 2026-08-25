@@ -403,6 +403,7 @@ function descriptionImages(product) {
 // TEMPLATE_REQUIREMENTS vive en imageRenderer (única fuente de verdad): lo usan
 // este filtro de candidatas Y la validación dura del director creativo.
 const { TEMPLATES: VALID_TEMPLATES, TEMPLATE_INFO, TEMPLATE_REQUIREMENTS, extractSpecTags, extractBriefChips } = require('../src/imageRenderer');
+const { reviewPiece } = require('../src/pieceBrief');
 
 // Qué estilos tienen sentido para cada pilar — variedad real por pilar, filtrada
 // después por lo que el producto puede sostener (fotos/descripción disponibles).
@@ -415,13 +416,16 @@ const { TEMPLATES: VALID_TEMPLATES, TEMPLATE_INFO, TEMPLATE_REQUIREMENTS, extrac
 // el director creativo no podía elegirlo nunca: sólo se llegaba al afiche por el fallback
 // de fullbleed-sin-foto, y por eso "automático" daba siempre la versión pobre.
 const PILLAR_TEMPLATE_POOL = {
-  producto: ['fullbleed', 'minimal', 'grid', 'overlap', 'specsheet'],
-  promo: ['promo', 'splitscreen', 'fullbleed', 'poster'],
-  educativo: ['educativo', 'blueprint'],
-  mayorista: ['mayorista', 'stackedcards', 'magazine'],
-  marca: ['minimal', 'magazine', 'overlap', 'fullbleed', 'poster'],
+  // 'recorte' y 'ficha' van primeras en producto/promo a propósito: son las que sacan
+  // a la prenda del rectángulo de catálogo. 'editorial' reemplaza de hecho a
+  // 'educativo' (que dejaba dos tercios de la pieza en blanco liso).
+  producto: ['recorte', 'ficha', 'fullbleed', 'minimal', 'grid', 'overlap', 'specsheet'],
+  promo: ['recorte', 'promo', 'splitscreen', 'fullbleed', 'poster'],
+  educativo: ['editorial', 'blueprint', 'educativo'],
+  mayorista: ['mayorista', 'stackedcards', 'magazine', 'editorial'],
+  marca: ['recorte', 'minimal', 'magazine', 'overlap', 'fullbleed', 'poster'],
   ugc: ['magazine', 'polaroidstrip', 'overlap', 'minimal'],
-  engagement: ['fullbleed', 'splitscreen', 'minimal', 'poster'],
+  engagement: ['recorte', 'fullbleed', 'splitscreen', 'minimal', 'poster'],
 };
 
 // Eyebrow (kicker) por pilar: la etiqueta chica en mayúscula que va ARRIBA del titular
@@ -445,7 +449,7 @@ const PILLAR_KICKER = {
  * seed como el cerebro (IA de copy), que elige entre estas la que mejor le queda.
  * Devuelve [] para reels (tienen tratamiento propio en chooseTemplate).
  */
-function templateCandidates(slot, { visualProduct } = {}) {
+function templateCandidates(slot, { visualProduct, cutoutOk = null } = {}) {
   if (slot.post_type === 'reel') return [];
   const images = (visualProduct && Array.isArray(visualProduct.images) && visualProduct.images.length)
     ? visualProduct.images
@@ -459,9 +463,33 @@ function templateCandidates(slot, { visualProduct } = {}) {
     if (req.minImages && images.length < req.minImages) return false;
     if (req.needsDescription && !hasDescription) return false;
     if (req.storyOnly && !isStory) return false;
+    // 'recorte' y 'ficha' se apoyan ENTERAS en la silueta de la prenda: el titular pasa
+    // por detrás, las guías se anclan al contorno. Si la foto no se puede recortar (foto
+    // ambientada, fondo con textura, prenda blanca sobre fondo blanco) la pieza sale como
+    // un rectángulo oscuro casi vacío — peor que la fullbleed que venía saliendo. Por eso
+    // se descartan salvo que el recorte esté PROBADO (cutoutOk), no sólo supuesto.
+    if (req.requiresCutout && cutoutOk !== true) return false;
     return true;
   });
   return pool.length ? pool : ['fullbleed'];
+}
+
+/**
+ * ¿La foto principal de este producto se puede recortar? Se prueba de verdad (una vez
+ * por pieza) en vez de suponerlo: el recorte es local y gratis (~150 ms), y elegir una
+ * plantilla que después no puede dibujar la silueta arruina la pieza entera.
+ */
+async function probeCutout(visualProduct) {
+  if (!visualProduct) return false;
+  const url = (Array.isArray(visualProduct.images) && visualProduct.images[0])
+    || visualProduct.image_url || null;
+  if (!url) return false;
+  try {
+    const { cutoutFromUrl } = require('../src/productCutout');
+    return Boolean(await cutoutFromUrl(url));
+  } catch (_) {
+    return false;
+  }
 }
 
 /**
@@ -470,7 +498,7 @@ function templateCandidates(slot, { visualProduct } = {}) {
  * En los tres caminos el menú viene ya filtrado por la memoria de diseño, así que
  * ninguno puede devolver la plantilla de la pieza anterior si hay alternativa.
  */
-function chooseTemplate(slot, { override, visualProduct, aiPick, recientes = [] } = {}) {
+function chooseTemplate(slot, { override, visualProduct, aiPick, recientes = [], cutoutOk = null } = {}) {
   if (VALID_TEMPLATES.includes(override)) return override;
   // La plantilla 'educativo' es una tarjeta tipográfica CON MUCHO texto y una foto
   // chica de apoyo: pensada para feed/carrusel estático. En un Reel (post_type='reel')
@@ -480,7 +508,7 @@ function chooseTemplate(slot, { override, visualProduct, aiPick, recientes = [] 
     return slot.pillar === 'mayorista' ? 'mayorista' : (Number(slot.id) % 2 === 0 ? 'fullbleed' : 'promo');
   }
 
-  const candidates = templateCandidates(slot, { visualProduct });
+  const candidates = templateCandidates(slot, { visualProduct, cutoutOk });
   // El cerebro eligió una plantilla entre las candidatas válidas: la respetamos.
   if (aiPick && candidates.includes(aiPick)) return aiPick;
   // Rotación de respaldo. `slot.id % n` no garantizaba variedad: los ids no son
@@ -488,6 +516,15 @@ function chooseTemplate(slot, { override, visualProduct, aiPick, recientes = [] 
   // Ahora primero se descartan las plantillas de las últimas piezas.
   const frescas = artDirection.withoutRecent(candidates, recientes);
   return frescas[Number(slot.id) % frescas.length];
+}
+
+/**
+ * Saca la numeración con la que la IA prefija los títulos de slide ("1. Resistencia al
+ * desgarro"). La plantilla 'editorial' ya imprime su propio número de paso, así que sin
+ * esto la pieza salía numerada dos veces: el índice de la portada decía "01 · 2. Comodidad".
+ */
+function sinNumeroDeSlide(titulo) {
+  return String(titulo || '').replace(/^\s*\d{1,2}\s*[.)\-–:]\s*/, '').trim();
 }
 
 function interactionChip(slot, sticker = null) {
@@ -839,8 +876,10 @@ async function generateForSlot(slot, overrides = {}) {
   // reel: esos tienen tratamiento propio) y sin override manual. Es gratis: viaja en la
   // misma llamada del copy. Si el director YA eligió plantilla, no se vuelve a pedir.
   const canPickTemplate = !isCarousel && slot.post_type !== 'reel' && !overrides.template && !(directorPlan && directorPlan.template);
+  // Se prueba UNA vez por pieza y se reusa en las dos decisiones de plantilla.
+  const cutoutOk = await probeCutout(visualProduct);
   const templateOptions = canPickTemplate
-    ? artDirection.withoutRecent(templateCandidates(effectiveSlot, { visualProduct }), design.recientes)
+    ? artDirection.withoutRecent(templateCandidates(effectiveSlot, { visualProduct, cutoutOk }), design.recientes)
       .map((t) => ({ name: t, desc: TEMPLATE_INFO[t] || '' }))
     : null;
 
@@ -930,7 +969,7 @@ async function generateForSlot(slot, overrides = {}) {
   // artMode 'tipografica' manda sobre todo: la pieza va sin foto, como afiche de diseño.
   let template = artMode === 'tipografica'
     ? 'poster'
-    : chooseTemplate(effectiveSlot, { override: overrides.template, visualProduct, aiPick: (directorPlan && directorPlan.template) || copy.template, recientes: design.recientes });
+    : chooseTemplate(effectiveSlot, { override: overrides.template, visualProduct, aiPick: (directorPlan && directorPlan.template) || copy.template, recientes: design.recientes, cutoutOk });
 
   // 'fullbleed' SIN NINGUNA FOTO ya se renderizaba como afiche por dentro (el propio
   // buildFullbleedHtml delega en buildPosterHtml: sin foto quedaba un degradado con el
@@ -946,7 +985,7 @@ async function generateForSlot(slot, overrides = {}) {
   // VARIANTE DE COMPOSICIÓN dentro de la plantilla: dos piezas con la misma plantilla
   // no tienen por qué verse iguales. Se elige la que hace más que no se usa con ESTA
   // plantilla, así el feed alterna solo (ver src/artDirection.js).
-  const variant = artDirection.pickVariant(template, design.recientes, Number(slot.id) || 0);
+  let variant = artDirection.pickVariant(template, design.recientes, Number(slot.id) || 0);
   // Diseño EFECTIVO que se va a guardar ("plantilla:variante"). Es la memoria que lee
   // la próxima pieza para no repetirse, así que tiene que reflejar lo que realmente se
   // renderizó — si el self-healing cambia de plantilla, se actualiza más abajo.
@@ -1002,13 +1041,31 @@ async function generateForSlot(slot, overrides = {}) {
     for (let i = 0; i < slides.length; i += 1) {
       const { url, costUsd, buffer } = await renderPostBuffer({
         format,
-        template: 'educativo',
-        overlayTitle: slides[i].title || overlayTitle,
+        // 'editorial' en vez de 'educativo': la vieja dejaba el slide con fondo blanco y
+        // dos tercios vacíos (se vio en la pieza real "Guía para elegir tu campera").
+        // Acá el número del paso llena el fondo y el texto tiene jerarquía de verdad.
+        template: 'editorial',
+        overlayTitle: sinNumeroDeSlide(slides[i].title) || overlayTitle,
+        title: sinNumeroDeSlide(slides[i].title) || overlayTitle,
+        // La bajada del slide es su propio texto: sin esto 'editorial' queda sólo con
+        // el titular y vuelve el hueco que se quiso eliminar.
+        deck: slides[i].text || null,
         bodyText: slides[i].text || null,
-        // Sin contador N/total en la imagen: Instagram ya muestra los puntitos del carrusel.
+        // El número gigante de fondo ES el contador del paso. No hace falta el "N/total"
+        // impreso: Instagram ya muestra los puntitos del carrusel.
+        stepNumber: String(i + 1).padStart(2, '0'),
+        /*
+         * PORTADA: los títulos de los otros slides como índice de lo que viene.
+         * Sin esto la portada quedaba con el titular arriba y la mitad de abajo vacía
+         * (el mismo pozo que tenía la plantilla 'educativo' vieja, ahora en oscuro).
+         * Además funciona como gancho: el que ve la tapa sabe qué va a encontrar si
+         * desliza. En los slides siguientes no van: cada uno desarrolla SU paso.
+         */
+        points: i === 0 ? slides.slice(1).map((sl) => sinNumeroDeSlide(sl.title)).filter(Boolean).slice(0, 3) : null,
         kicker: slot.pillar === 'mayorista' ? 'PARA EMPRESAS' : 'PARA SABER',
         badgeText: i === 0 ? badgeText : null,
         productImageUrl: i === 0 ? visualImageUrl : null, // pasos limpios, foto sólo en la portada
+        productImageUrls: i === 0 && visualImageUrl ? [visualImageUrl] : [],
         logos,
         showBrand: i === 0, // el logo sólo en la portada
         layoutSeed: Number(slot.id) + i,
@@ -1186,6 +1243,34 @@ async function generateForSlot(slot, overrides = {}) {
         console.log(`[generate-daily] Pieza sin datos · slot #${slot.id}: uso las condiciones del brief → ${fromBrief.join(' · ')}`);
       }
     }
+    /*
+     * REVISIÓN DE COHERENCIA ANTES DE RENDERIZAR (ver src/pieceBrief.js).
+     * El QA visual mira la pieza YA hecha y sólo encuentra roturas; esto revisa que la
+     * COMBINACIÓN plantilla + producto + datos tenga sentido antes de gastar el render:
+     * descarta características que no pueden ser ciertas para ese tipo de prenda, exige
+     * material real para la ficha y acorta el titular del 'recorte'. Si el contenido no
+     * sostiene la plantilla elegida, la degrada a una que sí.
+     */
+    const brief = reviewPiece({
+      template,
+      product: product || visualProduct,
+      displayTitle: (product && product.name) || overlayTitle,
+      title: overlayTitle,
+      specs: template === 'ficha' && storyDesc
+        ? extractSpecTags(storyDesc, 5, { productName: (product && product.name) || '' })
+        : null,
+      deck: copy.deck || copy.subtitle || null,
+      cutoutOk,
+      format,
+    });
+    for (const nota of brief.notas) console.log(`[generate-daily] Brief · slot #${slot.id}: ${nota}`);
+    if (brief.degradado) {
+      template = brief.template;
+      variant = artDirection.pickVariant(template, design.recientes, Number(slot.id) || 0);
+      designTag = artDirection.encodeDesign(template, variant);
+      console.log(`[generate-daily] Brief · slot #${slot.id}: la plantilla queda en '${template}' (el contenido no sostenía la elegida).`);
+    }
+
     const renderOpts = {
       format,
       template,
@@ -1205,6 +1290,15 @@ async function generateForSlot(slot, overrides = {}) {
         ? shortLabel(copy.cta, 34) : null,
       // Eyebrow por pilar (magazine/stackedcards): evita el 'NOTA DE TAPA' fuera de lugar.
       kicker: PILLAR_KICKER[slot.pillar],
+      /* --- Datos que consumen las plantillas modernas (ver templatesModern.js) --- */
+      // recorte: titular CORTO. El overlay del copy suele ser una frase entera y esta
+      // plantilla lo imprime a 150px partido en dos renglones; con el nombre del producto
+      // (2-4 palabras) el efecto de "texto por detrás de la prenda" se lee de una.
+      // Los tres salen del brief, ya verificados (titular acortado, specs que de verdad
+      // pueden ser ciertas para este producto).
+      displayTitle: brief.displayTitle,
+      specs: brief.specs,
+      deck: brief.deck,
       // Historias: puntos cortos con datos reales impresos SOBRE la imagen (el caption
       // de una historia casi no se ve — la info tiene que estar en la pieza).
       storyPoints,
@@ -1489,7 +1583,7 @@ async function generateForSlot(slot, overrides = {}) {
     // Se guarda el diseño EFECTIVO ("plantilla:variante"): antes se guardaba la
     // plantilla elegida aunque el self-healing la hubiera cambiado, y esa columna es
     // justo la memoria que usa artDirection para no repetir el diseño de la próxima.
-    [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson, slides ? (isStepCarousel ? 'educativo' : 'fullbleed') : designTag, storyTeaserPath, pieceCostUsd, copy.gen_model || null, copy.qa_notes || null, copy.sticker ? JSON.stringify(copy.sticker) : null, slidesMetaJson]
+    [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson, slides ? (isStepCarousel ? 'editorial' : 'fullbleed') : designTag, storyTeaserPath, pieceCostUsd, copy.gen_model || null, copy.qa_notes || null, copy.sticker ? JSON.stringify(copy.sticker) : null, slidesMetaJson]
   );
 
   // Si el slot ya tenía versiones encoladas para publicar (se está regenerando una

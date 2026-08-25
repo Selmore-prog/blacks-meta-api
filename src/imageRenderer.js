@@ -3,6 +3,8 @@ const config = require('./config');
 const { uploadAsset } = require('./storage');
 const { generateBackground, generateProductScene, generateDiagram } = require('./ai');
 const { stripEmoji, fixSpelling, compactFact } = require('./textUtils');
+const modern = require('./templatesModern');
+const { cutoutFromUrl } = require('./productCutout');
 
 const DIMS = {
   feed: { w: 1080, h: 1350 },   // 4:5
@@ -98,12 +100,24 @@ function arrowSvg(color = '#fff', size = 22) {
  * ========================================================================= */
 
 const TEMPLATES = ['fullbleed', 'minimal', 'promo', 'educativo', 'mayorista',
-  'grid', 'overlap', 'specsheet', 'splitscreen', 'blueprint', 'magazine', 'stackedcards', 'polaroidstrip', 'poster'];
+  'grid', 'overlap', 'specsheet', 'splitscreen', 'blueprint', 'magazine', 'stackedcards', 'polaroidstrip', 'poster',
+  // Plantillas modernas basadas en el recorte de la prenda (ver templatesModern.js).
+  'recorte', 'ficha', 'editorial'];
+
+// Las que dependen del recorte de la prenda (renderPostBuffer lo calcula solo).
+const MODERN_TEMPLATES = ['recorte', 'ficha', 'editorial'];
 
 // Descripción CORTA de cada plantilla, para que el cerebro (IA de copy) elija la que
 // mejor le queda a la pieza según su mensaje/objetivo. Sólo texto informativo — la
 // disponibilidad real la filtra generate-daily (fotos/descripción que hay).
 const TEMPLATE_INFO = {
+  // Las modernas van primeras y descritas con detalle A PROPÓSITO: el cerebro elige
+  // sobre esta lista y, sin descripción, una plantilla es una opción vacía que nunca
+  // se elige (fue exactamente lo que pasó al agregarlas: la IA siguió eligiendo
+  // 'fullbleed' y las nuevas no se usaron ni una vez).
+  recorte: 'La prenda RECORTADA sobre fondo oscuro con el titular gigante pasando POR DETRÁS del producto. Moderna y con mucho impacto. La mejor opción por defecto para mostrar UN producto: elegila salvo que la pieza pida otra cosa.',
+  ficha: 'La prenda recortada con líneas finas que salen de puntos reales del producto hacia cada característica (cintura, rodilla, bolsillos, tela). Para explicar de qué está hecha una prenda con datos concretos de la ficha.',
+  editorial: 'Tarjeta didáctica OSCURA con kicker, titular grande, bajada y puntos numerados, más la prenda entrando por el costado. Para enseñar/explicar. Preferila SIEMPRE por sobre "educativo", que sale con fondo blanco casi vacío.',
   fullbleed: 'Foto del producto a pantalla completa con el texto encima. Impactante, la foto es la protagonista.',
   minimal: 'Mucho aire, producto flotando sobre fondo claro, titular sobrio. Elegante y prolijo; bueno para marca/producto premium.',
   promo: 'Oscura y vendedora, con % OFF / precio gigante. Para ofertas y promos con descuento real.',
@@ -127,6 +141,13 @@ const TEMPLATE_INFO = {
 // generate-daily y el director podía elegir una plantilla que el producto no
 // sostenía. Los clásicos sin zona de foto obligatoria no figuran: siempre valen.
 const TEMPLATE_REQUIREMENTS = {
+  // Las modernas dependen del RECORTE de la prenda: sin una foto de catálogo sobre
+  // fondo de estudio no hay silueta que poner delante del titular ni a la que
+  // anclarle las líneas de la ficha. generate-daily verifica el recorte de verdad
+  // antes de elegirlas (requiresCutout), esto es sólo el piso de fotos.
+  recorte: { minImages: 1, requiresCutout: true },
+  ficha: { minImages: 1, requiresCutout: true, needsDescription: true },
+  editorial: { minImages: 1 },
   grid: { minImages: 3 },
   overlap: { minImages: 2 },
   specsheet: { minImages: 1, needsDescription: true },
@@ -1851,6 +1872,11 @@ function buildHtml(opts) {
     case 'stackedcards': return buildStackedcardsHtml(opts);
     case 'polaroidstrip': return buildPolaroidStripHtml(opts);
     case 'poster': return buildPosterHtml(opts);
+    // Las modernas comparten geometría y <head> con el resto para no duplicar las
+    // zonas seguras de Instagram ni la carga de tipografías.
+    case 'recorte': return modern.buildRecorteHtml(opts, sharedGeometry(opts.format), headHtml(DIMS[opts.format === 'story' ? 'story' : 'feed'].w, DIMS[opts.format === 'story' ? 'story' : 'feed'].h));
+    case 'ficha': return modern.buildFichaHtml(opts, sharedGeometry(opts.format), headHtml(DIMS[opts.format === 'story' ? 'story' : 'feed'].w, DIMS[opts.format === 'story' ? 'story' : 'feed'].h));
+    case 'editorial': return modern.buildEditorialHtml(opts, sharedGeometry(opts.format), headHtml(DIMS[opts.format === 'story' ? 'story' : 'feed'].w, DIMS[opts.format === 'story' ? 'story' : 'feed'].h));
     default: return buildFullbleedHtml(opts);
   }
 }
@@ -1871,7 +1897,16 @@ async function renderPostBuffer(options) {
 
   // Plantillas que muestran FOTOS REALES del catálogo (varias tomas o specs reales):
   // ahí no conviene reemplazar la foto por una escena compuesta con IA.
-  const skipAiScene = ['grid', 'overlap', 'specsheet', 'polaroidstrip'].includes(options.template);
+  /*
+   * 'recorte', 'ficha' y 'editorial' se suman acá por una falla real y cara: son
+   * plantillas que RECORTAN la prenda, y para eso necesitan la foto de catálogo sobre
+   * fondo de estudio. Si antes se generaba una escena ambientada con IA, esa escena
+   * reemplazaba a la foto y el recorte terminaba aplicándose sobre un modelo de cuerpo
+   * entero en un fondo cualquiera: la historia del Cargo Fit salió con la cabeza
+   * flotando, los brazos sueltos y un agujero en el torso. Además era plata tirada, dos
+   * veces: se pagaba la escena y después el diseño la descartaba.
+   */
+  const skipAiScene = ['grid', 'overlap', 'specsheet', 'polaroidstrip', ...MODERN_TEMPLATES].includes(options.template);
 
   // 1) Si hay producto, intentamos meterlo en una escena profesional generada con IA.
   if (!bgImageUrl && options.useAiProductScene && productImageUrl && !skipAiScene) {
@@ -1913,7 +1948,34 @@ async function renderPostBuffer(options) {
     }
   }
 
-  const html = buildHtml({ ...options, format, bgImageUrl, productImageUrl });
+  /*
+   * RECORTE DE LA PRENDA para las plantillas modernas. Se hace acá, no en generate-daily,
+   * porque depende de la foto FINAL (puede haber cambiado por el director de arte) y
+   * porque es la única capa que ya tiene el buffer a mano. Es gratis (ffmpeg local, ~150 ms)
+   * y best-effort: si la foto no es de estudio, cutoutFromUrl devuelve null, la plantilla
+   * se queda sin silueta y buildHtml igual arma la pieza.
+   */
+  let cutoutUrl = options.cutoutUrl || null;
+  let cutoutBox = options.cutoutBox || null;
+  if (!cutoutUrl && MODERN_TEMPLATES.includes(options.template)) {
+    // Segunda red: sólo se recorta una foto REAL del catálogo. Un data: URI es una
+    // imagen generada (escena IA, diagrama) y recortarla no tiene sentido — no tiene
+    // fondo de estudio y el resultado sale despedazado.
+    const candidata = productImageUrl || (options.productImageUrls || [])[0] || null;
+    const src = candidata && !String(candidata).startsWith('data:') ? candidata : null;
+    const cut = src ? await cutoutFromUrl(src) : null;
+    if (cut) {
+      cutoutUrl = `data:image/png;base64,${cut.buffer.toString('base64')}`;
+      cutoutBox = cut.box;
+    } else if (src) {
+      // Sólo se avisa cuando HABÍA una foto y no se pudo recortar. Los slides de un
+      // carrusel guía van sin producto a propósito (la foto va sólo en la portada):
+      // avisar ahí llenaba el log de una falla que no existe.
+      console.warn(`[render] Sin recorte para la plantilla '${options.template}' (foto no apta): se arma igual, sin silueta.`);
+    }
+  }
+
+  const html = buildHtml({ ...options, format, bgImageUrl, productImageUrl, cutoutUrl, cutoutBox });
 
   // Navegador compartido + a lo sumo 2 páginas a la vez (memoria de Render).
   await acquireRenderSlot();
@@ -1991,4 +2053,4 @@ async function renderPostImage(options) {
   return url;
 }
 
-module.exports = { renderPostImage, renderPostBuffer, buildHtml, DIMS, TEMPLATES, TEMPLATE_INFO, TEMPLATE_REQUIREMENTS, extractSpecTags, extractBriefChips, stripEmoji, fixSpelling };
+module.exports = { renderPostImage, renderPostBuffer, buildHtml, DIMS, TEMPLATES, MODERN_TEMPLATES, TEMPLATE_INFO, TEMPLATE_REQUIREMENTS, extractSpecTags, extractBriefChips, stripEmoji, fixSpelling };

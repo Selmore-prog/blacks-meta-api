@@ -850,6 +850,32 @@ app.get('/api/home/rules', wrap(async (req, res) => {
   });
 }));
 
+/* ------------------------- BANNERS DEL HOME ---------------------------- *
+ * Recomienda qué banners poner en el carrusel de arriba y en la grilla del
+ * cuerpo, con el número real que justifica cada uno, y los renderiza listos
+ * para subir. NO publica: el panel de diseño de Tiendanube no tiene API.     */
+app.get('/api/home/banners', wrap(async (req, res) => {
+  const { recommendBanners } = require('./homeBanners');
+  res.json(await recommendBanners());
+}));
+
+// Renderiza UNA recomendación y la sube a Supabase para poder verla y bajarla.
+app.post('/api/home/banners/render', wrap(async (req, res) => {
+  const { recommendBanners, renderBanner } = require('./homeBanners');
+  const { uploadAsset } = require('./storage');
+  const idx = Number((req.body || {}).index);
+  const { recomendaciones } = await recommendBanners();
+  const rec = recomendaciones[idx];
+  if (!rec) return res.status(400).json({ error: 'No existe esa recomendación de banner.' });
+  const { buffer, width, height } = await renderBanner(rec);
+  const url = await uploadAsset({
+    buffer,
+    filename: `banner-${rec.superficie}-${rec.posicion}-${Date.now()}.jpg`,
+    contentType: 'image/jpeg',
+  });
+  res.json({ url, width, height, recomendacion: rec });
+}));
+
 // Esquema recomendado del home: en qué orden conviene poner las secciones,
 // con el número real que justifica cada posición. Ver src/homeLayout.js.
 app.get('/api/home/layout', wrap(async (req, res) => {

@@ -1362,3 +1362,56 @@ button .cost-tag { margin-left: 8px; }
   background: rgba(232, 93, 27, .08); cursor: pointer; }
 #chip-catalogo.warn:hover { filter: brightness(1.15); }
 #chip-catalogo.warn .dot { background: var(--orange); }
+
+/* ---------- banners recomendados del home ---------- */
+.hb-card { border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; background: var(--panel-2); }
+.hb-head { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; margin-bottom: 10px; }
+.hb-tag { font-size: 10px; font-weight: 800; letter-spacing: .6px; text-transform: uppercase;
+  border: 1px solid var(--line); border-radius: 100px; padding: 2px 9px; color: var(--muted); }
+.hb-tag.slider { color: var(--orange); border-color: rgba(232, 93, 27, .4); }
+.hb-copy { border-left: 3px solid var(--orange); padding-left: 12px; margin-bottom: 10px; }
+.hb-kicker { font-size: 10.5px; font-weight: 800; letter-spacing: 2.5px; color: var(--orange); }
+.hb-title { font-size: 20px; font-weight: 800; letter-spacing: -.3px; margin-top: 3px; }
+.hb-sub { font-size: 13px; color: var(--muted); margin-top: 3px; }
+.hb-cta { font-size: 12.5px; font-weight: 700; margin-top: 7px; }
+.hb-why { margin: 0 0 10px; line-height: 1.5; }
+.hb-actions { display: flex; gap: 8px; }
+.hb-guia { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; margin-bottom: 12px; }
+.hb-guia.mal { border-color: rgba(232, 93, 27, .35); background: rgba(232, 93, 27, .05); }
+.hb-guia-t { font-size: 12px; font-weight: 800; letter-spacing: .4px; text-transform: uppercase; margin-bottom: 8px; }
+.hb-guia.mal .hb-guia-t { color: var(--orange); }
+.hb-guia ul { margin: 0; padding-left: 18px; }
+.hb-guia li { font-size: 13px; line-height: 1.55; color: var(--muted); margin-bottom: 6px; }
+.hb-evitar b { color: var(--orange); }
+
+/* ============ CALENDARIO COMPACTO ============
+ * 22 piezas ocupaban 11.000 px de alto (unos 500 px por pieza) con ~5 etiquetas por
+ * tarjeta: para ver la semana había que scrollear mucho. El modo compacto achica la
+ * miniatura, recorta el copy a 2 renglones y esconde las etiquetas secundarias
+ * (costo, modelo, objetivo), dejando sólo lo que se necesita para decidir de un
+ * vistazo: qué es, cuándo sale y en qué estado está. Es sólo presentación —
+ * no cambia ninguna acción ni oculta piezas.
+ */
+.cal-compact .card { grid-template-columns: 132px 1fr; gap: 14px; padding: 12px 14px; }
+.cal-compact .card + .card { margin-top: 8px; }
+.cal-compact .card .body { gap: 7px; }
+.cal-compact .card .caption,
+.cal-compact .card .cap {
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical;
+  overflow: hidden; font-size: 12.5px; line-height: 1.45;
+}
+/* Etiquetas de contexto: en compacto no aportan a la decisión. */
+.cal-compact .cost-tag,
+.cal-compact .badge.objective,
+.cal-compact .src-tag { display: none; }
+.cal-compact .day-head { margin: 14px 0 8px; }
+.cal-compact .card-check { top: 8px; right: 8px; }
+.cal-compact .card img { max-height: 168px; object-fit: cover; }
+
+/* Interruptor de densidad en la barra de filtros */
+.density-toggle { display: inline-flex; align-items: center; gap: 6px; margin-left: auto; }
+.density-toggle button {
+  font-size: 11.5px; font-weight: 600; padding: 5px 11px; min-height: 0;
+  background: var(--panel-2); border: 1px solid var(--line); color: var(--muted); border-radius: 100px; cursor: pointer;
+}
+.density-toggle button.on { color: var(--orange); border-color: rgba(232, 93, 27, .45); background: rgba(232, 93, 27, .08); }

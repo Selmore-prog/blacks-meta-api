@@ -70,6 +70,70 @@ const CANDIDATE_STOPWORDS = new Set(['para', 'como', 'sobre', 'este', 'esta', 't
   'con', 'sin', 'los', 'las', 'del', 'una', 'que', 'por', 'mas', 'tus', 'sus', 'empresa', 'empresas',
   'mayorista', 'mayoristas', 'condiciones', 'descuento', 'descuentos', 'presupuesto', 'trabajo', 'blacks']);
 
+/**
+ * Busca en TODO el catálogo elegible del pilar un producto cuyo nombre coincida con el
+ * texto que escribió el director. Se exige coincidencia fuerte: al menos dos palabras
+ * significativas (>=4 letras) del nombre real presentes en el texto. Con una sola
+ * palabra ("pantalón") matchearía cualquier cosa, que es justo lo que hay que evitar.
+ */
+async function matchProductByName(texto, slot) {
+  const plano = String(texto || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase();
+  if (plano.length < 8) return null;
+  /*
+   * Se compara PALABRA CONTRA PALABRA, no por subcadena. Con `plano.includes(w)` un
+   * botín matcheaba con un guante: el producto "Guante ... Baño ... Pampero" normaliza
+   * "Baño" a "bano", y "bano" está adentro de "urBANO" (el texto decía "Trabajo Urbano").
+   * Dos falsos positivos alcanzaban para llegar al umbral y elegir el producto equivocado.
+   */
+  const dichas = new Set(plano.split(/[^a-z0-9]+/).filter(Boolean));
+  try {
+    const { rows } = await pool.query(
+      `SELECT id, name, brand, category, price, promo_price, stock, sales_30d,
+              COALESCE(jsonb_array_length(images), CASE WHEN image_url IS NULL THEN 0 ELSE 1 END) AS photos,
+              LEFT(COALESCE(description, ''), 140) AS descr
+         FROM products_cache
+        WHERE ${pillarPoolSQL(slot.pillar)}`
+    );
+    let mejor = null; let mejorPuntos = 0;
+    for (const p of rows) {
+      const palabras = String(p.name || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+        .split(/[^a-z0-9]+/).filter((w) => w.length >= 4 && !CANDIDATE_STOPWORDS.has(w));
+      if (palabras.length < 2) continue;
+      const puntos = palabras.filter((w) => dichas.has(w)).length;
+      if (puntos >= 2 && puntos > mejorPuntos) { mejorPuntos = puntos; mejor = p; }
+    }
+    if (mejor) return mejor;
+
+    /*
+     * SUSTITUTO DEL MISMO TIPO DE PRENDA. Caso real del slot #869: el plan del mes
+     * agendó "Machi Pampero: comodidad y estilo" y para cuando llegó el día a ese botín
+     * le quedaba UNA unidad, así que dejó de ser elegible. Sin sustituto la pieza salía
+     * como afiche genérico y el tema del día se perdía.
+     *
+     * Es lo que haría un diseñador: si el producto del brief no se puede vender, se
+     * muestra el equivalente que SÍ hay. NO se usa `category` porque en esta tienda las
+     * categorías son "Shop Online" / "Mayorista" / "Invierno 26" — no dicen qué es el
+     * producto. El tipo se saca del NOMBRE, que sí lo dice.
+     */
+    const TIPOS = [
+      /bot[ií]n|borcegu[ií]/i, /zapato/i, /zapatilla/i, /pantal[oó]n|cargo/i, /bermuda|short/i,
+      /jean/i, /campera/i, /buzo/i, /remera/i, /chomba/i, /camisa/i, /mameluco|overol/i,
+      /chaleco/i, /polar/i, /faja/i, /guante/i, /gorra/i, /media/i, /poncho|piloto|lluvia/i,
+    ];
+    const tipoDicho = TIPOS.find((re) => [...dichas].some((w) => re.test(w)));
+    if (!tipoDicho) return null;
+    const sustituto = rows
+      .filter((p) => tipoDicho.test(String(p.name || '')))
+      .sort((a, b) => (Number(b.sales_30d) || 0) - (Number(a.sales_30d) || 0))[0];
+    if (sustituto) {
+      console.log(`[creativeDirector] El producto nombrado no es elegible (sin stock suficiente). Uso el equivalente del mismo tipo: "${sustituto.name}".`);
+    }
+    return sustituto || null;
+  } catch (_) {
+    return null;
+  }
+}
+
 /** Filtro SQL de disponibilidad por pilar (qué productos PUEDEN aparecer en la pieza). */
 function pillarPoolSQL(pillar) {
   const { eligibleSQL } = require('./productScore');
@@ -217,7 +281,7 @@ CÓMO DECIDIR (pensá en este orden):
 6. "image_note": 1 frase de dirección visual (escena/clima/qué transmitir), sin texto en imagen, sin datos inventados. null si visual es tarjeta_sin_foto.
 
 Devolvé SOLO este JSON:
-{"focus":"producto|institucional|tema","product_id":123,"product_reason":"por qué ese (o por qué ninguno)","visual":"foto_producto|tarjeta_sin_foto|ilustracion","template":"...","copy_angle":"...","image_note":"..."}`;
+{"focus":"producto|institucional|tema","product_id":123,"product_name":"el NOMBRE EXACTO del producto elegido, tal cual figura en la lista (null si no va producto)","product_reason":"por qué ese (o por qué ninguno)","visual":"foto_producto|tarjeta_sin_foto|ilustracion","template":"...","copy_angle":"...","image_note":"..."}`;
 }
 
 /**
@@ -243,6 +307,7 @@ async function planPiece({ slot, wholesale = null, companyFacts = null, recentPi
       properties: {
         focus: { type: 'string', enum: FOCUS_VALUES },
         product_id: { type: 'integer', nullable: true },
+        product_name: { type: 'string', nullable: true },
         product_reason: { type: 'string' },
         visual: { type: 'string', enum: VISUAL_VALUES },
         template: { type: 'string', nullable: true },
@@ -263,6 +328,27 @@ async function planPiece({ slot, wholesale = null, companyFacts = null, recentPi
   let product = null;
   const pid = Number(result.product_id);
   if (Number.isInteger(pid) && byId.has(pid)) product = byId.get(pid);
+
+  /*
+   * RESCATE POR NOMBRE. La anti-alucinación anulaba el producto cuando el id no estaba
+   * en la lista corta, y el resultado era peor que el problema: la pieza se quedaba SIN
+   * producto y terminaba como afiche genérico con una foto de fondo cualquiera. Caso
+   * real (slot #869, "Machi Pampero: comodidad y estilo"): el director nombró
+   * "Botin Pampero Machi Trabajo Urbano" —que EXISTE en el catálogo— pero no había
+   * entrado a los candidatos, y la pieza salió sin el botín que era su tema.
+   *
+   * La diferencia entre alucinar e inventar está en el catálogo: si el nombre que dijo
+   * matchea un producto REAL y elegible del pilar, se usa ese. Si no matchea nada, se
+   * mantiene el null de antes. Sigue siendo imposible inventar un producto.
+   */
+  if (!product && result.product_reason) {
+    const dicho = String(result.product_name || result.product_reason || '');
+    const rescatado = await matchProductByName(dicho, slot);
+    if (rescatado) {
+      product = rescatado;
+      console.log(`[creativeDirector] Producto rescatado por nombre: "${rescatado.name}" (#${rescatado.id}). El director lo nombró pero no estaba entre los candidatos.`);
+    }
+  }
 
   // Coherencia: si el tratamiento es foto de producto pero no hay producto válido,
   // degradamos a tarjeta (nunca al revés: no forzamos una foto que el director no pidió).
@@ -390,4 +476,4 @@ Devolvé SOLO este JSON:
   }
 }
 
-module.exports = { planPiece, gatherCandidates, reviewCopyFacts };
+module.exports = { planPiece, gatherCandidates, reviewCopyFacts, matchProductByName };
