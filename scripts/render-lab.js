@@ -5,6 +5,7 @@ const puppeteer = require('puppeteer');
 const pool = require('../src/db');
 const { buildHtml, DIMS, TEMPLATES } = require('../src/imageRenderer');
 const { cutoutFromUrl } = require('../src/productCutout');
+const panorama = require('../src/carouselPanorama');
 
 /**
  * LABORATORIO DE PIEZAS (herramienta de desarrollo, no corre en producción).
@@ -18,6 +19,9 @@ const { cutoutFromUrl } = require('../src/productCutout');
  *   node scripts/render-lab.js fullbleed specsheet  -> sólo esas
  *   node scripts/render-lab.js --story              -> formato historia
  *   node scripts/render-lab.js --out /tmp/piezas    -> dónde escribir
+ *   node scripts/render-lab.js --tira               -> carrusel continuo (la tira + cuadros)
+ *   node scripts/render-lab.js --tira --seed 3      -> otro ritmo de composición
+ *   node scripts/render-lab.js --producto camisa    -> con qué producto real probar
  *
  * Las piezas quedan en <out>/<template>-<formato>.jpg.
  */
@@ -26,7 +30,11 @@ const args = process.argv.slice(2);
 const format = args.includes('--story') ? 'story' : 'feed';
 const outIdx = args.indexOf('--out');
 const OUT = outIdx >= 0 ? args[outIdx + 1] : path.join(__dirname, '..', '.render-lab');
-const wanted = args.filter((a) => !a.startsWith('--') && a !== OUT);
+// Valores de las opciones con argumento: no son nombres de plantilla. Ojo con indexOf:
+// si la opción no está devuelve -1 y args[0] —que sí es una plantilla— quedaría excluido.
+const valorDe = (flag) => (args.indexOf(flag) >= 0 ? args[args.indexOf(flag) + 1] : null);
+const VALORES = new Set([OUT, valorDe('--producto'), valorDe('--seed')].filter(Boolean));
+const wanted = args.filter((a) => !a.startsWith('--') && !VALORES.has(a));
 
 /** Un producto real con varias fotos y descripción (para que las plantillas tengan de todo). */
 async function pickProduct(nameLike) {
@@ -52,15 +60,67 @@ async function brandLogos() {
   return { light: map.logo_light_url || null, dark: map.logo_dark_url || null };
 }
 
+/**
+ * CARRUSEL CONTINUO en el laboratorio: arma la tira ancha con fotos reales y escribe
+ *   tira-completa.jpg  -> la tira entera (así se juzga la continuidad)
+ *   tira-1..N.jpg      -> los cuadros tal como los va a ver Instagram
+ * Sin subir nada ni llamar a ninguna IA. `--seed N` cambia el ritmo de composición.
+ */
+async function renderTira({ product, images, logos, seed }) {
+  const nombre = String(product.name || '').trim();
+  const specs = ['Cintura elastizada', 'Refuerzo en rodilla', 'Bolsillos cargo con fuelle'];
+  const crudos = [
+    { kind: 'hero', kicker: 'EL MODELO', headline: nombre.split(' ').slice(0, 3).join(' '), deck: 'La que aguanta el turno entero y vuelve al día siguiente.', photoUrl: images[0], badge: 'NUEVO' },
+    { kind: 'detalle', kicker: 'EL DETALLE', headline: specs[1], deck: 'Doble costura en la zona que primero se rompe.', photoUrl: images[1] || images[0] },
+    { kind: 'detalle', kicker: 'LA TELA', headline: specs[0], deck: 'Se mueve con vos, no te pelea.', photoUrl: images[2] || images[0] },
+    { kind: 'cta', headline: 'Conseguila en la web', benefits: ['6 cuotas sin interés', 'Envío gratis a todo el país'], ctaLabel: 'Comprá online', photoUrl: images[3] || images[1] || images[0] },
+  ];
+  const panels = await Promise.all(crudos.map(async (p) => {
+    const cut = await cutoutFromUrl(p.photoUrl).catch(() => null);
+    return cut
+      ? { ...p, cutout: { url: `data:image/png;base64,${cut.buffer.toString('base64')}`, box: cut.box, aspect: cut.width / cut.height } }
+      : { ...p, cutout: null };
+  }));
+  console.log(`[lab] Tira: ${panels.length} cuadros · recortes OK: ${panels.filter((p) => p.cutout).length}`);
+
+  const { n, w: W, h: H, panelW } = panorama.panoramaDims(panels.length);
+  const html = panorama.buildPanoramaHtml({ panels, runningWord: nombre.split(' ')[0] || 'BLACKS', seed }, {});
+  const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+  const page = await browser.newPage();
+  await page.setViewport({ width: W, height: H });
+  try { await page.setContent(html, { waitUntil: 'networkidle0', timeout: 25000 }); }
+  catch (_) { await page.setContent(html, { waitUntil: 'load' }).catch(() => {}); }
+  try { await page.evaluate(async () => { if (document.fonts && document.fonts.ready) await document.fonts.ready; }); } catch (_) {}
+
+  await page.screenshot({ path: path.join(OUT, 'tira-completa.jpg'), type: 'jpeg', quality: 78 });
+  for (let i = 0; i < n; i += 1) {
+    await page.screenshot({
+      path: path.join(OUT, `tira-${i + 1}.jpg`), type: 'jpeg', quality: 88,
+      clip: { x: i * panelW, y: 0, width: panelW, height: H },
+    });
+  }
+  console.log(`[lab] ✓ ${OUT}/tira-completa.jpg + ${n} cuadros`);
+  await browser.close();
+}
+
 async function main() {
   fs.mkdirSync(OUT, { recursive: true });
-  const product = await pickProduct('cargo');
+  const prodIdx = args.indexOf('--producto');
+  const product = await pickProduct(prodIdx >= 0 ? args[prodIdx + 1] : 'cargo');
   if (!product) throw new Error('No encontré un producto con fotos y descripción en products_cache.');
   const images = Array.isArray(product.images) ? product.images : JSON.parse(product.images || '[]');
   const logos = await brandLogos();
 
   console.log(`[lab] Producto: "${product.name}" · ${images.length} fotos · $${product.price}`);
   console.log(`[lab] Formato: ${format} · salida: ${OUT}`);
+
+  // Carrusel continuo: es una tira ancha, no una plantilla — tiene su propia rama.
+  if (args.includes('--tira')) {
+    const seedIdx = args.indexOf('--seed');
+    await renderTira({ product, images, logos, seed: seedIdx >= 0 ? Number(args[seedIdx + 1]) || 0 : 0 });
+    await pool.end();
+    return;
+  }
 
   // Recorte de la prenda: lo necesitan recorte/ficha/editorial. Se calcula una vez
   // y se pasa como data URL, igual que hace renderPostBuffer en producción.

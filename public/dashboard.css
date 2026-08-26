@@ -657,6 +657,17 @@ button .cost-tag { margin-left: 8px; }
 .slide-fix-bar { padding: 10px 14px; display: flex; justify-content: center; background: var(--panel); border-top: 1px solid var(--line); }
 .slide-fix-bar .slide-fix-btn { width: 100%; justify-content: center; }
 
+/* Carrusel continuo: la tira entera, que es lo único que deja ver si engancha o no. */
+.strip-view { padding: 12px 14px 14px; background: var(--panel); border-top: 1px solid var(--line); }
+.strip-label { display: flex; align-items: center; gap: 7px; font-size: 12px; font-weight: 700; color: var(--muted); margin-bottom: 8px; }
+.strip-view .strip-img { width: 100%; height: auto; display: block; border-radius: 6px; border: 1px solid var(--line); }
+/* Las divisiones marcan dónde corta Instagram: sin eso la tira se mira como una foto ancha. */
+.strip-frame { position: relative; }
+.strip-cuts { position: absolute; inset: 0; display: flex; pointer-events: none; }
+.strip-cuts span { flex: 1; border-right: 1px dashed rgba(255,255,255,.42); }
+.strip-cuts span:last-child { border-right: 0; }
+.strip-hint { margin-top: 8px; font-size: 11.5px; line-height: 1.5; color: var(--muted); }
+
 /* ============ ANÁLISIS WEB (secciones del sitio) ============ */
 .an-controls { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; }
 .an-dates { display: flex; align-items: center; gap: 8px; }

@@ -207,6 +207,98 @@ async function cutoutProduct(buffer, { tolerance = 26, maxWidth = 900 } = {}) {
   }
 
   /*
+   * FONDO ENCERRADO (el hueco entre las piernas, entre el brazo y el torso).
+   *
+   * El relleno por inundación entra SÓLO desde los bordes de la foto, así que un pedazo
+   * de ciclorama que quedó rodeado por el sujeto nunca se alcanza y sobrevive como una
+   * mancha blanca opaca. Sobre fondo claro casi no se ve; sobre el negro de las piezas
+   * canta, y es justo lo que hace que un recorte parezca "pegoteado" (se vio en la
+   * primera tira: una franja blanca al costado de la pierna del modelo).
+   *
+   * Se borran esas islas, pero con la guarda puesta donde importa. Una isla se elimina
+   * sólo si cumple TODO:
+   *   · no toca el borde de la foto (si lo tocara, el relleno ya la habría comido),
+   *   · es chica (≤5% del cuadro),
+   *   · su luminancia es la del fondo real,
+   *   · es PLANA — el gradiente medio adentro es de ciclorama, no de tela con pliegues,
+   *   · y es DELGADA: un hueco entre el brazo y el torso, o entre las piernas, es una
+   *     franja alargada; una prenda clara encerrada por la piel y el pantalón es maciza.
+   *
+   * Las dos últimas son las que impiden repetir el desastre conocido: la remera blanca
+   * que el recorte se comió y dejó al modelo descuartizado. La planitud se mide con el
+   * gradiente ya calculado (`edge`) y no con el desvío de luminancia, porque el ciclorama
+   * tiene un degradado suave de arriba a abajo: en una franja alta el desvío se dispara
+   * aunque la superficie sea perfectamente lisa (por eso, en la primera prueba, la franja
+   * blanca al costado de la pierna sobrevivía).
+   */
+  const TOPE_HUECO = N * 0.05;
+  const hueco = new Int32Array(N).fill(-1);
+  const colaHueco = new Int32Array(N);
+  const esCandidato = (i) => !bg[i] && sat[i] < satMax && lum[i] > lumMin;
+  const huecos = [];
+  for (let seed = 0; seed < N; seed += 1) {
+    if (bg[seed] || hueco[seed] !== -1 || !esCandidato(seed)) continue;
+    const id = huecos.length;
+    const info = { tam: 0, suma: 0, sumaEdge: 0, tamDentro: 0, tocaBorde: false, x0: w, x1: -1, y0: h, y1: -1 };
+    let qh2 = 0; let qt2 = 0;
+    hueco[seed] = id; colaHueco[qt2++] = seed;
+    while (qh2 < qt2) {
+      const i = colaHueco[qh2++];
+      info.tam += 1; info.suma += lum[i];
+      const x = i % w;
+      const y = (i / w) | 0;
+      if (x < info.x0) info.x0 = x;
+      if (x > info.x1) info.x1 = x;
+      if (y < info.y0) info.y0 = y;
+      if (y > info.y1) info.y1 = y;
+      if (x === 0 || y === 0 || x === w - 1 || y === h - 1) info.tocaBorde = true;
+      const vecino = (j) => { if (hueco[j] === -1 && esCandidato(j)) { hueco[j] = id; colaHueco[qt2++] = j; } };
+      if (x > 0) vecino(i - 1);
+      if (x < w - 1) vecino(i + 1);
+      if (y > 0) vecino(i - w);
+      if (y < h - 1) vecino(i + w);
+    }
+    huecos.push(info);
+  }
+  /*
+   * Planitud medida SÓLO en el interior de cada isla (los píxeles cuyos cuatro vecinos
+   * también son de la isla). El promedio sobre la isla entera no sirve: estas islas son
+   * franjas de pocos píxeles de ancho, casi todo contorno, y el contorno tiene el
+   * gradiente del borde de la prenda — medido así, el hueco entre las piernas daba 14 y
+   * un speckle de 3px daba 130, o sea que ninguna isla real pasaba nunca el filtro.
+   */
+  for (let y = 1; y < h - 1; y += 1) {
+    for (let x = 1; x < w - 1; x += 1) {
+      const i = y * w + x;
+      const id = hueco[i];
+      if (id < 0) continue;
+      if (hueco[i - 1] !== id || hueco[i + 1] !== id || hueco[i - w] !== id || hueco[i + w] !== id) continue;
+      huecos[id].sumaEdge += edge[i];
+      huecos[id].tamDentro += 1;
+    }
+  }
+  const aceptado = huecos.map((info) => {
+    if (info.tocaBorde || info.tam < 40 || info.tam > TOPE_HUECO) return false;
+    if (Math.abs(info.suma / info.tam - borderLum) > 26) return false;
+    // Con interior suficiente se exige superficie lisa (ciclorama, no tela con pliegues).
+    // La exigencia sube con el tamaño: en una franja de 600px el "interior" todavía está
+    // a pocos píxeles del contorno y arrastra el degradado de la sombra del brazo, así que
+    // pedirle la planitud de un ciclorama abierto la dejaba afuera para nada. Lo que hay
+    // que cuidar de verdad es la isla GRANDE —una prenda clara encerrada—, y a ésa sí se
+    // le exige liso.
+    const limiteLiso = info.tam > N * 0.01 ? 8 : 18;
+    if (info.tamDentro >= 20 && info.sumaEdge / info.tamDentro > limiteLiso) return false;
+    const cajaW = info.x1 - info.x0 + 1;
+    const cajaH = info.y1 - info.y0 + 1;
+    return Math.min(cajaW, cajaH) / Math.max(cajaW, cajaH) <= 0.6; // franja, no mancha maciza
+  });
+  if (aceptado.some(Boolean)) {
+    let borrados = 0;
+    for (let i = 0; i < N; i += 1) if (hueco[i] >= 0 && aceptado[hueco[i]]) { bg[i] = 1; borrados += 1; }
+    console.log(`[cutout] Fondo encerrado eliminado: ${aceptado.filter(Boolean).length} isla(s), ${borrados} px (el hueco entre las piernas y similares).`);
+  }
+
+  /*
    * PELADO DEL HALO. La guarda por bordes deja sin clasificar la línea del contorno
    * (es fondo por color, pero gradiente alto), y eso se ve como un borde claro de 1-2 px
    * alrededor del recorte. Acá se pela: un píxel pegado al fondo que además coincide en

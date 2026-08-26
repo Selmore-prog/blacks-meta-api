@@ -5,6 +5,7 @@ const { generateBackground, generateProductScene, generateDiagram } = require('.
 const { stripEmoji, fixSpelling, compactFact } = require('./textUtils');
 const modern = require('./templatesModern');
 const { cutoutFromUrl } = require('./productCutout');
+const panorama = require('./carouselPanorama');
 
 const DIMS = {
   feed: { w: 1080, h: 1350 },   // 4:5
@@ -2025,6 +2026,121 @@ async function renderPostBuffer(options) {
  * de línea más ancho que el lienzo. La decoración que sangra fuera del canvas (tramas,
  * marcas de agua gigantes) no cuenta: está recortada a propósito por el lienzo.
  */
+/**
+ * CARRUSEL CONTINUO: renderiza UNA tira ancha y la corta en los N cuadros del carrusel.
+ *
+ * Es la diferencia de fondo con el carrusel de siempre. Antes se renderizaban N lienzos
+ * independientes y se los publicaba juntos: al deslizar no pasaba nada porque no había
+ * NADA compartido entre una imagen y la siguiente. Acá se dibuja una sola pieza de
+ * 3240x1350 (o 4320x1350) y los cuadros son recortes de esa pieza, así que el fondo, la
+ * banda de acento, la palabra gigante, el riel y la prenda que queda a caballo de un corte
+ * siguen exactamente donde estaban cuando el usuario desliza. La continuidad es real, no
+ * un truco de maquetado.
+ *
+ * Se corta con el `clip` de Puppeteer sobre la MISMA página: un solo layout, un solo
+ * juego de tipografías cargadas y cero dependencias de manipulación de imágenes (no hay
+ * sharp en el proyecto a propósito — ver productCutout.js).
+ *
+ * Devuelve { urls, buffers, stripUrl, costUsd, clippedText }. `stripUrl` es la tira
+ * entera subida aparte: sirve para que el panel muestre CÓMO se ve la continuidad, que
+ * mirando los cuadros sueltos no se puede juzgar.
+ */
+async function renderPanoramaSlides(options) {
+  const panels = (options.panels || []).slice(0, panorama.MAX_PANELS);
+  if (panels.length < panorama.MIN_PANELS) {
+    throw new Error(`El carrusel continuo necesita al menos ${panorama.MIN_PANELS} cuadros (llegaron ${panels.length}).`);
+  }
+  const { n, w: W, h: H, panelW } = panorama.panoramaDims(panels.length);
+
+  /*
+   * RECORTE DE CADA PRENDA. Es lo que permite que una prenda quede partida por la costura
+   * sin que se lea como un rectángulo cortado: al no haber fondo, no hay borde que delate
+   * el pegote. Best-effort y gratis (ffmpeg local): la foto que no se puede recortar cae a
+   * tarjeta con marco, que también es un objeto puesto sobre la tira.
+   */
+  const conRecorte = await Promise.all(panels.map(async (panel) => {
+    const src = panel.photoUrl && !String(panel.photoUrl).startsWith('data:') ? panel.photoUrl : null;
+    if (!src) return { ...panel, cutout: null };
+    const cut = await cutoutFromUrl(src).catch(() => null);
+    if (!cut) return { ...panel, cutout: null };
+    return {
+      ...panel,
+      cutout: {
+        url: `data:image/png;base64,${cut.buffer.toString('base64')}`,
+        box: cut.box,
+        aspect: cut.width / cut.height,
+      },
+    };
+  }));
+  const conCutout = conRecorte.filter((p) => p.cutout).length;
+  if (conCutout < n) console.warn(`[render] Tira continua: ${n - conCutout}/${n} fotos no se pudieron recortar (van como tarjeta).`);
+  /*
+   * Sin recortes suficientes la tira no vale la pena: queda una fila de tarjetas
+   * rectangulares sobre fondo oscuro, que es exactamente el "cortado y pegado" que este
+   * diseño viene a evitar. En ese caso conviene el carrusel clásico (foto a sangre), así
+   * que se avisa con un error reconocible y el llamador cae solo.
+   */
+  const minimo = Math.max(2, Number(options.minCutouts) || 2);
+  if (conCutout < minimo) {
+    const err = new Error(`Sólo ${conCutout} de ${n} fotos se pudieron recortar: la tira continua quedaría de tarjetas pegadas.`);
+    err.code = 'PANORAMA_SIN_RECORTES';
+    throw err;
+  }
+
+  const logoHtml = options.logos
+    ? brandMarkHtml(options.logos, { dark: false, heightPx: 62, maxWidthPx: 240 })
+    : null;
+  const html = panorama.buildPanoramaHtml(
+    {
+      panels: conRecorte,
+      backdropUrl: options.backdropUrl || null,
+      runningWord: options.runningWord || null,
+      seed: options.seed || 0,
+    },
+    { headHtml, logoHtml }
+  );
+
+  await acquireRenderSlot();
+  const buffers = [];
+  let stripBuffer = null;
+  let clippedText = [];
+  let page;
+  try {
+    const browser = await getBrowser();
+    page = await browser.newPage();
+    await page.setViewport({ width: W, height: H });
+    try {
+      await page.setContent(html, { waitUntil: 'networkidle0', timeout: 20000 });
+    } catch (_) {
+      await page.setContent(html, { waitUntil: 'load' }).catch(() => {});
+    }
+    try { await page.evaluate(async () => { if (document.fonts && document.fonts.ready) await document.fonts.ready; }); } catch (_) {}
+    clippedText = await measureClippedText(page, W).catch(() => []);
+    for (let i = 0; i < n; i += 1) {
+      buffers.push(await page.screenshot({
+        type: 'jpeg', quality: 90,
+        clip: { x: i * panelW, y: 0, width: panelW, height: H },
+      }));
+    }
+    // La tira entera, más liviana: es una vista de control, no se publica.
+    stripBuffer = await page.screenshot({ type: 'jpeg', quality: 62 });
+  } finally {
+    if (page) await page.close().catch(() => {});
+    releaseRenderSlot();
+  }
+
+  const stamp = `${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+  const urls = [];
+  for (let i = 0; i < buffers.length; i += 1) {
+    urls.push(await uploadAsset({ buffer: buffers[i], filename: `tira-${stamp}-${i + 1}.jpg`, contentType: 'image/jpeg' }));
+  }
+  const stripUrl = stripBuffer
+    ? await uploadAsset({ buffer: stripBuffer, filename: `tira-${stamp}-completa.jpg`, contentType: 'image/jpeg' }).catch(() => null)
+    : null;
+
+  return { urls, buffers, stripUrl, costUsd: 0, clippedText };
+}
+
 function measureClippedText(page, canvasWidth) {
   return page.evaluate((W) => {
     const out = [];
@@ -2053,4 +2169,4 @@ async function renderPostImage(options) {
   return url;
 }
 
-module.exports = { renderPostImage, renderPostBuffer, buildHtml, DIMS, TEMPLATES, MODERN_TEMPLATES, TEMPLATE_INFO, TEMPLATE_REQUIREMENTS, extractSpecTags, extractBriefChips, stripEmoji, fixSpelling };
+module.exports = { renderPostImage, renderPostBuffer, renderPanoramaSlides, buildHtml, DIMS, TEMPLATES, MODERN_TEMPLATES, TEMPLATE_INFO, TEMPLATE_REQUIREMENTS, extractSpecTags, extractBriefChips, stripEmoji, fixSpelling };

@@ -280,6 +280,22 @@ function parseSlides(s) {
   try { const a = JSON.parse(s); return Array.isArray(a) ? a : null; } catch (_) { return null; }
 }
 
+/**
+ * Receta guardada de un carrusel. Viene en dos formas:
+ *   - array de tomas            -> carrusel clásico (una imagen independiente por slide)
+ *   - { mode, stripUrl, shots } -> carrusel continuo (los cuadros son recortes de UNA tira)
+ * Devuelve siempre la misma forma para que el panel no tenga que distinguir en cada uso.
+ */
+function slidesRecipe(item) {
+  let raw = item && item.slides_meta;
+  if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch (_) { raw = null; } }
+  if (Array.isArray(raw)) return { mode: 'clasico', stripUrl: null, shots: raw };
+  if (raw && typeof raw === 'object' && Array.isArray(raw.shots)) {
+    return { mode: raw.mode === 'panorama' ? 'panorama' : 'clasico', stripUrl: raw.stripUrl || null, shots: raw.shots };
+  }
+  return { mode: 'clasico', stripUrl: null, shots: [] };
+}
+
 /* ============ status chips ============ */
 let appCfg = null; // config del server (IA activa, costo por imagen, etc.)
 
@@ -1013,7 +1029,9 @@ function renderPreview(item) {
       ${item.post_type === 'reel' ? `<div class="reel-play">${icon('play')}</div>` : ''}
     </div>` : '';
 
-  const label = isCarousel ? `CARRUSEL · ${slides.length} · 4:5`
+  // "CONTINUO" avisa que los cuadros son recortes de una sola tira: al mirarlos de a uno
+  // no se nota, y es lo primero que hay que saber antes de aprobar o corregir la pieza.
+  const label = isCarousel ? `CARRUSEL${slidesRecipe(item).mode === 'panorama' ? ' CONTINUO' : ''} · ${slides.length} · 4:5`
     : isStory ? (item.post_type === 'reel' ? 'REEL · 9:16' : 'HISTORIA · 9:16') : 'FEED · 4:5';
   return `<div class="preview-wrap">
     <div class="phone ${isStory ? 'story' : 'feed'}">${media}${chrome}</div>
@@ -1138,6 +1156,27 @@ function openPreview(item) {
     }
   }
 
+  /*
+   * CARRUSEL CONTINUO: la tira entera, abajo de la vista de Instagram.
+   *
+   * Mirando los cuadros de a uno es imposible saber si la continuidad funciona — que es
+   * justo lo que hay que aprobar. Acá se ve la pieza como se dibujó, con las líneas
+   * punteadas donde Instagram corta.
+   */
+  const receta = slidesRecipe(item);
+  if (car && receta.mode === 'panorama' && receta.stripUrl) {
+    const cortes = (slides || []).map(() => '<span></span>').join('');
+    overlay.querySelector('.preview-box').insertAdjacentHTML('beforeend',
+      `<div class="strip-view">
+        <div class="strip-label">${icon('grid')} Carrusel continuo · la tira entera</div>
+        <div class="strip-frame">
+          <img class="strip-img" src="${esc(receta.stripUrl)}" alt="Tira completa del carrusel"/>
+          <div class="strip-cuts">${cortes}</div>
+        </div>
+        <div class="strip-hint">Los ${slides.length} cuadros son recortes de esta única pieza: el fondo, la tipografía y una de las prendas siguen de un cuadro al siguiente cuando el visitante desliza. Las líneas punteadas marcan dónde corta Instagram.</div>
+      </div>`);
+  }
+
   // Pieza SIMPLE (no carrusel): botón para corregir con lenguaje natural sólo lo pedido,
   // reusando la misma imagen (no toca el resto). Reels quedan afuera (su imagen es base).
   if (item.asset_id && (!slides || slides.length <= 1) && img && !isReel) {
@@ -1226,10 +1265,14 @@ function openSlideFix(item, index, carEl) {
   // Texto que HOY tiene impreso ese slide (viene de la receta guardada): el campo va
   // precargado para que se vea qué dice, y sólo se manda si el dueño lo edita —así una
   // corrección escrita ("que diga Conseguilos") no queda pisada por el campo.
-  const meta = Array.isArray(item.slides_meta) ? item.slides_meta : null;
+  const receta = slidesRecipe(item);
+  const esTira = receta.mode === 'panorama';
+  const meta = receta.shots;
   const currentOverlay = (meta && meta[index] && meta[index].overlay) ? String(meta[index].overlay) : '';
   const body = `
-    <p class="hint" style="margin-top:0;">Regenerás <b>sólo el slide ${index + 1}</b> (los demás quedan igual). Pedí en castellano lo que quieras de este slide: la IA cambia el texto, la foto o el tipo de toma según lo que digas.</p>
+    <p class="hint" style="margin-top:0;">${esTira
+    ? `Este es un <b>carrusel continuo</b>: los cuadros son recortes de una sola pieza. Vas a corregir el <b>cuadro ${index + 1}</b> y el sistema vuelve a dibujar la tira entera para que siga enganchando (los textos de los otros cuadros no se tocan).`
+    : `Regenerás <b>sólo el slide ${index + 1}</b> (los demás quedan igual). Pedí en castellano lo que quieras de este slide: la IA cambia el texto, la foto o el tipo de toma según lo que digas.`}</p>
     <div class="field"><label>Texto en la imagen (dejalo vacío para no poner texto)</label>
       <input class="input" id="sf-overlay" placeholder="Ej: Etiqueta argentina" /></div>
     <div class="field"><label>¿Qué querés que cambie en este slide?</label>
@@ -1257,9 +1300,12 @@ function openSlideFix(item, index, carEl) {
         body: JSON.stringify({ index, instructions, ...(overlayText === currentOverlay ? {} : { overlay: overlayText }) }),
       });
       // Reemplazá la imagen del slide en vivo (con cache-bust) sin recargar todo.
-      if (carEl && r.slides && r.slides[index]) {
-        const imgEl = carEl.querySelectorAll('img')[index];
-        if (imgEl) imgEl.src = `${r.slides[index]}?t=${Date.now()}`;
+      if (carEl && r.slides) {
+        // En la tira continua cambian TODOS los cuadros (se redibuja entera), así que se
+        // refrescan todos; en el clásico, sólo el que se corrigió.
+        const imgs = carEl.querySelectorAll('img');
+        const cuales = esTira ? r.slides.map((_, n) => n) : [index];
+        cuales.forEach((n) => { if (imgs[n] && r.slides[n]) imgs[n].src = `${r.slides[n]}?t=${Date.now()}`; });
       }
       ov.remove();
       // La nota dice QUÉ se cambió (y si algo no se pudo, por qué): ej. cuántos colores
@@ -1828,6 +1874,15 @@ function openRegen(item) {
       </select>
       <p class="hint" id="regen-art-hint" style="margin-top:6px;">La decide el director creativo según el mensaje. Si la pieza no tiene un producto puntual (promo de toda la tienda, fecha comercial), va a elegir el afiche.</p>
     </div>
+    <div class="field" id="regen-carousel-wrap">
+      <label>Estructura del carrusel</label>
+      <select class="input" id="regen-carousel">
+        <option value="">Automática — continua si las fotos dan</option>
+        <option value="continuo">Continua — una sola pieza cortada en cuadros</option>
+        <option value="clasico">Clásica — una imagen independiente por slide</option>
+      </select>
+      <p class="hint" style="margin-top:6px;">En la <b>continua</b> el fondo, la tipografía y una de las prendas siguen de un cuadro al siguiente: al deslizar, la imagen se completa. Es la que invita a pasar los slides. Necesita al menos 3 fotos de estudio del producto (se recortan solas); si no las hay, sale la clásica igual. Sólo aplica a los carruseles de feed.</p>
+    </div>
     <div class="field" id="regen-artbrief-wrap" style="display:none;">
       <label>Indicación para la imagen <span class="hint" style="font-weight:400;">(opcional)</span></label>
       <textarea class="input" id="regen-artbrief" placeholder="Ej: taller mecánico de noche, luz naranja de contraluz, mucho humo y chispas"></textarea>
@@ -1850,11 +1905,13 @@ function openRegen(item) {
   overlay.querySelector('#regen-cancel').addEventListener('click', () => overlay.remove());
   // La indicación para la imagen sólo tiene sentido si la imagen se va a generar.
   const artSel = overlay.querySelector('#regen-art');
+  // La estructura del carrusel sólo tiene sentido si el slot ES un carrusel.
+  if (!item.carousel) overlay.querySelector('#regen-carousel-wrap').style.display = 'none';
   const artBriefWrap = overlay.querySelector('#regen-artbrief-wrap');
   const artHint = overlay.querySelector('#regen-art-hint');
   const ART_HINTS = {
     '': 'La decide el director creativo según el mensaje. Si la pieza no tiene un producto puntual (promo de toda la tienda, fecha comercial), va a elegir el afiche.',
-    generativa: 'La IA crea la FOTO de campaña (luz, composición, profundidad) y deja libre la zona donde va el texto; el titular, el descuento y el botón se estampan después con la tipografía de la marca. A la IA nunca se le pide escribir: lo escribe mal y no se puede corregir. Cuesta ~US$0,04 por imagen y tarda 1-2 min.',
+    generativa: 'La IA crea la FOTO de campaña (luz, composición, profundidad) y deja libre la zona donde va el texto; el titular, el descuento y el botón se estampan después con la tipografía de la marca. A la IA nunca se le pide escribir: lo escribe mal y no se puede corregir. Cuesta ~US$0,04 por imagen y tarda 1-2 min. En un carrusel continuo genera UNA sola foto panorámica de ambiente para toda la tira (las prendas siguen siendo las fotos reales, encima): sale más barato que el carrusel clásico, que paga una escena por slide.',
     foto: 'Usa sólo fotos reales del catálogo de Tiendanube. Si la pieza no tiene un producto asociado, va a quedar sin foto. Gratis.',
     tipografica: 'Afiche de diseño: trama de marca, banda de acento y el número del descuento impreso gigante. Es la mejor opción para promos de toda la tienda y fechas comerciales. Gratis e instantáneo.',
   };
@@ -1876,6 +1933,7 @@ function openRegen(item) {
           template: overlay.querySelector('#regen-template').value || undefined,
           artMode: artSel.value || undefined,
           artBrief: artSel.value === 'generativa' ? (overlay.querySelector('#regen-artbrief').value.trim() || undefined) : undefined,
+          carouselStyle: overlay.querySelector('#regen-carousel').value || undefined,
         }),
       });
       // Segundo plano: cerramos el modal ya y el panel muestra "generando" hasta que

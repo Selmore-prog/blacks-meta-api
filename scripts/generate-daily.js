@@ -2,7 +2,7 @@ const pool = require('../src/db');
 const { seedCalendar, getPendingForDate } = require('../src/calendar');
 const artDirection = require('../src/artDirection');
 const { generateCopy } = require('../src/ai');
-const { renderPostBuffer } = require('../src/imageRenderer');
+const { renderPostBuffer, renderPanoramaSlides } = require('../src/imageRenderer');
 const { fetchProduct, productColors } = require('../src/tiendanube');
 const { getBrandProfile } = require('../src/brandProfile');
 const { getLogos } = require('../src/styleService');
@@ -673,6 +673,108 @@ async function renderCarouselShot(shot, i, ctx) {
   });
 }
 
+/* ============ CARRUSEL CONTINUO (la tira) ============ */
+
+/** Antetítulo de cada cuadro según el tipo de toma. Corto, en mayúsculas, sin adornos. */
+const KICKER_POR_TOMA = {
+  hero: 'EL MODELO',
+  detalle: 'EL DETALLE',
+  contexto: 'EN USO',
+  flatlay: 'LA PRENDA',
+  variantes: 'LOS COLORES',
+  price: 'EL PRECIO',
+  cta: 'LLEVATELA',
+};
+
+/** Titular corto para la portada cuando el director de arte no dejó overlay. */
+function tituloCorto(texto, palabras = 4) {
+  return String(texto || '').replace(/\s+/g, ' ').trim().split(' ').slice(0, palabras).join(' ');
+}
+
+/**
+ * Renderiza el carrusel COMO UNA TIRA: una sola pieza ancha que se corta en los N cuadros.
+ * Ver src/carouselPanorama.js para el porqué del diseño.
+ *
+ * Devuelve { urls, stripUrl, costUsd, buffer, clippedText } o lanza. Si las fotos no se
+ * pueden recortar, el error trae code 'PANORAMA_SIN_RECORTES' y el llamador cae al
+ * carrusel clásico (una imagen por slide).
+ */
+async function renderCarouselPanorama(plan, ctx, { artMode = null } = {}) {
+  const { refImgs, visualImageUrl, sceneTheme, logos, overlayTitle, badgeText, imageBrief, occasion, slotId, product } = ctx;
+
+  /*
+   * Como mucho 4 cuadros: la tira se dibuja de una y 5 cuadros son 5400px de lienzo, que
+   * en Render (512MB) es pedir problemas. Además, del cuarto slide en adelante casi nadie
+   * desliza — es plata de diseño puesta donde no se ve.
+   *
+   * El cierre (CTA, o precio en historias) se preserva SIEMPRE como último cuadro. El
+   * director de arte puede devolver 5 o 6 tomas y el cierre se agrega al final, así que
+   * cortar por los primeros 4 a secas dejaba el carrusel sin llamado a la acción.
+   */
+  const cierre = plan.find((s) => s.shotType === 'cta') || plan.find((s) => s.shotType === 'price') || null;
+  const usados = cierre
+    ? [...plan.filter((s) => s !== cierre).slice(0, 3), cierre]
+    : plan.slice(0, 4);
+
+  const panels = usados.map((shot, i) => {
+    const esCierre = shot.shotType === 'cta';
+    const foto = refImgs.length ? (refImgs[shot.photoIndex] || refImgs[i % refImgs.length]) : visualImageUrl;
+    if (esCierre) {
+      const head = (shot.overlayByUser && shot.overlay)
+        ? shot.overlay
+        : agreeWithProduct(config.brand.ctaHeadline, (product && product.name) || sceneTheme);
+      return {
+        kind: 'cta',
+        headline: head,
+        benefits: config.brand.ctaBenefits,
+        ctaLabel: 'Comprá online',
+        photoUrl: foto,
+      };
+    }
+    return {
+      kind: i === 0 ? 'hero' : 'detalle',
+      kicker: KICKER_POR_TOMA[shot.shotType] || 'EL DETALLE',
+      headline: shot.overlay || (i === 0 ? tituloCorto(overlayTitle) : null),
+      deck: shot.deck || null,
+      badge: i === 0 ? (badgeText || shot.badge || null) : null,
+      photoUrl: foto,
+    };
+  });
+
+  /*
+   * Fondo generativo: UNA sola foto ambiental para toda la tira. Va sólo cuando el dueño
+   * pide arte generativa desde el panel — no de oficio. La tira con fondo diseñado es
+   * gratis y se ve bien; encender la IA de fábrica sería gastar todos los días en algo que
+   * el 90% de las veces queda tapado por las prendas.
+   */
+  let backdrop = null;
+  let costUsd = 0;
+  if (artMode === 'generativa') {
+    const { generatePanoramaBackdrop } = require('../src/ai');
+    const amb = await generatePanoramaBackdrop({
+      theme: sceneTheme, brief: imageBrief, occasion, seed: Number(slotId) || 0,
+    }).catch(() => null);
+    if (amb) {
+      backdrop = `data:${amb.mimeType};base64,${amb.buffer.toString('base64')}`;
+      costUsd += amb.costUsd || 0;
+    }
+  }
+
+  // Palabra corrida de fondo: la marca del producto si la hay, si no la primera palabra
+  // del nombre. Es tipografía de tapa, no un dato: nunca inventa nada.
+  const marca = mentionedBrandIn((product && product.name) || overlayTitle || '');
+  const palabra = marca || tituloCorto(overlayTitle || sceneTheme, 1) || config.brand.name;
+
+  const res = await renderPanoramaSlides({
+    panels,
+    backdropUrl: backdrop,
+    runningWord: palabra,
+    logos,
+    seed: Number(slotId) || 0,
+  });
+  return { ...res, costUsd: res.costUsd + costUsd, buffer: res.buffers[0] || null };
+}
+
 /**
  * MODOS DE ARTE (los elige el dueño al regenerar desde el panel). Existen porque el
  * sistema decidía solo si una pieza llevaba imagen IA o no, y no había forma de pedirle
@@ -737,6 +839,11 @@ async function generateForSlot(slot, overrides = {}) {
   // Dirección de arte pedida a mano desde el panel (ver ART_MODES).
   const artMode = normalizeArtMode(overrides.artMode);
   const artBrief = String(overrides.artBrief || '').trim().slice(0, 400) || null;
+  // Estructura del carrusel pedida a mano desde el panel: 'continuo' = la tira de una
+  // pieza cortada en cuadros, 'clasico' = una imagen independiente por slide. Sin pedido,
+  // lo decide la generación (por defecto continuo en los carruseles fotográficos de feed).
+  const carouselStyle = ['continuo', 'clasico'].includes(String(overrides.carouselStyle || '').toLowerCase())
+    ? String(overrides.carouselStyle).toLowerCase() : null;
 
   // Objetivo de la pieza: si el slot no lo tiene (slots viejos, previos al planner
   // con objetivos), usamos el que corresponde al pilar para que el copy igual salga
@@ -1045,6 +1152,10 @@ async function generateForSlot(slot, overrides = {}) {
   let imagePath;
   let slidesJson = null;
   let slidesMetaJson = null; // receta de cada slide del carrusel (para regenerar uno solo)
+  // Etiqueta de diseño del carrusel fotográfico: 'fullbleed' (una imagen por slide) o
+  // 'panorama' (la tira continua). Va a generated_assets.template, que es lo que lee el
+  // panel y la memoria de dirección de arte.
+  let carouselDesign = 'fullbleed';
   let pieceCostUsd = 0; // lo que costó ESTA pieza en imágenes IA (0 = gratis)
   let coverBuffer = null; // portada del carrusel, para el QA visual final
   let coverClipped = []; // textos realmente recortados en la portada (medición del DOM)
@@ -1215,17 +1326,61 @@ async function generateForSlot(slot, overrides = {}) {
     // Contexto compartido de la pieza: lo usa renderCarouselShot (y la regeneración de 1 slide).
     const ctx = { refImgs, visualImageUrl, sceneTheme, format, logos, occasion, couponCode, overlayTitle, badgeText, imageBrief, pillar: slot.pillar, slotId: slot.id, product };
 
-    // En paralelo (memoria acotada por el navegador compartido + semáforo de imageRenderer).
-    const slideResults = await Promise.all(plan.map((shot, i) => renderCarouselShot(shot, i, ctx)));
-    const urls = slideResults.map((r) => r.url);
-    pieceCostUsd += slideResults.reduce((sum, r) => sum + (r.costUsd || 0), 0);
-    coverBuffer = slideResults[0] ? slideResults[0].buffer : null;
-    coverClipped = slideResults[0] ? (slideResults[0].clippedText || []) : [];
-    coverOverlay = plan[0] ? (plan[0].overlay || overlayTitle) : null;
+    /*
+     * ¿TIRA CONTINUA O CARRUSEL CLÁSICO?
+     *
+     * La tira (src/carouselPanorama.js) es una sola pieza ancha cortada en cuadros: el
+     * fondo, la tipografía y una de las prendas siguen de un cuadro al otro. Es lo que le
+     * da al que mira un motivo para deslizar, en vez de cuatro posteos pegados.
+     *
+     * Es el modo por defecto del carrusel FOTOGRÁFICO de feed porque es lo que se pidió y
+     * porque, de yapa, no gasta nada en imágenes IA. No aplica cuando:
+     *   - es historia (ahí no hay deslizamiento horizontal continuo),
+     *   - el dueño pidió otra cosa a mano (carouselStyle / arte tipográfica),
+     *   - no hay al menos 3 fotos reales distintas para poblar los cuadros.
+     * Y si las fotos no se pueden recortar, renderCarouselPanorama avisa y se cae solo al
+     * clásico: una tira de tarjetas rectangulares sería peor que la pieza de siempre.
+     */
+    const fotosDistintas = new Set(plan.map((s) => s.photoIndex)).size;
+    const quiereContinuo = carouselStyle === 'continuo'
+      || (carouselStyle !== 'clasico' && isFeedFmt && artMode !== 'tipografica' && fotosDistintas >= 3 && refImgs.length >= 3);
 
-    imagePath = urls[0];
-    slidesJson = JSON.stringify(urls);
-    slidesMetaJson = JSON.stringify(plan); // receta de cada slide, para regenerar UNO solo
+    let tira = null;
+    if (quiereContinuo) {
+      try {
+        tira = await renderCarouselPanorama(plan, ctx, { artMode });
+      } catch (err) {
+        const suave = err.code === 'PANORAMA_SIN_RECORTES';
+        console[suave ? 'log' : 'warn'](`[generate-daily] Slot #${slot.id}: ${err.message} Sigo con el carrusel clásico.`);
+      }
+    }
+
+    if (tira) {
+      pieceCostUsd += tira.costUsd || 0;
+      coverBuffer = tira.buffer;
+      coverClipped = tira.clippedText || [];
+      coverOverlay = plan[0] ? (plan[0].overlay || overlayTitle) : null;
+      imagePath = tira.urls[0];
+      slidesJson = JSON.stringify(tira.urls);
+      // Receta de la tira. Es un OBJETO (no el array de tomas del carrusel clásico) para
+      // que quien la lea sepa que estos cuadros no son piezas sueltas: corregir uno exige
+      // volver a dibujar la tira entera o se rompe la continuidad.
+      slidesMetaJson = JSON.stringify({ mode: 'panorama', stripUrl: tira.stripUrl || null, shots: plan.slice(0, tira.urls.length) });
+      carouselDesign = 'panorama';
+      console.log(`[generate-daily] Slot #${slot.id}: carrusel CONTINUO de ${tira.urls.length} cuadros (tira de ${tira.urls.length * 1080}px).`);
+    } else {
+      // En paralelo (memoria acotada por el navegador compartido + semáforo de imageRenderer).
+      const slideResults = await Promise.all(plan.map((shot, i) => renderCarouselShot(shot, i, ctx)));
+      const urls = slideResults.map((r) => r.url);
+      pieceCostUsd += slideResults.reduce((sum, r) => sum + (r.costUsd || 0), 0);
+      coverBuffer = slideResults[0] ? slideResults[0].buffer : null;
+      coverClipped = slideResults[0] ? (slideResults[0].clippedText || []) : [];
+      coverOverlay = plan[0] ? (plan[0].overlay || overlayTitle) : null;
+
+      imagePath = urls[0];
+      slidesJson = JSON.stringify(urls);
+      slidesMetaJson = JSON.stringify(plan); // receta de cada slide, para regenerar UNO solo
+    }
   } else {
     // Reels: NO se gasta en imagen IA automática. La imagen es sólo la base/portada;
     // el video real conviene generarlo a mano en Gemini/Veo con el botón
@@ -1651,7 +1806,7 @@ async function generateForSlot(slot, overrides = {}) {
     // Se guarda el diseño EFECTIVO ("plantilla:variante"): antes se guardaba la
     // plantilla elegida aunque el self-healing la hubiera cambiado, y esa columna es
     // justo la memoria que usa artDirection para no repetir el diseño de la próxima.
-    [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson, slides ? (isStepCarousel ? 'editorial' : 'fullbleed') : designTag, storyTeaserPath, pieceCostUsd, copy.gen_model || null, copy.qa_notes || null, copy.sticker ? JSON.stringify(copy.sticker) : null, slidesMetaJson]
+    [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson, slides ? (isStepCarousel ? 'editorial' : carouselDesign) : designTag, storyTeaserPath, pieceCostUsd, copy.gen_model || null, copy.qa_notes || null, copy.sticker ? JSON.stringify(copy.sticker) : null, slidesMetaJson]
   );
 
   // Si el slot ya tenía versiones encoladas para publicar (se está regenerando una
@@ -1730,7 +1885,14 @@ async function regenerateSlide({ assetId, index, overlay, instructions }) {
   // defecto para TODOS los slides: así la corrección también queda guardada en piezas
   // viejas (antes se aplicaba a la imagen pero se perdía en la próxima corrección).
   const defaultShot = (n) => ({ shotType: n === 0 ? 'hero' : 'detalle', photoIndex: n, extraPhotos: [], background: 'limpio', focus: '', overlay: null, badge: null });
-  const meta = Array.isArray(metaRaw) ? metaRaw : urls.map((_, n) => defaultShot(n));
+  // Carrusel CONTINUO: la receta viene como objeto { mode:'panorama', shots:[...] }. Sus
+  // cuadros no son piezas sueltas —son recortes de una misma tira—, así que corregir uno
+  // obliga a volver a dibujar la tira entera; si se re-renderizara sólo ese cuadro, el
+  // fondo, la palabra corrida y la prenda partida dejarían de coincidir con los vecinos.
+  const esTira = Boolean(metaRaw && !Array.isArray(metaRaw) && metaRaw.mode === 'panorama');
+  const meta = Array.isArray(metaRaw)
+    ? metaRaw
+    : (esTira && Array.isArray(metaRaw.shots) ? metaRaw.shots : urls.map((_, n) => defaultShot(n)));
   const shot = meta[i] ? { ...meta[i] } : defaultShot(i);
 
   shot.photoIndex = Number.isInteger(shot.photoIndex) ? shot.photoIndex : i;
@@ -1806,9 +1968,21 @@ async function regenerateSlide({ assetId, index, overlay, instructions }) {
     pillar: asset.pillar, slotId: asset.calendar_id, product,
   };
 
+  meta[i] = shot;
+
+  if (esTira) {
+    const tira = await renderCarouselPanorama(meta, ctx, { artMode: null });
+    const nuevos = tira.urls;
+    await pool.query(
+      `UPDATE generated_assets SET slides = $2, image_path = $3, slides_meta = $4, updated_at = now() WHERE id = $1`,
+      [assetId, JSON.stringify(nuevos), nuevos[0], JSON.stringify({ mode: 'panorama', stripUrl: tira.stripUrl || null, shots: meta.slice(0, nuevos.length) })]
+    );
+    notes.push('Como es un carrusel continuo, se volvió a dibujar la tira entera para que los cuadros sigan enganchando.');
+    return { slides: nuevos, image_path: nuevos[0], note: notes.join(' ').trim() };
+  }
+
   const { url } = await renderCarouselShot(shot, i, ctx);
   urls[i] = url;
-  meta[i] = shot;
 
   await pool.query(
     `UPDATE generated_assets SET slides = $2, image_path = $3, slides_meta = $4, updated_at = now() WHERE id = $1`,
@@ -2090,4 +2264,4 @@ async function originalProductPhoto(asset) {
   return (rows[0] && rows[0].image_url) || null;
 }
 
-module.exports = { generateDaily, generateForSlot, pickRelevantVisualProduct, VALID_TEMPLATES, regenerateSlide, correctPiece };
+module.exports = { generateDaily, generateForSlot, pickRelevantVisualProduct, VALID_TEMPLATES, regenerateSlide, correctPiece, renderCarouselPanorama };

@@ -1516,6 +1516,9 @@ app.post('/api/generate/:calendarId', wrap(async (req, res) => {
   // Dirección de arte elegida a mano: cómo tiene que resolverse la imagen de la pieza.
   const artMode = ['generativa', 'foto', 'tipografica'].includes(body.artMode) ? body.artMode : null;
   const artBrief = typeof body.artBrief === 'string' ? body.artBrief.trim().slice(0, 400) : null;
+  // Estructura del carrusel: 'continuo' = una sola tira cortada en cuadros, 'clasico' =
+  // una imagen por slide. Sólo aplica si el slot es carrusel; si no, se ignora sola.
+  const carouselStyle = ['continuo', 'clasico'].includes(body.carouselStyle) ? body.carouselStyle : null;
 
   // Guardamos qué versiones había ANTES: recién las descartamos si la nueva sale bien.
   // (Antes se descartaba primero y, si la generación en segundo plano fallaba, la pieza
@@ -1531,7 +1534,7 @@ app.post('/api/generate/:calendarId', wrap(async (req, res) => {
   const detailForGen = newDetail || slot.pillar_detail;
   (async () => {
     try {
-      await generateForSlot(slotForGen, { pillarDetail: detailForGen, template, artMode, artBrief });
+      await generateForSlot(slotForGen, { pillarDetail: detailForGen, template, artMode, artBrief, carouselStyle });
       // La nueva se creó OK → recién ahora descartamos las viejas y limpiamos su cola.
       if (prevIds.length) {
         await pool.query(`UPDATE generated_assets SET status = 'discarded', updated_at = now() WHERE id = ANY($1)`, [prevIds]);

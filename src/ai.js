@@ -1436,6 +1436,74 @@ ${noTextNoLogoRule(strict)}
 }
 
 /**
+ * FONDO ANCHO para el CARRUSEL CONTINUO: una sola foto ambiental de 21:9 que sirve de
+ * piso a toda la tira (ver src/carouselPanorama.js).
+ *
+ * Es la versión generativa del fondo de la tira, y tiene dos ventajas sobre lo que hacía
+ * el carrusel clásico: cuesta UNA imagen en vez de una por slide, y —más importante— la
+ * IA no toca el producto. El ambiente lo pone el modelo; la prenda es siempre la foto
+ * REAL recortada, encima. Así no puede inventar un bolsillo, una costura ni un color que
+ * el producto no tiene, que es el error caro de este rubro.
+ *
+ * Pensada para que aguante el CORTE: lo que se pide es una escena pareja de punta a
+ * punta, sin un protagonista en el centro. Si el modelo pone el foco en un solo lugar, ese
+ * lugar cae en un cuadro y los otros tres quedan con fondo muerto.
+ */
+async function generatePanoramaBackdrop({ theme, brief, occasion, seed = null } = {}) {
+  if (!config.ai.useAiImages || !hasGemini() || isImageQuotaCoolingDown()) return null;
+  if (await imageBudgetExceeded()) return null;
+
+  const brandStyle = await brandStyleForImages();
+  const scene = sceneVariation(seed);
+  const buildPrompt = (strict) => `Actuás como DIRECTOR DE ARTE SENIOR de una agencia premium. Generá UNA fotografía PANORÁMICA (formato 21:9, muy apaisada) que va a usarse como FONDO CONTINUO de un carrusel de Instagram: la imagen se va a cortar en 3 o 4 cuadros verticales y el que mira desliza de uno al siguiente.
+
+AMBIENTE A MOSTRAR: "${theme || 'taller e industria argentina'}".${briefBlock(brief)}${occasionGuidance(occasion)}
+
+QUÉ TIENE QUE SER (crítico para que el corte funcione):
+- Una ÚNICA escena continua leída de izquierda a derecha, PAREJA: nada de un protagonista central con los costados vacíos. Cada tercio de la imagen tiene que tener algo que mirar y ninguno tiene que ser "el importante".
+- Es FONDO: profundidad, textura y luz de un espacio de trabajo real (taller, obra, depósito, banco de trabajo, chapa, madera, hormigón). Todo en segundo plano y con desenfoque suave; el primer plano se deja LIBRE porque ahí se van a montar las prendas reales.
+- PROHIBIDO poner indumentaria o calzado como protagonista: la prenda la agrega después el sistema con la foto real del catálogo. Si aparece ropa, que sea genérica, chica y desenfocada.
+- Sin personas mirando a cámara, sin caras en primer plano.
+
+DIRECCIÓN DE FOTOGRAFÍA:
+- Fotografía editorial hiperrealista, calidad de campaña impresa. Óptica de 35mm, profundidad de campo real, micro-texturas nítidas donde hay foco.
+${scene.describe()}
+- Base negro/gris carbón bien oscura (la tipografía va en blanco encima) con UN acento naranja quemado (#C1440C) apareciendo de forma orgánica —una luz, una herramienta, una señalización—, nunca como filtro sobre toda la escena.
+- Color grading sobrio tipo Kodak Portra 400, grano fílmico sutil, imperfecciones reales (polvo en el aire, desgaste, rayones).
+${brandStyle ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
+- La MITAD INFERIOR tiene que ser más oscura y tranquila que la superior: ahí se apoyan los titulares.
+
+${noTextNoLogoRule(strict)}
+- PROHIBIDO además: aspecto render 3D, simetría artificial, objetos flotando, viñeteado exagerado.`;
+
+  let spent = 0;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const data = await geminiGenerateContent(config.gemini.imageModel, {
+        contents: [{ role: 'user', parts: [{ text: buildPrompt(attempt > 0) }] }],
+        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+        aspectRatio: '21:9',
+      });
+      const img = await inlineImageClean(data);
+      if (!img) continue;
+      spent += await logImageUsage('fondo panorámico');
+      const check = await checkImageQuality(img);
+      if (!check.ok) {
+        console.warn(`[ai] generatePanoramaBackdrop: descartado por control de calidad (texto=${check.hasText} logo=${check.hasLogo}), reintento más estricto...`);
+        continue;
+      }
+      img.costUsd = spent;
+      return img;
+    } catch (err) {
+      if (err.status === 429) { markImageQuotaHit(); console.warn('[ai] Cuota de imágenes agotada (429): la tira sale con fondo diseñado.'); return null; }
+      console.warn(`[ai] generatePanoramaBackdrop falló (intento ${attempt + 1}/2): ${err.message}`);
+    }
+  }
+  console.warn('[ai] generatePanoramaBackdrop: sin resultado limpio, la tira sale con el fondo diseñado (gratis).');
+  return null;
+}
+
+/**
  * Genera una ILUSTRACIÓN DIDÁCTICA (no fotográfica) para piezas educativas:
  * dibujos técnicos tipo "cómo medirse la prenda", comparativas, esquemas de uso.
  * Pensada para la plantilla educativa (fondo claro). Best-effort: null si falla.
@@ -1536,9 +1604,10 @@ REGLAS (cada slide con un PROPÓSITO distinto — que NO sean todas iguales):
 - overlay ACERTADO, no genérico ni inventado: si la foto muestra la etiqueta con la bandera argentina, el overlay va tipo "Etiqueta argentina" / "Hecho en Argentina" — NUNCA inventes el material ("de lona") si no está en la descripción real. Elegí el rasgo que hace ÚNICO a ese detalle (la bandera, el sol, la costura reforzada, la suela de yute), no una obviedad.
 - badge: casi siempre null. "NUEVO" (sólo en la hero) si el brief habla de lanzamiento; "OFERTA" si hay oferta real. Si no, null en TODOS.
 - overlay: MÁXIMO ~5 palabras, en voseo. Nunca repitas overlay.
+- deck: UNA línea corta (máximo ~60 caracteres, en voseo) que amplía el overlay de ESA toma con algo verdadero y concreto —por qué le sirve al que trabaja—, sin repetir el overlay con otras palabras y sin inventar materiales ni medidas que la descripción real no diga. Si de esa foto no podés decir nada verdadero que sume, devolvé null.
 
 Devolvé SOLO este JSON:
-{"shots":[{"shot_type":"hero","focus":"qué muestra/enfatiza, concreto","photo_index":0,"extra_photos":[],"background":"limpio","overlay":"texto que describe ESA foto (con marca en la hero)","badge":null}]}`;
+{"shots":[{"shot_type":"hero","focus":"qué muestra/enfatiza, concreto","photo_index":0,"extra_photos":[],"background":"limpio","overlay":"texto que describe ESA foto (con marca en la hero)","deck":"la línea corta que lo amplía","badge":null}]}`;
 
   const schema = {
     type: 'object',
@@ -1554,6 +1623,9 @@ Devolvé SOLO este JSON:
             extra_photos: { type: 'array', items: { type: 'integer' } },
             background: { type: 'string', enum: ['limpio', 'sutil', 'contexto'] },
             overlay: { type: 'string', nullable: true },
+            // Bajada de la toma. La usa el carrusel continuo, donde cada cuadro tiene
+            // lugar para una línea bajo el titular; el carrusel clásico la ignora.
+            deck: { type: 'string', nullable: true },
             badge: { type: 'string', nullable: true },
           },
           required: ['shot_type', 'focus', 'photo_index', 'background'],
@@ -1586,6 +1658,7 @@ Devolvé SOLO este JSON:
       extraPhotos: extras,
       background: ['limpio', 'sutil', 'contexto'].includes(s.background) ? s.background : 'limpio',
       overlay: s.overlay && String(s.overlay).trim() && String(s.overlay).toLowerCase() !== 'null' ? String(s.overlay).trim().slice(0, 60) : null,
+      deck: s.deck && String(s.deck).trim() && String(s.deck).toLowerCase() !== 'null' ? String(s.deck).trim().slice(0, 90) : null,
       badge: ['NUEVO', 'OFERTA'].includes(String(s.badge || '').toUpperCase()) ? String(s.badge).toUpperCase() : null,
     };
   });
@@ -2806,6 +2879,7 @@ module.exports = {
   sectionReportDigest,
   generateBackground,
   generateProductScene,
+  generatePanoramaBackdrop,
   planCarouselShots,
   planHeroShot,
   describeProductPhotos,
