@@ -1,0 +1,78 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex, nofollow" />
+  <title>BLACKS · Carga de contenido</title>
+  <link rel="stylesheet" href="/dashboard.css" />
+  <style>
+    /* Sólo lo propio del portal: el resto sale de dashboard.css. */
+    body.team { background: var(--bg); min-height: 100vh; }
+    .team-wrap { max-width: 980px; margin: 0 auto; padding: 22px 18px 60px; }
+
+    .team-login { max-width: 380px; margin: 12vh auto; }
+    .team-login .panel { padding: 26px; }
+    .team-login h1 { font-size: 20px; margin: 0 0 4px; }
+    .team-login p { color: var(--muted); font-size: 13px; margin: 0 0 20px; }
+    .team-login input { width: 100%; background: rgba(255,255,255,.04); border: 1px solid var(--line);
+      border-radius: 10px; padding: 11px 13px; color: var(--text); font-size: 14px; font-family: inherit; }
+    .team-login input:focus { outline: none; border-color: var(--orange); }
+    .team-login button { width: 100%; margin-top: 12px; }
+    .team-error { color: #ff8f80; font-size: 13px; margin-top: 12px; min-height: 18px; }
+
+    .team-head { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 20px; }
+    .team-head h1 { font-size: 19px; margin: 0; }
+    .team-head .sub { color: var(--muted); font-size: 13px; }
+    .team-head .spacer { flex: 1; }
+    .team-empty { color: var(--muted); font-size: 14px; padding: 30px 0; text-align: center; }
+  </style>
+</head>
+<body class="team">
+
+  <!-- ---------- Ingreso ---------- -->
+  <div id="login-view" class="team-wrap team-login">
+    <div class="panel">
+      <h1>Carga de contenido</h1>
+      <p>BLACKS Indumentaria</p>
+      <form id="login-form" autocomplete="on">
+        <input type="password" id="team-pass" placeholder="Contraseña" autocomplete="current-password" required />
+        <button class="btn-primary" type="submit" id="login-btn">Entrar</button>
+      </form>
+      <div class="team-error" id="login-error"></div>
+    </div>
+  </div>
+
+  <!-- ---------- Portal ---------- -->
+  <div id="app-view" class="team-wrap hidden">
+    <div class="team-head">
+      <div>
+        <h1>Carga de contenido</h1>
+        <div class="sub" id="team-sub">BLACKS Indumentaria</div>
+      </div>
+      <div class="spacer"></div>
+      <button class="btn-ghost btn-sm" onclick="teamLogout()">Salir</button>
+    </div>
+
+    <div class="pt-tabs" id="team-tabs"></div>
+
+    <!-- Trabajos con bordado: el mismo panel que usa el dueño (works-panel.js). -->
+    <div id="sec-works" class="pt-pane hidden">
+      <div id="works-tools"></div>
+    </div>
+
+    <!-- Listado de productos, sólo lectura. -->
+    <div id="sec-products" class="pt-pane hidden">
+      <div id="team-products"></div>
+    </div>
+  </div>
+
+  <div id="toast" class="toast"></div>
+
+  <!-- equipo.js define los helpers (api, esc, toast, skeleton, panelHead, tip,
+       icon, hydrateIcons) que works-panel.js espera encontrar, así que va primero. -->
+  <script src="/equipo.js"></script>
+  <script src="/works-panel.js"></script>
+  <script>teamInit();</script>
+</body>
+</html>

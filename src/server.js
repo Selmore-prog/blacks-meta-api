@@ -12,6 +12,7 @@ const { syncPostInsights, analyzePerformance } = require('./insights');
 const { getBrandProfile } = require('./brandProfile');
 const { uploadAsset } = require('./storage');
 const works = require('./works');
+const teamPortal = require('./teamPortal');
 const styleService = require('./styleService');
 const { importDriveFolder } = require('./driveService');
 const { analyzeAccountPerformance } = require('./accountAnalyzer');
@@ -66,7 +67,7 @@ app.post('/api/login', (req, res) => {
   res.json({ ok: true });
 });
 
-app.use((req, res, next) => {
+app.use(async (req, res, next) => {
   if (!config.dashboardPassword) return next();
   // Las llama la TIENDA (otro dominio), no el panel: no pueden pedir sesión.
   // /api/home/rails es de sólo lectura y devuelve lo mismo que ya se ve en la
@@ -75,12 +76,30 @@ app.use((req, res, next) => {
   // de la tienda: tampoco puede pedir sesión del panel. Va protegido con su
   // propio "state" de un solo uso (ver más abajo).
   const open = ['/health', '/api/health', '/api/login', '/login.html', '/favicon.ico',
-    '/api/leads/click', '/api/home/rails', '/api/tiendanube/oauth/callback'];
+    '/api/leads/click', '/api/home/rails', '/api/tiendanube/oauth/callback',
+    // Portal del equipo: la pantalla de ingreso y su hoja de estilos. No exponen
+    // nada — son el formulario de login y CSS. Ver src/teamPortal.js.
+    '/equipo.html', '/equipo.js', '/works-panel.js', '/dashboard.css', '/api/team/login'];
   if (open.includes(req.path) || req.path.startsWith('/api/cron/')) return next(); // cron tiene su propio secret
   // La ficha de producto MAYORISTA (otro dominio) pide sus trabajos: sólo lectura
   // y devuelve fotos que ya son públicas en la vidriera. Ver src/works.js.
   if (req.method === 'GET' && req.path.startsWith('/api/works/product/')) return next();
-  if (hasValidSession(req)) return next();
+  if (hasValidSession(req)) return next(); // el dueño: acceso total
+
+  /* PORTAL DEL EQUIPO. Segunda contraseña, con permisos acotados a las secciones
+     que el dueño haya tildado. Denegar por defecto: lo que no está explícitamente
+     permitido no pasa — incluidas las ofertas flash, que escriben precios reales.
+     Ver src/teamPortal.js. */
+  const team = await teamPortal.sessionFor(req).catch(() => null);
+  if (team) {
+    if (req.path === '/api/team/session' || req.path === '/api/team/logout') return next();
+    if (teamPortal.permite(team, req.method, req.path)) return next();
+    if (req.path.startsWith('/api/')) {
+      return res.status(403).json({ error: 'Tu acceso no incluye esta sección.' });
+    }
+    return res.redirect('/equipo.html'); // no lo mandamos al panel del dueño
+  }
+
   if (req.path.startsWith('/api/')) return res.status(401).json({ error: 'Sesión requerida.', needLogin: true });
   return res.redirect('/login.html');
 });
@@ -1023,6 +1042,65 @@ app.get('/api/works/product/:id', publicGetCors, wrap(async (req, res) => {
   // ninguna ficha espere por esto y el motor no reciba una consulta por visita.
   res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=3600');
   res.json({ items });
+}));
+
+/* ========================= PORTAL DEL EQUIPO =============================
+ * Una entrada aparte para que alguien cargue contenido sin ver el panel entero.
+ * La config (activado / contraseña / secciones) la maneja el DUEÑO desde
+ * /api/team, que queda detrás de su propia sesión. Ver src/teamPortal.js.     */
+
+app.get('/api/team', wrap(async (req, res) => {
+  res.json(await teamPortal.getConfig());
+}));
+
+app.post('/api/team', wrap(async (req, res) => {
+  const b = req.body || {};
+  res.json(await teamPortal.saveConfig({
+    enabled: b.enabled,
+    sections: b.sections,
+    password: b.password,
+  }));
+}));
+
+/* Login del equipo. Es la única ruta del portal abierta sin sesión, así que
+   lleva un freno de fuerza bruta simple en memoria: la comparación con scrypt
+   ya es lenta a propósito, pero sin límite igual se puede probar en loop. */
+const intentos = new Map(); // ip -> { n, hasta }
+const MAX_INTENTOS = 8;
+const BLOQUEO_MS = 10 * 60_000;
+
+app.post('/api/team/login', wrap(async (req, res) => {
+  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'desconocida';
+  const ahora = Date.now();
+  const reg = intentos.get(ip);
+  if (reg && reg.hasta > ahora && reg.n >= MAX_INTENTOS) {
+    const min = Math.ceil((reg.hasta - ahora) / 60000);
+    return res.status(429).json({ error: `Demasiados intentos. Probá de nuevo en ${min} min.` });
+  }
+
+  const r = await teamPortal.login((req.body || {}).password);
+  if (!r.ok) {
+    const n = (reg && reg.hasta > ahora ? reg.n : 0) + 1;
+    intentos.set(ip, { n, hasta: ahora + BLOQUEO_MS });
+    return res.status(401).json({ error: r.error });
+  }
+
+  intentos.delete(ip);
+  res.setHeader('Set-Cookie', r.cookie);
+  res.json({ ok: true, sections: r.sections });
+}));
+
+app.post('/api/team/logout', (req, res) => {
+  res.setHeader('Set-Cookie', teamPortal.cookieDeSalida());
+  res.json({ ok: true });
+});
+
+/* Qué secciones tiene habilitadas la sesión que está mirando. Lo llama
+   equipo.js al cargar para dibujar sólo lo que corresponde. */
+app.get('/api/team/session', wrap(async (req, res) => {
+  const team = await teamPortal.sessionFor(req).catch(() => null);
+  if (!team) return res.status(401).json({ error: 'Sesión requerida.', needLogin: true });
+  res.json({ ok: true, sections: team.sections });
 }));
 
 /* =========================================================================

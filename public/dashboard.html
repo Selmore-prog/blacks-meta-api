@@ -222,6 +222,11 @@
            ficha de los productos MAYORISTAS. Ver src/works.js. -->
       <div id="pt-trabajos" class="pt-pane hidden">
         <div id="works-tools"></div>
+
+        <!-- Acceso acotado para que otra persona cargue trabajos sin ver el panel
+             entero. Vive SOLO acá, no en works-panel.js: el portal del equipo
+             comparte ese archivo y no tiene que ver esta configuración. -->
+        <div id="team-portal-cfg" style="margin-top:22px;"></div>
       </div>
     </section>
 
@@ -446,5 +451,9 @@
   <div id="toast" class="toast"></div>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js" defer></script>
   <script src="/dashboard.js"></script>
+  <!-- Panel de trabajos con bordado. Va aparte porque lo comparte con el portal
+       del equipo (equipo.html), que no puede cargar dashboard.js entero.
+       Tiene que ir DESPUÉS de dashboard.js: usa sus helpers. -->
+  <script src="/works-panel.js"></script>
 </body>
 </html>
