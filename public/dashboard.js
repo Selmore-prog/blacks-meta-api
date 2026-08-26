@@ -151,13 +151,57 @@ function switchTab(view) {
   document.getElementById(`view-${view}`).classList.remove('hidden');
   if (view === 'style') loadStyle();
   if (view === 'metrics') loadMetrics();
-  if (view === 'products') loadProducts();
+  if (view === 'products') switchProductsPane(productsPaneGuardado());
   if (view === 'home') { loadHomeRails(); loadFlash(); }
-  if (view === 'products') loadMediaTools();
-  if (view === 'products') loadWorks();
+
   if (view === 'studio') loadStudio();
   if (view === 'analysis') setupAnalysis();
   if (view === 'ads') loadAdsPerformance();
+}
+
+/* Sub-pestañas de PRODUCTOS.
+   Conviven tres herramientas distintas (qué priorizar / fotos de publicaciones /
+   trabajos con bordado) y antes iban una abajo de la otra: había que scrollear
+   toda la lista de productos para llegar a los trabajos. Además, entrar a la
+   pestaña disparaba las tres cargas juntas. Ahora cada panel carga la primera
+   vez que se abre, y se recuerda cuál dejaste abierto — útil si alguien del
+   equipo entra sólo a cargar trabajos.
+   Clase propia (.ptab) y no .mtab: switchMetricsPane() busca los .mtab en todo
+   el documento y le sacaría el estado activo a estos. */
+const PT_SUBS = {
+  prioridades: 'Prioridades según ventas (30 días), stock y curva de talles.',
+  fotos: 'Copiar fotos entre publicaciones y elegir la foto de cada color.',
+  trabajos: 'Fotos de prendas ya bordadas, para las fichas mayoristas.',
+};
+const ptCargados = new Set();
+
+function productsPaneGuardado() {
+  let v = null;
+  try { v = localStorage.getItem('productsPane'); } catch (_) {}
+  return PT_SUBS[v] ? v : 'prioridades';
+}
+
+function switchProductsPane(name) {
+  if (!PT_SUBS[name]) name = 'prioridades';
+  document.querySelectorAll('#view-products .ptab').forEach((t) => t.classList.toggle('active', t.dataset.pane === name));
+  document.querySelectorAll('#view-products .pt-pane').forEach((p) => p.classList.toggle('hidden', p.id !== `pt-${name}`));
+  const sub = document.getElementById('pt-sub');
+  if (sub) sub.textContent = PT_SUBS[name];
+  try { localStorage.setItem('productsPane', name); } catch (_) {}
+
+  if (ptCargados.has(name)) return;   // ya tiene datos: no volvemos a pedirlos
+  ptCargados.add(name);
+  if (name === 'prioridades') loadProducts();
+  else if (name === 'fotos') loadMediaTools();
+  else if (name === 'trabajos') loadWorks();
+}
+
+/** El botón "Refrescar" de la barra: recarga SOLO el panel que estás mirando. */
+function refreshProductsPane() {
+  const activo = document.querySelector('#view-products .ptab.active');
+  const name = (activo && activo.dataset.pane) || 'prioridades';
+  ptCargados.delete(name);
+  switchProductsPane(name);
 }
 
 /* Sub-pestañas de Métricas (para que la vista no sea un scroll infinito). */
@@ -5820,6 +5864,10 @@ function renderWorks() {
   if (!box) return;
   const n = worksState.items.length;
   const generales = worksState.items.filter((w) => !(w.products || []).length).length;
+
+  // Contador en la solapa: de un vistazo se sabe si hay algo cargado.
+  const badge = document.getElementById('pt-works-count');
+  if (badge) { badge.textContent = n; badge.classList.toggle('hidden', !n); }
 
   box.innerHTML = `<div class="panel">
     ${panelHead('Trabajos realizados',

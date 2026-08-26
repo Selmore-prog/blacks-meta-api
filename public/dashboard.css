@@ -404,13 +404,25 @@ table.insights th { color: var(--muted); font-weight: 700; text-transform: upper
 .cal-legend { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin-top: 12px; font-size: 12px; color: var(--muted); }
 .cal-legend .cal-dot { margin-left: 10px; }
 
-/* ---------- sub-pestañas de Métricas ---------- */
-.mt-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 22px;
+/* ---------- sub-pestañas de Métricas y de Productos ----------
+   Mismo aspecto para las dos. Productos usa .ptab y no .mtab a propósito:
+   switchMetricsPane() busca los .mtab en TODO el documento y le sacaría el
+   estado activo a las solapas de Productos al entrar a Métricas. */
+.mt-tabs, .pt-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 22px;
   background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 5px; width: fit-content; max-width: 100%; }
-.mtab { background: transparent; border: none; color: var(--muted); font-size: 13px; font-weight: 700;
+.mtab, .ptab { background: transparent; border: none; color: var(--muted); font-size: 13px; font-weight: 700;
   padding: 9px 16px; border-radius: 9px; min-height: 0; }
-.mtab:hover { color: var(--text); }
-.mtab.active { background: var(--orange); color: #fff; }
+.mtab:hover, .ptab:hover { color: var(--text); }
+.mtab.active, .ptab.active { background: var(--orange); color: #fff; }
+
+/* Contador de trabajos cargados, en la solapa. */
+.ptab { display: inline-flex; align-items: center; gap: 7px; }
+.pt-badge { display: inline-flex; align-items: center; justify-content: center;
+  min-width: 19px; height: 19px; padding: 0 5px; border-radius: 999px;
+  background: rgba(255,255,255,.12); color: var(--muted);
+  font-size: 11px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.ptab.active .pt-badge { background: rgba(0,0,0,.22); color: #fff; }
+.pt-badge.hidden { display: none; }
 
 /* ---------- estudio creativo ---------- */
 .st-selected { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; margin-top: 12px; }

@@ -179,29 +179,50 @@
     </section>
 
     <!-- ===== Productos ===== -->
+    <!-- ===== Productos =====
+         Tres cosas distintas conviven acá, así que van en sub-pestañas en vez de
+         un scroll largo: qué priorizar, las fotos de las publicaciones, y la
+         biblioteca de trabajos con bordado. Cada panel carga sus datos recién
+         cuando se abre (antes las tres cargaban juntas al entrar a la pestaña). -->
     <section id="view-products" class="view hidden">
       <div class="toolbar">
         <div>
           <h2>Productos</h2>
-          <div class="sub">Prioridades según ventas (30 días), stock y curva de talles.</div>
+          <div class="sub" id="pt-sub">Prioridades según ventas (30 días), stock y curva de talles.</div>
         </div>
         <button class="btn-primary btn-sm" id="products-sync-btn" onclick="syncProductsFromTiendanube()"><span data-ic="refresh"></span> Sincronizar con Tiendanube</button>
-        <button class="btn-ghost" onclick="loadProducts()"><span data-ic="refresh"></span> Refrescar</button>
+        <button class="btn-ghost" onclick="refreshProductsPane()"><span data-ic="refresh"></span> Refrescar</button>
       </div>
-      <p class="hint" style="margin:0 0 14px;">El catálogo se sincroniza solo todos los días a las 06:45 ARG. Si acabás de cargar o cambiar un producto en Tiendanube y todavía no aparece acá, usá "Sincronizar con Tiendanube" para traerlo ya mismo (tarda unos 20-30 s).</p>
 
-      <!-- Termómetro de interés: separa "no lo ve nadie" de "lo ven y no compran". -->
-      <div id="interest-body" style="margin-bottom:22px;"></div>
+      <div class="pt-tabs">
+        <button class="ptab active" data-pane="prioridades" onclick="switchProductsPane('prioridades')">Qué priorizar</button>
+        <button class="ptab" data-pane="fotos" onclick="switchProductsPane('fotos')">Fotos de publicaciones</button>
+        <button class="ptab" data-pane="trabajos" onclick="switchProductsPane('trabajos')">Trabajos con bordado<span class="pt-badge hidden" id="pt-works-count"></span></button>
+      </div>
 
-      <div id="products-body"><p class="loading">Cargando productos...</p></div>
+      <!-- ---- Panel 1: qué priorizar ---- -->
+      <div id="pt-prioridades" class="pt-pane">
+        <p class="hint" style="margin:0 0 14px;">El catálogo se sincroniza solo todos los días a las 06:45 ARG. Si acabás de cargar o cambiar un producto en Tiendanube y todavía no aparece acá, usá "Sincronizar con Tiendanube" para traerlo ya mismo (tarda unos 20-30 s).</p>
 
-      <!-- Copiar fotos entre publicaciones y asignar la foto de cada variante.
+        <!-- Termómetro de interés: separa "no lo ve nadie" de "lo ven y no compran". -->
+        <div id="interest-body" style="margin-bottom:22px;"></div>
+
+        <div id="products-body"></div>
+      </div>
+
+      <!-- ---- Panel 2: fotos ----
+           Copiar fotos entre publicaciones y asignar la foto de cada variante.
            Escribe en la tienda EN VIVO: ver src/productMedia.js. -->
-      <div id="media-tools" style="margin-top:22px;"></div>
+      <div id="pt-fotos" class="pt-pane hidden">
+        <div id="media-tools"></div>
+      </div>
 
-      <!-- Biblioteca de trabajos con bordado/estampado. Se muestran en la ficha
-           de los productos MAYORISTAS. Ver src/works.js. -->
-      <div id="works-tools" style="margin-top:22px;"></div>
+      <!-- ---- Panel 3: trabajos ----
+           Biblioteca de fotos de prendas ya bordadas/estampadas. Se muestran en la
+           ficha de los productos MAYORISTAS. Ver src/works.js. -->
+      <div id="pt-trabajos" class="pt-pane hidden">
+        <div id="works-tools"></div>
+      </div>
     </section>
 
     <!-- ===== Home de la tienda =====
