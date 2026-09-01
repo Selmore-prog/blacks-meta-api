@@ -255,4 +255,95 @@ async function fetchSalesSince(sinceISO) {
   return sales;
 }
 
-module.exports = { fetchAllProducts, fetchProduct, fetchSalesSince, normalizeProduct, detectBrand, pickText, productColors, tnRequest, setVariantPromotionalPrice };
+/* =========================================================================
+ * PEDIDOS COMPLETOS (para la sección de Estadísticas)
+ *
+ * `fetchSalesSince` de arriba sólo cuenta unidades por producto: alcanza para el
+ * ranking de más vendidos, pero no para contestar "cuánto facturé del 1 al 15",
+ * "cuánto salió el ticket promedio" o "qué porcentaje de las visitas terminó
+ * comprando". Para eso hace falta el pedido entero, y guardado: la API de
+ * Tiendanube pagina de a 200 y consultarla en vivo en cada carga del panel sería
+ * lento y frágil. Por eso esto alimenta `orders_cache` (ver scripts/sync-orders.js)
+ * y todos los informes se calculan contra la base.
+ * ========================================================================= */
+
+/** Fecha de Tiendanube -> ISO. Viene como string o como objeto {date, timezone}. */
+function orderDate(field) {
+  if (!field) return null;
+  if (typeof field === 'string') return field;
+  if (field.date) return String(field.date).replace(' ', 'T') + 'Z';
+  return null;
+}
+
+/**
+ * Pedido crudo -> fila lista para guardar. Se queda con lo que se usa en los
+ * informes y deja el resto en `raw` (mismo criterio que products_cache).
+ *
+ * `status` es el estado del pedido (open/closed/cancelled) y `payment_status` el
+ * del pago (paid/pending/abandoned...). Los dos importan: para facturación real
+ * se cuentan los PAGADOS y no cancelados; para "pedidos hechos", todos los no
+ * cancelados. Guardamos ambos y la decisión se toma al consultar.
+ */
+function normalizeOrder(o) {
+  const money = (v) => (v === null || v === undefined || v === '' ? null : Number(v));
+  const dir = o.shipping_address || {};
+  return {
+    id: Number(o.id),
+    number: Number(o.number) || null,
+    created_at: orderDate(o.created_at),
+    paid_at: orderDate(o.paid_at),
+    cancelled_at: orderDate(o.cancelled_at),
+    status: o.status || null,
+    payment_status: o.payment_status || null,
+    shipping_status: o.shipping_status || null,
+    total: money(o.total),
+    subtotal: money(o.subtotal),
+    discount: money(o.discount),
+    shipping_cost: money(o.shipping_cost_customer),
+    currency: o.currency || 'ARS',
+    gateway: o.gateway_name || o.gateway || null,
+    shipping_option: o.shipping_option || null,
+    coupon: Array.isArray(o.coupon) && o.coupon.length ? (o.coupon[0].code || null) : null,
+    customer_id: o.customer && o.customer.id ? Number(o.customer.id) : null,
+    customer_name: (o.customer && o.customer.name) || o.contact_name || null,
+    customer_email: (o.customer && o.customer.email) || o.contact_email || null,
+    province: dir.province || o.billing_province || null,
+    city: dir.city || o.billing_city || null,
+    landing_url: o.landing_url || null,
+    order_origin: o.order_origin || null,
+    // Sólo lo necesario por línea: el resto ya está en raw.
+    products: (o.products || []).map((p) => ({
+      product_id: Number(p.product_id) || null,
+      variant_id: Number(p.variant_id) || null,
+      name: p.name_without_variants || p.name || null,
+      variant: p.variant_values || null,
+      quantity: Number(p.quantity) || 0,
+      price: money(p.price),
+      total: money(p.price) === null ? null : money(p.price) * (Number(p.quantity) || 0),
+    })),
+    raw: o,
+  };
+}
+
+/**
+ * Trae pedidos paginando hasta el final. `since`/`until` son ISO.
+ * `by`: 'created_at' para un backfill por fecha de pedido, 'updated_at' para el
+ * sync incremental — un pedido que se cancela o se paga DESPUÉS cambia su
+ * updated_at pero no su created_at, así que con created_at nunca nos
+ * enteraríamos del cambio.
+ */
+async function fetchOrders({ since, until = null, by = 'created_at', maxPages = 60 } = {}) {
+  const out = [];
+  for (let page = 1; page <= maxPages; page += 1) {
+    const params = new URLSearchParams({ per_page: '200', page: String(page) });
+    if (since) params.set(`${by}_min`, since);
+    if (until) params.set(`${by}_max`, until);
+    const batch = await tnRequest('GET', `/orders?${params.toString()}`);
+    if (!Array.isArray(batch) || !batch.length) break;
+    for (const o of batch) out.push(normalizeOrder(o));
+    if (batch.length < 200) break;
+  }
+  return out;
+}
+
+module.exports = { fetchAllProducts, fetchProduct, fetchSalesSince, fetchOrders, normalizeOrder, normalizeProduct, detectBrand, pickText, productColors, tnRequest, setVariantPromotionalPrice };

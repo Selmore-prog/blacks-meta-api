@@ -9,6 +9,7 @@
     "migrate": "node src/migrate.js",
     "sync": "node scripts/sync-products.js",
     "sync:sales": "node scripts/sync-sales.js",
+    "sync:orders": "node scripts/sync-orders.js",
     "generate:daily": "node scripts/generate-daily.js",
     "sync:company": "node scripts/sync-company-info.js",
     "render:reels": "node scripts/render-pending-reels.js",

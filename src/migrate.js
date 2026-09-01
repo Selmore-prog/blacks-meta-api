@@ -249,6 +249,43 @@ CREATE TABLE IF NOT EXISTS ad_set_members (
   updated_at   TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- PEDIDOS REALES DE TIENDANUBE (sep-2026). Copia local de los pedidos para poder
+-- contestar por CUALQUIER rango de fechas sin depender de la API en cada carga:
+-- facturación, ticket promedio, unidades, cupones, medios de pago, provincias y
+-- clientes nuevos vs. que repiten. Es la fuente de verdad de "se vendió": el
+-- evento purchase de Google Analytics subcuenta (checkout en otro dominio, pagos
+-- por transferencia cargados a mano, etc.).
+CREATE TABLE IF NOT EXISTS orders_cache (
+  id              BIGINT PRIMARY KEY,            -- id del pedido en Tiendanube
+  number          INTEGER,                       -- número visible del pedido
+  created_at      TIMESTAMPTZ,
+  paid_at         TIMESTAMPTZ,
+  cancelled_at    TIMESTAMPTZ,
+  status          TEXT,                          -- open | closed | cancelled
+  payment_status  TEXT,                          -- paid | pending | voided | abandoned...
+  shipping_status TEXT,
+  total           NUMERIC,
+  subtotal        NUMERIC,
+  discount        NUMERIC,
+  shipping_cost   NUMERIC,
+  currency        TEXT,
+  gateway         TEXT,                          -- medio de pago (nombre visible)
+  shipping_option TEXT,
+  coupon          TEXT,
+  customer_id     BIGINT,
+  customer_name   TEXT,
+  customer_email  TEXT,
+  province        TEXT,
+  city            TEXT,
+  landing_url     TEXT,                          -- por dónde entró quien compró
+  order_origin    TEXT,
+  products        JSONB,                         -- [{product_id, name, quantity, price, total}]
+  raw             JSONB,
+  synced_at       TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE INDEX IF NOT EXISTS idx_orders_created ON orders_cache (created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_orders_customer ON orders_cache (customer_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_ai_usage_created ON ai_usage (created_at);
 CREATE INDEX IF NOT EXISTS idx_video_jobs_asset ON video_jobs (asset_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_lead_clicks_created ON lead_clicks (created_at DESC);
@@ -298,6 +335,14 @@ ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS qa_notes TEXT;
 -- Producto FIJADO a mano desde el panel (pilar 'producto'): si está seteado, el
 -- generador usa EXACTAMENTE este producto en vez de elegirlo automáticamente.
 ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS forced_product_id BIGINT REFERENCES products_cache(id);
+
+-- PIEZA A PEDIDO (sep-2026): el slot puede llevar VARIOS productos elegidos a mano, una
+-- indicación escrita de cómo tiene que verse la imagen, y el pedido de señalar el nombre
+-- de cada prenda con una flecha. forced_product_id se mantiene (es el protagonista, y lo
+-- siguen leyendo las piezas viejas); forced_product_ids es la lista completa en orden.
+ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS forced_product_ids JSONB;
+ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS visual_brief TEXT;
+ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS show_labels BOOLEAN DEFAULT false;
 -- Receta de cada slide del carrusel (para regenerar UNO solo con correcciones):
 -- [{kind, shotType, photoIndex, extraPhotos, background, focus, overlay, badge}]
 ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS slides_meta JSONB;

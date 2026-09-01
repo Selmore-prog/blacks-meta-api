@@ -1191,6 +1191,84 @@ async function generateJson({ system, prompt, schema, maxTokens = 4000, temperat
 }
 
 /* =========================================================================
+ * MEJORAR EL PEDIDO DE UNA PIEZA (sep-2026)
+ *
+ * El dueño escribe como habla: "carrusel de la remera y el jean, con flechas con el
+ * nombre, moderno". Eso alcanza para entenderlo pero no para dirigir una imagen: no dice
+ * el encuadre, ni la luz, ni qué tiene que quedar afuera. Este paso lo traduce a un brief
+ * ejecutable SIN inventar nada — no agrega productos, no promete descuentos, no se
+ * inventa materiales: sólo ordena y precisa lo que ya se pidió.
+ *
+ * Es una llamada de TEXTO (gratis) y se dispara con un botón, no de oficio: la idea es
+ * que el dueño vea la mejora y decida si la usa.
+ * ========================================================================= */
+const BRIEF_SCHEMA = {
+  type: 'object',
+  properties: {
+    titulo: { type: 'string' },
+    brief: { type: 'string' },
+    visual: { type: 'string' },
+    carrusel: { type: 'boolean' },
+    etiquetas: { type: 'boolean' },
+    formato: { type: 'string', enum: ['feed', 'story'] },
+    aviso: { type: 'string' },
+  },
+  required: ['titulo', 'brief', 'visual', 'carrusel', 'etiquetas', 'formato'],
+};
+
+async function improvePieceBrief({ texto = '', productos = [], pillar = 'producto', format = 'feed', postType = 'feed', carousel = false } = {}) {
+  const pedido = String(texto || '').trim();
+  if (!pedido && !productos.length) throw new Error('Escribí primero qué querés que se vea en la pieza.');
+
+  const fichas = productos.length
+    ? productos.map((p, i) => `${i + 1}. ${p.name}${p.description ? ` — ${String(p.description).replace(/\s+/g, ' ').slice(0, 220)}` : ''}`).join('\n')
+    : '(el dueño no eligió ningún producto todavía)';
+
+  const system = 'Sos director de arte de una marca argentina de indumentaria de trabajo y calzado de seguridad. '
+    + 'Traducís pedidos escritos a mano en briefs ejecutables. Escribís en castellano rioplatense, claro y concreto. '
+    + 'NUNCA inventás datos: ni precios, ni descuentos, ni materiales, ni productos que no estén en la lista.';
+
+  const prompt = `PEDIDO TAL CUAL LO ESCRIBIÓ EL DUEÑO:
+"""${pedido || '(sin texto: guiate por los productos elegidos)'}"""
+
+PRODUCTOS REALES ELEGIDOS PARA LA PIEZA:
+${fichas}
+
+CONTEXTO: pieza de ${postType === 'reel' ? 'reel' : postType} para Instagram, pilar "${pillar}", lienzo ${format === 'story' ? 'vertical 9:16' : 'vertical 4:5'}${carousel ? ', pensada como carrusel' : ''}.
+
+Devolvé un JSON con:
+· "titulo": título interno corto (máx. 6 palabras) para reconocer la pieza en el calendario.
+· "brief": DE QUÉ habla la pieza, en 1-2 frases. Es lo que va a desarrollar el texto del posteo.
+   Sólo lo que se desprende del pedido y de las fichas reales. Si el dueño no dijo nada de
+   precio o promoción, no inventes ninguna.
+· "visual": CÓMO tiene que verse la imagen, en 2-4 frases. Acá sí sé específico y visual:
+   qué se ve en primer plano, cómo se acomodan los productos entre sí, encuadre, luz,
+   fondo, y qué NO tiene que aparecer. Respetá literalmente lo que el dueño ya pidió
+   (si dijo "flechas con el nombre", eso va sí o sí; si dijo "moderno", traducilo a algo
+   concreto: fondo liso oscuro, tipografía grande, sombras duras, etc.).
+   Nunca pidas que la imagen tenga texto escrito por la IA: los textos los estampa
+   después el sistema de diseño.
+· "carrusel": true si el pedido pide varias imágenes/deslizar, o si hay 2 o más productos
+   que conviene mostrar uno por cuadro. Si no, false.
+· "etiquetas": true si el pedido menciona señalar, indicar o etiquetar el nombre de cada producto.
+· "formato": "feed" (4:5) o "story" (9:16), el que corresponda al pedido.
+· "aviso": una frase SÓLO si hay algo del pedido que el sistema no puede hacer (por ejemplo
+   pedir un producto que no está en la lista). Si está todo bien, dejalo vacío.`;
+
+  const out = await generateJson({ system, prompt, schema: BRIEF_SCHEMA, maxTokens: 900, temperature: 0.5 });
+  const limpio = (v, max) => sanitizeText(String(v || '')).slice(0, max);
+  return {
+    titulo: limpio(out.titulo, 70),
+    brief: limpio(out.brief, 400),
+    visual: limpio(out.visual, 600),
+    carrusel: Boolean(out.carrusel),
+    etiquetas: Boolean(out.etiquetas),
+    formato: out.formato === 'story' ? 'story' : 'feed',
+    aviso: limpio(out.aviso, 220) || null,
+  };
+}
+
+/* =========================================================================
  * VARIANTES DE COPY (ago-2026)
  * El copy sale bien, pero a veces uno quiere ver OTRA vuelta sin rehacer la
  * pieza entera (regenerar cuesta plata: vuelve a generar la imagen). Esto pide
@@ -2872,6 +2950,7 @@ Devolvé SOLO este JSON:
 module.exports = {
   generateCopy,
   generateCopyVariants,
+  improvePieceBrief,
   generateJson,
   parseCorrection,
   parseSlideCorrection,

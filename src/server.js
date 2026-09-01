@@ -118,6 +118,16 @@ function intParam(value) {
   return Number.isInteger(n) && n > 0 ? n : null;
 }
 
+/**
+ * Lista de ids de producto elegidos a mano. Acepta la forma nueva (`product_ids`) y la
+ * vieja (`product_id`, un solo producto) para no romper nada que ya esté guardado.
+ * Máximo 4: es lo que entra en una pieza sin que ninguna prenda quede de adorno.
+ */
+function idListParam(lista, uno) {
+  const arr = Array.isArray(lista) ? lista : (lista === undefined && uno ? [uno] : []);
+  return [...new Set(arr.map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 4);
+}
+
 function textOrNull(value) {
   if (value === undefined) return undefined;
   if (value === null) return null;
@@ -339,6 +349,7 @@ app.get('/api/calendar', wrap(async (req, res) => {
             a.edited_video_path, a.edit_status, a.voiceover_path, a.est_cost_usd, a.gen_model, a.qa_notes, a.sticker,
             p.name as product_name, p.image_url as product_image_url, p.price as product_price, p.stock as product_stock,
             fp.name as forced_product_name, fp.image_url as forced_product_image_url,
+            COALESCE(fps.items, '[]'::json) AS forced_products,
             COALESCE(cd.events, '[]'::json) AS commercial_dates,
             pq.status as queue_status, pq.last_error as queue_error
      FROM content_calendar c
@@ -351,6 +362,14 @@ app.get('/api/calendar', wrap(async (req, res) => {
      ) a ON true
      LEFT JOIN products_cache p ON p.id = a.product_id
      LEFT JOIN products_cache fp ON fp.id = c.forced_product_id
+     -- Los productos elegidos a mano, EN ORDEN: el panel los dibuja como fichitas y el
+     -- generador usa el primero como protagonista.
+     LEFT JOIN LATERAL (
+       SELECT json_agg(json_build_object('id', pc.id, 'name', pc.name, 'image_url', pc.image_url)
+                       ORDER BY t.ord) AS items
+         FROM jsonb_array_elements_text(COALESCE(c.forced_product_ids, '[]'::jsonb)) WITH ORDINALITY AS t(pid, ord)
+         JOIN products_cache pc ON pc.id = t.pid::bigint
+     ) fps ON true
      LEFT JOIN LATERAL (
        SELECT json_agg(json_build_object(
          'id', d.id,
@@ -401,12 +420,16 @@ app.post('/api/calendar', wrap(async (req, res) => {
   assertOneOf('status', status, ['pending', 'draft', 'approved', 'published', 'skipped']);
 
   if (!scheduledDate) return res.status(400).json({ error: 'Falta scheduled_date.' });
-  const forcedProductId = intParam(body.product_id);
+  // Productos elegidos a mano: el panel manda la lista; el primero queda además en
+  // forced_product_id, que es el que leen las piezas viejas y el protagonista de la nueva.
+  const productIds = idListParam(body.product_ids, body.product_id);
+  const forcedProductId = productIds[0] || null;
   const { rows } = await pool.query(
     `INSERT INTO content_calendar
        (scheduled_date, platform, post_type, format, pillar, pillar_detail, automation_level,
-        interaction_hint, scheduled_time, theme_title, carousel, status, origin, forced_product_id)
-     VALUES ($1, 'instagram', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'manual', $12)
+        interaction_hint, scheduled_time, theme_title, carousel, status, origin, forced_product_id,
+        forced_product_ids, visual_brief, show_labels)
+     VALUES ($1, 'instagram', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'manual', $12, $13, $14, $15)
      RETURNING *`,
     [
       scheduledDate,
@@ -421,6 +444,9 @@ app.post('/api/calendar', wrap(async (req, res) => {
       Boolean(boolOrNull(body.carousel)),
       status,
       forcedProductId,
+      JSON.stringify(productIds),
+      textOrNull(body.visual_brief),
+      Boolean(boolOrNull(body.show_labels)),
     ]
   );
   res.json({ ok: true, slot: rows[0] });
@@ -445,7 +471,14 @@ app.patch('/api/calendar/:calendarId', wrap(async (req, res) => {
     carousel: boolOrNull(body.carousel),
     objective: textOrNull(body.objective),
     // undefined = no tocar; null/vacío = desfijar el producto; número = fijarlo.
-    forced_product_id: body.product_id === undefined ? undefined : (intParam(body.product_id) || null),
+    forced_product_id: body.product_ids === undefined && body.product_id === undefined
+      ? undefined
+      : (idListParam(body.product_ids, body.product_id)[0] || null),
+    forced_product_ids: body.product_ids === undefined && body.product_id === undefined
+      ? undefined
+      : JSON.stringify(idListParam(body.product_ids, body.product_id)),
+    visual_brief: body.visual_brief === undefined ? undefined : (textOrNull(body.visual_brief) || null),
+    show_labels: body.show_labels === undefined ? undefined : Boolean(boolOrNull(body.show_labels)),
   };
 
   assertDate(values.scheduled_date);
@@ -494,8 +527,79 @@ app.get('/api/analytics/views-by-segment', wrap(async (req, res) => {
   res.json({ enabled: true, ...segmentViewsCache.data });
 }));
 
+/* ===================== ESTADÍSTICAS DE LA TIENDA =====================
+ * La sección completa: visitas, pedidos reales, conversión, embudo, productos y
+ * clientes, por el rango de fechas que se pida y comparado contra el período
+ * anterior. Ver src/storeMetrics.js (de dónde sale cada número) y
+ * src/storeReportHtml.js (el informe descargable).
+ * ==================================================================== */
+
+app.get('/api/store/metrics', wrap(async (req, res) => {
+  const { cachedStoreReport } = require('./storeMetrics');
+  res.json(await cachedStoreReport({
+    preset: req.query.preset,
+    from: req.query.from,
+    to: req.query.to,
+    compare: req.query.compare,
+    force: req.query.force === '1',
+  }));
+}));
+
+// Informe descargable: un solo HTML, sin nada externo, listo para mandar o imprimir a PDF.
+app.get('/api/store/metrics/export', wrap(async (req, res) => {
+  const { cachedStoreReport } = require('./storeMetrics');
+  const { buildStoreReportHtml } = require('./storeReportHtml');
+  const rep = await cachedStoreReport(req.query);
+  const nombre = `estadisticas-tienda-${rep.rango.from}_${rep.rango.to}.html`;
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.setHeader('Content-Disposition', `attachment; filename="${nombre}"`);
+  res.send(buildStoreReportHtml(rep, { todos: req.query.todos === '1' }));
+}));
+
+// Traer los pedidos nuevos de Tiendanube (botón "Actualizar" de la sección).
+app.post('/api/store/sync-orders', wrap(async (req, res) => {
+  const { syncOrders } = require('../scripts/sync-orders');
+  const dias = Number((req.body || {}).dias);
+  const r = await syncOrders({ dias: Number.isFinite(dias) && dias > 0 ? dias : null });
+  require('./storeMetrics').invalidate(); // el informe cacheado quedó viejo
+  res.json({ ok: true, ...r });
+}));
+
+app.post('/api/cron/sync-orders', authCron, wrap(async (req, res) => {
+  const { syncOrders } = require('../scripts/sync-orders');
+  const r = await syncOrders({});
+  require('./storeMetrics').invalidate();
+  res.json({ ok: true, ...r });
+}));
+
 // Consumo de imágenes IA del mes (estimado en USD) + proyección a fin de mes.
 /* Modelo de imagen elegido desde el panel (calidad vs. costo por pieza). */
+/* Mejorar con IA lo que el dueño escribió para una pieza: lo pasa de "carrusel de la
+   remera y el jean con flechas" a un brief ejecutable, sin inventar nada. Ver
+   improvePieceBrief en src/ai.js. Es texto: no gasta en imágenes. */
+app.post('/api/ai/improve-brief', wrap(async (req, res) => {
+  const { improvePieceBrief } = require('./ai');
+  const b = req.body || {};
+  const ids = idListParam(b.product_ids, b.product_id);
+  let productos = [];
+  if (ids.length) {
+    const { rows } = await pool.query(
+      `SELECT id, name, description FROM products_cache WHERE id = ANY($1::bigint[])`, [ids]
+    );
+    // En el orden en que los eligió, que es el orden en que van a salir en la pieza.
+    productos = ids.map((id) => rows.find((r) => Number(r.id) === id)).filter(Boolean);
+  }
+  const out = await improvePieceBrief({
+    texto: String(b.texto || ''),
+    productos,
+    pillar: textOrNull(b.pillar) || 'producto',
+    format: b.format === 'story' ? 'story' : 'feed',
+    postType: textOrNull(b.post_type) || 'feed',
+    carousel: Boolean(b.carousel),
+  });
+  res.json(out);
+}));
+
 app.get('/api/settings/image-model', wrap(async (req, res) => {
   const { IMAGE_MODEL_OPTIONS } = require('./settings');
   res.json({ current: config.gemini.imageModel, options: IMAGE_MODEL_OPTIONS });
@@ -948,7 +1052,9 @@ app.get('/api/home/layout', wrap(async (req, res) => {
 // poder ver qué productos van a salir antes de publicar el cambio en la tienda.
 app.post('/api/home/preview', wrap(async (req, res) => {
   const cfg = validateConfig(req.body);
-  res.json(await buildPayload(cfg));
+  // withHidden: el panel necesita el nombre y la foto de lo que está oculto para
+  // poder devolverlo al riel. Eso NO se sirve en /api/home/rails (la tienda).
+  res.json(await buildPayload(cfg, { withHidden: true }));
 }));
 
 // Publicar: valida, guarda e invalida la caché. A partir de acá la tienda ya

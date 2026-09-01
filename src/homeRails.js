@@ -103,6 +103,7 @@ const SPECIAL_RULES = {
 const DEFAULT_CONFIG = {
   transfer_discount_pct: null, // null = no mostrar precio con transferencia (ver nota arriba)
   dedupe: true,                // un producto aparece en UN solo riel del home
+  blocked_ids: [],             // productos que NO salen en ningún riel (decisión del dueño)
   rails: [
     { id: 'rail_1', rule: 'mas_vendidos', title: 'Los que más se venden', layout: 'carousel', limit: 12, url: '/productos' },
     { id: 'rail_2', rule: 'ofertas', title: 'Ofertas de la semana', layout: 'carousel', limit: 12, url: '/productos' },
@@ -118,6 +119,13 @@ const clampLimit = (n) => {
   if (!Number.isFinite(v) || v <= 0) return DEFAULT_LIMIT;
   return Math.min(Math.round(v), MAX_LIMIT);
 };
+
+/* Lista de ids de producto que llega del panel (ocultos, orden a mano, bloqueados).
+   Se normaliza en un solo lugar porque el navegador manda strings: los ids salen de
+   `dataset` del DOM y `[..."12"] !== [...12]` al comparar contra la base. */
+const idList = (v, max = 60) => (Array.isArray(v)
+  ? [...new Set(v.map(Number).filter((n) => Number.isFinite(n) && n > 0))].slice(0, max)
+  : []);
 
 /**
  * URL relativa del producto en la tienda. `permalink` de Tiendanube suele ser
@@ -241,13 +249,57 @@ async function runFixedRule(ids, limit) {
   return list.map((id) => byId.get(id)).filter(Boolean);
 }
 
-async function resolveRule(rail, exclude = []) {
+/* ---------------------------- ocultar y ordenar a mano ----------------------------
+ * La regla elige BIEN pero no siempre elige lo que el dueño quiere mostrar: un
+ * producto con la foto floja, uno que se está por discontinuar, o simplemente el
+ * orden en que quedan los cuatro primeros (que es lo único que se ve sin deslizar).
+ * Por eso cada riel guarda dos listas propias que pisan a la regla:
+ *   hidden_ids → no mostrar ESE producto en ESE riel
+ *   order_ids  → el orden exacto en que quedaron las miniaturas al arrastrarlas
+ * y la config guarda una tercera, global: blocked_ids ("no lo quiero en el home").
+ * -------------------------------------------------------------------------------- */
+
+/**
+ * ORDEN A MANO. Los ids de `order_ids` van primero y en ESE orden; el resto queda
+ * atrás conservando el orden de la regla (el sort de Node es estable).
+ *
+ * Efecto secundario, avisado en el panel: mientras haya orden a mano, un producto
+ * que RECIÉN entra a la regla (pasó a ser el más vendido esta semana) aparece al
+ * final, porque no existía cuando se ordenó. Por eso el panel ofrece siempre
+ * "volver al orden automático".
+ */
+function applyManualOrder(rows, orderIds) {
+  const orden = idList(orderIds);
+  if (!orden.length) return rows;
+  const pos = new Map(orden.map((id, i) => [id, i]));
+  const at = (row) => (pos.has(Number(row.id)) ? pos.get(Number(row.id)) : Number.MAX_SAFE_INTEGER);
+  return [...rows].sort((a, b) => at(a) - at(b));
+}
+
+/**
+ * `exclude` = lo que ya se usó en otro riel (dedupe). `blocked` = lo que el dueño
+ * sacó del home entero.
+ *
+ * Los ocultos se suman a la exclusión ANTES de consultar, no se filtran después:
+ * así la regla trae uno más y el riel no se achica al ocultar un producto — que es
+ * justo lo que uno espera al apretar la ✕.
+ */
+async function resolveRule(rail, exclude = [], blocked = []) {
   const limit = clampLimit(rail.limit);
-  // Los elegidos a mano ganan siempre: si el dueño puso ese producto ahí, va,
-  // aunque ya haya salido en otro riel.
-  if (rail.rule === 'fijos') return runFixedRule(rail.product_ids, limit);
-  if (rail.rule === 'mirado_no_comprado') return runViewedNotBoughtRule(limit, exclude);
-  return runSqlRule(rail.rule, limit, exclude);
+  const fuera = [...new Set([...idList(exclude, 999), ...idList(rail.hidden_ids), ...idList(blocked, 200)])];
+  let rows;
+  if (rail.rule === 'fijos') {
+    // Los elegidos a mano le ganan al dedupe: si el dueño puso ese producto ahí, va,
+    // aunque ya haya salido en otro riel. Ocultarlo o sacarlo del home, en cambio, es
+    // una orden explícita y sí lo saca.
+    const sacados = new Set([...idList(rail.hidden_ids), ...idList(blocked, 200)]);
+    rows = await runFixedRule((rail.product_ids || []).filter((id) => !sacados.has(Number(id))), limit);
+  } else if (rail.rule === 'mirado_no_comprado') {
+    rows = await runViewedNotBoughtRule(limit, fuera);
+  } else {
+    rows = await runSqlRule(rail.rule, limit, fuera);
+  }
+  return applyManualOrder(rows, rail.order_ids);
 }
 
 /* ---------------------------- configuración ---------------------------- */
@@ -320,6 +372,10 @@ function validateConfig(input) {
       product_ids: Array.isArray(r.product_ids)
         ? r.product_ids.map(Number).filter(Number.isFinite).slice(0, MAX_LIMIT)
         : undefined,
+      // Las listas vacías NO se guardan: esta config se sirve en cada respuesta al
+      // theme y no tiene sentido cargarla con arrays en cero.
+      ...(idList(r.hidden_ids).length ? { hidden_ids: idList(r.hidden_ids) } : {}),
+      ...(idList(r.order_ids).length ? { order_ids: idList(r.order_ids) } : {}),
     };
   });
 
@@ -327,6 +383,7 @@ function validateConfig(input) {
   return {
     transfer_discount_pct: Number.isFinite(pct) && pct > 0 && pct < 100 ? pct : null,
     dedupe: input.dedupe !== false,
+    blocked_ids: idList(input.blocked_ids, 200),
     rails: limpios,
   };
 }
@@ -340,10 +397,16 @@ async function saveRailsConfig(input) {
 
 /* ---------------------------- construcción ---------------------------- */
 
-/** `override` permite armar la vista previa del panel SIN guardar la config. */
-async function buildPayload(override = null) {
+/**
+ * `override` permite armar la vista previa del panel SIN guardar la config.
+ * `withHidden` agrega el nombre y la foto de los productos ocultos/bloqueados: lo
+ * necesita el panel para dibujar las fichitas de "mostrar de nuevo", y NO viaja a la
+ * tienda (la respuesta pública no tiene por qué contar lo que el dueño escondió).
+ */
+async function buildPayload(override = null, { withHidden = false } = {}) {
   const cfg = override || await getRailsConfig();
   const transferPct = Number(cfg.transfer_discount_pct) > 0 ? Number(cfg.transfer_discount_pct) : null;
+  const bloqueados = idList(cfg.blocked_ids, 200);
 
   const rails = [];
   // Ids ya colocados: con 44 productos elegibles y rieles de 12, sin esto el
@@ -357,7 +420,7 @@ async function buildPayload(override = null) {
     }
     let rows = [];
     try {
-      rows = await resolveRule(rail, cfg.dedupe === false || rail.allow_repeat ? [] : usados);
+      rows = await resolveRule(rail, cfg.dedupe === false || rail.allow_repeat ? [] : usados, bloqueados);
     } catch (err) {
       // Un riel que falla no puede tirar abajo los otros tres.
       console.error(`[homeRails] Falló ${rail.id} (${rail.rule}): ${err.message}`);
@@ -381,7 +444,30 @@ async function buildPayload(override = null) {
   // ttl = cuánto cachea el CLIENTE (sessionStorage del theme). Corto (30s) para que
   // un cambio publicado desde el panel se vea enseguida al recargar la tienda. No es
   // el caché interno del motor (ese es CACHE_TTL_MS y se invalida solo al guardar).
-  return { generated_at: new Date().toISOString(), ttl: 30, rails };
+  const payload = { generated_at: new Date().toISOString(), ttl: 30, rails };
+  if (withHidden) payload.ocultos = await hiddenInfo(cfg, bloqueados);
+  return payload;
+}
+
+/**
+ * Ficha mínima (id, nombre, foto) de todo lo que está oculto o bloqueado, para que el
+ * panel pueda mostrarlo y devolverlo al riel. Va aparte de `rails` a propósito: un riel
+ * que se quedó con menos de 3 productos no se publica, y si las fichitas viajaran
+ * adentro de él, el dueño perdería la forma de deshacer lo que ocultó.
+ */
+async function hiddenInfo(cfg, bloqueados) {
+  const ids = [...new Set([...cfg.rails.flatMap((r) => idList(r.hidden_ids)), ...bloqueados])];
+  if (!ids.length) return { fichas: {}, bloqueados };
+  const { rows } = await pool.query(
+    `SELECT id, name, image_url FROM products_cache WHERE id = ANY($1::bigint[])`,
+    [ids]
+  );
+  const fichas = {};
+  for (const r of rows) fichas[Number(r.id)] = { id: Number(r.id), name: r.name, image: r.image_url };
+  // Un producto borrado de Tiendanube ya no está en el catálogo: igual se muestra,
+  // con el id como nombre, para poder sacarlo de la lista.
+  for (const id of ids) if (!fichas[id]) fichas[id] = { id, name: `Producto #${id}`, image: null };
+  return { fichas, bloqueados };
 }
 
 /* ---------------------------- caché ----------------------------

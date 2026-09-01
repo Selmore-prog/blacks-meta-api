@@ -30,6 +30,38 @@ async function pickForcedProduct(productId) {
   return rows[0] || null;
 }
 
+/* =========================================================================
+ * PIEZA A PEDIDO (sep-2026)
+ *
+ * Hasta ahora un slot podía fijar UN producto y un brief de texto. El pedido del dueño
+ * fue poder escribir la pieza entera: "quiero un carrusel con la remera y el jean, con
+ * flechas indicando el nombre de cada uno, moderno". Eso son tres cosas nuevas:
+ *   forced_product_ids → varios productos elegidos a mano, en orden;
+ *   visual_brief       → cómo tiene que verse la imagen, con las palabras del dueño;
+ *   show_labels        → el nombre de cada prenda señalado con una flecha.
+ * Todo lo demás del motor sigue igual: si no se usan, la pieza se genera como siempre.
+ * ========================================================================= */
+
+/** Ids elegidos a mano en el panel. Cae al forced_product_id viejo (una sola ficha). */
+function idsPedidos(slot) {
+  let lista = slot.forced_product_ids;
+  if (typeof lista === 'string') { try { lista = JSON.parse(lista); } catch (_) { lista = null; } }
+  const ids = (Array.isArray(lista) ? lista : []).map(Number).filter((n) => Number.isFinite(n) && n > 0);
+  if (ids.length) return ids.slice(0, 4);
+  const uno = Number(slot.forced_product_id);
+  return Number.isFinite(uno) && uno > 0 ? [uno] : [];
+}
+
+/** Las fichas completas de esos productos, con precio y stock refrescados en vivo. */
+async function pickForcedProducts(ids) {
+  const out = [];
+  for (const id of ids) {
+    const p = await pickForcedProduct(id).catch(() => null);
+    if (p) out.push(p);
+  }
+  return out;
+}
+
 /**
  * Producto mayorista: SOLO si el ángulo del slot nombra un producto/categoría puntual
  * (ej. "Uniformes cargo para tu equipo"), igual de exigente que productFromDetail para
@@ -776,6 +808,57 @@ async function renderCarouselPanorama(plan, ctx, { artMode = null } = {}) {
 }
 
 /**
+ * TIRA DE VARIOS PRODUCTOS: un producto por cuadro, en el orden en que el dueño los
+ * eligió, y el cierre con el llamado a la acción. Es la versión "combo" del carrusel
+ * continuo — la de siempre muestra CUATRO TOMAS DE UN MISMO producto, y para
+ * "remera + jean" eso no sirve: hay que ver las dos prendas.
+ *
+ * Con `etiquetas`, cada prenda lleva su nombre señalado con una flecha (ver
+ * labelCallout en src/carouselPanorama.js): sin eso, dos prendas y dos nombres sueltos
+ * no dicen cuál es cuál.
+ */
+async function renderComboPanorama(productos, ctx, { etiquetas = false, slides = [] } = {}) {
+  const { logos, overlayTitle, badgeText, slotId } = ctx;
+  const elegidos = productos.slice(0, 3); // + el cierre = 4 cuadros, el máximo de la tira
+
+  // Los slides del copy vienen como {title, body}; puede no haber ninguno.
+  const titulos = (Array.isArray(slides) ? slides : []).map((x) => (x && x.title) || x || '');
+
+  const panels = elegidos.map((p, i) => ({
+    kind: i === 0 ? 'hero' : 'detalle',
+    kicker: mentionedBrandIn(p.name) || (i === 0 ? 'EL CONJUNTO' : 'Y ADEMÁS'),
+    // El titular sale del copy si la IA escribió slides; si no, del nombre del producto.
+    headline: tituloCorto(titulos[i] || p.name, 4),
+    deck: null,
+    badge: i === 0 ? badgeText : null,
+    photoUrl: p.image_url,
+    // El nombre completo de Tiendanube no entra en una cápsula ("Pantalon Cargo De
+    // Trabajo Ombu Reforzado"): con las primeras palabras alcanza para saber cuál es.
+    label: etiquetas ? tituloCorto(p.name, 4) : null,
+  }));
+
+  const primera = elegidos[0] || {};
+  const otraFoto = (Array.isArray(primera.images) ? primera.images : []).find((u) => u && u !== primera.image_url);
+  panels.push({
+    kind: 'cta',
+    headline: agreeWithProduct(config.brand.ctaHeadline, primera.name || ''),
+    benefits: config.brand.ctaBenefits,
+    ctaLabel: 'Comprá online',
+    photoUrl: otraFoto || primera.image_url || null,
+  });
+
+  const marca = mentionedBrandIn(primera.name || '') || tituloCorto(overlayTitle || config.brand.name, 1);
+  const res = await renderPanoramaSlides({
+    panels,
+    backdropUrl: null,
+    runningWord: marca,
+    logos,
+    seed: Number(slotId) || 0,
+  });
+  return { ...res, costUsd: res.costUsd || 0, buffer: res.buffers[0] || null };
+}
+
+/**
  * MODOS DE ARTE (los elige el dueño al regenerar desde el panel). Existen porque el
  * sistema decidía solo si una pieza llevaba imagen IA o no, y no había forma de pedirle
  * "esta hacela con imagen generativa" — que es justo lo que hace falta en promos de toda
@@ -845,6 +928,17 @@ async function generateForSlot(slot, overrides = {}) {
   const carouselStyle = ['continuo', 'clasico'].includes(String(overrides.carouselStyle || '').toLowerCase())
     ? String(overrides.carouselStyle).toLowerCase() : null;
 
+  /* PIEZA A PEDIDO: lo que el dueño eligió y escribió en el panel para ESTE slot.
+     Manda sobre todo lo automático — si pidió estos dos productos y esta escena, la
+     pieza es esa. Ver el bloque "PIEZA A PEDIDO" arriba. */
+  const idsElegidos = idsPedidos(slot);
+  const productosPedidos = idsElegidos.length ? await pickForcedProducts(idsElegidos) : [];
+  const visualBrief = String(overrides.visualBrief || slot.visual_brief || '').trim().slice(0, 600) || null;
+  const quiereEtiquetas = Boolean(slot.show_labels);
+  if (productosPedidos.length > 1 || visualBrief) {
+    console.log(`[generate-daily] Slot #${slot.id} a pedido: ${productosPedidos.length} producto(s) elegido(s)${productosPedidos.length ? ` (${productosPedidos.map((x) => x.name.slice(0, 24)).join(' + ')})` : ''}${visualBrief ? ` · indicación visual: "${visualBrief.slice(0, 90)}"` : ''}${quiereEtiquetas ? ' · con nombres señalados' : ''}`);
+  }
+
   // Objetivo de la pieza: si el slot no lo tiene (slots viejos, previos al planner
   // con objetivos), usamos el que corresponde al pilar para que el copy igual salga
   // orientado (venta/tráfico/confianza/comunidad).
@@ -882,7 +976,7 @@ async function generateForSlot(slot, overrides = {}) {
   // llamada de texto (gratis). Best-effort: si falla, plan = null y sigue la lógica
   // clásica de siempre. Ver el flujo completo en src/creativeDirector.js.
   let directorPlan = null;
-  if (!noProductBrief && !slot.forced_product_id) {
+  if (!noProductBrief && !idsElegidos.length) {
     try {
       const { planPiece } = require('../src/creativeDirector');
       // El menú que ve el director YA viene sin las plantillas de las últimas piezas:
@@ -914,8 +1008,10 @@ async function generateForSlot(slot, overrides = {}) {
   //  - la heurística clásica queda SOLO para cuando el director en sí falló (red/API).
   let product = null;
   if (!noProductBrief) {
-    if (slot.forced_product_id) {
-      product = await pickForcedProduct(slot.forced_product_id);
+    if (productosPedidos.length) {
+      // El primero de la lista es el protagonista (precio, ficha, copy); los demás
+      // acompañan en la imagen. Ya vienen refrescados en vivo de Tiendanube.
+      [product] = productosPedidos;
     } else if (directorPlan && directorPlan.product && (isMayorista || PRODUCT_PILLARS.includes(slot.pillar))) {
       product = await pickForcedProduct(directorPlan.product.id); // refresca precio/stock en vivo
     } else if (directorPlan && !directorPlan.product) {
@@ -1039,8 +1135,16 @@ async function generateForSlot(slot, overrides = {}) {
     companyFacts,
     // El cerebro elige la plantilla entre estas candidatas (o null = rota por seed).
     templateOptions,
-    // Ángulo decidido por el director creativo: el copy lo desarrolla.
-    directorNotes: directorPlan ? directorPlan.copyAngle : null,
+    // Ángulo decidido por el director creativo: el copy lo desarrolla. Cuando la pieza
+    // es A PEDIDO, el director no corre y las notas son las del dueño: qué productos
+    // van juntos y qué pidió que se vea.
+    directorNotes: [
+      productosPedidos.length > 1
+        ? `La pieza muestra JUNTOS estos productos reales: ${productosPedidos.map((x) => x.name).join(' + ')}. El texto tiene que hablar del conjunto, no de uno solo.`
+        : null,
+      visualBrief ? `Pedido del dueño para esta pieza: "${visualBrief}".` : null,
+      directorPlan ? directorPlan.copyAngle : null,
+    ].filter(Boolean).join(' ') || null,
     // Qué muestra la imagen ya elegida (director de fotografía): el copy habla de ESO.
     imageContext: heroImageContext,
     carousel: isCarousel,
@@ -1098,7 +1202,10 @@ async function generateForSlot(slot, overrides = {}) {
   const couponCode = extractCoupon(`${pillarDetail || ''} \n ${copy.caption || ''} \n ${copy.cta || ''}`);
   // Brief para la imagen IA: indicaciones del plan + nota visual del director + gancho
   // del copy, para que la escena tenga sentido con el mensaje (no una foto genérica).
-  const imageBrief = [pillarDetail, directorPlan && directorPlan.imageNote, copy.overlay].filter(Boolean).join(' — ').slice(0, 500);
+  // El pedido textual del dueño va PRIMERO: es la indicación más específica que existe
+  // sobre cómo tiene que verse la pieza, y si queda al final se lo come el recorte.
+  const imageBrief = [visualBrief, pillarDetail, directorPlan && directorPlan.imageNote, copy.overlay]
+    .filter(Boolean).join(' — ').slice(0, 600);
   // REGLA: el precio va sólo en HISTORIAS (efímeras). El feed queda evergreen (sin precio
   // que envejezca). Reels tampoco llevan precio en el copy visual.
   const showPrice = format === 'story' && slot.post_type !== 'reel';
@@ -1348,7 +1455,12 @@ async function generateForSlot(slot, overrides = {}) {
     let tira = null;
     if (quiereContinuo) {
       try {
-        tira = await renderCarouselPanorama(plan, ctx, { artMode });
+        // Pieza a pedido con VARIOS productos: un producto por cuadro (remera, jean,
+        // botín) en vez de cuatro tomas del mismo. Es la única forma de que el carrusel
+        // muestre lo que el dueño eligió.
+        tira = productosPedidos.length > 1
+          ? await renderComboPanorama(productosPedidos, ctx, { etiquetas: quiereEtiquetas, slides })
+          : await renderCarouselPanorama(plan, ctx, { artMode });
       } catch (err) {
         const suave = err.code === 'PANORAMA_SIN_RECORTES';
         console[suave ? 'log' : 'warn'](`[generate-daily] Slot #${slot.id}: ${err.message} Sigo con el carrusel clásico.`);
@@ -1365,7 +1477,9 @@ async function generateForSlot(slot, overrides = {}) {
       // Receta de la tira. Es un OBJETO (no el array de tomas del carrusel clásico) para
       // que quien la lea sepa que estos cuadros no son piezas sueltas: corregir uno exige
       // volver a dibujar la tira entera o se rompe la continuidad.
-      slidesMetaJson = JSON.stringify({ mode: 'panorama', stripUrl: tira.stripUrl || null, shots: plan.slice(0, tira.urls.length) });
+      slidesMetaJson = JSON.stringify(productosPedidos.length > 1
+        ? { mode: 'panorama', combo: true, stripUrl: tira.stripUrl || null, productIds: productosPedidos.map((x) => x.id), labels: quiereEtiquetas }
+        : { mode: 'panorama', stripUrl: tira.stripUrl || null, shots: plan.slice(0, tira.urls.length) });
       carouselDesign = 'panorama';
       console.log(`[generate-daily] Slot #${slot.id}: carrusel CONTINUO de ${tira.urls.length} cuadros (tira de ${tira.urls.length * 1080}px).`);
     } else {
@@ -1479,6 +1593,48 @@ async function generateForSlot(slot, overrides = {}) {
       }
     }
 
+    /*
+     * PIEZA SIMPLE (no carrusel) CON VARIOS PRODUCTOS. La escena la arma la IA con las
+     * fotos reales de los dos o tres productos como referencia, igual que el Estudio:
+     * es la única forma de que se vean JUNTOS y bien puestos. Si la IA no está
+     * disponible (cuota, sin API key) o el dueño pidió sólo fotos reales, cae a la
+     * grilla del catálogo, que es gratis y muestra los productos igual.
+     */
+    let comboSceneUrl = null;
+    let comboGridUrls = null;
+    if (!isReel && productosPedidos.length > 1) {
+      if (artMode !== 'foto' && artMode !== 'tipografica') {
+        try {
+          const { generateStudioScene } = require('../src/ai');
+          const escena = await generateStudioScene({
+            products: productosPedidos.map((x) => ({
+              id: x.id, name: x.name, description: x.description, imageUrl: x.image_url,
+            })),
+            theme: [visualBrief, pillarDetail, slot.theme_title].filter(Boolean).join(' — ').slice(0, 400),
+            format,
+          });
+          if (escena) {
+            comboSceneUrl = `data:${escena.mimeType};base64,${escena.buffer.toString('base64')}`;
+            pieceCostUsd += escena.costUsd || 0;
+            console.log(`[generate-daily] Slot #${slot.id}: escena combo con ${productosPedidos.length} productos (US$${(escena.costUsd || 0).toFixed(3)}).`);
+          }
+        } catch (err) {
+          console.warn(`[generate-daily] Escena combo falló (sigo con la grilla real): ${err.message}`);
+        }
+      }
+      if (!comboSceneUrl) {
+        comboGridUrls = productosPedidos.map((x) => x.image_url).filter(Boolean);
+        if (comboGridUrls.length >= 2) {
+          template = 'grid';
+          variant = 'clasico';
+          designTag = artDirection.encodeDesign(template, variant);
+          console.log(`[generate-daily] Slot #${slot.id}: pieza combo en grilla con ${comboGridUrls.length} fotos reales.`);
+        } else {
+          comboGridUrls = null;
+        }
+      }
+    }
+
     const renderOpts = {
       format,
       template,
@@ -1564,6 +1720,20 @@ async function generateForSlot(slot, overrides = {}) {
      * El titular también cambia: en una pieza de ranking tiene que anunciar la lista, no
      * nombrar un producto (decía "Pantalón Cargo Slim Fit" sobre una grilla de cuatro).
      */
+    /* Combo a pedido: la escena generada va a sangre; la grilla, con las fotos reales.
+       Va acá y no adentro del literal por lo mismo que el ranking: `productImageUrls`
+       se define más abajo y pisaría las fotos de los otros productos. */
+    if (comboSceneUrl) {
+      renderOpts.bgImageUrl = comboSceneUrl;      // escena ya pagada: no se genera otra
+      renderOpts.useAiProductScene = false;
+      renderOpts.useAiBackground = false;
+    } else if (comboGridUrls) {
+      renderOpts.productImageUrls = comboGridUrls;
+      renderOpts.productImageUrl = comboGridUrls[0];
+      renderOpts.useAiProductScene = false;
+      renderOpts.useAiBackground = false;
+    }
+
     if (rankingUrls) {
       renderOpts.productImageUrls = rankingUrls;
       renderOpts.productImageUrl = rankingUrls[0];
@@ -1969,6 +2139,28 @@ async function regenerateSlide({ assetId, index, overlay, instructions }) {
   };
 
   meta[i] = shot;
+
+  /* TIRA COMBO (varios productos, uno por cuadro). Su receta no son "tomas" de un
+     producto sino la lista de productos elegidos, así que un cuadro no se puede rehacer
+     solo: se vuelve a dibujar la tira entera con los mismos productos. Se avisa, porque
+     el pedido escrito (que sí cambia una toma en las tiras normales) acá no aplica. */
+  if (esTira && metaRaw.combo && Array.isArray(metaRaw.productIds) && metaRaw.productIds.length > 1) {
+    const productos = await pickForcedProducts(metaRaw.productIds.map(Number));
+    if (productos.length > 1) {
+      const tira = await renderComboPanorama(productos, ctx, { etiquetas: Boolean(metaRaw.labels), slides: [] });
+      await pool.query(
+        `UPDATE generated_assets SET slides = $2, image_path = $3, slides_meta = $4, updated_at = now() WHERE id = $1`,
+        [assetId, JSON.stringify(tira.urls), tira.urls[0],
+          JSON.stringify({ ...metaRaw, stripUrl: tira.stripUrl || null })]
+      );
+      return {
+        slides: tira.urls,
+        image_path: tira.urls[0],
+        note: 'Esta pieza es una tira con VARIOS productos: se volvió a dibujar entera con los mismos. '
+          + 'Para cambiar qué productos salen o cómo se ven, editá el slot y regenerá la pieza.',
+      };
+    }
+  }
 
   if (esTira) {
     const tira = await renderCarouselPanorama(meta, ctx, { artMode: null });

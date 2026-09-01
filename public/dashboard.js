@@ -151,6 +151,7 @@ function switchTab(view) {
   document.getElementById(`view-${view}`).classList.remove('hidden');
   if (view === 'style') loadStyle();
   if (view === 'metrics') loadMetrics();
+  if (view === 'stats' && !statsData) loadStoreStats();
   if (view === 'products') switchProductsPane(productsPaneGuardado());
   if (view === 'home') { loadHomeRails(); loadFlash(); }
 
@@ -1395,8 +1396,11 @@ function renderCard(item) {
   const commercialBadge = item.pillar === 'mayorista'
     ? `<span class="badge whole">Mayorista</span>`
     : (['producto', 'promo'].includes(item.pillar) ? `<span class="badge retail">Minorista</span>` : '');
-  const forcedProductBadge = item.forced_product_id
-    ? `<span class="badge objective" title="El generador usa exactamente este producto, no elige automático">${icon('tag')} ${esc(item.forced_product_name || 'producto fijado')}</span>` : '';
+  const elegidos = Array.isArray(item.forced_products) ? item.forced_products : [];
+  const forcedProductBadge = (elegidos.length || item.forced_product_id)
+    ? `<span class="badge objective" title="El generador usa exactamente ${elegidos.length > 1 ? 'estos productos' : 'este producto'}, no elige automático">${icon('tag')} ${elegidos.length > 1
+      ? `${elegidos.length} productos elegidos`
+      : esc((elegidos[0] && elegidos[0].name) || item.forced_product_name || 'producto fijado')}</span>` : '';
   const dateBadges = commercialDatesOf(item).slice(0, 2).map((d) =>
     `<span class="badge commercial" title="${esc(d.angle || '')}">${icon('tag')} ${esc(d.title)}</span>`
   ).join('');
@@ -1646,6 +1650,9 @@ function readPlanForm(overlay) {
     automation_level: overlay.querySelector('#plan-auto').value,
     interaction_hint: overlay.querySelector('#plan-hint').value.trim(),
     carousel: overlay.querySelector('#plan-carousel').checked,
+    // Pieza a pedido: cómo tiene que verse la imagen y si cada prenda lleva su nombre.
+    visual_brief: overlay.querySelector('#plan-visual').value.trim(),
+    show_labels: overlay.querySelector('#plan-labels').checked,
     status,
   };
 }
@@ -1672,12 +1679,15 @@ async function planProductSearch(overlay, q, onPick) {
 
 function openPlanSlot(item = null) {
   const isNew = !item;
-  // Producto fijado a mano (si el slot ya lo tenía). Elegirlo acá hace que el
-  // generador use EXACTAMENTE este producto (foto real de Tiendanube en modo
-  // estudio profesional) en vez de la selección automática.
-  let chosenProduct = (item && item.forced_product_id)
-    ? { id: item.forced_product_id, name: item.forced_product_name, image_url: item.forced_product_image_url }
-    : null;
+  /* PRODUCTOS ELEGIDOS A MANO (hasta 4). Elegirlos acá hace que el generador use
+     EXACTAMENTE esos productos, con sus fotos reales de Tiendanube, en vez de la
+     selección automática. Con dos o más, la pieza los muestra JUNTOS: si es carrusel,
+     uno por cuadro; si es una sola imagen, una escena con todos. */
+  let chosenProducts = (item && Array.isArray(item.forced_products) && item.forced_products.length)
+    ? item.forced_products.map((p) => ({ id: p.id, name: p.name, image_url: p.image_url }))
+    : ((item && item.forced_product_id)
+      ? [{ id: item.forced_product_id, name: item.forced_product_name, image_url: item.forced_product_image_url }]
+      : []);
   const body = `
     <p class="hint" style="margin-top:0;">Editá la estrategia del calendario sin regenerar todavía. Si ya hay una pieza creada, estos cambios aplican al slot; usá “Regenerar” para rehacer copy/imagen con el nuevo brief.</p>
     <div class="plan-grid">
@@ -1704,14 +1714,28 @@ function openPlanSlot(item = null) {
     </div>
     <div class="field"><label>Título interno</label><input class="input" id="plan-theme" value="${esc(item?.theme_title || '')}" placeholder="Ej: Oferta aguinaldo" /></div>
     <div class="field" id="plan-product-field">
-      <label>Producto (opcional)</label>
-      <input class="input" id="plan-product-search" placeholder="Buscar producto real de Tiendanube por nombre…" autocomplete="off" />
+      <label>Productos de la pieza (opcional, hasta 4)</label>
+      <input class="input" id="plan-product-search" placeholder="Buscar producto real de Tiendanube por nombre… (ej: remera, jean)" autocomplete="off" />
       <div id="plan-product-results"></div>
       <div id="plan-product-chosen"></div>
-      <p class="hint" style="margin:6px 0 0;">Si elegís uno, el generador usa EXACTAMENTE ese producto (con sus fotos reales, en escena de estudio profesional) en vez de elegir uno automático. Sin elegir ninguno, sigue como hasta ahora.</p>
+      <p class="hint" style="margin:6px 0 0;">Los que elijas se usan EXACTAMENTE, con sus fotos reales. Con dos o más, la pieza los muestra juntos: si es carrusel, uno por cuadro; si es una sola imagen, una escena con todos. Sin elegir ninguno, el motor elige solo como hasta ahora.</p>
       <p class="hint" style="margin:4px 0 0;">¿No aparece un producto que acabás de cargar en Tiendanube? <a href="#" id="plan-product-sync-link">Sincronizalo ahora</a> (tarda ~20-30 s).</p>
     </div>
     <div class="field"><label>Brief / detalle del pilar</label><textarea class="input" id="plan-detail" placeholder="Ej: Botines con puntera para construcción">${esc(item?.pillar_detail || '')}</textarea></div>
+    <!-- PIEZA A PEDIDO: acá se escribe cómo tiene que verse la imagen, con las palabras
+         de uno. El botón de IA lo pasa a un brief ejecutable sin inventar nada. -->
+    <div class="field">
+      <label>Cómo querés que se vea la imagen (opcional)</label>
+      <textarea class="input" id="plan-visual" rows="3"
+        placeholder="Ej: un carrusel con la remera y el jean, con flechas indicando el nombre de cada uno, fondo oscuro, algo moderno">${esc(item?.visual_brief || '')}</textarea>
+      <div class="plan-visual-row">
+        <button type="button" class="btn-ghost btn-sm" id="plan-improve">${icon('sparkles')} Mejorar con IA</button>
+        <label class="check-row" style="margin:0;"><input type="checkbox" id="plan-labels" ${item?.show_labels ? 'checked' : ''} />
+          Señalar el nombre de cada producto con una flecha</label>
+      </div>
+      <p class="hint" style="margin:6px 0 0;">Escribilo como lo dirías. "Mejorar con IA" lo ordena y le agrega encuadre, luz y fondo — no inventa productos ni promociones, y es gratis (es texto).</p>
+      <div id="plan-improve-out"></div>
+    </div>
     <div class="field"><label>Acción manual si es semi</label><textarea class="input" id="plan-hint" placeholder="Ej: Agregá encuesta con dos opciones">${esc(item?.interaction_hint || '')}</textarea></div>
     <div style="display:flex; gap:8px; justify-content:flex-end;">
       <button class="btn-discard" id="plan-cancel">Cancelar</button>
@@ -1724,13 +1748,18 @@ function openPlanSlot(item = null) {
 
   const renderChosenProduct = () => {
     const el = overlay.querySelector('#plan-product-chosen');
-    if (!chosenProduct) { el.innerHTML = ''; return; }
-    el.innerHTML = `<div class="prod-row">
-      <img src="${esc(chosenProduct.image_url || '')}" onerror="this.style.visibility='hidden'"/>
-      <div class="prod-info"><div class="prod-name">${esc(chosenProduct.name || '')}</div><div class="prod-sub">Fijado para esta pieza</div></div>
-      <button class="btn-ghost btn-sm" id="plan-product-clear" type="button">${icon('x')} Quitar</button>
-    </div>`;
-    el.querySelector('#plan-product-clear').addEventListener('click', () => { chosenProduct = null; renderChosenProduct(); });
+    if (!chosenProducts.length) { el.innerHTML = ''; return; }
+    el.innerHTML = chosenProducts.map((p, i) => `<div class="prod-row">
+      <img src="${esc(p.image_url || '')}" onerror="this.style.visibility='hidden'"/>
+      <div class="prod-info"><div class="prod-name">${esc(p.name || '')}</div>
+        <div class="prod-sub">${i === 0 ? 'protagonista de la pieza' : `acompaña (${i + 1}º)`}</div></div>
+      <button class="btn-ghost btn-sm" type="button" data-quitar="${p.id}">${icon('x')} Quitar</button>
+    </div>`).join('');
+    el.querySelectorAll('[data-quitar]').forEach((b) => b.addEventListener('click', () => {
+      chosenProducts = chosenProducts.filter((x) => String(x.id) !== String(b.dataset.quitar));
+      renderChosenProduct();
+    }));
+    hydrateIcons(el);
   };
   renderChosenProduct();
 
@@ -1739,11 +1768,77 @@ function openPlanSlot(item = null) {
     clearTimeout(planProductTimer);
     const q = e.target.value.trim();
     planProductTimer = setTimeout(() => planProductSearch(overlay, q, (p) => {
-      chosenProduct = p;
+      // Cuatro es el tope: con más, alguna prenda queda de adorno en la pieza.
+      if (chosenProducts.some((x) => String(x.id) === String(p.id))) { toast('Ese producto ya está en la lista.'); return; }
+      if (chosenProducts.length >= 4) { toast('Máximo 4 productos por pieza.', 'err'); return; }
+      chosenProducts.push(p);
       renderChosenProduct();
       overlay.querySelector('#plan-product-search').value = '';
       overlay.querySelector('#plan-product-results').innerHTML = '';
     }), 300);
+  });
+
+  /* MEJORAR CON IA: manda lo escrito + los productos elegidos y devuelve el pedido
+     ordenado. No pisa nada sin permiso — muestra el resultado y el dueño decide. */
+  overlay.querySelector('#plan-improve').addEventListener('click', async () => {
+    const btn = overlay.querySelector('#plan-improve');
+    const out = overlay.querySelector('#plan-improve-out');
+    const texto = overlay.querySelector('#plan-visual').value.trim();
+    if (!texto && !chosenProducts.length) {
+      toast('Escribí primero qué querés que se vea, o elegí un producto.', 'err');
+      return;
+    }
+    btn.disabled = true;
+    btn.innerHTML = `${icon('refresh', 'spin')} Pensando…`;
+    out.innerHTML = '';
+    try {
+      const r = await api('/api/ai/improve-brief', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          texto,
+          product_ids: chosenProducts.map((p) => p.id),
+          pillar: overlay.querySelector('#plan-pillar').value,
+          format: overlay.querySelector('#plan-format').value,
+          post_type: overlay.querySelector('#plan-post-type').value,
+          carousel: overlay.querySelector('#plan-carousel').checked,
+        }),
+      });
+      out.innerHTML = `<div class="plan-improve">
+        ${r.aviso ? `<p class="plan-aviso">${icon('alert')} ${esc(r.aviso)}</p>` : ''}
+        <div><b>Título:</b> ${esc(r.titulo)}</div>
+        <div><b>De qué habla:</b> ${esc(r.brief)}</div>
+        <div><b>Cómo se ve:</b> ${esc(r.visual)}</div>
+        <div class="plan-improve-tags">
+          ${r.carrusel ? '<span>carrusel</span>' : '<span>una sola imagen</span>'}
+          ${r.etiquetas ? '<span>con nombres señalados</span>' : ''}
+          <span>${r.formato === 'story' ? 'historia 9:16' : 'feed 4:5'}</span>
+        </div>
+        <div class="plan-improve-btns">
+          <button type="button" class="btn-primary btn-sm" id="plan-improve-use">${icon('check')} Usar esto</button>
+          <button type="button" class="btn-ghost btn-sm" id="plan-improve-drop">Dejar lo mío</button>
+        </div>
+      </div>`;
+      hydrateIcons(out);
+      out.querySelector('#plan-improve-use').addEventListener('click', () => {
+        overlay.querySelector('#plan-visual').value = r.visual;
+        const detalle = overlay.querySelector('#plan-detail');
+        if (!detalle.value.trim()) detalle.value = r.brief;
+        const titulo = overlay.querySelector('#plan-theme');
+        if (!titulo.value.trim()) titulo.value = r.titulo;
+        overlay.querySelector('#plan-carousel').checked = r.carrusel;
+        overlay.querySelector('#plan-labels').checked = r.etiquetas;
+        overlay.querySelector('#plan-format').value = r.formato;
+        out.innerHTML = '<p class="hint">Listo: quedó aplicado. Podés seguir editándolo a mano.</p>';
+      });
+      out.querySelector('#plan-improve-drop').addEventListener('click', () => { out.innerHTML = ''; });
+    } catch (err) {
+      out.innerHTML = `<p class="hint">No pude mejorarlo: ${esc(err.message)}</p>`;
+    } finally {
+      btn.disabled = false;
+      btn.innerHTML = `${icon('sparkles')} Mejorar con IA`;
+      hydrateIcons(btn);
+    }
   });
   overlay.querySelector('#plan-product-sync-link').addEventListener('click', async (e) => {
     e.preventDefault();
@@ -1758,10 +1853,12 @@ function openPlanSlot(item = null) {
     } finally { link.textContent = original; }
   });
 
-  // El selector de producto sólo tiene sentido para el pilar 'producto'.
+  // Pilares donde mostrar prendas tiene sentido. En educativo/engagement/repost la
+  // pieza no es sobre un producto, así que el selector sólo agregaría ruido.
+  const PILARES_CON_PRODUCTO = ['producto', 'promo', 'marca', 'mayorista', 'ugc'];
   const pillarSel = overlay.querySelector('#plan-pillar');
   const productField = overlay.querySelector('#plan-product-field');
-  const syncProductField = () => { productField.style.display = pillarSel.value === 'producto' ? '' : 'none'; };
+  const syncProductField = () => { productField.style.display = PILARES_CON_PRODUCTO.includes(pillarSel.value) ? '' : 'none'; };
   pillarSel.addEventListener('change', syncProductField);
   syncProductField();
 
@@ -1771,7 +1868,7 @@ function openPlanSlot(item = null) {
     btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Guardando…`;
     try {
       const payload = readPlanForm(overlay);
-      payload.product_id = chosenProduct ? chosenProduct.id : null;
+      payload.product_ids = chosenProducts.map((p) => p.id);
       await api(isNew ? '/api/calendar' : `/api/calendar/${item.id}`, {
         method: isNew ? 'POST' : 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -3466,8 +3563,11 @@ async function loadSegmentViews() {
           <div class="stat"><b>${s.minorista.views.toLocaleString('es-AR')} · ${s.minorista.pct}%</b><span>Vistas Minorista (${s.days} días) ${src('GA')}</span></div>
           <div class="stat"><b>${s.mayorista.views.toLocaleString('es-AR')} · ${s.mayorista.pct}%</b><span>Vistas Mayorista (${s.days} días) ${src('GA')}</span></div>
         </div>
-        ${s.minorista.top.length ? `<h4 style="margin:16px 0 6px; font-size:14px; color:var(--muted);">Más vistos · Minorista</h4>${s.minorista.top.slice(0, 5).map(row).join('')}` : ''}
-        ${s.mayorista.top.length ? `<h4 style="margin:16px 0 6px; font-size:14px; color:var(--muted);">Más vistos · Mayorista</h4>${s.mayorista.top.slice(0, 5).map(row).join('')}` : ''}
+        ${s.minorista.top.length ? `<h4 style="margin:16px 0 6px; font-size:14px; color:var(--muted);">Más vistos · Minorista</h4>${s.minorista.top.map(row).join('')}` : ''}
+        ${s.mayorista.top.length ? `<h4 style="margin:16px 0 6px; font-size:14px; color:var(--muted);">Más vistos · Mayorista</h4>${s.mayorista.top.map(row).join('')}` : ''}
+        <p class="hint" style="margin:14px 0 0;">Esto es el ranking corto de los últimos ${s.days} días.
+          Para ver <b>todos</b> los productos, con ventas, facturación y conversión de cada uno, y por el rango de fechas que quieras,
+          andá a <a href="#" onclick="switchTab('stats'); return false;">Estadísticas</a>.</p>
       </div>`;
   } catch (_) { el.innerHTML = ''; }
 }
@@ -4998,14 +5098,23 @@ setInterval(refreshPubTimers, 30 * 1000); // cuenta regresiva de auto-publicaci�
  * porque es la confusión obvia.
  * ========================================================================= */
 
-let homeState = { rules: [], slots: [], layouts: [], config: null, preview: null };
+let homeState = {
+  rules: [], slots: [], layouts: [], config: null, preview: null,
+  ocultos: null,  // fichas de los productos ocultos/bloqueados (para poder devolverlos)
+  menu: null,     // { rail, id } del menú de miniatura abierto
+  dirty: false,   // hay cambios que la tienda todavía no vio
+};
 
 async function loadHomeRails() {
   const body = document.getElementById('home-body');
   body.innerHTML = skeleton('rows', 4);
   try {
     const d = await api('/api/home/rules');
-    homeState = { rules: d.rules || [], slots: d.slots || [], layouts: d.layouts || [], config: d.config, preview: null, catalogo: d.catalogo || {} };
+    homeState = {
+      rules: d.rules || [], slots: d.slots || [], layouts: d.layouts || [],
+      config: d.config, preview: null, catalogo: d.catalogo || {},
+      ocultos: null, menu: null, dirty: false,
+    };
     renderHomeRails();
     previewHomeRails({ silent: true });
     loadHomeLayout();
@@ -5101,6 +5210,8 @@ function renderHomeRails() {
           <p class="hint">Si lo cargás, las fichas muestran el precio con transferencia. Ojo: tiene que coincidir con la promoción real de Tiendanube, porque el motor no puede leerla.</p>
         </div>
       </div>
+      <!-- Productos que el dueño sacó del home entero (no de un riel puntual). -->
+      <div id="hr-blocked"></div>
     </div>
     <div class="hr-list" id="hr-list">${cards || '<p class="hint">No hay ningún riel configurado.</p>'}</div>
     ${libres.length ? `<button class="btn-ghost" style="margin-top:12px;" onclick="addHomeRail()">${icon('plus')} Agregar riel (quedan ${libres.length} huecos)</button>` : ''}
@@ -5124,7 +5235,9 @@ function bindHomeRailInputs() {
         rail.product_ids = el.value.split(',').map((s) => Number(s.trim())).filter(Number.isFinite);
       } else rail[campo] = el.value;
       // Cambiar la regla cambia la ayuda y puede sumar el campo de productos fijos.
-      if (campo === 'rule') renderHomeRails();
+      // El orden a mano se descarta: apuntaba a los productos de la regla anterior.
+      // Los ocultos se conservan: "no quiero ver esto acá" sigue valiendo.
+      if (campo === 'rule') { delete rail.order_ids; renderHomeRails(); }
     });
   });
   const dedupe = document.getElementById('hr-dedupe');
@@ -5195,28 +5308,242 @@ async function previewHomeRails({ silent = false } = {}) {
   }
 }
 
+/* ---------------------------------------------------------------------------
+ * MINIATURAS DE LA VISTA PREVIA: además de mirar, se maneja.
+ *
+ * La regla elige bien, pero el dueño ve la tira y dice "este no" o "este primero".
+ * Antes había que aceptar lo que salía. Ahora cada miniatura se puede mover
+ * (arrastrando en la compu, o con las flechas del menú en el celular) y ocultar,
+ * en ese riel o en todo el home. Todo eso vive en la config del riel
+ * (hidden_ids / order_ids / blocked_ids) y recién se aplica al PUBLICAR.
+ * ------------------------------------------------------------------------- */
+
+/** Ficha (nombre/foto) de un producto oculto, según la última vista previa. */
+function hrFicha(id) {
+  const fichas = (homeState.ocultos && homeState.ocultos.fichas) || {};
+  return fichas[id] || { id, name: `Producto #${id}`, image: null };
+}
+
+function hrChip(f, boton) {
+  return `<span class="hr-chip">${f.image
+    ? `<img src="${esc(f.image)}" alt="" onerror="this.style.display='none'" />` : ''}
+    <span>${esc(f.name)}</span>${boton}</span>`;
+}
+
+/** Miniatura clickeable: arrastrar para mover, ✕ para ocultar, tocar para el menú. */
+function hrThumbHtml(p, i) {
+  return `<div class="hr-thumb" draggable="true" data-rail="${i}" data-id="${p.id}"
+       title="${esc(p.name)} — tocá para moverlo u ocultarlo">
+    <img src="${esc(p.image)}" alt="" onerror="this.style.visibility='hidden'" />
+    ${p.discount_pct ? `<span class="hr-off">${p.discount_pct}%</span>` : ''}
+    <button class="hr-x" type="button" data-hide="${p.id}" title="Ocultar de este riel">✕</button>
+  </div>`;
+}
+
+/** Fichitas de lo que está oculto EN ESE riel, con el botón para devolverlo. */
+function hrHiddenHtml(cfgRail, i) {
+  const ocultos = cfgRail.hidden_ids || [];
+  if (!ocultos.length) return '';
+  return `<div class="hr-hidden">
+    <span class="hr-hidden-t">${icon('eye')} Ocultos en este riel:</span>
+    ${ocultos.map((id) => hrChip(hrFicha(id),
+    `<button type="button" title="Volver a mostrarlo acá" onclick="mostrarProductoRiel(${i}, ${id})">↺</button>`)).join('')}
+  </div>`;
+}
+
+/** Menú de acciones del producto tocado. Existe para que esto ande en el celular:
+    arrastrar miniaturas de 44px con el dedo no es una opción. */
+function hrMenuHtml(i) {
+  const abierto = homeState.menu;
+  if (!abierto || abierto.rail !== i) return '';
+  const cfgRail = homeState.config.rails[i];
+  const r = ((homeState.preview && homeState.preview.rails) || []).find((x) => x.id === cfgRail.id);
+  const lista = (r && r.products) || [];
+  const pos = lista.findIndex((p) => Number(p.id) === Number(abierto.id));
+  if (pos < 0) return '';
+  const p = lista[pos];
+  return `<div class="hr-menu">
+    <img src="${esc(p.image)}" alt="" onerror="this.style.visibility='hidden'" />
+    <div class="hr-menu-name"><b>${esc(p.name)}</b><span>lugar ${pos + 1} de ${lista.length}</span></div>
+    <div class="hr-menu-btns">
+      <button class="btn-ghost btn-sm" ${pos === 0 ? 'disabled' : ''} onclick="moverProductoRiel(${i}, ${p.id}, -1)" title="Un lugar antes">←</button>
+      <button class="btn-ghost btn-sm" ${pos === lista.length - 1 ? 'disabled' : ''} onclick="moverProductoRiel(${i}, ${p.id}, 1)" title="Un lugar después">→</button>
+      <button class="btn-ghost btn-sm" onclick="ocultarProductoRiel(${i}, ${p.id})">Ocultar acá</button>
+      <button class="btn-ghost btn-sm" onclick="sacarProductoDelHome(${i}, ${p.id})" title="No lo quiero en ningún riel del home">Sacar del home</button>
+      <button class="btn-ghost btn-sm" onclick="cerrarMenuRiel()">Cerrar</button>
+    </div>
+  </div>`;
+}
+
+function cerrarMenuRiel() {
+  homeState.menu = null;
+  pintarMenusHome();
+}
+
+/** Redibuja sólo los menús abiertos (no hace falta recalcular la vista previa). */
+function pintarMenusHome() {
+  homeState.config.rails.forEach((_, i) => {
+    const slot = document.getElementById(`hr-menu-${i}`);
+    if (slot) { slot.innerHTML = hrMenuHtml(i); hydrateIcons(slot); }
+  });
+}
+
+/** Marca que hay cambios que todavía no vio la tienda. */
+function marcarCambioHome() {
+  homeState.dirty = true;
+  const btn = document.getElementById('home-save-btn');
+  if (btn) btn.classList.add('btn-dirty');
+}
+
+/** Ids en el orden en que se ven hoy las miniaturas de ese riel. */
+function hrIdsVisibles(i) {
+  const cfgRail = homeState.config.rails[i];
+  const r = ((homeState.preview && homeState.preview.rails) || []).find((x) => x.id === cfgRail.id);
+  return ((r && r.products) || []).map((p) => Number(p.id));
+}
+
+function moverProductoRiel(i, id, dir) {
+  const ids = hrIdsVisibles(i);
+  const desde = ids.indexOf(Number(id));
+  const hasta = desde + dir;
+  if (desde < 0 || hasta < 0 || hasta >= ids.length) return;
+  ids.splice(hasta, 0, ids.splice(desde, 1)[0]);
+  homeState.config.rails[i].order_ids = ids;
+  homeState.menu = { rail: i, id: Number(id) }; // el menú sigue sobre el mismo producto
+  marcarCambioHome();
+  previewHomeRails({ silent: true });
+}
+
+function ocultarProductoRiel(i, id) {
+  const rail = homeState.config.rails[i];
+  rail.hidden_ids = [...new Set([...(rail.hidden_ids || []), Number(id)])];
+  if (rail.order_ids) rail.order_ids = rail.order_ids.filter((x) => Number(x) !== Number(id));
+  // Guardamos la ficha para poder dibujar el chip aunque la vista previa ya no lo traiga.
+  const ficha = (hrIdsVisibles(i).includes(Number(id)) && homeState.preview)
+    ? (((homeState.preview.rails || []).find((x) => x.id === rail.id) || { products: [] })
+      .products.find((p) => Number(p.id) === Number(id)) || null)
+    : null;
+  if (ficha) {
+    homeState.ocultos = homeState.ocultos || { fichas: {}, bloqueados: [] };
+    homeState.ocultos.fichas = homeState.ocultos.fichas || {};
+    homeState.ocultos.fichas[id] = { id: Number(id), name: ficha.name, image: ficha.image };
+  }
+  homeState.menu = null;
+  marcarCambioHome();
+  previewHomeRails({ silent: true });
+}
+
+function mostrarProductoRiel(i, id) {
+  const rail = homeState.config.rails[i];
+  rail.hidden_ids = (rail.hidden_ids || []).filter((x) => Number(x) !== Number(id));
+  marcarCambioHome();
+  previewHomeRails({ silent: true });
+}
+
+function sacarProductoDelHome(i, id) {
+  ocultarProductoRiel(i, id); // deja la ficha guardada y dispara la vista previa
+  homeState.config.blocked_ids = [...new Set([...(homeState.config.blocked_ids || []), Number(id)])];
+  const rail = homeState.config.rails[i];
+  rail.hidden_ids = (rail.hidden_ids || []).filter((x) => Number(x) !== Number(id)); // ya lo saca el bloqueo global
+  toast('Sacado del home. Va a desaparecer de todos los rieles al publicar.');
+  previewHomeRails({ silent: true });
+}
+
+function devolverProductoAlHome(id) {
+  homeState.config.blocked_ids = (homeState.config.blocked_ids || []).filter((x) => Number(x) !== Number(id));
+  marcarCambioHome();
+  previewHomeRails({ silent: true });
+}
+
+function resetOrdenRiel(i) {
+  delete homeState.config.rails[i].order_ids;
+  marcarCambioHome();
+  previewHomeRails({ silent: true });
+  toast('Vuelve a mandar la regla (ventas, stock, descuento).');
+}
+
+/** Arrastrar miniaturas dentro del riel (desktop). */
+function bindHomeThumbs(cont, i) {
+  let origen = null;
+  // stopPropagation en todo: la tarjeta del riel TAMBIÉN es arrastrable (para
+  // intercambiar huecos), y sin esto arrastrar una miniatura movía el riel entero.
+  cont.querySelectorAll('.hr-thumb').forEach((t) => {
+    t.addEventListener('dragstart', (e) => {
+      e.stopPropagation();
+      origen = Number(t.dataset.id);
+      t.classList.add('hr-dragging');
+      if (e.dataTransfer) e.dataTransfer.effectAllowed = 'move';
+    });
+    t.addEventListener('dragend', (e) => { e.stopPropagation(); t.classList.remove('hr-dragging'); });
+    t.addEventListener('dragover', (e) => { e.preventDefault(); e.stopPropagation(); t.classList.add('hr-over'); });
+    t.addEventListener('dragleave', () => t.classList.remove('hr-over'));
+    t.addEventListener('drop', (e) => {
+      e.preventDefault(); e.stopPropagation();
+      t.classList.remove('hr-over');
+      const destino = Number(t.dataset.id);
+      if (!origen || origen === destino) return;
+      const ids = hrIdsVisibles(i);
+      const desde = ids.indexOf(origen);
+      const hasta = ids.indexOf(destino);
+      if (desde < 0 || hasta < 0) return;
+      ids.splice(hasta, 0, ids.splice(desde, 1)[0]);
+      homeState.config.rails[i].order_ids = ids;
+      marcarCambioHome();
+      previewHomeRails({ silent: true });
+    });
+    t.addEventListener('click', (e) => {
+      if (e.target.closest('[data-hide]')) return; // la ✕ tiene lo suyo
+      const id = Number(t.dataset.id);
+      homeState.menu = (homeState.menu && homeState.menu.rail === i && homeState.menu.id === id)
+        ? null : { rail: i, id };
+      pintarMenusHome();
+    });
+  });
+  cont.querySelectorAll('[data-hide]').forEach((b) => b.addEventListener('click', (e) => {
+    e.stopPropagation();
+    ocultarProductoRiel(i, Number(b.dataset.hide));
+  }));
+}
+
 function pintarPreviewHome(data) {
   const rails = data.rails || [];
   const total = rails.reduce((a, r) => a + r.products.length, 0);
   const distintos = new Set(rails.flatMap((r) => r.products.map((p) => p.id))).size;
   const peso = (JSON.stringify(data).length / 1024).toFixed(1);
+  // Publicar devuelve sólo los rieles: no pisamos las fichas de los ocultos.
+  if (data.ocultos) homeState.ocultos = data.ocultos;
 
   // Miniaturas dentro de cada tarjeta de riel.
   homeState.config.rails.forEach((cfgRail, i) => {
     const cont = document.getElementById(`hr-preview-${i}`);
     if (!cont) return;
     const r = rails.find((x) => x.id === cfgRail.id);
-    if (!r) {
-      cont.innerHTML = '<p class="hint hr-empty">Con esta regla no llegan a 3 productos, así que el riel no se va a mostrar.</p>';
-      return;
-    }
-    cont.innerHTML = `<div class="hr-thumbs">${r.products.map((p) => `
-      <div class="hr-thumb" title="${esc(p.name)}">
-        <img src="${esc(p.image)}" alt="" onerror="this.style.visibility='hidden'" />
-        ${p.discount_pct ? `<span class="hr-off">${p.discount_pct}%</span>` : ''}
-      </div>`).join('')}</div>
-      <p class="hint hr-count">${r.products.length} productos</p>`;
+    const manual = (cfgRail.order_ids || []).length > 0;
+    const tira = r
+      ? `<div class="hr-thumbs" id="hr-thumbs-${i}">${r.products.map((p) => hrThumbHtml(p, i)).join('')}</div>
+         <div id="hr-menu-${i}">${hrMenuHtml(i)}</div>
+         <div class="hr-foot">
+           <p class="hint hr-count">${r.products.length} productos · tocá uno para moverlo u ocultarlo</p>
+           ${manual ? `<span class="hr-manual" title="Los que ordenaste a mano van primero; lo que entre nuevo a la regla se agrega al final.">${icon('grid')} Orden a mano</span>
+             <button class="btn-ghost btn-sm" onclick="resetOrdenRiel(${i})">Volver al orden automático</button>` : ''}
+         </div>`
+      : '<p class="hint hr-empty">Con esta regla no llegan a 3 productos, así que el riel no se va a mostrar.</p>';
+    cont.innerHTML = tira + hrHiddenHtml(cfgRail, i);
+    hydrateIcons(cont);
+    if (r) bindHomeThumbs(cont, i);
   });
+
+  // Sacados del home (bloqueo global), en el panel de reglas generales.
+  const bloq = document.getElementById('hr-blocked');
+  if (bloq) {
+    const ids = homeState.config.blocked_ids || [];
+    bloq.innerHTML = ids.length ? `<div class="hr-hidden" style="margin-top:6px;">
+      <span class="hr-hidden-t">${icon('eye')} Sacados del home (${ids.length}):</span>
+      ${ids.map((id) => hrChip(hrFicha(id),
+    `<button type="button" title="Volver a permitirlo" onclick="devolverProductoAlHome(${id})">↺</button>`)).join('')}
+    </div>` : '';
+    hydrateIcons(bloq);
+  }
 
   const summary = document.getElementById('hr-summary');
   const configuradosSinSalir = homeState.config.rails.filter((c) => !rails.some((r) => r.id === c.id));
@@ -5229,6 +5556,7 @@ function pintarPreviewHome(data) {
   )].map((id) => (homeState.rules.find((x) => x.id === id) || {}).label || id);
   summary.innerHTML = `
     <h3>${icon('eye')} Lo que va a ver el cliente</h3>
+    ${homeState.dirty ? `<p class="hr-dirty">${icon('bolt')} Tenés cambios sin publicar: la tienda todavía muestra lo anterior. Apretá <b>Publicar en la tienda</b>.</p>` : ''}
     <div class="prod-totals">
       <div class="stat"><b>${rails.length}</b><span>rieles se muestran</span></div>
       <div class="stat"><b>${total}</b><span>fichas en total</span></div>
@@ -5254,6 +5582,9 @@ async function publishHomeRails() {
       body: JSON.stringify(homeState.config),
     });
     homeState.config = r.config;
+    homeState.dirty = false;
+    homeState.menu = null;
+    btn.classList.remove('btn-dirty');
     toast(`Publicado: ${r.rails.length} riel(es) en la tienda.`, 'ok');
     renderHomeRails();
     pintarPreviewHome({ rails: r.rails });
@@ -5972,4 +6303,349 @@ async function saveTeamPortal() {
     toast(err.message, 'error');
     btn.disabled = false;
   }
+}
+
+
+/* =========================================================================
+ * ESTADÍSTICAS DE LA TIENDA
+ *
+ * La sección que Tiendanube cobra en el plan alto, hecha acá y cruzada: las
+ * visitas salen de Google Analytics y los pedidos, de Tiendanube. Cualquier rango
+ * de fechas, comparado contra el período anterior, con la lista COMPLETA de
+ * productos (no los cinco primeros) y un informe descargable para pasarle a otro.
+ *
+ * El cálculo vive en src/storeMetrics.js: acá sólo se dibuja.
+ * ========================================================================= */
+
+let statsData = null;
+let statsOrden = { col: 'ingresos', desc: true };
+let statsFiltro = '';
+let statsTope = 40; // filas visibles de la tabla de productos (crece con "ver más")
+
+const stNum = (v) => (v === null || v === undefined ? '—' : Number(v).toLocaleString('es-AR', { maximumFractionDigits: 2 }));
+const stMoney = (v) => (v === null || v === undefined ? '—' : `$${Math.round(Number(v)).toLocaleString('es-AR')}`);
+const stPct = (v) => (v === null || v === undefined ? '—' : `${Number(v).toLocaleString('es-AR', { maximumFractionDigits: 2 })}%`);
+
+/** Flecha de variación. Sin base con qué comparar = "nuevo", no 0%. */
+function stDelta(d, { bienSiSube = true } = {}) {
+  if (d === null || d === undefined) return '<span class="st-d flat">sin base</span>';
+  if (d === 0) return '<span class="st-d flat">igual</span>';
+  const bien = bienSiSube ? d > 0 : d < 0;
+  return `<span class="st-d ${bien ? 'up' : 'down'}">${d > 0 ? '▲' : '▼'} ${Math.abs(d)}%</span>`;
+}
+
+function onStatsPreset() {
+  const preset = document.getElementById('st-preset').value;
+  const custom = document.getElementById('st-custom');
+  custom.classList.toggle('hidden', preset !== 'custom');
+  if (preset === 'custom') {
+    // Arranca con el último mes cargado, para no obligar a tipear dos fechas.
+    const to = document.getElementById('st-to');
+    const from = document.getElementById('st-from');
+    if (!to.value || !from.value) {
+      const hoy = new Date().toLocaleDateString('sv-SE');
+      to.value = hoy;
+      from.value = new Date(Date.now() - 29 * 864e5).toLocaleDateString('sv-SE');
+    }
+    return; // con fechas a mano, se aplica al tocar "Ver"
+  }
+  loadStoreStats();
+}
+
+function statsQuery() {
+  const preset = document.getElementById('st-preset').value;
+  const compare = document.getElementById('st-compare').value;
+  const p = new URLSearchParams({ compare });
+  if (preset === 'custom') {
+    p.set('from', document.getElementById('st-from').value || '');
+    p.set('to', document.getElementById('st-to').value || '');
+  } else {
+    p.set('preset', preset);
+  }
+  return p;
+}
+
+async function loadStoreStats(force = false) {
+  const body = document.getElementById('stats-body');
+  if (!body) return;
+  body.innerHTML = skeleton('rows', 5);
+  const p = statsQuery();
+  if (force) p.set('force', '1');
+  try {
+    statsData = await api(`/api/store/metrics?${p.toString()}`);
+    statsTope = 40;
+    renderStoreStats();
+  } catch (err) {
+    body.innerHTML = `<p class="hint">No pude armar las estadísticas: ${esc(err.message)}</p>`;
+  }
+}
+
+function exportStoreReport() {
+  const p = statsQuery();
+  p.set('todos', '0');
+  // Descarga directa: el endpoint manda el HTML con Content-Disposition.
+  window.location.href = `/api/store/metrics/export?${p.toString()}`;
+  toast('Bajando el informe… se abre en cualquier navegador y se puede imprimir a PDF.');
+}
+
+async function syncOrdersFromStats(btn) {
+  const original = btn.innerHTML;
+  btn.disabled = true;
+  btn.innerHTML = `${icon('refresh', 'spin')} Trayendo pedidos…`;
+  try {
+    const r = await api('/api/store/sync-orders', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    toast(`Listo: ${r.pedidos} pedido(s) revisados (${r.total} guardados en total).`, 'ok');
+    loadStoreStats(true);
+  } catch (err) {
+    toast(err.message, 'err');
+  } finally {
+    btn.disabled = false;
+    btn.innerHTML = original;
+    hydrateIcons(btn);
+  }
+}
+
+/* ---------------- gráfico: visitas (barras) + pedidos (línea) ---------------- */
+function stChart(porDia) {
+  if (!porDia || porDia.length < 2) return '';
+  const w = 1000; const h = 200; const padX = 8; const padY = 24;
+  const maxS = Math.max(...porDia.map((d) => d.sesiones), 1);
+  const maxP = Math.max(...porDia.map((d) => d.pedidos), 1);
+  const bw = (w - padX * 2) / porDia.length;
+  const barras = porDia.map((d, i) => {
+    const x = padX + i * bw;
+    const alto = ((h - padY * 2) * d.sesiones) / maxS;
+    return `<rect x="${x.toFixed(1)}" y="${(h - padY - alto).toFixed(1)}" width="${Math.max(1, bw - 2).toFixed(1)}"
+      height="${Math.max(0, alto).toFixed(1)}" rx="1.5" fill="var(--orange)" opacity=".45"><title>${esc(d.fecha)}
+${d.sesiones} visitas · ${d.pedidos} pedido(s) · ${stMoney(d.ingresos)}</title></rect>`;
+  }).join('');
+  const pts = porDia.map((d, i) => {
+    const x = padX + i * bw + bw / 2;
+    const y = h - padY - ((h - padY * 2) * d.pedidos) / maxP;
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+  return `<svg viewBox="0 0 ${w} ${h}" class="st-chart" preserveAspectRatio="none" role="img"
+      aria-label="Visitas y pedidos por día">
+    ${barras}<polyline points="${pts}" fill="none" stroke="var(--green)" stroke-width="2.5" vector-effect="non-scaling-stroke"/>
+  </svg>
+  <div class="st-chart-legend">
+    <span><i class="sw-bar"></i> Visitas por día (máx ${stNum(maxS)})</span>
+    <span><i class="sw-line"></i> Pedidos por día (máx ${stNum(maxP)})</span>
+    <span class="st-chart-dates">${esc(porDia[0].fecha)} → ${esc(porDia[porDia.length - 1].fecha)}</span>
+  </div>`;
+}
+
+/* ---------------- tabla genérica de dos/tres columnas ---------------- */
+function stTable(titulo, cols, filas, nota = '') {
+  if (!filas || !filas.length) return '';
+  return `<div class="st-block">
+    <h4>${esc(titulo)}</h4>
+    ${nota ? `<p class="hint" style="margin:0 0 8px;">${esc(nota)}</p>` : ''}
+    <table class="st-table"><thead><tr>${cols.map((c) => `<th${c.num ? ' class="num"' : ''}>${esc(c.label)}</th>`).join('')}</tr></thead>
+    <tbody>${filas.map((f) => `<tr>${cols.map((c) => `<td${c.num ? ' class="num"' : ''}>${c.cell(f)}</td>`).join('')}</tr>`).join('')}</tbody></table>
+  </div>`;
+}
+
+/* ---------------- tabla de productos: completa, ordenable y con buscador ---------------- */
+const ST_COLS = [
+  { id: 'nombre', label: 'Producto', tipo: 'texto' },
+  { id: 'vistas', label: 'Visitas', tipo: 'num' },
+  { id: 'carritos', label: 'Al carrito', tipo: 'num' },
+  { id: 'unidades', label: 'Vendidas', tipo: 'num' },
+  { id: 'ingresos', label: 'Facturó', tipo: 'money' },
+  { id: 'conversion', label: 'Conversión', tipo: 'pct' },
+  { id: 'stock', label: 'Stock', tipo: 'num' },
+];
+
+function statsProductosFiltrados() {
+  const q = statsFiltro.trim().toLowerCase();
+  let lista = statsData.productos;
+  if (q) lista = lista.filter((p) => String(p.nombre).toLowerCase().includes(q) || String(p.marca || '').toLowerCase().includes(q));
+  const { col, desc } = statsOrden;
+  return [...lista].sort((a, b) => {
+    const va = a[col]; const vb = b[col];
+    if (col === 'nombre') return desc ? String(vb).localeCompare(String(va)) : String(va).localeCompare(String(vb));
+    const na = va === null || va === undefined ? -1 : Number(va);
+    const nb = vb === null || vb === undefined ? -1 : Number(vb);
+    return desc ? nb - na : na - nb;
+  });
+}
+
+function ordenarStats(col) {
+  if (statsOrden.col === col) statsOrden.desc = !statsOrden.desc;
+  else statsOrden = { col, desc: col !== 'nombre' };
+  pintarTablaProductos();
+}
+
+function buscarStats(valor) {
+  statsFiltro = valor;
+  statsTope = 40;
+  pintarTablaProductos();
+}
+
+function verMasStats() {
+  statsTope += 60;
+  pintarTablaProductos();
+}
+
+function pintarTablaProductos() {
+  const cont = document.getElementById('st-prod-table');
+  if (!cont || !statsData) return;
+  const lista = statsProductosFiltrados();
+  const visibles = lista.slice(0, statsTope);
+  const celda = (p, c) => {
+    if (c.id === 'nombre') {
+      return `<div class="st-prod">
+        ${p.imagen ? `<img src="${esc(p.imagen)}" alt="" onerror="this.style.visibility='hidden'" />` : '<span class="st-noimg"></span>'}
+        <div><b>${esc(p.nombre)}</b>
+          <span class="st-prod-sub">${esc(p.segmento)}${p.marca ? ` · ${esc(p.marca)}` : ''}${p.precio ? ` · ${stMoney(p.promo || p.precio)}` : ''}${p.comparteNombre ? ' · <i title="Hay dos fichas con el mismo nombre: las visitas se le asignan a la minorista">visitas compartidas</i>' : ''}</span>
+        </div></div>`;
+    }
+    const v = p[c.id];
+    if (c.tipo === 'money') return stMoney(v);
+    if (c.tipo === 'pct') return stPct(v);
+    return v === null || v === undefined ? '—' : stNum(v);
+  };
+  cont.innerHTML = `
+    <table class="st-table st-prod-table">
+      <thead><tr>${ST_COLS.map((c) => `<th class="${c.tipo === 'texto' ? '' : 'num'} sortable ${statsOrden.col === c.id ? 'sorted' : ''}"
+        onclick="ordenarStats('${c.id}')">${esc(c.label)}${statsOrden.col === c.id ? (statsOrden.desc ? ' ↓' : ' ↑') : ''}</th>`).join('')}</tr></thead>
+      <tbody>${visibles.map((p) => `<tr>${ST_COLS.map((c) => `<td class="${c.tipo === 'texto' ? '' : 'num'}">${celda(p, c)}</td>`).join('')}</tr>`).join('')}</tbody>
+    </table>
+    <div class="st-more">
+      <span class="hint">Mostrando ${visibles.length} de ${lista.length} productos${statsFiltro ? ' (filtrados)' : ''}.</span>
+      ${visibles.length < lista.length ? '<button class="btn-ghost btn-sm" onclick="verMasStats()">Ver 60 más</button>' : ''}
+    </div>`;
+}
+
+/* --------------------------------- pintar todo --------------------------------- */
+function renderStoreStats() {
+  const d = statsData;
+  const body = document.getElementById('stats-body');
+  const src = (t) => `<span class="src-tag">${esc(t)}</span>`;
+
+  const kpis = d.resumen.map((k) => {
+    const fmt = k.moneda ? stMoney : (k.pct ? stPct : stNum);
+    return `<div class="st-kpi">
+      <span class="st-kpi-lbl">${esc(k.label)} ${tip(k.ayuda + ' — Fuente: ' + k.fuente)}</span>
+      <b>${fmt(k.valor)}</b>
+      <span class="st-kpi-prev">${k.previo === null ? 'sin comparación' : `antes ${fmt(k.previo)} ${stDelta(k.delta)}`}</span>
+    </div>`;
+  }).join('');
+
+  const embudo = (d.embudo || []).map((p, i) => `
+    <div class="st-step">
+      <div class="st-step-top"><b>${esc(p.label)}</b>
+        <span>${stNum(p.sesiones)} <i>· ${stPct(p.pctDelTotal)} de las visitas</i></span></div>
+      <div class="st-step-bar"><i style="width:${Math.max(0.5, p.pctDelTotal)}%"></i></div>
+      <span class="hint">${i === 0 ? 'punto de partida' : `siguió el ${stPct(p.retencion)} del paso anterior`} · ${esc(p.fuente)}${p.nota ? ` — ${esc(p.nota)}` : ''}</span>
+    </div>`).join('');
+
+  const t = d.trafico;
+  const seg = d.segmentos;
+
+  body.innerHTML = `
+    <div class="st-range">
+      <b>${esc(d.rango.label)}</b>
+      <span>${esc(d.rango.from)} → ${esc(d.rango.to)} · ${d.rango.dias} días</span>
+      ${d.comparado ? `<span class="st-vs">vs. ${esc(d.comparado.label)}: ${esc(d.comparado.from)} → ${esc(d.comparado.to)}</span>` : ''}
+    </div>
+
+    <div class="st-kpis">${kpis}</div>
+
+    ${d.avisos && d.avisos.length ? `<div class="st-avisos">
+      <b>${icon('info')} Para leer bien estos números</b>
+      <ul>${d.avisos.map((a) => `<li>${esc(a)}</li>`).join('')}</ul></div>` : ''}
+
+    <div class="panel" style="margin-bottom:18px;">
+      <h3>${icon('chart')} Día por día</h3>
+      ${stChart(d.porDia)}
+    </div>
+
+    ${embudo ? `<div class="panel" style="margin-bottom:18px;">
+      <h3>${icon('route')} El camino hasta la compra</h3>
+      <p class="hint">Cada escalón son sesiones distintas. Donde el porcentaje se desploma, ahí está el problema.</p>
+      <div class="st-steps">${embudo}</div>
+    </div>` : ''}
+
+    <div class="panel" style="margin-bottom:18px;">
+      <h3>${icon('user')} Minorista vs. mayorista</h3>
+      <div class="prod-totals">
+        <div class="stat"><b>${stNum(seg.minorista.vistas)} · ${stPct(seg.minorista.pctVistas)}</b><span>Visitas a productos minoristas ${src('GA')}</span></div>
+        <div class="stat"><b>${stNum(seg.mayorista.vistas)} · ${stPct(seg.mayorista.pctVistas)}</b><span>Visitas a productos mayoristas ${src('GA')}</span></div>
+        <div class="stat"><b>${stNum(d.consultas.mayorista)}</b><span>Consultas mayoristas ${src('sitio')}</span></div>
+        <div class="stat"><b>${stNum(d.consultas.minorista)}</b><span>Consultas minoristas ${src('sitio')}</span></div>
+      </div>
+      <p class="hint" style="margin:10px 0 0;">Mayorista no tiene carrito: su resultado son consultas, no compras. Por eso factura $0 y no es un error.</p>
+    </div>
+
+    <div class="panel" style="margin-bottom:18px;">
+      <h3>${icon('tag')} Todos los productos</h3>
+      <p class="hint">La lista completa (${d.productos.length}), no los cinco primeros. Tocá una columna para ordenar por ella.</p>
+      <input class="input" id="st-search-prod" placeholder="Buscar producto o marca…" value="${esc(statsFiltro)}"
+             oninput="buscarStats(this.value)" autocomplete="off" style="margin-bottom:10px;" />
+      <div id="st-prod-table"></div>
+    </div>
+
+    ${t ? `<div class="panel st-two" style="margin-bottom:18px;">
+      ${stTable('De dónde viene la gente', [
+    { label: 'Fuente', cell: (f) => esc(f.nombre) },
+    { label: 'Visitas', num: true, cell: (f) => stNum(f.sesiones) },
+    { label: 'Var.', num: true, cell: (f) => (f.delta === null ? '—' : stDelta(f.delta)) },
+  ], t.fuentes, '"cpc" y "paid" son campañas pagas; el resto llega solo.')}
+      ${stTable('Con qué entran', [
+    { label: 'Dispositivo', cell: (x) => esc(x.nombre) },
+    { label: 'Visitas', num: true, cell: (x) => stNum(x.sesiones) },
+    { label: 'Var.', num: true, cell: (x) => (x.delta === null ? '—' : stDelta(x.delta)) },
+  ], t.dispositivos)}
+    </div>` : ''}
+
+    ${t ? `<div class="panel" style="margin-bottom:18px;">
+      ${stTable('Por dónde entran al sitio', [
+    { label: 'Página de entrada', cell: (l) => `<span class="st-path">${esc(l.pagina)}</span>` },
+    { label: 'Visitas', num: true, cell: (l) => stNum(l.sesiones) },
+    { label: 'Interés', num: true, cell: (l) => stPct(l.engagement) },
+  ], (t.landings || []).slice(0, 15), 'La primera página que ven. "Interés" = cuántos se quedaron a mirar en vez de rebotar.')}
+    </div>` : ''}
+
+    <div class="panel st-two" style="margin-bottom:18px;">
+      ${stTable('Medios de pago', [
+    { label: 'Medio', cell: (m) => esc(m.nombre) },
+    { label: 'Pedidos', num: true, cell: (m) => stNum(m.pedidos) },
+    { label: 'Monto', num: true, cell: (m) => stMoney(m.monto) },
+  ], d.ventas.medios)}
+      ${stTable('Formas de envío', [
+    { label: 'Envío', cell: (e) => esc(e.nombre) },
+    { label: 'Pedidos', num: true, cell: (e) => stNum(e.pedidos) },
+  ], d.ventas.envios)}
+    </div>
+
+    <div class="panel st-two" style="margin-bottom:18px;">
+      ${stTable('A qué provincias', [
+    { label: 'Provincia', cell: (x) => esc(x.nombre) },
+    { label: 'Pedidos', num: true, cell: (x) => stNum(x.pedidos) },
+    { label: 'Monto', num: true, cell: (x) => stMoney(x.monto) },
+  ], d.ventas.provincias)}
+      ${stTable('Cupones usados', [
+    { label: 'Cupón', cell: (c) => esc(c.nombre) },
+    { label: 'Pedidos', num: true, cell: (c) => stNum(c.pedidos) },
+    { label: 'Descuento', num: true, cell: (c) => stMoney(c.descuento) },
+  ], d.ventas.cupones, 'Cuánta plata se resignó en descuentos y cuántos pedidos trajo cada uno.')}
+    </div>
+
+    <div class="panel">
+      <h3>${icon('heart')} Clientes</h3>
+      <div class="prod-totals">
+        <div class="stat"><b>${stNum(d.ventas.compradores)}</b><span>compraron en el período</span></div>
+        <div class="stat"><b>${stNum(d.ventas.clientes.nuevos)}</b><span>por primera vez</span></div>
+        <div class="stat"><b>${stNum(d.ventas.clientes.repiten)}</b><span>ya habían comprado</span></div>
+        <div class="stat"><b>${stNum(d.ventas.unidadesPorPedido)}</b><span>prendas por pedido</span></div>
+      </div>
+      <p class="hint" style="margin:10px 0 0;">
+        Pedidos guardados: ${stNum(d.catalogo.pedidosGuardados)} desde el ${esc(d.catalogo.desde || '—')}.
+        Última actualización con Tiendanube: ${d.catalogo.sincronizado ? new Date(d.catalogo.sincronizado).toLocaleString('es-AR') : '—'}.</p>
+    </div>`;
+
+  pintarTablaProductos();
+  hydrateIcons(body);
 }

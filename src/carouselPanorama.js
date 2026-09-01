@@ -404,6 +404,69 @@ function ctaBlock(panel, { railY }) {
   </div>`;
 }
 
+/* =========================================================================
+ * ETIQUETA CON FLECHA ("esto es el pantalón cargo")
+ *
+ * Pedido del dueño (sep-2026): una pieza con VARIOS productos donde cada prenda tenga
+ * su nombre señalado. Sin la flecha, dos prendas y dos nombres sueltos no dicen cuál
+ * es cuál — y ahí la pieza deja de informar y pasa a decorar.
+ *
+ * La etiqueta se apoya en la geometría que ya calculó la tira (centro y alto de la
+ * tinta de cada prenda), así que apunta a la prenda REAL y no a una posición fija.
+ * Va SIEMPRE adentro de su cuadro: es información, y lo que cruza la costura queda
+ * ilegible en el feed (regla 1 de la composición).
+ * ========================================================================= */
+function labelCallout(g, texto, { indice, panelW, H }) {
+  const nombre = String(texto || '').trim();
+  if (!nombre) return '';
+  const corto = nombre.length > 26 ? `${nombre.slice(0, 25)}…` : nombre;
+
+  const cxPx = g.cx * panelW;
+  const inkHpx = g.inkH * H;
+  const anchoPx = inkHpx * g.inkRatio;
+  const y = Math.round(g.fila.bottom * H - inkHpx * 0.62);
+
+  const RAYA = 84;                          // largo de la línea que va del nombre a la prenda
+  const pill = corto.length * 16 + 56;      // ancho aproximado de la cápsula (fuente de 29px)
+  const largo = RAYA + pill;
+  const izq = indice * panelW + 56;         // la etiqueta NUNCA cruza la costura: es información
+  const der = (indice + 1) * panelW - 56;
+
+  // Lado preferido: donde hay aire. Si de ese lado no entra entera, se prueba el otro;
+  // si no entra de ninguno (prenda enorme), se acomoda contra el borde del cuadro.
+  const enElCuadro = cxPx - indice * panelW;
+  let derecha = enElCuadro < panelW * 0.52;
+  const punta = (haciaDerecha) => Math.round(cxPx + (haciaDerecha ? anchoPx * 0.30 : -anchoPx * 0.30));
+  const entra = (haciaDerecha) => (haciaDerecha
+    ? punta(true) + largo <= der && punta(true) >= izq
+    : punta(false) - largo >= izq && punta(false) <= der);
+  if (!entra(derecha) && entra(!derecha)) derecha = !derecha;
+
+  let x = punta(derecha);
+  if (derecha) x = Math.min(Math.max(x, izq), der - largo);
+  else x = Math.max(Math.min(x, der), izq + largo);
+
+  /* Triángulo CSS: con los bordes de arriba y abajo transparentes, el borde macizo
+     apunta al lado contrario. border-right = punta hacia la IZQUIERDA (etiqueta a la
+     derecha de la prenda) y border-left = punta hacia la derecha. */
+  const flecha = `<span style="width:0;height:0;border-top:8px solid transparent;border-bottom:8px solid transparent;
+    border-${derecha ? 'right' : 'left'}:12px solid ${ACCENT};"></span>`;
+  const raya = `<span style="width:${RAYA - 12}px; height:3px; background:${ACCENT};"></span>`;
+  // 29px sobre un cuadro de 1080: en el feed de un celular se lee sin acercar la pantalla.
+  const capsula = `<span style="font-family:'Inter',sans-serif; font-weight:800; font-size:29px; letter-spacing:.4px;
+      text-transform:uppercase; color:#fff; background:rgba(10,10,10,.86); border:2px solid ${ACCENT};
+      border-radius:100px; padding:13px 26px; white-space:nowrap;">${esc(corto)}</span>`;
+
+  // Con la etiqueta a la DERECHA el orden visual arranca en la flecha (row-reverse) y el
+  // bloque crece hacia la derecha desde la punta; a la izquierda es al revés y el bloque
+  // termina justo en la punta (por eso el translateX(-100%)).
+  return `<div style="position:absolute; left:${x}px; top:${y}px; z-index:8;
+      transform:translateY(-50%)${derecha ? '' : ' translateX(-100%)'};
+      display:flex; align-items:center; ${derecha ? 'flex-direction:row-reverse;' : ''}">
+    ${capsula}${raya}${flecha}
+  </div>`;
+}
+
 /** "Deslizá" del primer cuadro: la única instrucción explícita de toda la tira. */
 function swipeHint() {
   const H = PANEL.h;
@@ -508,6 +571,12 @@ function buildPanoramaHtml(opts, helpers = {}) {
     g.cruza = true;
   }
 
+  const etiquetas = panels.map((panel, i) => (
+    (panel.label && geoms[i].tieneFoto && panel.kind !== 'cta')
+      ? labelCallout(geoms[i], panel.label, { indice: i, panelW, H })
+      : ''
+  )).join('');
+
   const medias = panels.map((panel, i) => {
     const g = geoms[i];
     if (!g.tieneFoto) return '';
@@ -552,6 +621,7 @@ function buildPanoramaHtml(opts, helpers = {}) {
     ${warmSweep(W, H, { flip })}
     ${medias}
     ${railLayer(W, H, n, { y: railY })}
+    ${etiquetas}
     ${cuadros}
     ${grainLayer(opts.backdropUrl ? 0.14 : 0.2)}
     <!-- ritmo: ${ritmo} -->

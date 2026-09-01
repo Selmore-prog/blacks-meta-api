@@ -108,6 +108,10 @@ jobs:
       - run: npm ci
       - run: npm run sync
       - run: npm run sync:sales
+      # Pedidos del día a orders_cache: es lo que alimenta la sección Estadísticas
+      # (facturación, conversión, clientes). Incremental por fecha de modificación,
+      # así también entran los pedidos que se pagaron o se cancelaron después.
+      - run: npm run sync:orders
       # Con el stock fresco en el cache, corrige la disponibilidad del catálogo de
       # Meta (variantes que figuran sin stock pero tienen, y al revés) para que los
       # anuncios dinámicos muestren los productos correctos. Best-effort: si falla,

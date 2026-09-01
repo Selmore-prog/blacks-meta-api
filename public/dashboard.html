@@ -27,7 +27,8 @@
       <button class="tab" data-view="products" onclick="switchTab('products')"><span data-ic="tag"></span><span class="tl">Productos</span></button>
       <button class="tab" data-view="home" onclick="switchTab('home')"><span data-ic="grid"></span><span class="tl">Home de la tienda</span></button>
       <button class="tab" data-view="ads" onclick="switchTab('ads')"><span data-ic="bolt"></span><span class="tl">Pauta</span></button>
-      <button class="tab" data-view="metrics" onclick="switchTab('metrics')"><span data-ic="chart"></span><span class="tl">Métricas</span></button>
+      <button class="tab" data-view="stats" onclick="switchTab('stats')"><span data-ic="chart"></span><span class="tl">Estadísticas</span></button>
+      <button class="tab" data-view="metrics" onclick="switchTab('metrics')"><span data-ic="list"></span><span class="tl">Métricas</span></button>
       <button class="tab" data-view="analysis" onclick="switchTab('analysis')"><span data-ic="search"></span><span class="tl">Análisis web</span></button>
     </nav>
     <div class="side-foot">@blacks.indumentaria</div>
@@ -317,6 +318,56 @@
       </div>
     </section>
 
+    <!-- ===== ESTADÍSTICAS DE LA TIENDA =====
+         Lo que Tiendanube cobra aparte y encima no cruza: visitas (Analytics) contra
+         pedidos REALES (Tiendanube), por cualquier rango de fechas, con informe
+         descargable. Ver src/storeMetrics.js. -->
+    <section id="view-stats" class="view hidden">
+      <div class="toolbar">
+        <div>
+          <h2>Estadísticas de la tienda</h2>
+          <div class="sub">Cuánta gente entra, qué mira, cuántos compran y cuánto dejan. Elegí el período y comparalo.</div>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <button class="btn-ghost btn-sm" id="stats-sync" onclick="syncOrdersFromStats(this)" title="Traer de Tiendanube los pedidos que falten"><span data-ic="refresh"></span> Actualizar pedidos</button>
+          <button class="btn-primary btn-sm" onclick="exportStoreReport()"><span data-ic="download"></span> Descargar informe</button>
+        </div>
+      </div>
+
+      <div class="panel st-bar">
+        <div class="field">
+          <label>Período</label>
+          <select class="input" id="st-preset" onchange="onStatsPreset()">
+            <option value="7">Últimos 7 días</option>
+            <option value="15">Últimos 15 días</option>
+            <option value="30" selected>Últimos 30 días</option>
+            <option value="60">Últimos 60 días</option>
+            <option value="90">Últimos 90 días</option>
+            <option value="180">Últimos 6 meses</option>
+            <option value="365">Último año</option>
+            <option value="mes_actual">Este mes</option>
+            <option value="mes_pasado">Mes pasado</option>
+            <option value="custom">Fechas a mano…</option>
+          </select>
+        </div>
+        <div class="field hidden" id="st-custom">
+          <label>Desde / hasta</label>
+          <div class="an-dates"><input class="input" type="date" id="st-from" /><span>a</span><input class="input" type="date" id="st-to" /></div>
+        </div>
+        <div class="field">
+          <label>Comparar contra</label>
+          <select class="input" id="st-compare" onchange="loadStoreStats()">
+            <option value="previo" selected>El período anterior</option>
+            <option value="anio">El mismo período del año pasado</option>
+            <option value="ninguno">No comparar</option>
+          </select>
+        </div>
+        <button class="btn-primary" id="st-run" onclick="loadStoreStats(true)"><span data-ic="chart"></span> Ver</button>
+      </div>
+
+      <div id="stats-body"><p class="loading">Cargando estadísticas…</p></div>
+    </section>
+
     <!-- ===== PAUTA: Meta Ads vs Google Ads con la misma vara ===== -->
     <section id="view-ads" class="view hidden">
       <div class="toolbar">
@@ -421,7 +472,8 @@
     <button class="tab" data-view="products" onclick="switchTab('products')"><span data-ic="tag"></span><span class="tl">Productos</span></button>
     <button class="tab" data-view="home" onclick="switchTab('home')"><span data-ic="grid"></span><span class="tl">Home</span></button>
     <button class="tab" data-view="ads" onclick="switchTab('ads')"><span data-ic="bolt"></span><span class="tl">Pauta</span></button>
-    <button class="tab" data-view="metrics" onclick="switchTab('metrics')"><span data-ic="chart"></span><span class="tl">Métricas</span></button>
+    <button class="tab" data-view="stats" onclick="switchTab('stats')"><span data-ic="chart"></span><span class="tl">Estadísticas</span></button>
+    <button class="tab" data-view="metrics" onclick="switchTab('metrics')"><span data-ic="list"></span><span class="tl">Métricas</span></button>
     <button class="tab" data-view="analysis" onclick="switchTab('analysis')"><span data-ic="search"></span><span class="tl">Análisis</span></button>
   </nav>
 
