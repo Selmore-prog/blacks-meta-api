@@ -556,6 +556,20 @@ app.get('/api/store/metrics/export', wrap(async (req, res) => {
   res.send(buildStoreReportHtml(rep, { todos: req.query.todos === '1' }));
 }));
 
+// De dónde salió cada consulta de WhatsApp del período: qué botón se tocó, en qué
+// página estaba, qué producto miraba, de qué campaña vino y a qué hora. Lo abre el
+// modal de las tarjetas "Consultas mayoristas/minoristas".
+app.get('/api/store/leads', wrap(async (req, res) => {
+  const { leadDetail } = require('./storeMetrics');
+  res.json(await leadDetail({
+    from: req.query.from,
+    to: req.query.to,
+    preset: req.query.preset,
+    tipo: req.query.tipo,
+    compare: req.query.compare,
+  }));
+}));
+
 // Traer los pedidos nuevos de Tiendanube (botón "Actualizar" de la sección).
 app.post('/api/store/sync-orders', wrap(async (req, res) => {
   const { syncOrders } = require('../scripts/sync-orders');

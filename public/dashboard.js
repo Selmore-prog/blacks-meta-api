@@ -6573,10 +6573,13 @@ function renderStoreStats() {
       <div class="prod-totals">
         <div class="stat"><b>${stNum(seg.minorista.vistas)} · ${stPct(seg.minorista.pctVistas)}</b><span>Visitas a productos minoristas ${src('GA')}</span></div>
         <div class="stat"><b>${stNum(seg.mayorista.vistas)} · ${stPct(seg.mayorista.pctVistas)}</b><span>Visitas a productos mayoristas ${src('GA')}</span></div>
-        <div class="stat"><b>${stNum(d.consultas.mayorista)}</b><span>Consultas mayoristas ${src('sitio')}</span></div>
-        <div class="stat"><b>${stNum(d.consultas.minorista)}</b><span>Consultas minoristas ${src('sitio')}</span></div>
+        <div class="stat st-clickable" onclick="abrirDetalleConsultas('mayorista')" title="Ver de dónde salieron estas consultas">
+          <b>${stNum(d.consultas.mayorista)}</b><span>Consultas mayoristas ${src('sitio')} <i class="st-vermas">ver de dónde vienen</i></span></div>
+        <div class="stat st-clickable" onclick="abrirDetalleConsultas('minorista')" title="Ver de dónde salieron estas consultas">
+          <b>${stNum(d.consultas.minorista)}</b><span>Consultas minoristas ${src('sitio')} <i class="st-vermas">ver de dónde vienen</i></span></div>
       </div>
-      <p class="hint" style="margin:10px 0 0;">Mayorista no tiene carrito: su resultado son consultas, no compras. Por eso factura $0 y no es un error.</p>
+      <p class="hint" style="margin:10px 0 0;">Mayorista no tiene carrito: su resultado son consultas, no compras. Por eso factura $0 y no es un error.
+        Tocá cualquiera de las dos tarjetas de consultas para ver de qué botón salieron.</p>
     </div>
 
     <div class="panel" style="margin-bottom:18px;">
@@ -6648,4 +6651,95 @@ function renderStoreStats() {
 
   pintarTablaProductos();
   hydrateIcons(body);
+}
+
+
+/* =========================================================================
+ * DE DÓNDE SALIÓ CADA CONSULTA
+ *
+ * El número de consultas solo no sirve para decidir nada: la pregunta que sigue
+ * siempre es "¿y de dónde salieron?". Este modal abre ese número por el BOTÓN que
+ * tocaron, la página donde estaban, el producto que miraban, de qué campaña venían
+ * y a qué hora escribieron (que es cuándo hay que estar para contestar).
+ *
+ * Sale de lead_clicks, que lo escribe el propio sitio. Ver src/storeMetrics.js.
+ * ========================================================================= */
+
+/** Lista con barra proporcional: se lee de un vistazo cuál manda. */
+function stBars(filas, { vacio = 'Sin datos en este período.' } = {}) {
+  if (!filas || !filas.length) return `<p class="hint">${esc(vacio)}</p>`;
+  const max = Math.max(...filas.map((f) => f.total), 1);
+  return `<div class="lead-bars">${filas.map((f) => `
+    <div class="lead-bar">
+      <div class="lead-bar-top"><span>${esc(f.nombre)}</span><b>${stNum(f.total)}<i>${stPct(f.pct)}</i></b></div>
+      <div class="lead-bar-track"><i style="width:${Math.max(1.5, (f.total / max) * 100)}%"></i></div>
+      ${f.campanas && f.campanas.length ? `<span class="lead-bar-sub">campañas: ${f.campanas.map(esc).join(' · ')}</span>` : ''}
+    </div>`).join('')}</div>`;
+}
+
+async function abrirDetalleConsultas(tipo) {
+  if (!statsData) return;
+  const titulo = tipo === 'mayorista' ? 'Consultas mayoristas' : 'Consultas minoristas';
+  const ov = showInfoModal(`${titulo} · ${esc(statsData.rango.label)}`, '<p class="loading">Buscando de dónde vinieron…</p>');
+  const cuerpo = ov.querySelector('.modal-body');
+  try {
+    const p = new URLSearchParams({
+      from: statsData.rango.from,
+      to: statsData.rango.to,
+      tipo,
+      compare: document.getElementById('st-compare').value,
+    });
+    const d = await api(`/api/store/leads?${p.toString()}`);
+    cuerpo.innerHTML = `
+      <div class="lead-head">
+        <div><b>${stNum(d.total)}</b><span>consultas entre el ${esc(d.rango.from)} y el ${esc(d.rango.to)}</span></div>
+        ${d.previo === null ? '' : `<div class="lead-head-prev">${d.comparacionIncompleta
+    ? `el período anterior no se puede comparar: el sitio empezó a registrar las consultas el ${esc(d.midiendoDesde)}`
+    : `antes ${stNum(d.previo)} ${stDelta(d.delta)}`}</div>`}
+      </div>
+
+      <h4 class="lead-h">${icon('route')} De qué botón salió</h4>
+      <p class="hint" style="margin:0 0 8px;">Es lo primero que hay que mirar: dice en qué parte del sitio la gente decide escribir.</p>
+      ${stBars(d.canales)}
+
+      <div class="lead-two">
+        <div>
+          <h4 class="lead-h">${icon('grid')} En qué página estaba</h4>
+          ${stBars(d.paginas)}
+        </div>
+        <div>
+          <h4 class="lead-h">${icon('bolt')} De dónde venía</h4>
+          ${stBars(d.origenes)}
+        </div>
+      </div>
+
+      ${d.productos.length ? `<h4 class="lead-h">${icon('tag')} Qué producto estaba mirando</h4>
+      <p class="hint" style="margin:0 0 8px;">Los productos que más consultas generan. Si uno se repite, conviene reforzarlo en el home y en la pauta.</p>
+      ${stBars(d.productos)}` : ''}
+
+      <h4 class="lead-h">${icon('clock')} A qué hora escriben</h4>
+      <p class="hint" style="margin:0 0 8px;">Son mensajes de WhatsApp: alguien los tiene que contestar. Esta es la franja donde más entran.</p>
+      ${stBars(d.franjas)}
+
+      ${d.rutas.length ? `<h4 class="lead-h">${icon('list')} Páginas exactas</h4>
+      ${stBars(d.rutas.slice(0, 8))}` : ''}
+
+      <h4 class="lead-h">${icon('comment')} Las últimas ${d.ultimas.length}</h4>
+      <p class="hint" style="margin:0 0 8px;">Cuando te entra un mensaje, buscá la hora acá y ya sabés de dónde vino, sin pedirle ningún código al cliente.</p>
+      <div class="lead-table-wrap">
+        <table class="st-table">
+          <thead><tr><th>Cuándo</th><th>Botón</th><th>Miraba</th><th>Vino de</th></tr></thead>
+          <tbody>${d.ultimas.map((u) => `<tr>
+            <td>${esc(u.cuando)}</td>
+            <td>${esc(u.canal)}</td>
+            <td>${esc(u.producto || u.pagina || '—')}</td>
+            <td>${esc(u.origen)}</td>
+          </tr>`).join('')}</tbody>
+        </table>
+      </div>
+      <p class="hint" style="margin:14px 0 0;">Cada consulta es un <b>clic</b> al botón de WhatsApp, no una conversación: si alguien abre WhatsApp y no escribe, igual cuenta acá.</p>`;
+    hydrateIcons(cuerpo);
+  } catch (err) {
+    cuerpo.innerHTML = `<p class="hint">No pude traer el detalle: ${esc(err.message)}</p>`;
+  }
 }

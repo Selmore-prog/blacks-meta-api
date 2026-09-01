@@ -364,6 +364,145 @@ async function consultas(from, to) {
   };
 }
 
+/* ------------------------- de dónde salió cada consulta -------------------------
+ * El panel muestra cuántas consultas mayoristas y minoristas hubo. La pregunta que
+ * sigue siempre es la misma: "¿y de dónde salieron?". Acá se abre ese número por el
+ * BOTÓN que se tocó, la página donde estaba la persona, el producto que estaba
+ * mirando, de qué campaña venía y a qué hora consultó.
+ *
+ * Sale todo de `lead_clicks`, que lo escribe el propio sitio con cada clic a WhatsApp
+ * (ver /api/leads/click). Ojo con lo que significa: es un CLIC, no una conversación.
+ * ------------------------------------------------------------------------------ */
+
+/** Nombre en castellano de cada botón. Lo crudo ("whatsapp_mayorista_landing") no se
+ *  le puede mostrar a nadie, y el mismo diccionario se usa en el informe y el panel. */
+const CANALES = {
+  whatsapp_flotante: 'Globo flotante de WhatsApp',
+  whatsapp_producto: 'Botón dentro de una ficha de producto',
+  whatsapp_mayorista_landing: 'Botón de la landing mayorista',
+  whatsapp_menu: 'WhatsApp del menú',
+  whatsapp_footer: 'WhatsApp del pie de página',
+  whatsapp_buscador: 'WhatsApp del buscador',
+  whatsapp_otro: 'Otro link de WhatsApp del sitio',
+  formulario_express: 'Formulario express de la landing mayorista',
+  formulario: 'Formulario de contacto',
+  telefono: 'Tocaron el teléfono',
+  email: 'Tocaron el mail',
+};
+const canalLabel = (id) => CANALES[id] || String(id || 'sin dato').replace(/^whatsapp_/, 'WhatsApp ').replace(/_/g, ' ');
+
+/** Origen legible de una consulta: la campaña si la hay, si no el canal, si no directo. */
+function origenDeLead(source, campaign) {
+  const s = String(source || '').toLowerCase();
+  if (/google/.test(s)) return 'Google (pauta o búsqueda)';
+  if (/meta|fb|face|ig|insta/.test(s)) return 'Meta (Instagram / Facebook)';
+  if (s) return source;
+  return campaign ? `Campaña ${campaign}` : 'Directo / orgánico';
+}
+
+async function leadDetail({ preset, from, to, tipo = 'todos', compare = 'previo' } = {}) {
+  // El modal tiene que mostrar EXACTAMENTE el período que está en pantalla, así que
+  // acepta las mismas fechas (o el mismo atajo) que el informe.
+  const rango = resolverRango({ preset, from, to });
+  const comparado = resolverComparacion(rango.from, rango.to, compare);
+  const filtroTipo = ['mayorista', 'minorista'].includes(tipo) ? tipo : null;
+  const donde = `(created_at AT TIME ZONE '${TZ}')::date BETWEEN $1::date AND $2::date`
+    + (filtroTipo ? ` AND lead_type = $3` : '');
+  const args = filtroTipo ? [rango.from, rango.to, filtroTipo] : [rango.from, rango.to];
+
+  const grupo = (col, limite = 12) => pool.query(
+    `SELECT COALESCE(NULLIF(${col}, ''), 'sin dato') AS nombre, count(*)::int AS total
+       FROM lead_clicks WHERE ${donde} GROUP BY 1 ORDER BY 2 DESC LIMIT ${limite}`, args
+  );
+
+  const [tot, canales, tiposRows, paginas, rutas, productos, origenes, porDia, horas, ultimas, previoRows, desdeRows] = await Promise.all([
+    pool.query(`SELECT count(*)::int AS total FROM lead_clicks WHERE ${donde}`, args),
+    grupo('contact_channel'),
+    pool.query(`SELECT COALESCE(lead_type, 'sin dato') AS nombre, count(*)::int AS total
+                  FROM lead_clicks WHERE ${donde} GROUP BY 1 ORDER BY 2 DESC`, args),
+    grupo('page_type', 8),
+    grupo('page_path', 10),
+    pool.query(`SELECT item_name AS nombre, count(*)::int AS total FROM lead_clicks
+                 WHERE ${donde} AND item_name IS NOT NULL AND item_name <> 'Sin especificar'
+                 GROUP BY 1 ORDER BY 2 DESC LIMIT 10`, args),
+    pool.query(`SELECT source, campaign, count(*)::int AS total FROM lead_clicks
+                 WHERE ${donde} GROUP BY 1, 2 ORDER BY 3 DESC LIMIT 20`, args),
+    pool.query(`SELECT to_char((created_at AT TIME ZONE '${TZ}')::date, 'YYYY-MM-DD') AS fecha,
+                       count(*)::int AS total FROM lead_clicks WHERE ${donde} GROUP BY 1 ORDER BY 1`, args),
+    pool.query(`SELECT extract(hour FROM created_at AT TIME ZONE '${TZ}')::int AS hora,
+                       count(*)::int AS total FROM lead_clicks WHERE ${donde} GROUP BY 1 ORDER BY 1`, args),
+    pool.query(`SELECT to_char(created_at AT TIME ZONE '${TZ}', 'DD/MM HH24:MI') AS cuando,
+                       lead_type, contact_channel, item_name, page_path, campaign, source
+                  FROM lead_clicks WHERE ${donde} ORDER BY created_at DESC LIMIT 40`, args),
+    comparado
+      ? pool.query(`SELECT count(*)::int AS total FROM lead_clicks
+                     WHERE (created_at AT TIME ZONE '${TZ}')::date BETWEEN $1::date AND $2::date
+                     ${filtroTipo ? 'AND lead_type = $3' : ''}`,
+      filtroTipo ? [comparado.from, comparado.to, filtroTipo] : [comparado.from, comparado.to])
+      : Promise.resolve({ rows: [{ total: null }] }),
+    // Desde cuándo hay registro: el sitio empezó a guardar los clics en una fecha
+    // concreta, y sin esto un "antes: 0" parece una caída y es que no se medía.
+    pool.query(`SELECT to_char(min(created_at) AT TIME ZONE '${TZ}', 'YYYY-MM-DD') AS desde FROM lead_clicks`),
+  ]);
+
+  const total = n0(tot.rows[0] && tot.rows[0].total);
+  const previo = previoRows.rows[0] ? previoRows.rows[0].total : null;
+  const conPct = (rows, mapa = (x) => x.nombre) => rows.map((r) => ({
+    nombre: mapa(r), crudo: r.nombre, total: n0(r.total),
+    pct: total ? r2((n0(r.total) / total) * 100) : 0,
+  }));
+
+  // Origen: se juntan las filas de source+campaign bajo un mismo nombre legible.
+  const porOrigen = new Map();
+  for (const r of origenes.rows) {
+    const clave = origenDeLead(r.source, r.campaign);
+    const acc = porOrigen.get(clave) || { nombre: clave, total: 0, campanas: new Set() };
+    acc.total += n0(r.total);
+    if (r.campaign) acc.campanas.add(r.campaign);
+    porOrigen.set(clave, acc);
+  }
+
+  // La hora importa: son consultas por WhatsApp y alguien las tiene que contestar.
+  const franja = (h) => (h < 9 ? 'Antes de las 9' : h < 13 ? '9 a 13' : h < 18 ? '13 a 18' : h < 21 ? '18 a 21' : 'Después de las 21');
+  const porFranja = new Map();
+  for (const r of horas.rows) {
+    const k = franja(n0(r.hora));
+    porFranja.set(k, (porFranja.get(k) || 0) + n0(r.total));
+  }
+
+  return {
+    rango: { ...rango, dias: diasDe(rango.from, rango.to) },
+    comparado,
+    tipo: filtroTipo || 'todos',
+    total,
+    previo,
+    delta: delta(total, previo),
+    // Aviso cuando el período de comparación es anterior al primer clic registrado.
+    midiendoDesde: (desdeRows.rows[0] && desdeRows.rows[0].desde) || null,
+    comparacionIncompleta: Boolean(comparado && desdeRows.rows[0] && desdeRows.rows[0].desde
+      && comparado.from < desdeRows.rows[0].desde),
+    canales: conPct(canales.rows, (r) => canalLabel(r.nombre)),
+    tipos: conPct(tiposRows.rows),
+    paginas: conPct(paginas.rows),
+    rutas: conPct(rutas.rows),
+    productos: conPct(productos.rows),
+    origenes: [...porOrigen.values()]
+      .map((o) => ({ nombre: o.nombre, total: o.total, pct: total ? r2((o.total / total) * 100) : 0, campanas: [...o.campanas].slice(0, 4) }))
+      .sort((a, b) => b.total - a.total),
+    porDia: porDia.rows.map((r) => ({ fecha: r.fecha, total: n0(r.total) })),
+    franjas: [...porFranja.entries()].map(([nombre, t]) => ({ nombre, total: t, pct: total ? r2((t / total) * 100) : 0 }))
+      .sort((a, b) => b.total - a.total),
+    ultimas: ultimas.rows.map((r) => ({
+      cuando: r.cuando,
+      tipo: r.lead_type,
+      canal: canalLabel(r.contact_channel),
+      producto: r.item_name && r.item_name !== 'Sin especificar' ? r.item_name : null,
+      pagina: r.page_path,
+      origen: origenDeLead(r.source, r.campaign),
+    })),
+  };
+}
+
 /* --------------------------- tabla de productos --------------------------- */
 
 /**
@@ -620,6 +759,6 @@ async function cachedStoreReport(params = {}) {
 function invalidate() { cache.clear(); }
 
 module.exports = {
-  buildStoreReport, cachedStoreReport, invalidate,
+  buildStoreReport, cachedStoreReport, invalidate, leadDetail, canalLabel,
   resolverRango, resolverComparacion, PRESETS, hoyArg, masDias, diasDe,
 };
