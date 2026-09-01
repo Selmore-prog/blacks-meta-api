@@ -5994,8 +5994,9 @@ function renderFlash() {
     ${banner}
 
     <div class="grid-2">
-      <div class="field"><label>Título que ve el cliente</label>
-        <input class="input" id="flash-title" maxlength="80" value="${esc(cfg.title || 'Ofertas flash')}" /></div>
+      <div class="field"><label>Título que ve el cliente (opcional)</label>
+        <input class="input" id="flash-title" maxlength="80" value="${esc(cfg.title == null ? 'Ofertas flash' : cfg.title)}"
+               placeholder="Vacío = la sección va sin título" /></div>
       <div class="field"><label>Subtítulo (opcional)</label>
         <input class="input" id="flash-subtitle" maxlength="160" value="${esc(cfg.subtitle || '')}" placeholder="ej: Sólo por hoy, hasta agotar stock" /></div>
     </div>

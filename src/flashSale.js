@@ -160,7 +160,16 @@ async function saveConfig(input) {
   if (!input || typeof input !== 'object') throw badRequest('Falta la configuración.');
   const current = await getConfig();
 
-  const title = String(input.title || '').trim().slice(0, 80) || DEFAULT.title;
+  // El título es OPCIONAL. Si se deja el campo vacío a propósito, se guarda
+  // vacío y la sección no dibuja encabezado (el theme oculta el <h2>).
+  // Antes cualquier vacío se reemplazaba por DEFAULT.title, así que era
+  // IMPOSIBLE sacarlo desde el panel: se guardaba, se recargaba y volvía a
+  // aparecer "Ofertas flash". Distinguimos dos casos:
+  //   · la clave no viene  → no se tocó el campo, se respeta lo que ya había
+  //   · la clave viene ''  → se borró a propósito, se guarda vacío
+  const title = input.title === undefined
+    ? (current.title === undefined ? DEFAULT.title : current.title)
+    : String(input.title).trim().slice(0, 80);
   const subtitle = input.subtitle ? String(input.subtitle).trim().slice(0, 160) : null;
   const url = input.url ? String(input.url).trim().slice(0, 200) : null;
   let ends_at = null;
@@ -383,7 +392,7 @@ async function computeBlock() {
 
   return {
     active: true,
-    title: cfg.title || DEFAULT.title,
+    title: cfg.title === undefined ? DEFAULT.title : cfg.title,  // '' = sin título, a propósito
     subtitle: cfg.subtitle || null,
     url: cfg.url || null,
     ends_at: cfg.ends_at || null,
