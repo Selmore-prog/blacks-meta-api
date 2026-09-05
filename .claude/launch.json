@@ -9,6 +9,16 @@
       ],
       "port": 8080,
       "autoPort": true
+    },
+    {
+      "name": "motor",
+      "runtimeExecutable": "npm",
+      "runtimeArgs": [
+        "--prefix",
+        "/Users/sebastianelmore/blacks-content-engine",
+        "start"
+      ],
+      "port": 8080
     }
   ]
 }

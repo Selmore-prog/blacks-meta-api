@@ -69,6 +69,36 @@ const NOMBRES = {
 
 const nombreDe = (id) => NOMBRES[id] || id;
 
+/* SECCIONES FIJAS DEL THEME.
+   No están en el orden del panel de diseño de Tiendanube porque no salen del
+   selector de secciones: están escritas a mano en templates/home.tpl y por eso
+   no se pueden arrastrar. Aparecen igual en la página y ocupan lugar, así que
+   el esquema tiene que contarlas o el orden propuesto miente.
+   Para moverlas hay que tocar el .tpl, no el panel. */
+const FIJAS = [
+  {
+    clase: 'trust-badges-section',
+    id: 'trust_badges',
+    nombre: 'Franja de confianza (envío, cuotas, retiro, cambios)',
+    donde: 'templates/home.tpl — se imprime enganchada después de la PRIMERA sección del orden',
+    contenido: 'Envío gratis, financiación, punto de retiro y cambios/devoluciones.',
+  },
+  {
+    clase: 'ab-strip',
+    id: 'about_strip',
+    nombre: 'Franja "quiénes somos"',
+    donde: 'snipplets/home/home-about-strip.tpl — después del bucle de secciones',
+    contenido: 'Gancho corto de la historia, con link a /quienes-somos.',
+  },
+  {
+    clase: 'guarantees-section',
+    id: 'guarantees',
+    nombre: '"¿Por qué elegir BLACKS?"',
+    donde: 'templates/home.tpl — al final, después del bucle',
+    contenido: 'Las garantías largas, ya cerca del pie.',
+  },
+];
+
 /* Los ocho layouts que quedaron del theme viejo. Se marcan aparte porque la
    recomendación es sacarlos, no moverlos. */
 const LAYOUTS_VIEJOS = ['hero_split', 'cards_3d', 'masonry', 'magazine',
@@ -79,18 +109,29 @@ const LAYOUTS_VIEJOS = ['hero_split', 'cards_3d', 'masonry', 'magazine',
  * de cada una. Devuelve [{ id, oculta, html }] en el orden en que salen.
  */
 function trocear(html) {
-  const re = /<div class="home-section-wrapper section-([a-z0-9_]+)"/g;
   const marcas = [];
+
+  // Secciones del orden del panel.
+  const re = /<div class="home-section-wrapper section-([a-z0-9_]+)"/g;
   let m;
-  while ((m = re.exec(html)) !== null) marcas.push({ id: m[1], desde: m.index });
+  while ((m = re.exec(html)) !== null) marcas.push({ bruto: m[1], desde: m.index, fija: null });
+
+  // Secciones escritas a mano en el theme. Se buscan por su clase raíz y se
+  // intercalan por posición real en el documento, que es como las ve el visitante.
+  FIJAS.forEach((f) => {
+    const i = html.indexOf(`class="${f.clase}"`);
+    if (i !== -1) marcas.push({ bruto: f.id, desde: i, fija: f });
+  });
+
+  marcas.sort((a, b) => a.desde - b.desde);
 
   return marcas.map((mar, i) => {
     const hasta = i + 1 < marcas.length ? marcas[i + 1].desde : Math.min(html.length, mar.desde + 60000);
-    const bruto = mar.id;
-    const oculta = bruto.startsWith('__hidden__');
+    const oculta = mar.bruto.startsWith('__hidden__');
     return {
-      id: oculta ? bruto.slice('__hidden__'.length) : bruto,
+      id: oculta ? mar.bruto.slice('__hidden__'.length) : mar.bruto,
       oculta,
+      fija: mar.fija,
       html: html.slice(mar.desde, hasta),
     };
   });
@@ -135,10 +176,15 @@ async function leerHome({ force = false } = {}) {
   const secciones = trozos.map((t, i) => ({
     pos: i + 1,
     id: t.id,
-    nombre: nombreDe(t.id),
+    nombre: t.fija ? t.fija.nombre : nombreDe(t.id),
     oculta: t.oculta,
-    vacia: !t.oculta && estaVacia(t),
+    // Una fija nunca está "vacía": su contenido está escrito en el theme.
+    vacia: !t.oculta && !t.fija && estaVacia(t),
     viejo: LAYOUTS_VIEJOS.includes(t.id),
+    // `fija: true` = no se puede arrastrar desde el panel de diseño.
+    fija: !!t.fija,
+    donde: t.fija ? t.fija.donde : null,
+    contenido: t.fija ? t.fija.contenido : null,
   }));
 
   /* Señal de peso: `parseFromString` es la huella del scraping viejo — una
@@ -172,4 +218,4 @@ function ordenActual(home) {
 
 function invalidate() { cache = { at: 0, data: null }; }
 
-module.exports = { leerHome, ordenActual, nombreDe, NOMBRES, LAYOUTS_VIEJOS, invalidate };
+module.exports = { leerHome, ordenActual, nombreDe, NOMBRES, LAYOUTS_VIEJOS, FIJAS, invalidate };

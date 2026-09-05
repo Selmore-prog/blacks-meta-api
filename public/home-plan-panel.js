@@ -12,7 +12,11 @@
 
 /* eslint-disable no-unused-vars */
 
-let hpState = { plan: null, copys: {}, escribiendo: null };
+let hpState = {
+  plan: null, copys: {}, escribiendo: null,
+  // 'boceto' (la página dibujada) o 'lista' (la tabla). Se recuerda entre visitas.
+  vista: (() => { try { return localStorage.getItem('hpVista') || 'boceto'; } catch (_) { return 'boceto'; } })(),
+};
 
 const HP_NIVEL = { alto: 'Urgente', medio: 'Conviene', bajo: 'Detalle' };
 const HP_ESTADO = {
@@ -93,7 +97,110 @@ function hpDiagnostico(d) {
   </section>`;
 }
 
-/* ------------------------------------------------------------ comparación */
+/* ------------------------------------------------------------ comparación
+ * Dos vistas de lo mismo:
+ *   BOCETO — la página dibujada, sección por sección, como se apila en un
+ *            celular. Es la que se entiende de un vistazo: no dice "riel", se
+ *            ve una fila de tarjetas. Se dibuja en mobile porque es de donde
+ *            viene la mayoría de las visitas.
+ *   LISTA  — la misma información en tabla, para leer rápido las posiciones.
+ * ----------------------------------------------------------------------- */
+
+/* Cada sección se dibuja con la forma que realmente tiene en la página. Son
+   divs vacíos con borde: no se busca fidelidad, se busca que la silueta se
+   reconozca (una fila de tarjetas se ve como una fila de tarjetas). */
+function hpSilueta(id, tipo, bloque) {
+  const clave = tipo === 'bloque' ? bloque : id;
+  const rep = (n, cls) => Array.from({ length: n }, () => `<i class="${cls}"></i>`).join('');
+
+  switch (clave) {
+    case 'slider':
+    case 'portada':
+      return `<div class="sk-hero">${rep(3, 'sk-dot')}</div>`;
+    case 'trust_badges':
+    case 'atributos':
+      return `<div class="sk-fila sk-fila--chips">${rep(4, 'sk-chip')}</div>`;
+    case 'rail_1': case 'rail_2': case 'rail_3': case 'rail_4':
+    case 'products': case 'new': case 'sale': case 'promotion': case 'best_seller':
+      return `<div class="sk-titulo"></div><div class="sk-fila sk-fila--cards">${rep(4, 'sk-card')}</div>`;
+    // Bloque "Productos elegidos": grilla, no riel — no se desliza.
+    case 'productos':
+      return `<div class="sk-titulo"></div><div class="sk-grilla">${rep(4, 'sk-card')}</div>`;
+    case 'flash_sale':
+      return `<div class="sk-titulo"></div><div class="sk-fila sk-fila--pills">${rep(3, 'sk-pill')}</div>
+              <div class="sk-fila sk-fila--cards">${rep(4, 'sk-card')}</div>`;
+    case 'editorial':
+      return `<div class="sk-edit"><i class="sk-big"></i><div>${rep(2, 'sk-small')}</div></div>`;
+    case 'media_texto':
+      return `<div class="sk-split"><i class="sk-img"></i><div class="sk-lineas">${rep(4, 'sk-linea')}</div></div>`;
+    case 'video':
+      return `<div class="sk-video"><i class="sk-play"></i></div>`;
+    case 'preguntas':
+      return `<div class="sk-faq">${rep(3, 'sk-faq-row')}</div>`;
+    case 'rubros':
+      return `<div class="sk-fila sk-fila--tiles">${rep(4, 'sk-tile')}</div>`;
+    case 'cinta':
+      return `<div class="sk-cinta"></div>`;
+    case 'lookbook':
+      return `<div class="sk-look">${rep(3, 'sk-pin')}</div>`;
+    case 'brands':
+      return `<div class="sk-fila sk-fila--logos">${rep(5, 'sk-logo')}</div>`;
+    case 'newsletter':
+      return `<div class="sk-news"><i class="sk-input"></i><i class="sk-btn"></i></div>`;
+    case 'promotional': case 'categories': case 'news_banners':
+      return `<div class="sk-banners">${rep(2, 'sk-banner')}</div>`;
+    case 'about_strip': case 'guarantees': case 'institutional': case 'welcome':
+      return `<div class="sk-lineas sk-lineas--sueltas">${rep(3, 'sk-linea')}</div>`;
+    case 'main_categories': case 'atajos':
+      return `<div class="sk-fila sk-fila--circ">${rep(5, 'sk-circ')}</div>`;
+    default:
+      return '<div class="sk-generico"></div>';
+  }
+}
+
+const HP_TIPO_ETQ = {
+  nativa: 'Tiendanube', riel: 'automático', bloque: 'bloque nuevo',
+  fija: 'fija en el theme',
+};
+
+/* Una tarjeta del boceto: nombre + silueta + qué le pasa. */
+function hpBocetoItem(x, lado) {
+  const e = HP_ESTADO[x.estado] || { txt: '', cls: '' };
+  const tipo = x.tipo || (x.fija ? 'fija' : 'nativa');
+  const nombre = lado === 'hoy'
+    ? x.nombre
+    : (x.tipo === 'bloque' ? `◆ ${hpNombreBloque(x.bloque)}` : x.nombre || hpNombreSeccion(x.id));
+
+  // En la columna "hoy", el destino; en la propuesta, de dónde viene.
+  let nota = '';
+  if (lado === 'hoy' && x.destino && x.destino !== x.pos) nota = `va a la ${x.destino}`;
+  else if (lado === 'hoy' && !x.destino) nota = 'no entra en el plan';
+  else if (lado === 'plan' && x.estado === 'mover') nota = `hoy está en la ${x.posActual}`;
+  else if (lado === 'plan' && x.estado === 'agregar') nota = 'hay que agregarla';
+  else if (lado === 'plan' && x.estado === 'encender') nota = 'está apagada';
+
+  return `<div class="sk-sec sk-sec--${esc(e.cls || 'ok')} ${x.vacia ? 'sk-sec--vacia' : ''}">
+    <div class="sk-cab">
+      <span class="sk-pos">${x.pos}</span>
+      <span class="sk-nom">${esc(nombre)}</span>
+      <span class="sk-tipo sk-tipo--${esc(tipo)}">${esc(HP_TIPO_ETQ[tipo] || tipo)}</span>
+    </div>
+    <div class="sk-cuerpo">${hpSilueta(x.id, x.tipo, x.bloque)}</div>
+    ${nota || x.vacia ? `<div class="sk-nota">${x.vacia ? 'Está puesta pero no muestra nada. ' : ''}${esc(nota)}</div>` : ''}
+  </div>`;
+}
+
+function hpBocetoCol(items, lado, titulo, sub) {
+  return `<div class="sk-col">
+    <div class="sk-col-cab"><h4>${esc(titulo)}</h4><span>${esc(sub)}</span></div>
+    <div class="sk-tel">
+      <div class="sk-barra"><i></i><i></i></div>
+      ${items.map((x) => hpBocetoItem(x, lado)).join('')}
+      <div class="sk-pie">pie de página</div>
+    </div>
+  </div>`;
+}
+
 function hpComparacion(p) {
   const filas = Math.max(p.hoy.length, p.plan.length);
   const cel = (x, lado) => {
@@ -109,13 +216,37 @@ function hpComparacion(p) {
     </div>`;
   };
 
+  const vista = hpState.vista || 'boceto';
   return `<section class="hp-sec">
-    ${panelHead('Cómo está hoy y cómo convendría', 'La columna de la izquierda es lo que hay realmente en tu página de inicio, leído del HTML. La de la derecha es la propuesta.')}
-    <div class="hp-cmp">
-      <div class="hp-col"><h4>Hoy</h4>${Array.from({ length: filas }, (_, i) => cel(p.hoy[i], 'hoy')).join('')}</div>
-      <div class="hp-col"><h4>Propuesto</h4>${Array.from({ length: filas }, (_, i) => cel(p.plan[i], 'plan')).join('')}</div>
-    </div>
+    ${panelHead('Cómo está hoy y cómo convendría',
+    'La columna de la izquierda es lo que hay realmente en tu página de inicio, leído del HTML de la tienda. La de la derecha es la propuesta. El boceto está dibujado como se ve en un celular.',
+    `<div class="hp-vista">
+        <button class="hp-vbtn ${vista === 'boceto' ? 'is-on' : ''}" onclick="hpVista('boceto')">Boceto</button>
+        <button class="hp-vbtn ${vista === 'lista' ? 'is-on' : ''}" onclick="hpVista('lista')">Lista</button>
+      </div>`)}
+
+    ${vista === 'boceto' ? `
+      <div class="sk-wrap">
+        ${hpBocetoCol(p.hoy, 'hoy', 'Hoy', `${p.hoy.length} secciones a la vista`)}
+        ${hpBocetoCol(p.plan, 'plan', 'Propuesto', `${p.plan.length} secciones`)}
+      </div>
+      <div class="sk-ref">
+        <span><i class="sk-ref-c sk-ref-c--ok"></i> queda donde está</span>
+        <span><i class="sk-ref-c sk-ref-c--mover"></i> cambia de lugar</span>
+        <span><i class="sk-ref-c sk-ref-c--nuevo"></i> hay que agregarla</span>
+        <span><i class="sk-ref-c sk-ref-c--sobra"></i> no entra en el plan</span>
+      </div>`
+    : `<div class="hp-cmp">
+        <div class="hp-col"><h4>Hoy</h4>${Array.from({ length: filas }, (_, i) => cel(p.hoy[i], 'hoy')).join('')}</div>
+        <div class="hp-col"><h4>Propuesto</h4>${Array.from({ length: filas }, (_, i) => cel(p.plan[i], 'plan')).join('')}</div>
+      </div>`}
   </section>`;
+}
+
+function hpVista(v) {
+  hpState.vista = v;
+  try { localStorage.setItem('hpVista', v); } catch (_) { /* modo privado */ }
+  renderHomePlan();
 }
 
 const HP_BLOQUES = {
@@ -128,6 +259,13 @@ const hpNombreSeccion = (id) => ({
   slider: 'Carrusel de imágenes', rail_1: '★ Riel automático 1', rail_2: '★ Riel automático 2',
   rail_3: '★ Riel automático 3', rail_4: '★ Riel automático 4', flash_sale: '★ Ofertas flash',
   lookbook: 'Lookbook interactivo', brands: 'Marcas', newsletter: 'Newsletter',
+  promotional: 'Banners promocionales', categories: 'Banners de categorías',
+  news_banners: 'Banners de novedades', main_categories: 'Categorías principales',
+  products: 'Productos destacados', informatives: 'Información de envíos y pagos',
+  // Las tres franjas escritas a mano en el theme (ver src/storeHome.js → FIJAS).
+  trust_badges: 'Franja de confianza (envío, cuotas, retiro, cambios)',
+  about_strip: 'Franja "quiénes somos"',
+  guarantees: '"¿Por qué elegir BLACKS?"',
 }[id] || id);
 
 /* --------------------------------------------------------- bloques nuevos */

@@ -764,6 +764,7 @@ async function handleIndex() {
   if (indiceHandles.mapa && Date.now() - indiceHandles.at < CACHE_TTL_MS) return indiceHandles.mapa;
   const { rows } = await pool.query(
     `SELECT id, name, price, promo_price, stock, image_url,
+            COALESCE(raw->'description'->>'es', raw->>'description') AS description,
             COALESCE(permalink, raw->'handle'->>'es', raw->>'canonical_url') AS permalink
        FROM products_cache
       WHERE COALESCE(published, true) = true`
@@ -797,9 +798,25 @@ async function productsByHandle(handles) {
       promo_price: conOferta ? promo : null,
       discount_pct: conOferta ? Math.round(((price - promo) / price) * 100) : null,
       stock: r.stock == null ? null : Number(r.stock),
+      // La usa la vista rápida del lookbook. Se limpia acá y no en la tienda
+      // porque la descripción de Tiendanube viene con HTML adentro.
+      description: resumenTexto(r.description, 150),
     };
   });
   return salida;
+}
+
+/** HTML de una descripción → texto plano recortado. */
+function resumenTexto(html, largo) {
+  if (!html) return '';
+  const txt = String(html)
+    .replace(/<br\s*\/?>/gi, ' ')
+    .replace(/<[^>]*>/g, ' ')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/\s+/g, ' ')
+    .trim();
+  return txt.length > largo ? `${txt.slice(0, largo).trim()}…` : txt;
 }
 
 /* -------------------------------------------------------------------------

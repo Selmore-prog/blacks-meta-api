@@ -172,15 +172,48 @@ function diagnosticar(s) {
   const orden = (s.home.secciones || []).filter((x) => !x.oculta);
   const posDe = (id) => { const i = orden.findIndex((x) => x.id === id); return i < 0 ? null : i + 1; };
 
-  // 1. Los dos negocios en una sola página.
-  if (s.leads.total >= 20 && s.leads.pct_mayorista >= 55) {
+  /* 1. LOS DOS NEGOCIOS EN UNA SOLA PÁGINA.
+     El objetivo es vender al público; el mayorista es consultivo. Así que acá
+     NO se mide "¿está el mayorista bien arriba?" sino al revés: ¿cuánto tarda
+     un visitante común en ver un precio con botón de comprar? Cada sección sin
+     precio antes del primer riel es una pantalla en la que puede concluir que
+     la tienda es sólo por cantidad y se va. */
+  {
+    const CON_PRECIO = ['rail_1', 'rail_2', 'rail_3', 'rail_4', 'flash_sale',
+      'products', 'new', 'sale', 'promotion', 'best_seller', 'main_product'];
+    const iPrimerPrecio = orden.findIndex((x) => CON_PRECIO.includes(x.id));
     const posMay = posDe('promotional');
-    av(posMay && posMay <= 4 ? 'medio' : 'alto',
-      'El home atiende sobre todo al mayorista y no se nota arriba',
-      posMay
-        ? `El desvío a mayorista está en la posición ${posMay} de ${orden.length}. En celular eso son varias pantallas de scroll antes de que un comprador por cantidad entienda que puede comprar por cantidad.`
-        : 'No hay ninguna sección que desvíe al mayorista en el home visible.',
-      `${s.leads.pct_mayorista}% de las consultas por WhatsApp de los últimos 60 días son mayoristas (${s.leads.mayorista} de ${s.leads.total}), y ${s.catalogo.pct_mayorista}% del catálogo también.`);
+
+    if (iPrimerPrecio === -1) {
+      av('alto', 'El home no muestra ni un precio',
+        'No hay ninguna sección de producto visible. El visitante que llega de una publicidad no tiene forma de saber que puede comprar una unidad.',
+        null);
+    } else if (iPrimerPrecio + 1 > 4) {
+      av('alto', 'Tarda en aparecer el primer producto con precio',
+        `Hay que pasar ${iPrimerPrecio} secciones antes de ver un precio con botón de comprar. En celular eso son varias pantallas, y el que vino a comprar una unidad se va antes.`,
+        `El primer bloque con precio está en la posición ${iPrimerPrecio + 1} de ${orden.length}.`);
+    }
+
+    // El riesgo inverso: mayorista tan arriba que tapa la venta al público.
+    if (posMay && iPrimerPrecio !== -1 && posMay < iPrimerPrecio + 1) {
+      av('alto', 'El mayorista aparece ANTES que el primer precio',
+        `"Banners promocionales" está en la posición ${posMay} y el primer producto con precio recién en la ${iPrimerPrecio + 1}. Para el que entra por primera vez, la tienda parece ser sólo por cantidad.`,
+        `${s.leads.pct_mayorista}% de las consultas ya son mayoristas (${s.leads.mayorista} de ${s.leads.total} en 60 días): esa demanda llega sola y no necesita el mejor lugar de la página.`);
+    } else if (posMay && posMay <= 4) {
+      av('medio', 'El desvío mayorista está muy arriba para una tienda que quiere vender al público',
+        `Está en la posición ${posMay}. Conviene bajarlo detrás de dos o tres rieles de producto: el que compra por cantidad scrollea igual, el que compra una unidad no.`,
+        `${s.leads.pct_mayorista}% de las consultas son mayoristas (${s.leads.mayorista} de ${s.leads.total}). Ese número mide quién PREGUNTA, no quién quiere comprar: el minorista que no encuentra precio se va sin escribir.`);
+    }
+  }
+
+  // 1b. Contenido duplicado entre las franjas fijas del theme.
+  {
+    const fijas = (s.home.secciones || []).filter((x) => x.fija && !x.oculta).map((x) => x.id);
+    if (fijas.includes('trust_badges') && fijas.includes('guarantees')) {
+      av('bajo', 'La promesa de confianza está dicha dos veces',
+        'La franja de arriba (envío, cuotas, retiro, cambios) y "¿Por qué elegir BLACKS?" del final dicen casi lo mismo. No es grave, pero alarga la página. Si se recorta una, que sea la del final.',
+        'Las dos están escritas a mano en templates/home.tpl.');
+    }
   }
 
   // 2. Temporada que se va con stock encima. Es el aviso que caduca.
@@ -256,47 +289,59 @@ function diagnosticar(s) {
 /* -------------------------------------------------------------------------
  * EL PLAN
  *
- * Criterio general, en una línea: primero lo que ya convierte, enseguida la
- * bifurcación entre los dos negocios, después lo que da confianza, y al final
- * lo que acompaña pero no vende solo.
+ * OBJETIVO DECLARADO POR EL DUEÑO (sep-2026): la página es para vender AL
+ * PÚBLICO. El mayorista es consultivo — se atiende, no se empuja.
+ *
+ * Esto va contra la lectura ingenua del dato: 77% de las consultas de WhatsApp
+ * son mayoristas, y la conclusión automática sería subir el mayorista arriba de
+ * todo. Es al revés, por dos razones:
+ *   1. Ese 77% es CONSECUENCIA del home actual, no una preferencia del mercado.
+ *      El minorista que no encuentra precio se va sin escribir; el mayorista
+ *      escribe siempre porque no tiene otra forma de comprar. Se está midiendo
+ *      quién pregunta, no quién quiere comprar.
+ *   2. Un desvío mayorista en las primeras pantallas le dice al visitante común
+ *      "acá se vende por cantidad, no es para mí" — y se va antes de ver un precio.
+ * Por eso el mayorista entra DESPUÉS de que quedó claro que hay venta al público
+ * con precio y botón de comprar, y entra como puerta de consulta, no como oferta.
+ *
+ * Criterio general: primero lo que ya convierte al público, después lo que da
+ * confianza, recién ahí la puerta mayorista, y al final lo que acompaña.
  * ----------------------------------------------------------------------- */
 function armarPlan(s) {
   const plan = [];
   const riel = (n) => s.rieles[n] || null;
   const push = (o) => plan.push({ ...o, pos: plan.length + 1 });
 
-  const mayoristaManda = s.leads.pct_mayorista != null && s.leads.pct_mayorista >= 55;
   // Para liquidar se prefiere la categoría de la temporada que se va; si no hay
   // una armada, la que más stock tenga parado.
   const paraLiquidar = s.catSaliente || s.stockParado;
   const liquidar = paraLiquidar && paraLiquidar.stock > 200;
 
+  // Las secciones escritas a mano en el theme ya ocupan lugar y ya dicen cosas.
+  // El plan tiene que contarlas o duplica contenido (ver src/storeHome.js).
+  const fijas = (s.home.secciones || []).filter((x) => x.fija && !x.oculta);
+  const tieneFija = (id) => fijas.some((f) => f.id === id);
+
   push({
     id: 'slider', tipo: 'nativa',
-    que: s.catTemporada
-      ? `Carrusel principal con UNA promesa. Ahora conviene que sea ${s.catTemporada.ruta} (${s.catTemporada.url}).`
-      : 'Carrusel principal con UNA promesa y un botón.',
-    porQue: 'Es lo único que ve todo el mundo sin scrollear. Cuatro mensajes rotando es ninguno.',
-    dato: s.catTemporada
-      ? `Entra ${s.estacion.nombre} y esa categoría ya tiene ${s.catTemporada.productos} productos cargados.`
-      : null,
+    que: 'Carrusel principal con UNA promesa y un botón, con precio visible o "comprar".',
+    porQue: 'Es lo único que ve todo el mundo sin scrollear. Acá se decide si el visitante entiende que puede comprar una unidad. Cuatro mensajes rotando es ninguno.',
+    dato: null,
   });
 
-  push({
-    id: 'block', tipo: 'bloque', bloque: 'atributos',
-    que: 'Tira de atributos: factura A, certificación, talles, envío.',
-    porQue: 'Son las objeciones que frenan la compra. Puestas acá se responden antes de que aparezcan, y ocupan una franja fina.',
-    dato: s.home.secciones.some((x) => x.id === 'informatives' && x.oculta)
-      ? 'Hoy la sección nativa de "Información de envíos y pagos" está apagada, así que esto no está dicho en ningún lado del home.'
-      : null,
-  });
-
-  if (mayoristaManda) {
+  if (tieneFija('trust_badges')) {
     push({
-      id: 'block', tipo: 'bloque', bloque: 'media_texto',
-      que: 'Desvío a mayorista: foto de equipo equipado, tres viñetas (precio por cantidad, factura A, entrega) y botón a /mayorista.',
-      porQue: 'Es el negocio más grande y hoy hay que scrollear medio home para encontrarlo. Un bloque propio con foto convierte mucho mejor que un banner suelto.',
-      dato: `${s.leads.pct_mayorista}% de las consultas son mayoristas (${s.leads.mayorista} de ${s.leads.total} en 60 días).`,
+      id: 'trust_badges', tipo: 'fija',
+      que: 'Franja de confianza: envío gratis, cuotas, punto de retiro, cambios.',
+      porQue: 'Ya está escrita en el theme y está bien puesta: son las objeciones del comprador minorista, respondidas antes de que aparezcan.',
+      dato: 'Es fija: se edita en templates/home.tpl, no se arrastra desde el panel de diseño.',
+    });
+  } else {
+    push({
+      id: 'block', tipo: 'bloque', bloque: 'atributos',
+      que: 'Tira de atributos: envío, cuotas, cambios, talles.',
+      porQue: 'Las objeciones del comprador minorista, arriba y en una franja fina.',
+      dato: null,
     });
   }
 
@@ -304,7 +349,7 @@ function armarPlan(s) {
   push({
     id: 'rail_1', tipo: 'riel',
     que: r0 ? `Riel automático: "${r0.title}".` : 'Riel automático con los más vendidos.',
-    porQue: 'Lo que ya se vende solo, arriba. Se arma con ventas y stock reales, así que nunca muestra algo agotado.',
+    porQue: 'Producto con precio y botón lo antes posible: es lo que despeja la duda de "¿me venden a mí?". Se arma con ventas y stock reales, así que nunca muestra algo agotado.',
     dato: s.catalogo.ventas_30d ? `${s.catalogo.ventas_30d} unidades vendidas en los últimos 30 días.` : null,
   });
 
@@ -313,20 +358,20 @@ function armarPlan(s) {
       id: 'flash_sale', tipo: 'nativa',
       que: s.flash.activa
         ? `Ofertas flash con contador: "${s.flash.titulo || 'oferta activa'}".`
-        : `Ofertas flash con contador, para liquidar ${paraLiquidar ? `"${paraLiquidar.ruta}" (${paraLiquidar.url})` : 'el saldo de temporada'}.`,
+        : `Ofertas flash con contador, para liquidar ${paraLiquidar ? `"${paraLiquidar.cat}"` : 'el saldo de temporada'}.`,
       porQue: liquidar
-        ? `Estamos ${s.estacion.fase === 'arranca' ? 'entrando en' : 'saliendo de'} ${s.estacion.nombre}: hay que ${s.estacion.liquida} mientras todavía se vende.`
+        ? `Estamos ${s.estacion.fase === 'arranca' ? 'entrando en' : 'saliendo de'} ${s.estacion.nombre}: hay que ${s.estacion.liquida} mientras todavía se vende. El contador es lo único que empuja a decidir hoy.`
         : 'La oferta con fecha de fin es lo único que empuja a decidir hoy en vez de "después".',
-      dato: paraLiquidar ? `${paraLiquidar.stock} unidades en depósito de "${paraLiquidar.ruta}".` : null,
+      dato: paraLiquidar ? `${paraLiquidar.stock} unidades en depósito de "${paraLiquidar.cat}".` : null,
     });
   }
 
   push({
     id: 'block', tipo: 'bloque', bloque: 'editorial',
     que: 'Editorial de tres placas: una grande y dos chicas, cada una a su categoría o a un uso.',
-    porQue: 'Reemplaza la grilla de banners cuadrados por algo que se puede navegar. Es donde el home deja de parecer un catálogo.',
-    dato: (s.categorias.vendibles || []).length
-      ? `Candidatas por ventas de 30 días: ${(s.categorias.vendibles || []).filter((c) => c.url !== '/eshop').slice(0, 3).map((c) => `${c.ruta} (${c.url}, ${c.ventas_30d} vendidas)`).join(' · ')}.`
+    porQue: 'Reparte al visitante según para qué vino, sin obligarlo a usar el menú. Es donde el home deja de parecer un catálogo.',
+    dato: s.categoriasReales && s.categoriasReales.length
+      ? `Hay ${s.categoriasReales.length} categorías reales para elegir destino; las de más venta son ${s.categoriasReales.slice(0, 3).map((c) => c.nombre).join(', ')}.`
       : null,
   });
 
@@ -341,14 +386,14 @@ function armarPlan(s) {
   push({
     id: 'block', tipo: 'bloque', bloque: 'media_texto',
     que: 'Informativo: una norma o un material explicado (IRAM 3610, Grafa vs. ripstop) con foto y viñetas.',
-    porQue: 'Es el diferencial contra la competencia argentina, que vende ropa de trabajo sin explicar nada. Además es el contenido que Google entiende y que responde la duda antes del WhatsApp.',
+    porQue: 'Es el diferencial contra la competencia argentina, que vende ropa de trabajo sin explicar nada. Responde la duda antes del WhatsApp y es contenido que Google entiende.',
     dato: s.leads.minorista ? `${s.leads.minorista} consultas minoristas en 60 días, muchas de talle y material.` : null,
   });
 
   push({
     id: 'lookbook', tipo: 'nativa',
     que: 'Lookbook interactivo con los combos.',
-    porQue: 'Sube el ticket: muestra la prenda puesta y deja llevarse el conjunto.',
+    porQue: 'Sube el ticket minorista: muestra la prenda puesta y deja llevarse el conjunto.',
     dato: s.home.scrapers > 0 ? 'Pendiente: hoy es la sección que se baja la ficha completa de cada producto.' : null,
   });
 
@@ -362,10 +407,24 @@ function armarPlan(s) {
     });
   }
 
+  /* LA PUERTA MAYORISTA, acá y no antes.
+     Ya se vio precio, botón de comprar y tres rieles de producto: nadie puede
+     pensar que la tienda es sólo por cantidad. El que compra para su empresa
+     scrollea hasta acá sin problema — de hecho hoy escribe igual estando en la
+     posición 6. Se trata como consulta, no como venta. */
+  push({
+    id: 'block', tipo: 'bloque', bloque: 'media_texto',
+    que: 'Puerta mayorista, en tono consultivo: "¿Necesitás equipar a tu equipo?" con foto, tres viñetas (precio por cantidad, factura A, entrega) y un botón que lleva a consultar.',
+    porQue: 'Va acá a propósito. Más arriba le dice al comprador común "esto no es para vos" y lo pierde antes del primer precio. Acá abajo ya no hay confusión posible: el que llega sabe que hay venta al público y el que compra por cantidad igual lo encuentra.',
+    dato: s.leads.pct_mayorista != null
+      ? `${s.leads.pct_mayorista}% de las consultas por WhatsApp son mayoristas (${s.leads.mayorista} de ${s.leads.total} en 60 días). Es la demanda que ya llega sola: no necesita empuje, necesita una puerta clara.`
+      : null,
+  });
+
   push({
     id: 'block', tipo: 'bloque', bloque: 'preguntas',
-    que: 'Preguntas frecuentes: factura A, talles, envíos, mayorista.',
-    porQue: 'Cada duda resuelta acá es una consulta de WhatsApp que no hay que contestar a mano, y una compra que no se posterga.',
+    que: 'Preguntas frecuentes: talles, envíos, cambios, factura A y compra por cantidad.',
+    porQue: 'Cada duda resuelta acá es una consulta de WhatsApp que no hay que contestar a mano, y una compra minorista que no se posterga.',
     dato: s.leads.total ? `${s.leads.total} consultas por WhatsApp en 60 días.` : null,
   });
 
@@ -376,12 +435,30 @@ function armarPlan(s) {
     dato: s.marcas.length ? `${s.marcas.filter((m) => m.marca !== '(sin marca)').length} marcas en el catálogo.` : null,
   });
 
+  if (tieneFija('about_strip')) {
+    push({
+      id: 'about_strip', tipo: 'fija',
+      que: 'Franja "quiénes somos".',
+      porQue: 'Ya está en el theme y en el lugar correcto: el que llegó hasta acá está decidiendo si le compra a un desconocido.',
+      dato: 'Es fija: se edita en snipplets/home/home-about-strip.tpl.',
+    });
+  }
+
   push({
     id: 'newsletter', tipo: 'nativa',
     que: 'Newsletter.',
     porQue: 'Último recurso para el que se va sin comprar. Va al final porque interrumpe.',
     dato: null,
   });
+
+  if (tieneFija('guarantees')) {
+    push({
+      id: 'guarantees', tipo: 'fija',
+      que: '"¿Por qué elegir BLACKS?" — las garantías largas.',
+      porQue: 'Cierra la página. Ojo: repite parte de lo que ya dice la franja de confianza de arriba; si se recorta, que sea acá.',
+      dato: 'Es fija: se edita en templates/home.tpl.',
+    });
+  }
 
   return plan;
 }
@@ -390,8 +467,11 @@ function armarPlan(s) {
  * DIFERENCIA CONTRA LA REALIDAD
  * Traduce el plan a movimientos concretos en el panel de diseño.
  * ----------------------------------------------------------------------- */
-function comparar(plan, home) {
+function comparar(plan, home, bloquesCfg = []) {
   if (!home.disponible) return { movimientos: [], sinLectura: true };
+  // Qué tipo de bloque vive hoy en cada hueco, para que el boceto dibuje la
+  // silueta correcta en la columna "Hoy" y no una caja genérica.
+  const tipoDeHueco = new Map(bloquesCfg.map((b) => [b.slot, b.type]));
 
   const visibles = (home.secciones || []).filter((s) => !s.oculta);
   const ocultas = (home.secciones || []).filter((s) => s.oculta).map((s) => s.id);
@@ -432,10 +512,21 @@ function comparar(plan, home) {
           : `Arrastrá "${nombreDe(p.id)}" a la posición ${p.pos}.`,
       });
     } else if (actual + 1 !== p.pos) {
-      movimientos.push({
-        tipo: 'mover', id: p.id, nombre: nombreDe(p.id), origen: actual + 1, destino: p.pos,
-        texto: `Mové "${nombreDe(p.id)}" de la posición ${actual + 1} a la ${p.pos}.`,
-      });
+      /* Las secciones fijas no se pueden arrastrar: están escritas en el theme.
+         Se avisa igual, pero diciendo dónde se tocan y sin contarlas como un
+         movimiento del panel de diseño (si no, la lista pide algo imposible). */
+      const v = visibles[actual];
+      if (v && v.fija) {
+        movimientos.push({
+          tipo: 'fija', id: p.id, nombre: v.nombre, origen: actual + 1, destino: p.pos,
+          texto: `"${v.nombre}" queda en la posición ${actual + 1} y el plan la pondría en la ${p.pos}. No se arrastra desde el panel: está escrita en ${v.donde}.`,
+        });
+      } else {
+        movimientos.push({
+          tipo: 'mover', id: p.id, nombre: nombreDe(p.id), origen: actual + 1, destino: p.pos,
+          texto: `Mové "${nombreDe(p.id)}" de la posición ${actual + 1} a la ${p.pos}.`,
+        });
+      }
     }
   });
 
@@ -443,10 +534,12 @@ function comparar(plan, home) {
   visibles.forEach((v, i) => {
     if (conSlot.some((p) => p.id === v.id)) return;
     movimientos.push({
-      tipo: v.viejo ? 'sacar' : 'sobra', id: v.id, nombre: v.nombre, origen: i + 1,
+      tipo: v.viejo ? 'sacar' : (v.fija ? 'fija' : 'sobra'), id: v.id, nombre: v.nombre, origen: i + 1,
       texto: v.viejo
         ? `Sacá "${v.nombre}": es uno de los layouts viejos, sólo muestra productos con URLs pegadas a mano.`
-        : `"${v.nombre}" está en la posición ${i + 1} y no entra en el plan. No molesta, pero alarga la página.`,
+        : v.fija
+          ? `"${v.nombre}" está en la posición ${i + 1}. Es fija del theme (${v.donde}): no la mueve el panel de diseño.`
+          : `"${v.nombre}" está en la posición ${i + 1} y no entra en el plan. No molesta, pero alarga la página.`,
     });
   });
 
@@ -459,6 +552,11 @@ function comparar(plan, home) {
       nombre: v.nombre,
       vacia: v.vacia,
       viejo: v.viejo,
+      // Para que el boceto pinte la etiqueta correcta: un riel no es lo mismo
+      // que una sección nativa, y una fija del theme no se puede arrastrar.
+      tipo: v.fija ? 'fija' : /^rail_\d$/.test(v.id) ? 'riel' : v.id.startsWith('block_') ? 'bloque' : 'nativa',
+      bloque: tipoDeHueco.get(v.id) || null,
+      fija: v.fija,
       destino: enPlan ? enPlan.pos : null,
       estado: enPlan ? (enPlan.pos === i + 1 ? 'queda' : 'mover') : (v.viejo ? 'sacar' : 'sobra'),
     };
@@ -470,7 +568,7 @@ function comparar(plan, home) {
 async function buildPlan() {
   const s = await senales();
   const plan = armarPlan(s);
-  const { plan: conSlot, movimientos, hoy, sinLectura } = comparar(plan, s.home);
+  const { plan: conSlot, movimientos, hoy, sinLectura } = comparar(plan, s.home, s.bloques);
   return {
     generado: new Date().toISOString(),
     senales: s,

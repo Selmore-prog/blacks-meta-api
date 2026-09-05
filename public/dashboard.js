@@ -5881,6 +5881,14 @@ async function loadHomeBanners() {
   }
 }
 
+/* Estado de la sección de ofertas flash. Se declara acá arriba, antes del
+   primer uso: sin esto todo el panel de flash tiraba "flashState is not
+   defined" y la pestaña quedaba en el mensaje de error.
+   - cfg: la configuración que devuelve /api/flash (incluye si está activa).
+   - chosen: los productos elegidos a mano, con su % propio si lo tienen.
+   - searchTimer: el debounce del buscador predictivo. */
+const flashState = { cfg: null, chosen: [], searchTimer: null };
+
 function flashMoney(n) {
   if (n === null || n === undefined || n === '') return '';
   return '$' + Number(n).toLocaleString('es-AR', { maximumFractionDigits: 0 });

@@ -335,6 +335,8 @@ a.hb-rubro:hover .hb-rubro-media img { transform: scale(1.05); }
 
   .hb-title { font-size: clamp(30px, 3.4vw, 46px); }
   .hb-head { margin-bottom: 28px; }
+  /* Un título de sección no se lee mejor por medir 1240 px de ancho. */
+  .hb-head:not(.hb-head--centro) { max-width: 46ch; }
 
   .hb-portada { min-height: 460px; }
   .hb-portada--compacta { min-height: 320px; }
@@ -368,8 +370,10 @@ a.hb-rubro:hover .hb-rubro-media img { transform: scale(1.05); }
     grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
   }
   .hb-attrs[data-hb-cols="4"] { grid-template-columns: repeat(4, 1fr); }
-  .hb-attrs[data-hb-cols="3"] { grid-template-columns: repeat(3, 1fr); }
-  .hb-attrs[data-hb-cols="2"] { grid-template-columns: repeat(2, 1fr); }
+  /* Dos o tres atributos no tienen que ocupar media pantalla cada uno: es un
+     ícono y dos renglones. */
+  .hb-attrs[data-hb-cols="3"] { grid-template-columns: repeat(3, minmax(0, 340px)); }
+  .hb-attrs[data-hb-cols="2"] { grid-template-columns: repeat(2, minmax(0, 340px)); }
 
   .hb-editorial, .hb-editorial.hb-m-scroll {
     grid-auto-flow: row; overflow: visible; margin: 0; padding: 0;
@@ -387,17 +391,27 @@ a.hb-rubro:hover .hb-rubro-media img { transform: scale(1.05); }
   .hb-editorial[data-hb-tiles="3"] .hb-tile--grande .hb-pic,
   .hb-editorial[data-hb-tiles="2"] .hb-tile--chica .hb-pic { position: absolute; inset: 0; height: 100%; aspect-ratio: auto; }
 
-  .hb-prods { grid-template-columns: repeat(4, 1fr); }
-  .hb-prods[data-hb-cols="3"] { grid-template-columns: repeat(3, 1fr); }
-  .hb-prods[data-hb-cols="2"] { grid-template-columns: repeat(2, 1fr); }
-  .hb-prods[data-hb-cols="1"] { grid-template-columns: minmax(0, 420px); }
+  /* CON POCOS PRODUCTOS, LAS TARJETAS NO SE ESTIRAN.
+     Con repeat(2, 1fr) en un contenedor de 1240 px, dos productos daban
+     tarjetas de ~600 px con la foto cuadrada: 600 px de alto cada una, un
+     bloque gigante en escritorio que en celular se veía perfecto. Una ficha de
+     producto tiene un tamaño natural (~300 px) y pasado eso no se ve mejor, se
+     ve rota. Se topea con minmax y la fila queda alineada a la izquierda,
+     debajo del título. */
+  .hb-prods { grid-template-columns: repeat(4, 1fr); justify-content: start; }
+  .hb-prods[data-hb-cols="3"] { grid-template-columns: repeat(3, minmax(0, 320px)); }
+  .hb-prods[data-hb-cols="2"] { grid-template-columns: repeat(2, minmax(0, 320px)); }
+  .hb-prods[data-hb-cols="1"] { grid-template-columns: minmax(0, 360px); }
   .hb-prods--scroll { grid-auto-flow: row; overflow: visible; margin: 0; padding: 0; }
   .hb-prods--destacado { grid-template-columns: 1.15fr 1fr; align-items: start; }
   .hb-prods-resto { grid-template-columns: 1fr 1fr; }
 
   .hb-rubros { grid-template-columns: repeat(4, 1fr); }
-  .hb-rubros[data-hb-cols="3"] { grid-template-columns: repeat(3, 1fr); }
-  .hb-rubros[data-hb-cols="2"] { grid-template-columns: repeat(2, 1fr); }
+  /* Mismo problema que los productos: la foto de un rubro es 3:4, así que dos
+     columnas estiradas daban placas de 600 x 800. */
+  .hb-rubros { justify-content: start; }
+  .hb-rubros[data-hb-cols="3"] { grid-template-columns: repeat(3, minmax(0, 300px)); }
+  .hb-rubros[data-hb-cols="2"] { grid-template-columns: repeat(2, minmax(0, 300px)); }
   .hb-rubros--texto .hb-rubro-body { min-height: 132px; }
 
   .hb-faq-q { font-size: 17px; padding: 20px 0; }

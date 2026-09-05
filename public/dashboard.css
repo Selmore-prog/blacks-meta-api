@@ -2043,3 +2043,117 @@ button .cost-tag { margin-left: 8px; }
   .hp-campo { grid-template-columns: 1fr; gap: 2px; }
 }
 .hb-borrador-tag { color: var(--orange); font-weight: 700; letter-spacing: .04em; margin-left: 6px; }
+
+/* =========================================================================
+ * BOCETO DEL HOME (pestaña Home → Esquema ideal)
+ *
+ * Dibuja la página como se apila en un celular: cada sección es una tarjeta
+ * con su nombre arriba y una SILUETA abajo que sugiere su forma real (una fila
+ * de tarjetas se ve como una fila de tarjetas). No busca fidelidad de píxel:
+ * busca que la estructura se entienda sin leer.
+ * ========================================================================= */
+.hp-vista { display: inline-flex; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; }
+.hp-vbtn {
+  border: 0; background: transparent; color: var(--muted); cursor: pointer;
+  font: inherit; font-size: 12px; padding: 6px 14px;
+}
+.hp-vbtn.is-on { background: var(--orange); color: #fff; }
+
+.sk-wrap { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; align-items: start; }
+.sk-col-cab { display: flex; align-items: baseline; gap: 8px; margin-bottom: 10px; }
+.sk-col-cab h4 { margin: 0; font-size: 14px; }
+.sk-col-cab span { font-size: 12px; color: var(--muted); }
+
+/* El "teléfono": un marco angosto para que se lea como una página. */
+.sk-tel {
+  border: 1px solid var(--line); border-radius: 14px; padding: 8px;
+  background: rgba(255,255,255,.025); display: grid; gap: 8px;
+}
+.sk-barra { display: flex; gap: 6px; align-items: center; padding: 4px 6px 8px; border-bottom: 1px dashed var(--line); }
+.sk-barra i { height: 8px; border-radius: 2px; background: rgba(214,219,230,.30); }
+.sk-barra i:first-child { width: 42px; }
+.sk-barra i:last-child { width: 16px; margin-left: auto; }
+.sk-pie {
+  height: 26px; border-radius: 6px; background: rgba(214,219,230,.10);
+  display: grid; place-items: center; font-size: 9px; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .06em;
+}
+
+.sk-sec { border: 1px solid var(--line); border-left: 3px solid var(--line); border-radius: 8px; padding: 8px 10px; background: var(--panel); }
+.sk-sec--ok    { border-left-color: rgba(127,127,127,.45); }
+.sk-sec--mover { border-left-color: #E9A23B; }
+.sk-sec--nuevo { border-left-color: #35A47A; }
+.sk-sec--sacar { border-left-color: #C9503C; opacity: .72; }
+.sk-sec--sobra { border-left-color: #C9503C; opacity: .72; }
+.sk-sec--vacia   { border-style: dashed; }
+
+.sk-cab { display: flex; align-items: center; gap: 6px; margin-bottom: 7px; }
+.sk-pos { font-size: 10px; font-weight: 700; color: var(--muted); min-width: 15px; }
+.sk-nom { font-size: 12px; font-weight: 600; line-height: 1.2; flex: 1; }
+.sk-tipo { font-size: 9px; text-transform: uppercase; letter-spacing: .05em; padding: 2px 5px; border-radius: 3px; background: rgba(127,127,127,.14); color: var(--muted); white-space: nowrap; }
+.sk-tipo--bloque { background: rgba(226,87,31,.16); color: var(--orange); }
+.sk-tipo--riel { background: rgba(53,164,122,.16); color: #35A47A; }
+.sk-tipo--fija { background: rgba(127,127,127,.10); font-style: italic; }
+.sk-nota { margin-top: 6px; font-size: 10px; color: var(--muted); }
+
+/* --- las siluetas ------------------------------------------------------- */
+/* OJO: NO poner `.sk-cuerpo i, .sk-cuerpo div { display: block }`. Tiene más
+   especificidad que `.sk-fila { display: flex }` y las filas de tarjetas se
+   apilaban en vertical (un riel medía 254 px de alto en vez de 46). Los hijos
+   de un flex o un grid ya quedan en bloque solos. */
+/* El panel es oscuro (--panel #121215): un gris al 22% de opacidad quedaba
+   casi negro sobre negro y el boceto se veía como un bloque vacío. Las siluetas
+   van en claro sobre el fondo, que es como se lee un wireframe. */
+.sk-cuerpo { --sk: rgba(214,219,230,.26); }
+.sk-hero { height: 74px; border-radius: 4px; background: var(--sk); display: flex; gap: 4px; align-items: flex-end; justify-content: center; padding-bottom: 7px; }
+.sk-dot { width: 5px; height: 5px; border-radius: 50%; background: rgba(255,255,255,.85); }
+.sk-titulo { height: 8px; width: 42%; border-radius: 2px; background: var(--sk); margin-bottom: 6px; }
+.sk-fila { display: flex; gap: 5px; overflow: hidden; }
+.sk-grilla { display: grid; grid-template-columns: repeat(4, 1fr); gap: 5px; }
+.sk-card { flex: 0 0 27%; height: 46px; border-radius: 3px; background: var(--sk); }
+.sk-chip { flex: 1; height: 22px; border-radius: 3px; background: var(--sk); }
+.sk-pill { width: 20px; height: 14px; border-radius: 3px; background: var(--sk); }
+.sk-fila--pills { margin-bottom: 6px; }
+.sk-tile { flex: 1; height: 40px; border-radius: 3px; background: var(--sk); }
+.sk-logo { flex: 1; height: 16px; border-radius: 3px; background: var(--sk); }
+.sk-circ { flex: 0 0 17%; aspect-ratio: 1; border-radius: 50%; background: var(--sk); }
+.sk-edit { display: flex; gap: 5px; }
+.sk-edit > i.sk-big { flex: 1.4; height: 64px; border-radius: 3px; background: var(--sk); }
+.sk-edit > div { flex: 1; display: grid; gap: 5px; }
+.sk-small { height: 29.5px; border-radius: 3px; background: var(--sk); }
+.sk-split { display: flex; gap: 7px; align-items: center; }
+.sk-img { flex: 0 0 42%; height: 52px; border-radius: 3px; background: var(--sk); }
+.sk-lineas { flex: 1; display: grid; gap: 5px; }
+.sk-linea { height: 6px; border-radius: 2px; background: var(--sk); }
+.sk-lineas .sk-linea:first-child { width: 70%; height: 8px; }
+.sk-lineas .sk-linea:last-child { width: 45%; }
+.sk-lineas--sueltas { gap: 6px; }
+.sk-video { height: 62px; border-radius: 4px; background: var(--sk); display: grid; place-items: center; }
+.sk-play { width: 0; height: 0; border-left: 12px solid rgba(255,255,255,.9); border-top: 7px solid transparent; border-bottom: 7px solid transparent; }
+.sk-faq { display: grid; gap: 5px; }
+.sk-faq-row { height: 13px; border-radius: 2px; background: var(--sk); position: relative; }
+.sk-faq-row::after { content: "+"; position: absolute; right: 5px; top: -2px; font-size: 11px; color: var(--muted); }
+.sk-cinta { height: 18px; border-radius: 3px; background: var(--sk); }
+.sk-look { height: 76px; border-radius: 4px; background: var(--sk); position: relative; }
+.sk-pin { position: absolute; width: 9px; height: 9px; border-radius: 50%; border: 2px solid #fff; background: var(--orange); }
+.sk-pin:nth-child(1) { left: 22%; top: 28%; }
+.sk-pin:nth-child(2) { left: 58%; top: 52%; }
+.sk-pin:nth-child(3) { left: 38%; top: 72%; }
+.sk-news { display: flex; gap: 5px; }
+.sk-input { flex: 1; height: 22px; border-radius: 3px; background: var(--sk); }
+.sk-btn { width: 52px; height: 22px; border-radius: 3px; background: var(--orange); opacity: .55; }
+.sk-banners { display: grid; gap: 5px; }
+.sk-banner { height: 26px; border-radius: 3px; background: var(--sk); }
+.sk-generico { height: 34px; border-radius: 3px; background: var(--sk); }
+
+.sk-ref { display: flex; flex-wrap: wrap; gap: 14px; margin-top: 14px; font-size: 11px; color: var(--muted); }
+.sk-ref span { display: inline-flex; align-items: center; gap: 6px; }
+.sk-ref-c { width: 3px; height: 13px; border-radius: 2px; display: inline-block; }
+.sk-ref-c--ok { background: rgba(127,127,127,.45); }
+.sk-ref-c--mover { background: #E9A23B; }
+.sk-ref-c--nuevo { background: #35A47A; }
+.sk-ref-c--sobra { background: #C9503C; }
+
+@media (max-width: 900px) {
+  .sk-wrap { grid-template-columns: 1fr; }
+}
