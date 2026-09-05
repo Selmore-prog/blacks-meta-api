@@ -191,7 +191,7 @@ function hbRenderEditor() {
       <div class="hb-card-head" onclick="hbAbrir(${i})">
         <div class="hb-card-sk">${hbEsquema(b.type, 34)}</div>
         <div class="hb-card-txt">
-          <span class="hb-card-tipo">${esc(tipo ? tipo.label : b.type)} · ${esc(b.slot.replace('block_', 'Bloque '))}${hbState.faltantes[b.slot] ? ' <b class="hb-falta-tag">falta algo</b>' : ''}</span>
+          <span class="hb-card-tipo">${esc(tipo ? tipo.label : b.type)} · ${esc(b.slot.replace('block_', 'Bloque '))}${b.enabled === false ? ' <b class="hb-borrador-tag">borrador</b>' : ''}${hbState.faltantes[b.slot] ? ' <b class="hb-falta-tag">falta algo</b>' : ''}</span>
           <span class="hb-card-nombre">${esc(hbNombre(b))}</span>
         </div>
         <div class="hb-card-acc" onclick="event.stopPropagation()">
@@ -324,6 +324,19 @@ function hbCampo(campo, valor, ruta, data) {
   }
 }
 
+/* Indicación de foto que dejó el esquema ideal para ESTE campo: qué mostrar, en
+   qué formato y qué evitar. Se muestra pegada al campo, que es donde hace falta
+   —en el momento de ir a buscar la imagen— y no en otra pantalla. */
+function hbNota(ruta, clave) {
+  const i = Number(ruta.split('.')[0]);
+  const b = hbState.bloques[i];
+  const n = b && (b.notas || []).find((x) => x.campo === clave);
+  if (!n || !n.que) return '';
+  return `<div class="hb-nota"><b>Foto sugerida:</b> ${esc(n.que)}
+    ${n.formato || n.encuadre ? `<span>${esc([n.formato, n.encuadre].filter(Boolean).join(' · '))}</span>` : ''}
+    ${n.evitar ? `<span>Evitar: ${esc(n.evitar)}</span>` : ''}</div>`;
+}
+
 function hbCampoArchivo(campo, valor, ruta, lab, help) {
   const esVideo = campo.type === 'video';
   const previa = valor
@@ -338,7 +351,7 @@ function hbCampoArchivo(campo, valor, ruta, lab, help) {
              oninput="hbSet('${ruta}', this.value)">
       <button class="hb-mini" onclick="hbSubir('${ruta}', ${esVideo})">Subir</button>
       ${valor ? `<button class="hb-mini rojo" onclick="hbSetYRedibuja('${ruta}', '')">Quitar</button>` : ''}
-    </span>${help}</label>`;
+    </span>${help}${valor ? '' : hbNota(ruta, campo.key)}</label>`;
 }
 
 function hbCampoProductos(campo, ids, ruta, lab, help) {
@@ -613,7 +626,7 @@ function hbCrear(tipoId) {
   hbState.bloques.push({
     slot: hbState.catalogo.slots[hbState.bloques.length],
     type: tipoId, enabled: true, theme: 'claro', width: 'contenido',
-    spacing: 'normal', device: 'todos', accent: '', data,
+    spacing: 'normal', device: 'todos', accent: '', notas: [], data,
   });
   hbState.abierto = hbState.bloques.length - 1;
   hbState.sucio = true;
@@ -673,9 +686,13 @@ function hbPintarPrevia() {
   const marco = document.getElementById('hb-iframe');
   if (!marco || !hbState.previa) return;
   const p = hbState.previa;
+  // Los borradores (apagados) también se pintan: si no, no se pueden terminar
+  // de escribir. Van marcados para que no se confundan con lo publicado.
   const cuerpo = hbState.bloques
-    .filter((b) => b.enabled !== false && p.blocks[b.slot])
-    .map((b) => p.blocks[b.slot].html)
+    .filter((b) => p.blocks[b.slot])
+    .map((b) => (b.enabled === false
+      ? `<div class="hb-borrador"><span>Borrador — todavía no se ve en la tienda</span>${p.blocks[b.slot].html}</div>`
+      : p.blocks[b.slot].html))
     .join('\n');
 
   const doc = `<!doctype html><html lang="es"><head><meta charset="utf-8">
@@ -686,6 +703,10 @@ function hbPintarPrevia() {
   /* Marca de dónde termina cada bloque, sólo en la previa. */
   .hb + .hb{box-shadow:0 -1px 0 rgba(127,127,127,.28);}
   .hb-foco{outline:2px dashed #E2571F; outline-offset:-2px;}
+  .hb-borrador{position:relative; opacity:.62; filter:grayscale(.35);}
+  .hb-borrador > span{position:absolute; z-index:5; top:8px; left:8px; background:#E2571F; color:#fff;
+    font:600 10px/1 -apple-system,sans-serif; letter-spacing:.06em; text-transform:uppercase;
+    padding:5px 9px; border-radius:4px;}
   ${p.css}
 </style></head><body>
 ${cuerpo || '<p style="padding:40px 20px;color:#888;font-size:14px;text-align:center">Agregá un bloque para verlo acá.</p>'}

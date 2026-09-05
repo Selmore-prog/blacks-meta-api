@@ -1942,3 +1942,104 @@ button .cost-tag { margin-left: 8px; }
 .hb-gal-item em { font-size: 11px; color: var(--muted); font-style: normal; line-height: 1.4; }
 .hb-falta-tag { color: #ff9d9d; font-weight: 700; letter-spacing: .04em; margin-left: 6px; }
 .hb-card-body .hb-aviso { margin-top: 12px; }
+
+/* =========================================================================
+ * ESQUEMA IDEAL DEL HOME (public/home-plan-panel.js)
+ * ========================================================================= */
+.hp-top { display: flex; justify-content: space-between; align-items: center; gap: 14px; flex-wrap: wrap; margin-bottom: 12px; }
+.hp-lectura { font-size: 12px; color: var(--muted); }
+.hp-mal { color: #ff9d9d; }
+
+.hp-contexto { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 22px; }
+.hp-pill { font-size: 11px; padding: 5px 11px; border-radius: 999px; background: var(--panel-2);
+  border: 1px solid var(--line); color: var(--muted); }
+.hp-pill b { color: var(--text); font-weight: 700; }
+.hp-pill--alerta { border-color: rgba(255,190,90,.35); background: rgba(255,190,90,.08); }
+
+.hp-sec { margin-bottom: 26px; }
+.hp-sec h4 { margin: 0 0 10px; font-size: 12px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .07em; }
+
+/* --- diagnóstico --- */
+.hp-diags { display: grid; gap: 8px; }
+.hp-diag { display: flex; gap: 12px; align-items: flex-start; background: var(--panel);
+  border: 1px solid var(--line); border-left-width: 3px; border-radius: 10px; padding: 12px 14px; }
+.hp-diag--alto { border-left-color: #ff6b6b; }
+.hp-diag--medio { border-left-color: var(--orange); }
+.hp-diag--bajo { border-left-color: var(--line); }
+.hp-nivel { flex: none; font-size: 10px; font-weight: 800; letter-spacing: .06em; text-transform: uppercase;
+  padding: 3px 8px; border-radius: 5px; background: var(--panel-2); color: var(--muted); margin-top: 1px; }
+.hp-diag--alto .hp-nivel { background: rgba(255,107,107,.14); color: #ff9d9d; }
+.hp-diag--medio .hp-nivel { background: var(--orange-dim); color: var(--orange); }
+.hp-diag b { font-size: 13px; }
+.hp-diag p { margin: 5px 0 0; font-size: 12.5px; line-height: 1.5; color: var(--muted); }
+.hp-dato { color: var(--text) !important; font-weight: 600; font-size: 12px !important; }
+
+/* --- comparación lado a lado --- */
+.hp-cmp { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.hp-col h4 { margin-bottom: 8px; }
+.hp-cel { display: flex; align-items: center; gap: 9px; background: var(--panel); border: 1px solid var(--line);
+  border-radius: 8px; padding: 8px 10px; margin-bottom: 5px; min-height: 40px; }
+.hp-cel--vacia { background: transparent; border-style: dashed; opacity: .35; }
+.hp-pos { flex: none; width: 20px; font-size: 11px; color: var(--muted); font-weight: 700; text-align: right; }
+.hp-nom { flex: 1; font-size: 12.5px; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.hp-nom i { color: #ff9d9d; font-style: normal; font-size: 11px; }
+.hp-est { flex: none; font-size: 10px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.hp-cel--ok { border-color: rgba(34,197,94,.30); }
+.hp-cel--ok .hp-est { color: var(--green); }
+.hp-cel--mover { border-color: rgba(232,93,27,.35); }
+.hp-cel--mover .hp-est { color: var(--orange); }
+.hp-cel--nuevo { border-color: rgba(232,93,27,.55); background: var(--orange-dim); }
+.hp-cel--nuevo .hp-est { color: var(--orange); }
+.hp-cel--sacar, .hp-cel--sobra { opacity: .55; }
+
+/* --- bloques que faltan --- */
+.hp-bloques { display: grid; gap: 12px; }
+.hp-bloque { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; }
+.hp-bloque-head { display: flex; justify-content: space-between; align-items: flex-start; gap: 12px; flex-wrap: wrap; }
+.hp-bloque-tipo { display: block; font-size: 11px; color: var(--orange); font-weight: 700;
+  text-transform: uppercase; letter-spacing: .05em; margin-bottom: 2px; }
+.hp-bloque-head b { font-size: 13px; }
+.hp-bloque-acc { display: flex; gap: 8px; flex-wrap: wrap; }
+.hp-que { margin: 10px 0 0; font-size: 13px; line-height: 1.5; }
+.hp-porque { margin: 4px 0 0; font-size: 12.5px; color: var(--muted); line-height: 1.5; }
+.hp-bloque .hp-dato { margin: 6px 0 0; }
+
+.hp-resultado { margin-top: 14px; border-top: 1px solid var(--line); padding-top: 12px; }
+.hp-porque-ia { margin: 0 0 12px; font-size: 12px; color: var(--muted); font-style: italic; line-height: 1.5; }
+.hp-campos { display: grid; gap: 6px; }
+.hp-campo { display: grid; grid-template-columns: 110px 1fr; gap: 12px; align-items: start;
+  font-size: 12.5px; line-height: 1.5; padding: 5px 0; border-bottom: 1px solid var(--line-soft); }
+.hp-campo > span { color: var(--muted); font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding-top: 2px; }
+.hp-campo ul { margin: 0; padding-left: 16px; }
+.hp-campo li { margin-bottom: 3px; }
+
+.hp-visuales { margin-top: 14px; }
+.hp-visuales h5 { margin: 0 0 8px; font-size: 11px; font-weight: 700; color: var(--muted);
+  text-transform: uppercase; letter-spacing: .06em; }
+.hp-visual { background: var(--panel-2); border: 1px solid var(--line); border-radius: 9px;
+  padding: 10px 12px; margin-bottom: 6px; }
+.hp-visual b { font-size: 11px; color: var(--orange); text-transform: uppercase; letter-spacing: .04em; }
+.hp-visual p { margin: 4px 0 0; font-size: 12.5px; line-height: 1.5; }
+.hp-evitar { color: var(--muted) !important; font-size: 12px !important; }
+
+/* --- movimientos --- */
+.hp-movs { margin: 10px 0 0; padding-left: 20px; display: grid; gap: 7px; }
+.hp-mov { font-size: 13px; line-height: 1.5; }
+.hp-mov--sacar, .hp-mov--sobra { color: var(--muted); }
+.hp-mov--sin_hueco { color: #ff9d9d; }
+.hp-listo { background: rgba(34,197,94,.08); border: 1px solid rgba(34,197,94,.28); color: var(--green);
+  border-radius: 10px; padding: 14px 16px; font-size: 13px; }
+.hp-oculto { position: absolute; left: -9999px; opacity: 0; }
+
+/* Indicación de foto que dejó el plan, al lado del campo de imagen. */
+.hb-nota { background: var(--orange-dim); border: 1px solid rgba(232,93,27,.3); border-radius: 8px;
+  padding: 8px 10px; font-size: 11.5px; line-height: 1.5; color: var(--text); margin-top: 2px; }
+.hb-nota b { color: var(--orange); }
+.hb-nota span { color: var(--muted); display: block; margin-top: 3px; }
+
+@media (max-width: 860px) {
+  .hp-cmp { grid-template-columns: 1fr; }
+  .hp-campo { grid-template-columns: 1fr; gap: 2px; }
+}
+.hb-borrador-tag { color: var(--orange); font-weight: 700; letter-spacing: .04em; margin-left: 6px; }

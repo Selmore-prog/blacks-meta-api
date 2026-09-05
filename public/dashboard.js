@@ -5097,7 +5097,8 @@ const HS_SUBS = {
   bloques: 'Portadas, videos y secciones informativas que armás vos, con vista previa.',
   rieles: 'Qué productos arma solo cada carrusel, según ventas y stock reales.',
   flash: 'Ofertas con contador y descuento real escrito en Tiendanube.',
-  reco: 'En qué orden conviene poner las secciones y qué banners faltan.',
+  plan: 'Cómo está tu página hoy, cómo convendría que esté y qué falta para eso.',
+  reco: 'Qué banners conviene poner, con el número que justifica cada uno.',
 };
 
 // Acciones de la barra de arriba: cambian según la sub-pestaña abierta.
@@ -5130,7 +5131,8 @@ function switchHomePane(name) {
   hsCargados.add(name);
   if (name === 'rieles') loadHomeRails();
   if (name === 'flash') loadFlash();
-  if (name === 'reco') { loadHomeLayout(); loadHomeBanners(); }
+  if (name === 'plan') loadHomePlan();
+  if (name === 'reco') loadHomeBanners();
   if (name === 'bloques') loadHomeBlocks();
 }
 
@@ -5878,60 +5880,6 @@ async function loadHomeBanners() {
     box.innerHTML = `<p class="hint">No pude cargar los banners: ${esc(err.message)}</p>`;
   }
 }
-
-async function loadHomeLayout() {
-  const box = document.getElementById('home-layout');
-  if (!box) return;
-  box.innerHTML = skeleton('rows', 4);
-  try {
-    const d = await api('/api/home/layout');
-    const ICONO = {
-      hero: 'image', confianza: 'check', riel: 'grid', b2b: 'bolt',
-      navegacion: 'list', contenido: 'film', cierre: 'send',
-    };
-    const bloques = d.bloques.map((b) => `
-      <div class="hl-row ${b.destacado ? 'hl-key' : ''}">
-        <span class="hl-pos">${b.pos}</span>
-        <div class="hl-box">
-          <div class="hl-name">${icon(ICONO[b.tipo] || 'list')} ${esc(b.seccion)}
-            ${b.titulo ? `<span class="hl-sub">${esc(b.titulo)}</span>` : ''}
-            ${b.destacado ? '<span class="hl-flag">el cambio más importante</span>' : ''}
-          </div>
-          <p class="hl-que">${esc(b.que)}</p>
-          <p class="hl-why">${esc(b.porQue)}</p>
-          ${b.dato ? `<p class="hl-dato">${icon('chart')} ${esc(b.dato)}</p>` : ''}
-        </div>
-      </div>`).join('');
-
-    box.innerHTML = `
-      <div class="panel">
-        ${panelHead(`${icon('route')} Cómo ordenar tu página de inicio`,
-    'Propuesta de orden usando las secciones reales de tu theme y los datos de tu cuenta. El orden se cambia en Tiendanube; acá se explica por qué conviene cada posición.')}
-        <div class="hl-legend">
-          <span><b>${d.señales.pctMayorista ?? '—'}%</b> de tus consultas son mayoristas</span>
-          <span><b>${d.señales.elegibles}</b> productos entran a los rieles</span>
-          <span><b>${d.señales.ofertas}</b> con precio promocional</span>
-        </div>
-        <div class="hl-list">${bloques}</div>
-        <ul class="hl-notes">${d.notas.map((n) => `<li>${esc(n)}</li>`).join('')}</ul>
-      </div>`;
-    hydrateIcons(box);
-  } catch (err) {
-    box.innerHTML = `<div class="panel"><p class="hint" style="margin:0;">No pude armar el esquema: ${esc(err.message)}</p></div>`;
-  }
-}
-
-/* ==========================================================================
- * OFERTAS FLASH (pestaña Home)
- *
- * El dueño elige productos MINORISTAS con el buscador predictivo, les pone un %
- * y una fecha de fin. "Guardar" persiste la config; "Activar" hace que el motor
- * escriba el precio de oferta REAL en Tiendanube (una escritura por variante) y
- * "Terminar" restaura los precios. Cuando está activa no se pueden cambiar los
- * productos (habría precios escritos sin su libreta de restauración): primero se
- * termina. Ver src/flashSale.js.
- * ========================================================================== */
-let flashState = { cfg: null, chosen: [], searchTimer: null, busy: false };
 
 function flashMoney(n) {
   if (n === null || n === undefined || n === '') return '';

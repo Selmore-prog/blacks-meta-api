@@ -132,3 +132,77 @@ diseño"): ahora la sección simplemente no se muestra.
   pintan en el mismo parseo.
 - Si el motor no contesta en 8 segundos, los bloques no se muestran y el resto
   del home anda igual.
+
+---
+
+# Esquema ideal del home
+
+Segunda parte, sep-2026. La pestaña **Home de la tienda → Esquema ideal** responde
+una sola pregunta: *cómo convendría que esté armada la página de inicio, hoy*.
+
+## Lo que cambió respecto de la versión anterior
+
+Hasta ahora la recomendación de orden era una propuesta a comparar de memoria,
+porque el panel de diseño de Tiendanube no tiene API y no había forma de saber
+cómo estaba la página. **Ahora sí se puede leer**: el theme deja el orden escrito
+en el HTML (`<div class="home-section-wrapper section-XXX">`, y Tiendanube le
+antepone `__hidden__` a las apagadas). Se baja el home como lo baja cualquier
+visitante y se parsea. Ver `src/storeHome.js`.
+
+Eso convierte la propuesta en un **antes y después real**, con la lista exacta de
+movimientos para hacerla.
+
+## Qué cruza
+
+| Fuente | Qué aporta |
+|---|---|
+| El HTML de la tienda en vivo | Orden actual, secciones apagadas, secciones **vacías** (puestas y nunca configuradas), peso de la página, si queda alguna que se baja la ficha de cada producto |
+| `products_cache` | Stock real, ventas de 30 días, cuánto del catálogo es mayorista, cuántos productos con oferta |
+| API de Tiendanube (`/categories`) | Las ~105 categorías reales con su URL. Sin esto, la IA escribe botones a `/obra` porque suena bien y el cliente cae en un 404 |
+| `lead_clicks` | Consultas por WhatsApp de 60 días, separadas en mayorista y minorista |
+| Calendario + mes | Qué temporada entra, cuál se va y qué evento comercial se viene |
+
+## Los textos los escribe la IA, pero atada
+
+`src/homeCopy.js` genera el contenido de cada bloque con Gemini. Tres reglas se
+hacen cumplir **por código**, no pidiéndoselo al modelo:
+
+1. **Los links tienen que existir.** Cualquier URL inventada se reemplaza por la
+   categoría real más parecida, o se borra junto con su botón.
+2. **Nada de cifras inventadas.** Se filtran los porcentajes, precios y cantidades
+   que no vinieron en los datos. "Hasta 40% off" desaparece si nadie lo dijo.
+3. **Los textos entran en el campo.** Se recortan al máximo que declara el
+   catálogo de bloques, así no se corta la frase en la tarjeta.
+
+El esquema del JSON que se le pide al modelo **se deriva del mismo catálogo de
+campos que usa el panel** (`BLOCK_TYPES`), así que un campo nuevo en
+`homeBlocks.js` queda cubierto sin tocar nada acá.
+
+Además de los textos devuelve la **indicación visual** de cada foto o video: qué
+mostrar, en qué formato, cómo encuadrarlo y qué evitar. Esa indicación se guarda
+con el bloque (`notas`) y aparece **al lado del campo de imagen** en el
+constructor — que es donde hace falta, en el momento de ir a buscar la foto.
+
+## Borradores
+
+"Crear el bloque" lo deja **apagado**, con los textos puestos y la foto pendiente.
+Un bloque apagado está exento de las validaciones de contenido mínimo: es un
+borrador. Se ve en la vista previa marcado en gris, y no se publica en la tienda
+hasta que lo prendas.
+
+## Lo que sigue sin poder hacerse solo
+
+Mover las secciones. El panel de diseño de Tiendanube no recibe cambios desde
+afuera, así que el plan termina en una **lista de movimientos** para hacer a mano
+una sola vez (hay un botón para copiarla). El contenido de los bloques, en cambio,
+se cambia siempre desde el panel del motor.
+
+### Endpoints
+
+| Método | Ruta | Qué hace |
+|---|---|---|
+| GET | `/api/home/plan` | Diagnóstico + plan + movimientos. `?force=1` vuelve a leer la tienda y las categorías. |
+| POST | `/api/home/plan/copy` | Escribe un bloque con IA. Body: `{ tipo, rol, extra }`. |
+| GET | `/api/home/categories` | Categorías reales con ventas, stock y URL. |
+
+Cachés: el HTML de la tienda 20 min, las categorías 6 h.

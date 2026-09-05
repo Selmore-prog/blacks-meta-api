@@ -1,0 +1,175 @@
+/* =========================================================================
+ * LEER EL HOME REAL DE LA TIENDA
+ *
+ * EL PROBLEMA QUE RESUELVE
+ * El orden de las secciones de la página de inicio vive en el panel de diseño
+ * de Tiendanube, que NO tiene API. Hasta ago-2026 eso obligaba a que cualquier
+ * recomendación de orden fuera una propuesta a comparar de memoria, sin poder
+ * decir "hoy está así".
+ *
+ * Pero el theme deja el orden escrito en el HTML: cada sección sale envuelta en
+ * `<div class="home-section-wrapper section-XXX">` (ver templates/home.tpl), y
+ * Tiendanube le antepone `__hidden__` al id de las que el dueño apagó. Así que
+ * el orden se puede LEER: se baja el home como lo baja cualquier visitante y se
+ * parsea. No hace falta permiso ni token — es la vidriera pública.
+ *
+ * De paso, la misma bajada sirve para medir el peso real de la página y para
+ * detectar dos cosas que no se ven mirando el panel: secciones que están en el
+ * orden pero salen VACÍAS (puestas y nunca configuradas) y secciones que
+ * todavía se bajan la ficha de cada producto para sacarle la foto.
+ * ========================================================================= */
+
+const config = require('./config');
+
+const CACHE_TTL_MS = 20 * 60 * 1000;
+let cache = { at: 0, data: null };
+
+/* Nombres tal cual aparecen en el selector del panel de diseño
+   (config/settings.txt → section_order). Si se renombra allá, renombrar acá. */
+const NOMBRES = {
+  slider: 'Carrusel de imágenes',
+  rail_1: '★ Riel automático 1',
+  rail_2: '★ Riel automático 2',
+  rail_3: '★ Riel automático 3',
+  rail_4: '★ Riel automático 4',
+  flash_sale: '★ Ofertas flash (con contador)',
+  block_1: '◆ Bloque de contenido 1',
+  block_2: '◆ Bloque de contenido 2',
+  block_3: '◆ Bloque de contenido 3',
+  block_4: '◆ Bloque de contenido 4',
+  block_5: '◆ Bloque de contenido 5',
+  block_6: '◆ Bloque de contenido 6',
+  atajos: 'Atajos visuales',
+  main_categories: 'Categorías principales',
+  products: 'Productos destacados',
+  lookbook: 'Lookbook interactivo',
+  hot_blacks: 'Hot Blacks',
+  new: 'Productos nuevos',
+  sale: 'Productos en oferta',
+  promotion: 'Productos en promoción',
+  best_seller: 'Productos más vendidos',
+  category_remeras: 'Remeras',
+  category_pantalones: 'Pantalones',
+  category_calzado: 'Calzado',
+  category_invierno: 'Colección Invierno',
+  informatives: 'Información de envíos, pagos y compra',
+  welcome: 'Mensaje de bienvenida',
+  institutional: 'Mensaje institucional',
+  categories: 'Banners de categorías',
+  promotional: 'Banners promocionales',
+  news_banners: 'Banners de novedades',
+  brands: 'Marcas',
+  video: 'Video',
+  main_product: 'Producto principal',
+  newsletter: 'Newsletter',
+  instafeed: 'Publicaciones de Instagram',
+  testimonials: 'Testimonios',
+  modules: 'Módulos de imagen y texto',
+};
+
+const nombreDe = (id) => NOMBRES[id] || id;
+
+/* Los ocho layouts que quedaron del theme viejo. Se marcan aparte porque la
+   recomendación es sacarlos, no moverlos. */
+const LAYOUTS_VIEJOS = ['hero_split', 'cards_3d', 'masonry', 'magazine',
+  'minimal_grid', 'bold_showcase', 'parallax_slider', 'metro_tiles'];
+
+/**
+ * Corta el HTML en los tramos de cada sección para poder mirar qué hay adentro
+ * de cada una. Devuelve [{ id, oculta, html }] en el orden en que salen.
+ */
+function trocear(html) {
+  const re = /<div class="home-section-wrapper section-([a-z0-9_]+)"/g;
+  const marcas = [];
+  let m;
+  while ((m = re.exec(html)) !== null) marcas.push({ id: m[1], desde: m.index });
+
+  return marcas.map((mar, i) => {
+    const hasta = i + 1 < marcas.length ? marcas[i + 1].desde : Math.min(html.length, mar.desde + 60000);
+    const bruto = mar.id;
+    const oculta = bruto.startsWith('__hidden__');
+    return {
+      id: oculta ? bruto.slice('__hidden__'.length) : bruto,
+      oculta,
+      html: html.slice(mar.desde, hasta),
+    };
+  });
+}
+
+/* Una sección "vacía" es la que está puesta en el orden pero no imprimió nada:
+   el dueño la arrastró y nunca la configuró. En el HTML se ve como un wrapper
+   con nada más que espacios adentro. */
+function estaVacia(trozo) {
+  const dentro = trozo.html.replace(/<div class="home-section-wrapper[^>]*>/, '').replace(/<\/div>\s*$/, '');
+  const limpio = dentro.replace(/<!--[\s\S]*?-->/g, '').replace(/\s+/g, '');
+  return limpio.length < 40;
+}
+
+/**
+ * Baja el home de la tienda y lo lee. Nunca tira: si la tienda no contesta,
+ * devuelve `disponible: false` y el resto del panel sigue andando.
+ */
+async function leerHome({ force = false } = {}) {
+  if (!force && cache.data && Date.now() - cache.at < CACHE_TTL_MS) return cache.data;
+
+  const url = config.storeUrl;
+  let html = '';
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
+    const res = await fetch(url, {
+      redirect: 'follow',
+      signal: ctrl.signal,
+      headers: { 'User-Agent': config.tiendanube.userAgent, 'Accept-Language': 'es-AR,es' },
+    });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    html = await res.text();
+  } catch (err) {
+    const data = { disponible: false, error: err.message, url, secciones: [], leido: new Date().toISOString() };
+    cache = { at: Date.now(), data };
+    return data;
+  }
+
+  const trozos = trocear(html);
+  const secciones = trozos.map((t, i) => ({
+    pos: i + 1,
+    id: t.id,
+    nombre: nombreDe(t.id),
+    oculta: t.oculta,
+    vacia: !t.oculta && estaVacia(t),
+    viejo: LAYOUTS_VIEJOS.includes(t.id),
+  }));
+
+  /* Señal de peso: `parseFromString` es la huella del scraping viejo — una
+     sección que se baja la ficha HTML COMPLETA de cada producto (~175 KB cada
+     una) para sacarle la foto y el precio. No alcanza con buscar el fetch:
+     cada snippet arma la URL a su manera. */
+  const scrapers = (html.match(/parseFromString/g) || []).length;
+  const usaMotor = html.includes('/api/home/rails');
+
+  const data = {
+    disponible: true,
+    url,
+    leido: new Date().toISOString(),
+    secciones,
+    visibles: secciones.filter((s) => !s.oculta).length,
+    ocultas: secciones.filter((s) => s.oculta).length,
+    vacias: secciones.filter((s) => s.vacia).map((s) => s.id),
+    viejas: secciones.filter((s) => s.viejo && !s.oculta).map((s) => s.id),
+    peso_kb: Math.round(Buffer.byteLength(html) / 1024),
+    scrapers,
+    usaMotor,
+  };
+  cache = { at: Date.now(), data };
+  return data;
+}
+
+/** Sólo los ids visibles, en orden. Es lo que se compara contra el plan. */
+function ordenActual(home) {
+  return (home.secciones || []).filter((s) => !s.oculta).map((s) => s.id);
+}
+
+function invalidate() { cache = { at: 0, data: null }; }
+
+module.exports = { leerHome, ordenActual, nombreDe, NOMBRES, LAYOUTS_VIEJOS, invalidate };

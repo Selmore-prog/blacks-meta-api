@@ -21,6 +21,11 @@ module.exports = {
 
   databaseUrl: required('DATABASE_URL'),
 
+  // Vidriera pública. Se lee el HTML del home para saber en qué orden están
+  // realmente las secciones: el panel de diseño de Tiendanube no tiene API, pero
+  // el orden queda escrito en las clases del HTML. Ver src/storeHome.js.
+  storeUrl: required('STORE_URL', 'https://blacksindumentaria.com.ar'),
+
   tiendanube: {
     storeId: required('TIENDANUBE_STORE_ID'),
     accessToken: required('TIENDANUBE_ACCESS_TOKEN'),

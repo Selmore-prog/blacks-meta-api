@@ -26,12 +26,15 @@ const { listCommercialDates } = require('./commercialDates');
 const { notifyPublishResult, notifyWeeklyReport } = require('./notifier');
 const { generateMonthlyPlan, getPlan, nextPlannableMonth } = require('./planner');
 const { buildInterest } = require('./productInterest');
-const { buildLayout } = require('./homeLayout');
 const { getRails, getRailsConfig, saveRailsConfig, validateConfig, buildPayload,
   invalidate: invalidateRails, RULES, SPECIAL_RULES, SLOT_IDS, LAYOUTS } = require('./homeRails');
 const flashSale = require('./flashSale');
 const homeBlocks = require('./homeBlocks');
 const homeBlocksAssets = require('./homeBlocksAssets');
+const homePlan = require('./homePlan');
+const homeCopy = require('./homeCopy');
+const storeHome = require('./storeHome');
+const storeCategories = require('./storeCategories');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -1077,12 +1080,6 @@ app.post('/api/home/banners/render', wrap(async (req, res) => {
   res.json({ url, width, height, recomendacion: rec });
 }));
 
-// Esquema recomendado del home: en qué orden conviene poner las secciones,
-// con el número real que justifica cada posición. Ver src/homeLayout.js.
-app.get('/api/home/layout', wrap(async (req, res) => {
-  res.json(await buildLayout());
-}));
-
 // Vista previa: arma los rieles con una config que TODAVÍA NO se guardó, para
 // poder ver qué productos van a salir antes de publicar el cambio en la tienda.
 app.post('/api/home/preview', wrap(async (req, res) => {
@@ -1121,7 +1118,7 @@ app.post('/api/home/blocks/preview', wrap(async (req, res) => {
   // le falta viaja en `faltantes`, para no dejar al dueño sin previa de los
   // otros mientras completa uno.
   const cfg = homeBlocks.validateConfig(req.body, { lenient: true });
-  const payload = await homeBlocks.buildPayload(cfg);
+  const payload = await homeBlocks.buildPayload(cfg, { incluirApagados: true });
   res.json({ ...payload, faltantes: cfg.faltantes, css: homeBlocksAssets.CSS, js: homeBlocksAssets.JS });
 }));
 
@@ -1159,6 +1156,36 @@ app.post('/api/home/blocks/upload', uploadVideo.single('file'), wrap(async (req,
     contentType: req.file.mimetype,
   });
   res.json({ url, kind: esVideo ? 'video' : 'imagen', size: req.file.size });
+}));
+
+/* -------------------- PLAN DEL HOME (esquema ideal) -------------------- *
+ * Cruza cómo está el home HOY (leído del HTML de la tienda en vivo, porque el
+ * panel de diseño de Tiendanube no tiene API) con el catálogo, las ventas de
+ * 30 días, las consultas por WhatsApp y la temporada. Devuelve un orden
+ * propuesto posición por posición y la lista de movimientos para hacerlo.
+ * Ver src/homePlan.js, src/storeHome.js y src/storeCategories.js.            */
+
+app.get('/api/home/plan', wrap(async (req, res) => {
+  if (req.query.force === '1') { storeHome.invalidate(); storeCategories.invalidate(); }
+  res.json(await homePlan.buildPlan());
+}));
+
+/* Escribe los textos de UN bloque con IA, atados a datos reales: las URLs salen
+   de la API de Tiendanube y los números del catálogo (ver src/homeCopy.js).
+   Devuelve además la indicación de qué foto o video conseguir. */
+app.post('/api/home/plan/copy', wrap(async (req, res) => {
+  const b = req.body || {};
+  res.json(await homeCopy.sugerirBloque({
+    tipo: String(b.tipo || ''),
+    rol: b.rol || {},
+    extra: b.extra || {},
+  }));
+}));
+
+// Categorías reales con ventas y stock. Las usa el panel para mostrar a dónde
+// puede apuntar cada botón sin caer en un 404.
+app.get('/api/home/categories', wrap(async (req, res) => {
+  res.json(await storeCategories.categorias({ force: req.query.force === '1' }));
 }));
 
 // ---- OFERTAS FLASH (sección de ofertas con contador) --------------------

@@ -601,10 +601,14 @@ function validateConfig(input, { lenient = false } = {}) {
       data[campo.key] = limpiarCampo(campo, b.data ? b.data[campo.key] : undefined);
     });
 
-    // Reglas de contenido mínimo: un bloque vacío en producción es peor que
-    // ninguno, así que se avisa acá y no cuando ya está publicado.
+    /* Reglas de contenido mínimo: un bloque vacío en producción es peor que
+       ninguno, así que se avisa acá y no cuando ya está publicado.
+       Un bloque APAGADO queda exento: es un borrador — así el plan del home
+       puede dejar bloques escritos por IA esperando que les carguen la foto,
+       sin trabar la publicación de los que sí están listos. */
+    const encendido = b.enabled !== false;
     try {
-      validarMinimos(type, data, slot);
+      if (encendido) validarMinimos(type, data, slot);
     } catch (err) {
       if (!lenient) throw err;
       faltantes.push({ slot, mensaje: err.message });
@@ -622,6 +626,17 @@ function validateConfig(input, { lenient = false } = {}) {
       // Vacío = hereda el de la tienda. Se valida acá porque va a parar a un
       // atributo style= del HTML.
       accent: /^#[0-9a-fA-F]{6}$/.test(String(b.accent || '')) ? String(b.accent) : '',
+      /* Indicaciones de foto/video que dejó el plan del home: qué mostrar, en
+         qué formato y qué evitar. NO se renderizan en la tienda — son para el
+         que después tiene que sacar o buscar la imagen, y se muestran al lado
+         del campo correspondiente en el panel. Ver src/homeCopy.js. */
+      notas: Array.isArray(b.notas) ? b.notas.slice(0, 6).map((n) => ({
+        campo: limpiarTexto(n && n.campo, 40),
+        que: limpiarTexto(n && n.que, 300),
+        formato: limpiarTexto(n && n.formato, 80),
+        encuadre: limpiarTexto(n && n.encuadre, 300),
+        evitar: limpiarTexto(n && n.evitar, 300),
+      })) : [],
       data,
     };
   });
@@ -791,8 +806,13 @@ async function productsByHandle(handles) {
  * ARMADO DEL PAYLOAD
  * ----------------------------------------------------------------------- */
 
-async function buildPayload(cfg) {
-  const activos = cfg.blocks.filter((b) => b.enabled);
+/**
+ * @param {object} cfg
+ * @param {boolean} incluirApagados  La VISTA PREVIA del panel sí los quiere: un
+ *   borrador que no se ve no se puede terminar de escribir. La tienda no.
+ */
+async function buildPayload(cfg, { incluirApagados = false } = {}) {
+  const activos = cfg.blocks.filter((b) => incluirApagados || b.enabled);
 
   // Un solo viaje a la base para todos los productos de todos los bloques.
   const idsNecesarios = [...new Set(activos.flatMap((b) => (b.data.product_ids || [])))];
@@ -811,7 +831,7 @@ async function buildPayload(cfg) {
         return; // no se publica un bloque de productos vacío
       }
     }
-    blocks[b.slot] = { type: b.type, html: renderBlock(b, ctx) };
+    blocks[b.slot] = { type: b.type, borrador: b.enabled === false, html: renderBlock(b, ctx) };
   });
 
   // Ficha mínima de los productos usados. La tienda NO la recibe (el server sólo

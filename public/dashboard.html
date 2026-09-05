@@ -254,7 +254,8 @@
         <button class="hstab active" data-pane="bloques" onclick="switchHomePane('bloques')">Bloques de contenido</button>
         <button class="hstab" data-pane="rieles" onclick="switchHomePane('rieles')">Carruseles automáticos</button>
         <button class="hstab" data-pane="flash" onclick="switchHomePane('flash')">Ofertas flash</button>
-        <button class="hstab" data-pane="reco" onclick="switchHomePane('reco')">Recomendaciones</button>
+        <button class="hstab" data-pane="plan" onclick="switchHomePane('plan')">Esquema ideal</button>
+        <button class="hstab" data-pane="reco" onclick="switchHomePane('reco')">Banners</button>
       </div>
 
       <!-- Bloques de contenido: portadas, videos, informativos, editoriales.
@@ -278,11 +279,16 @@
         <div id="flash-panel"><p class="loading">Cargando ofertas flash…</p></div>
       </div>
 
-      <!-- Esquema recomendado de la landing + banners recomendados, cada uno con
-           el número real que lo justifica. Ver src/homeLayout.js y src/homeBanners.js. -->
+      <!-- Esquema ideal: cruza el home REAL (leído del HTML de la tienda en vivo)
+           con el catálogo, las ventas, las consultas y la temporada. Escribe los
+           textos de los bloques que faltan con IA y los crea como borrador.
+           Ver src/homePlan.js, src/storeHome.js y src/homeCopy.js. -->
+      <div class="hs-pane hidden" id="hs-plan"><p class="loading">Leyendo tu página de inicio…</p></div>
+
+      <!-- Banners recomendados para el carrusel y la grilla, con el número que
+           justifica cada uno. Ver src/homeBanners.js. -->
       <div class="hs-pane hidden" id="hs-reco">
-        <div id="home-layout"></div>
-        <div id="home-banners" style="margin-top:22px;"></div>
+        <div id="home-banners"></div>
       </div>
     </section>
 
@@ -531,5 +537,8 @@
   <!-- Bloques de contenido del home. Aparte de dashboard.js (que ya tiene 6.700
        líneas) y DESPUÉS de él: usa api(), esc(), toast() y tip(). -->
   <script src="/home-blocks-panel.js"></script>
+  <!-- Esquema ideal del home. Va después de home-blocks-panel.js: para crear un
+       bloque desde el plan usa su estado (hbState) y sus funciones. -->
+  <script src="/home-plan-panel.js"></script>
 </body>
 </html>
