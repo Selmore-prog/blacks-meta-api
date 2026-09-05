@@ -14,7 +14,8 @@
     "sync:company": "node scripts/sync-company-info.js",
     "render:reels": "node scripts/render-pending-reels.js",
     "render:edits": "node scripts/render-video-edits.js",
-    "analyze:style": "node scripts/analyze-style.js"
+    "analyze:style": "node scripts/analyze-style.js",
+    "export:theme": "node scripts/export-theme-blocks.js"
   },
   "dependencies": {
     "@ffmpeg-installer/ffmpeg": "^1.1.0",

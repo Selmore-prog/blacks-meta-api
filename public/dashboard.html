@@ -235,34 +235,55 @@
          Decide QUÉ muestra cada carrusel automático del home. La POSICIÓN de
          cada riel dentro de la página se ordena en el panel de diseño de
          Tiendanube (Página de inicio → arrastrar "★ Riel automático N"). -->
+    <!-- ===== Home de la tienda =====
+         Cuatro herramientas distintas que antes iban apiladas en un solo scroll
+         (ofertas flash + rieles + esquema + banners recomendados). Ahora son
+         sub-pestañas y cada una carga la primera vez que se abre.
+         Clase propia (.hstab) y no .mtab / .ptab: switchMetricsPane() busca los
+         .mtab en TODO el documento y les sacaría el estado activo. -->
     <section id="view-home" class="view hidden">
       <div class="toolbar">
         <div>
           <h2>Home de la tienda</h2>
-          <div class="sub">Qué productos arma solo cada carrusel, según ventas y stock reales.</div>
+          <div class="sub" id="hs-sub">Qué se ve en la página de inicio y en qué orden.</div>
         </div>
-        <button class="btn-ghost" id="home-preview-btn" onclick="previewHomeRails()"><span data-ic="eye"></span> Previsualizar</button>
-        <button class="btn-primary btn-sm" id="home-save-btn" onclick="publishHomeRails()"><span data-ic="check"></span> Publicar en la tienda</button>
+        <div id="hs-actions" class="hs-actions"></div>
       </div>
 
-      <!-- ===== Ofertas flash (sección de ofertas con contador) =====
-           El buscador y el % viven acá; al activar, el motor escribe el precio de
-           oferta real en Tiendanube. Ver src/flashSale.js y home-flash-sale.tpl. -->
-      <div id="flash-panel"><p class="loading">Cargando ofertas flash…</p></div>
-      <p class="hint" style="margin:0 0 14px;">
-        Los cuatro huecos de abajo son los "★ Riel automático 1-4" que ponés en el orden de la
-        página de inicio, desde el panel de diseño de Tiendanube. Acá elegís <b>qué va adentro</b>
-        de cada uno; allá elegís <b>en qué lugar de la página</b> aparece. Al publicar, la tienda
-        lo toma enseguida.
-      </p>
-      <div id="home-body"><p class="loading">Cargando configuración...</p></div>
+      <div class="hs-tabs">
+        <button class="hstab active" data-pane="bloques" onclick="switchHomePane('bloques')">Bloques de contenido</button>
+        <button class="hstab" data-pane="rieles" onclick="switchHomePane('rieles')">Carruseles automáticos</button>
+        <button class="hstab" data-pane="flash" onclick="switchHomePane('flash')">Ofertas flash</button>
+        <button class="hstab" data-pane="reco" onclick="switchHomePane('reco')">Recomendaciones</button>
+      </div>
 
-      <!-- Esquema recomendado de la landing, con las secciones reales del theme. -->
-      <div id="home-layout" style="margin-top:22px;"></div>
+      <!-- Bloques de contenido: portadas, videos, informativos, editoriales.
+           Todo el panel lo dibuja public/home-blocks-panel.js. -->
+      <div class="hs-pane" id="hs-bloques"><p class="loading">Cargando bloques…</p></div>
 
-      <!-- Banners recomendados para el carrusel de arriba y la grilla del cuerpo.
-           Ver src/homeBanners.js: una promesa por banner, con el dato que la sostiene. -->
-      <div id="home-banners" style="margin-top:22px;"></div>
+      <!-- Carruseles automáticos (rail_1..rail_4). Ver src/homeRails.js. -->
+      <div class="hs-pane hidden" id="hs-rieles">
+        <p class="hint" style="margin:0 0 14px;">
+          Los cuatro huecos de abajo son los "★ Riel automático 1-4" que ponés en el orden de la
+          página de inicio, desde el panel de diseño de Tiendanube. Acá elegís <b>qué va adentro</b>
+          de cada uno; allá elegís <b>en qué lugar de la página</b> aparece. Al publicar, la tienda
+          lo toma enseguida.
+        </p>
+        <div id="home-body"><p class="loading">Cargando configuración...</p></div>
+      </div>
+
+      <!-- Ofertas flash: al activar, el motor escribe el precio de oferta real
+           en Tiendanube. Ver src/flashSale.js y home-flash-sale.tpl. -->
+      <div class="hs-pane hidden" id="hs-flash">
+        <div id="flash-panel"><p class="loading">Cargando ofertas flash…</p></div>
+      </div>
+
+      <!-- Esquema recomendado de la landing + banners recomendados, cada uno con
+           el número real que lo justifica. Ver src/homeLayout.js y src/homeBanners.js. -->
+      <div class="hs-pane hidden" id="hs-reco">
+        <div id="home-layout"></div>
+        <div id="home-banners" style="margin-top:22px;"></div>
+      </div>
     </section>
 
     <!-- ===== Métricas ===== -->
@@ -507,5 +528,8 @@
        del equipo (equipo.html), que no puede cargar dashboard.js entero.
        Tiene que ir DESPUÉS de dashboard.js: usa sus helpers. -->
   <script src="/works-panel.js"></script>
+  <!-- Bloques de contenido del home. Aparte de dashboard.js (que ya tiene 6.700
+       líneas) y DESPUÉS de él: usa api(), esc(), toast() y tip(). -->
+  <script src="/home-blocks-panel.js"></script>
 </body>
 </html>

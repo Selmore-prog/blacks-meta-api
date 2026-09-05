@@ -153,7 +153,7 @@ function switchTab(view) {
   if (view === 'metrics') loadMetrics();
   if (view === 'stats' && !statsData) loadStoreStats();
   if (view === 'products') switchProductsPane(productsPaneGuardado());
-  if (view === 'home') { loadHomeRails(); loadFlash(); }
+  if (view === 'home') switchHomePane(homePaneGuardado());
 
   if (view === 'studio') loadStudio();
   if (view === 'analysis') setupAnalysis();
@@ -5085,6 +5085,55 @@ pollBgTasks();
 setInterval(pollBgTasks, 60 * 1000); // tareas en segundo plano: refresco cada minuto
 setInterval(refreshPubTimers, 30 * 1000); // cuenta regresiva de auto-publicación
 
+/* ============ Sub-pestañas de HOME ============
+ * Conviven cuatro herramientas (bloques de contenido / carruseles automáticos /
+ * ofertas flash / recomendaciones) y antes iban una abajo de la otra en un solo
+ * scroll: entrar a la pestaña disparaba las cuatro cargas juntas. Ahora cada
+ * panel carga la primera vez que se abre y se recuerda cuál dejaste abierto.
+ * Clase propia (.hstab), no .mtab: switchMetricsPane() busca los .mtab en TODO
+ * el documento y les sacaría el estado activo al entrar a Métricas.
+ */
+const HS_SUBS = {
+  bloques: 'Portadas, videos y secciones informativas que armás vos, con vista previa.',
+  rieles: 'Qué productos arma solo cada carrusel, según ventas y stock reales.',
+  flash: 'Ofertas con contador y descuento real escrito en Tiendanube.',
+  reco: 'En qué orden conviene poner las secciones y qué banners faltan.',
+};
+
+// Acciones de la barra de arriba: cambian según la sub-pestaña abierta.
+const HS_ACCIONES = {
+  rieles: `<button class="btn-ghost" id="home-preview-btn" onclick="previewHomeRails()"><span data-ic="eye"></span> Previsualizar</button>
+           <button class="btn-primary btn-sm" id="home-save-btn" onclick="publishHomeRails()"><span data-ic="check"></span> Publicar en la tienda</button>`,
+};
+
+const hsCargados = new Set();
+
+function homePaneGuardado() {
+  const v = localStorage.getItem('homePane');
+  return HS_SUBS[v] ? v : 'bloques';
+}
+
+function switchHomePane(name) {
+  if (!HS_SUBS[name]) name = 'bloques';
+  localStorage.setItem('homePane', name);
+  document.querySelectorAll('.hstab').forEach((t) => t.classList.toggle('active', t.dataset.pane === name));
+  document.querySelectorAll('#view-home .hs-pane').forEach((p) => p.classList.add('hidden'));
+  const pane = document.getElementById(`hs-${name}`);
+  if (pane) pane.classList.remove('hidden');
+
+  const sub = document.getElementById('hs-sub');
+  if (sub) sub.textContent = HS_SUBS[name];
+  const acc = document.getElementById('hs-actions');
+  if (acc) { acc.innerHTML = HS_ACCIONES[name] || ''; hydrateIcons(); }
+
+  if (hsCargados.has(name)) return;
+  hsCargados.add(name);
+  if (name === 'rieles') loadHomeRails();
+  if (name === 'flash') loadFlash();
+  if (name === 'reco') { loadHomeLayout(); loadHomeBanners(); }
+  if (name === 'bloques') loadHomeBlocks();
+}
+
 /* =========================================================================
  * HOME DE LA TIENDA — qué muestra cada carrusel automático.
  *
@@ -5117,8 +5166,6 @@ async function loadHomeRails() {
     };
     renderHomeRails();
     previewHomeRails({ silent: true });
-    loadHomeLayout();
-    loadHomeBanners();
   } catch (err) {
     body.innerHTML = `<p class="hint">No pude cargar la configuración: ${esc(err.message)}</p>`;
   }

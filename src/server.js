@@ -30,6 +30,8 @@ const { buildLayout } = require('./homeLayout');
 const { getRails, getRailsConfig, saveRailsConfig, validateConfig, buildPayload,
   invalidate: invalidateRails, RULES, SPECIAL_RULES, SLOT_IDS, LAYOUTS } = require('./homeRails');
 const flashSale = require('./flashSale');
+const homeBlocks = require('./homeBlocks');
+const homeBlocksAssets = require('./homeBlocksAssets');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -76,7 +78,7 @@ app.use(async (req, res, next) => {
   // de la tienda: tampoco puede pedir sesión del panel. Va protegido con su
   // propio "state" de un solo uso (ver más abajo).
   const open = ['/health', '/api/health', '/api/login', '/login.html', '/favicon.ico',
-    '/api/leads/click', '/api/home/rails', '/api/tiendanube/oauth/callback',
+    '/api/leads/click', '/api/home/rails', '/api/home/products', '/api/tiendanube/oauth/callback',
     // Portal del equipo: la pantalla de ingreso y su hoja de estilos. No exponen
     // nada — son el formulario de login y CSS. Ver src/teamPortal.js.
     '/equipo.html', '/equipo.js', '/works-panel.js', '/dashboard.css', '/api/team/login'];
@@ -954,20 +956,39 @@ const publicGetCors = (req, res, next) => {
 // Un GET simple no dispara preflight, así que hoy no hace falta; se registra
 // igual para que agregar un header en el futuro no rompa la llamada en silencio.
 app.options('/api/home/rails', publicGetCors);
+app.options('/api/home/products', publicGetCors);
+
+/* Foto, nombre y precio de productos elegidos a mano en el panel de DISEÑO de
+   Tiendanube (los ocho layouts viejos del theme, que se configuran pegando la
+   URL del producto). Hasta ago-2026 el navegador se bajaba la página HTML
+   completa de cada uno para sacarles eso: 175 KB por producto contra 2 KB de
+   esta respuesta para todos juntos. Sólo lectura y sólo datos que ya están en
+   la vidriera pública. */
+app.get('/api/home/products', publicGetCors, wrap(async (req, res) => {
+  const handles = String(req.query.handles || '').split(',').map((h) => h.trim()).filter(Boolean);
+  if (!handles.length) return res.json({ products: {} });
+  res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=1800');
+  res.json({ products: await homeBlocks.productsByHandle(handles) });
+}));
 
 app.get('/api/home/rails', publicGetCors, wrap(async (req, res) => {
   // Rieles + bloque de ofertas flash en la MISMA respuesta: el theme hace un
   // solo fetch para todo el home (ver home-dynamic-rail.tpl y home-flash-sale.tpl).
-  const [payload, flash] = await Promise.all([
+  const [payload, flash, bloques] = await Promise.all([
     getRails({ force: req.query.force === '1' }),
     flashSale.getBlock().catch((e) => { console.error('[flash] getBlock:', e.message); return { active: false }; }),
+    // Bloques de contenido del home (portadas, videos, informativos). Viajan
+    // acá y no en su propio endpoint para que la tienda siga haciendo UN SOLO
+    // pedido para todo el home. Ver src/homeBlocks.js.
+    homeBlocks.getBlocks({ force: req.query.force === '1' })
+      .catch((e) => { console.error('[bloques] getBlocks:', e.message); return { blocks: {} }; }),
   ]);
   // El CDN/navegador puede servirlo hasta 5 min sin preguntar, y hasta 30 min
   // más mientras revalida atrás: ninguna visita espera por esto.
   // 30s de caché fuerte + revalidación en 2ª plano: los cambios del panel se ven
   // en ~30s y las visitas nunca esperan (SWR sirve lo viejo mientras refresca).
   res.setHeader('Cache-Control', 'public, max-age=30, stale-while-revalidate=300');
-  res.json({ ...payload, flash });
+  res.json({ ...payload, flash, blocks: bloques.blocks || {} });
 }));
 
 // Catálogo de reglas disponibles + la config actual. Lo consume la pestaña
@@ -1076,6 +1097,68 @@ app.post('/api/home/preview', wrap(async (req, res) => {
 app.post('/api/home/config', wrap(async (req, res) => {
   const cfg = await saveRailsConfig(req.body);
   res.json({ ok: true, config: cfg, rails: (await getRails({ force: true })).rails });
+}));
+
+/* ------------------- BLOQUES DE CONTENIDO DEL HOME --------------------- *
+ * Portadas, videos, informativos, editoriales… Lo que antes eran los "layouts
+ * modernos" del theme, que sólo sabían mostrar productos y se bajaban la página
+ * completa de cada uno para sacarles la foto.
+ *
+ * El HTML lo arma el motor (src/homeBlocksRender.js) y es EL MISMO que devuelve
+ * la vista previa, así que lo que se ve en el panel es lo que ve el cliente.
+ * Ver src/homeBlocks.js.                                                      */
+
+// Catálogo de tipos + campos + la config guardada. Con esto el panel arma los
+// formularios solo: no hay HTML de formulario escrito por tipo de bloque.
+app.get('/api/home/blocks', wrap(async (req, res) => {
+  res.json(await homeBlocks.getCatalog());
+}));
+
+// Vista previa de una config que TODAVÍA NO se guardó. Devuelve el HTML de cada
+// bloque más el CSS y el JS, que es lo que el panel mete en el iframe.
+app.post('/api/home/blocks/preview', wrap(async (req, res) => {
+  // Tolerante a propósito: un bloque a medio cargar se dibuja igual y lo que
+  // le falta viaja en `faltantes`, para no dejar al dueño sin previa de los
+  // otros mientras completa uno.
+  const cfg = homeBlocks.validateConfig(req.body, { lenient: true });
+  const payload = await homeBlocks.buildPayload(cfg);
+  res.json({ ...payload, faltantes: cfg.faltantes, css: homeBlocksAssets.CSS, js: homeBlocksAssets.JS });
+}));
+
+// Publicar: valida, guarda e invalida la caché. A partir de acá la tienda ya
+// sirve los bloques nuevos (hasta 30 s de caché de CDN).
+app.post('/api/home/blocks', wrap(async (req, res) => {
+  const config = await homeBlocks.saveBlocksConfig(req.body);
+  const payload = await homeBlocks.getBlocks({ force: true });
+  res.json({ ok: true, config, avisos: payload.avisos || [] });
+}));
+
+// Buscador de productos para el bloque "Productos elegidos".
+app.get('/api/home/blocks/search', wrap(async (req, res) => {
+  res.json(await homeBlocks.searchProducts(req.query.q));
+}));
+
+/* Subida de la foto o el video de un bloque. Va a Supabase Storage, igual que
+   las piezas generadas. El límite grande (uploadVideo) es para los MP4: una
+   foto de 10 MB ya es enorme, pero un video de 20 s pesa 15-40 MB. */
+app.post('/api/home/blocks/upload', uploadVideo.single('file'), wrap(async (req, res) => {
+  if (!req.file) return res.status(400).json({ error: 'No llegó ningún archivo.' });
+  const tipo = String(req.file.mimetype || '');
+  const esImagen = tipo.startsWith('image/');
+  const esVideo = tipo.startsWith('video/');
+  if (!esImagen && !esVideo) {
+    return res.status(400).json({ error: 'Sólo se pueden subir imágenes (JPG, PNG, WEBP) o videos MP4.' });
+  }
+  if (esImagen && req.file.size > 10 * 1024 * 1024) {
+    return res.status(400).json({ error: 'La imagen pesa más de 10 MB. Achicala antes de subirla.' });
+  }
+  const ext = (req.file.originalname.split('.').pop() || (esVideo ? 'mp4' : 'jpg')).toLowerCase().replace(/[^a-z0-9]/g, '');
+  const url = await uploadAsset({
+    buffer: req.file.buffer,
+    filename: `home-blocks/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`,
+    contentType: req.file.mimetype,
+  });
+  res.json({ url, kind: esVideo ? 'video' : 'imagen', size: req.file.size });
 }));
 
 // ---- OFERTAS FLASH (sección de ofertas con contador) --------------------
