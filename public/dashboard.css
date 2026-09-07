@@ -2189,3 +2189,41 @@ button .cost-tag { margin-left: 8px; }
   font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical;
 }
 .hb-prompt-acc { display: flex; gap: 6px; margin-top: 6px; }
+
+/* =========================================================================
+ * BANNERS (Home → Banners): lo que hay hoy vs. lo que conviene.
+ * Prefijo bn- a propósito: las clases hb- son de los bloques de contenido y
+ * ya hubo una colisión de nombres en esta pantalla.
+ * ========================================================================= */
+.bn-cols { display: grid; grid-template-columns: minmax(0, 300px) minmax(0, 1fr); gap: 22px; align-items: start; }
+.bn-h { margin: 0 0 10px; font-size: 12px; text-transform: uppercase; letter-spacing: .06em; color: var(--muted); }
+.bn-h span { background: rgba(127,127,127,.16); border-radius: 99px; padding: 1px 7px; margin-left: 4px; }
+
+.bn-actuales { display: grid; gap: 10px; }
+.bn-actual { margin: 0; border: 1px solid var(--line); border-radius: 8px; overflow: hidden; background: var(--panel); }
+.bn-actual img { display: block; width: 100%; aspect-ratio: 16 / 7; object-fit: cover; }
+.bn-actual figcaption { display: flex; align-items: center; gap: 6px; padding: 7px 9px; font-size: 11px; color: var(--muted); }
+.bn-num { background: rgba(127,127,127,.18); border-radius: 4px; padding: 1px 6px; font-weight: 700; }
+.bn-dest { flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.bn-alerta { background: rgba(201,80,60,.16); color: #E08B7A; border-radius: 4px; padding: 1px 6px; white-space: nowrap; }
+
+.bn-props { display: grid; gap: 12px; }
+.bn-prop { border: 1px solid var(--line); border-radius: 10px; padding: 12px 14px; background: var(--panel); }
+.bn-prop > header { display: flex; align-items: center; gap: 8px; margin-bottom: 9px; }
+.bn-tag { font-size: 10px; text-transform: uppercase; letter-spacing: .05em; padding: 2px 7px; border-radius: 4px;
+  background: rgba(127,127,127,.16); color: var(--muted); }
+.bn-tag.is-slider { background: rgba(226,87,31,.16); color: var(--orange); }
+.bn-medida { margin-left: auto; font: 11px/1 ui-monospace, Menlo, monospace; color: var(--muted); }
+.bn-copy { display: grid; gap: 3px; padding: 9px 11px; border-left: 2px solid var(--orange); background: rgba(127,127,127,.05); border-radius: 0 6px 6px 0; }
+.bn-k { font-size: 10px; letter-spacing: .14em; color: var(--orange); }
+.bn-copy b { font-size: 16px; line-height: 1.15; }
+.bn-b, .bn-cta { font-size: 12px; color: var(--muted); }
+.bn-por { margin: 9px 0 0; font-size: 12px; line-height: 1.5; color: var(--muted); }
+.bn-prompt { margin-top: 9px; }
+.bn-prompt summary { cursor: pointer; font-size: 12px; color: var(--orange); }
+.bn-prompt textarea { width: 100%; margin-top: 8px; padding: 10px; border-radius: 8px; border: 1px solid var(--line);
+  background: var(--panel); color: var(--fg, #f5f5f6); font: 12px/1.5 ui-monospace, Menlo, monospace; resize: vertical; }
+.bn-acc { display: flex; gap: 6px; margin-top: 6px; flex-wrap: wrap; }
+.bn-render img { display: block; width: 100%; border-radius: 8px; margin-top: 10px; border: 1px solid var(--line); }
+
+@media (max-width: 900px) { .bn-cols { grid-template-columns: minmax(0, 1fr); } }

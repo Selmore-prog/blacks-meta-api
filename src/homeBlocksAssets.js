@@ -78,6 +78,32 @@ const CSS = `
 .hb-wrap { width: 100%; margin: 0 auto; padding: 0 var(--hb-borde); max-width: var(--hb-max); }
 .hb-w-completo > .hb-wrap { max-width: none; }
 .hb-w-completo { --hb-borde: 0px; }
+
+/* A ANCHO COMPLETO, LA FOTO LLEGA AL BORDE PERO EL TEXTO NO.
+   La variable --hb-borde en 0 es lo que hace que la imagen y el video sangren hasta el
+   canto de la pantalla, que es el punto de esta opción. El problema es que se
+   llevaba puesto también al texto: en celular el título y la volanta quedaban
+   pegados al borde, sin un milímetro de aire, y así no se lee.
+   Se le devuelve el margen lateral SÓLO a lo que es texto. */
+.hb-w-completo > .hb-wrap > .hb-head,
+.hb-w-completo > .hb-wrap > .hb-ctas,
+.hb-w-completo .hb-split-body,
+.hb-w-completo .hb-faq,
+.hb-w-completo .hb-attrs:not(.hb-m-scroll),
+.hb-w-completo .hb-rubros,
+.hb-w-completo .hb-editorial:not(.hb-m-scroll),
+.hb-w-completo .hb-prods:not(.hb-prods--scroll) {
+  padding-left: 16px;
+  padding-right: 16px;
+}
+/* Las pistas que se deslizan ya usan margen negativo contra un borde de 16px.
+   Sin borde, ese margen las empujaba fuera de la pantalla: se neutraliza. */
+.hb-w-completo .hb-attrs.hb-m-scroll,
+.hb-w-completo .hb-editorial.hb-m-scroll,
+.hb-w-completo .hb-prods--scroll {
+  margin-left: 0;
+  margin-right: 0;
+}
 .hb-solo-mobile { display: block; }
 .hb-solo-desktop { display: none; }
 
@@ -379,6 +405,19 @@ a.hb-rubro:hover .hb-rubro-media img { transform: scale(1.05); }
   .hb-sp-amplio   { --hb-pad: 96px; }
   .hb { --hb-borde: 32px; }
   .hb-w-completo { --hb-borde: 0px; }
+  .hb-w-completo > .hb-wrap > .hb-head,
+  .hb-w-completo > .hb-wrap > .hb-ctas,
+  .hb-w-completo .hb-faq,
+  .hb-w-completo .hb-attrs:not(.hb-m-scroll),
+  .hb-w-completo .hb-rubros,
+  .hb-w-completo .hb-editorial:not(.hb-m-scroll),
+  .hb-w-completo .hb-prods:not(.hb-prods--scroll) { padding-left: 32px; padding-right: 32px; }
+  /* La columna de texto de un split ya tiene su propio aire por el gap y, si
+     está superpuesta, su propio padding: se le da sólo el borde exterior. */
+  .hb-w-completo .hb-split--izquierda .hb-split-body { padding-left: 0; padding-right: 32px; }
+  .hb-w-completo .hb-split--derecha .hb-split-body { padding-left: 32px; padding-right: 0; }
+  .hb-w-completo .hb-split--izquierda .hb-media { border-top-left-radius: 0; border-bottom-left-radius: 0; }
+  .hb-w-completo .hb-split--derecha .hb-media { border-top-right-radius: 0; border-bottom-right-radius: 0; }
   .hb-solo-mobile { display: none; }
   .hb-solo-desktop { display: block; }
 

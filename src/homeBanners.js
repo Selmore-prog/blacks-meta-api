@@ -1,4 +1,5 @@
 const pool = require('./db');
+const { leerHome } = require('./storeHome');
 const { eligibleSQL } = require('./productScore');
 
 /**
@@ -223,7 +224,43 @@ async function recommendBanners() {
     });
   }
 
-  return { contexto: ctx, guia: guiaGeneral(ctx), recomendaciones: recs, superficies: SUPERFICIES };
+  /* PROMPT LISTO PARA PEGAR, uno por recomendación.
+     Cada recomendación ya venía con "qué mostrar" y "qué evitar" escritos para
+     una persona; esto los convierte en la indicación para el generador, con la
+     misma cola técnica anti-"parece IA" que usan los bloques (ver
+     promptDeFoto en homeCopy.js) y con la MEDIDA de la superficie, que es el
+     dato que más se olvida y el que obliga a rehacer la imagen. */
+  const { promptDeFoto } = require('./homeCopy');
+  recs.forEach((r) => {
+    const sup = SUPERFICIES[r.superficie] || SUPERFICIES.slider;
+    /* Se aclara que la foto es el FONDO. Sin esto, una recomendación como
+       "el número del descuento enorme" hacía que el generador dibujara el
+       número dentro de la imagen — justo lo que no se quiere: el titular y el
+       precio se tipografían encima después, y quemados en el JPG no se adaptan
+       al celular ni los lee Google. */
+    const enIngles = 'This is the BACKGROUND PHOTOGRAPH of a banner for an Argentine workwear and safety '
+      + 'clothing store. The headline, any discount figure and the button are typeset on top afterwards, '
+      + 'so the photograph itself must contain no text and no numbers. '
+      + `Scene: ${r.queMostrar} `
+      + `Leave the ${r.superficie === 'slider' ? 'left third' : 'lower third'} of the frame calm and `
+      + 'uncluttered so the typography can sit there and stay readable.';
+    r.medida = `${sup.w} x ${sup.h} px`;
+    r.prompt = promptDeFoto({
+      tipo: 'foto',
+      prompt_ia: enIngles,
+      formato: `${sup.w}x${sup.h} (${r.superficie === 'slider' ? 'wide banner' : 'square'})`,
+      producto_de_referencia: r.producto ? r.producto.name : '',
+    });
+  });
+
+  return {
+    contexto: ctx,
+    guia: guiaGeneral(ctx),
+    recomendaciones: recs,
+    superficies: SUPERFICIES,
+    // Lo que hay hoy arriba de todo, leído de la tienda en vivo.
+    actuales: ((await leerHome()).banners) || [],
+  };
 }
 
 module.exports = { recommendBanners, gatherContext, SUPERFICIES, temporada };

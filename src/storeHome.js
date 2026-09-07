@@ -198,6 +198,7 @@ async function leerHome({ force = false } = {}) {
     disponible: true,
     url,
     leido: new Date().toISOString(),
+    banners: bannersActuales(html),
     secciones,
     visibles: secciones.filter((s) => !s.oculta).length,
     ocultas: secciones.filter((s) => s.oculta).length,
@@ -216,6 +217,52 @@ function ordenActual(home) {
   return (home.secciones || []).filter((s) => !s.oculta).map((s) => s.id);
 }
 
+/**
+ * LOS BANNERS QUE HAY HOY EN EL CARRUSEL, leídos de la tienda en vivo.
+ *
+ * El panel de diseño de Tiendanube no tiene API, pero el carrusel sale impreso
+ * en el HTML: cada slide es un <img class="slider-image"> con su srcset y, si
+ * tiene link, envuelto en un <a>. Con eso alcanza para mostrarle al dueño lo
+ * que tiene puesto al lado de lo que le conviene poner.
+ *
+ * Detalle que importa: el theme deja el PRIMER slide con src real y los demás
+ * en lazy (src es un gif transparente de 1px y la foto está en data-srcset).
+ * Hay que mirar los dos atributos o se ve un solo banner.
+ */
+function bannersActuales(htmlCompleto) {
+  /* Se acota al carrusel PRINCIPAL. Sin esto entraban también los banners de
+     categorías y las fotos de marcas, que también son swiper-slide. Y como el
+     theme imprime el set de escritorio y el de celular por separado, se corta
+     en el contenedor mobile para no listar cada banner dos veces. */
+  const desde = htmlCompleto.indexOf('js-home-main-slider');
+  if (desde === -1) return [];
+  const hastaMobile = htmlCompleto.indexOf('js-home-mobile-slider', desde);
+  const finSeccion = htmlCompleto.indexOf('home-section-wrapper', desde + 40);
+  const corte = [hastaMobile, finSeccion].filter((n) => n > desde);
+  const html = htmlCompleto.slice(desde, corte.length ? Math.min(...corte) : desde + 40000);
+
+  const slides = [];
+  const re = /<div class="swiper-slide[^"]*"[\s\S]{0,2600}?<\/div>\s*<\/div>/g;
+  let m;
+  while ((m = re.exec(html)) !== null && slides.length < 12) {
+    const trozo = m[0];
+    const set = (trozo.match(/(?:data-)?srcset="([^"]+)"/) || [])[1] || '';
+    // Del srcset se toma la variante más grande (la última declarada).
+    const grande = set.split(',').map((x) => x.trim().split(' ')[0]).filter(Boolean).pop();
+    const src = grande || (trozo.match(/(?:data-)?src="(https?:[^"]+)"/) || [])[1];
+    if (!src) continue;
+    // Tiendanube sirve las fotos con URL sin protocolo (//acdn-us...). En el
+    // navegador hereda el de la página, pero desde Node o sobre http se rompe:
+    // se fija https, que es lo que sirve el CDN.
+    const abs = src.startsWith('//') ? `https:${src}` : src;
+    const link = (trozo.match(/<a[^>]+href="([^"]+)"/) || [])[1] || null;
+    const texto = /js-swiper-text/.test(trozo);
+    if (slides.some((x) => x.imagen === abs)) continue;
+    slides.push({ imagen: abs, link, conTexto: texto });
+  }
+  return slides;
+}
+
 function invalidate() { cache = { at: 0, data: null }; }
 
-module.exports = { leerHome, ordenActual, nombreDe, NOMBRES, LAYOUTS_VIEJOS, FIJAS, invalidate };
+module.exports = { leerHome, ordenActual, nombreDe, NOMBRES, LAYOUTS_VIEJOS, FIJAS, bannersActuales, invalidate };

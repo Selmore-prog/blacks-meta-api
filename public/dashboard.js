@@ -5803,90 +5803,118 @@ async function syncCatalogFromHome(btn) {
  * 1200x1200 la grilla) para descargarlo y subirlo al panel de diseño de Tiendanube.
  * No se publica solo: ese panel no tiene API.
  */
+/* =========================================================================
+ * BANNERS — lo que hay hoy, al lado de lo que conviene poner.
+ *
+ * Antes era una lista de recomendaciones con párrafos largos y sin referencia:
+ * había que acordarse de memoria qué banner estaba puesto para poder juzgar la
+ * sugerencia. Ahora son dos columnas: a la izquierda las imágenes REALES del
+ * carrusel (leídas del HTML de la tienda en vivo, ver storeHome.bannersActuales)
+ * y a la derecha las propuestas, cada una con su medida y su prompt para pegar
+ * en Gemini. Prefijo bn- para no chocar con las clases hb- de los bloques.
+ * ========================================================================= */
+let bnData = null;
+
 async function loadHomeBanners() {
   const box = document.getElementById('home-banners');
   if (!box) return;
   box.innerHTML = skeleton('rows', 3);
   try {
-    const d = await api('/api/home/banners');
-    const ctx = d.contexto || {};
-    const tarjeta = (b, i) => `
-      <div class="hb-card" data-idx="${i}">
-        <div class="hb-head">
-          <span class="hb-tag ${b.superficie === 'slider' ? 'slider' : ''}">${b.superficie === 'slider' ? 'Carrusel' : 'Grilla'} · ${b.posicion}</span>
-          <span class="hint" style="margin:0;">${esc(b.objetivo)}</span>
-        </div>
-        <div class="hb-copy">
-          <div class="hb-kicker">${esc(String(b.kicker || '').toUpperCase())}</div>
-          <div class="hb-title">${esc(b.titular)}</div>
-          ${b.bajada ? `<div class="hb-sub">${esc(b.bajada)}</div>` : ''}
-          <div class="hb-cta">${esc(b.cta)} → <span class="hint" style="margin:0;">${esc(b.url)}</span></div>
-        </div>
-        <p class="hint hb-why"><b>Por qué:</b> ${esc(b.porque)}</p>
-        ${b.queMostrar ? `<p class="hint hb-why"><b>Qué mostrar:</b> ${esc(b.queMostrar)}</p>` : ''}
-        ${b.queEvitar ? `<p class="hint hb-why hb-evitar"><b>Qué evitar:</b> ${esc(b.queEvitar)}</p>` : ''}
-        <div class="hb-actions">
-          <button class="btn-ghost btn-sm hb-render">${icon('image')} Ver un ejemplo armado</button>
-        </div>
-        <div class="hb-out"></div>
-      </div>`;
-
-    const g = d.guia || {};
-    const lista = (titulo, items, clase = '') => (items && items.length ? `
-      <div class="hb-guia ${clase}">
-        <div class="hb-guia-t">${titulo}</div>
-        <ul>${items.map((x) => `<li>${esc(x)}</li>`).join('')}</ul>
-      </div>` : '');
-
-    box.innerHTML = `
-      <div class="card">
-        <h3>Qué poner en los banners del home</h3>
-        <p class="hint" style="margin-top:0;">Indicaciones concretas para el carrusel de arriba y la grilla del cuerpo, con el dato real que las justifica. Los banners los armás y los subís desde el panel de diseño de Tiendanube (esa parte no tiene API); acá está el qué y el porqué.</p>
-        <div class="prod-totals" style="margin-bottom:16px;">
-          <div class="stat"><b>${ctx.pctMayorista !== null && ctx.pctMayorista !== undefined ? ctx.pctMayorista + '%' : '—'}</b><span>De las consultas son mayoristas (${ctx.mayoristaLeads || 0} contra ${ctx.minoristaLeads || 0} en 60 días)</span></div>
-          <div class="stat"><b>${ctx.descuentoMaximo ? ctx.descuentoMaximo + '%' : '—'}</b><span>Descuento real más alto vigente (${(ctx.enOferta || []).length} productos rebajados)</span></div>
-          <div class="stat"><b>${esc(ctx.temporada || '—')}</b><span>Temporada que conviene empujar</span></div>
-        </div>
-        ${lista('Lo que hoy está fallando en tu home', g.problemas, 'mal')}
-        ${lista('Reglas para cualquier banner', g.reglas)}
-        ${lista('Medidas exactas de tu theme', g.medidas)}
-        ${g.cadencia ? `<p class="hint" style="margin:14px 0 18px;"><b>Cada cuánto revisarlos:</b> ${esc(g.cadencia)}</p>` : ''}
-        <h4 style="margin:22px 0 12px; font-size:14px;">Los banners que conviene poner ahora</h4>
-        ${(d.recomendaciones || []).map(tarjeta).join('')}
-      </div>`;
-
-    box.querySelectorAll('.hb-render').forEach((btn) => {
-      btn.addEventListener('click', async (e) => {
-        const card = e.currentTarget.closest('.hb-card');
-        const idx = Number(card.dataset.idx);
-        const b = e.currentTarget;
-        b.disabled = true; b.innerHTML = `${icon('refresh', 'spin')} Renderizando…`;
-        try {
-          const r = await api('/api/home/banners/render', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ index: idx }),
-          });
-          card.querySelector('.hb-out').innerHTML = `
-            <img src="${esc(r.url)}" style="width:100%; border-radius:10px; margin-top:12px; border:1px solid var(--line);"/>
-            <div class="hint" style="margin-top:6px;">${r.width}×${r.height} px · <a href="${esc(r.url)}" target="_blank" rel="noopener" style="color:var(--orange)">abrir para descargar</a></div>`;
-          b.innerHTML = `${icon('refresh')} Volver a generar`;
-        } catch (err) {
-          toast(`No pude generar el banner: ${err.message}`, 'err');
-          b.innerHTML = `${icon('image')} Reintentar`;
-        } finally { b.disabled = false; }
-      });
-    });
+    bnData = await api('/api/home/banners');
+    renderHomeBanners();
   } catch (err) {
-    box.innerHTML = `<p class="hint">No pude cargar los banners: ${esc(err.message)}</p>`;
+    box.innerHTML = `<p class="hint">No pude armar las recomendaciones: ${esc(err.message)}</p>`;
   }
 }
 
-/* Estado de la sección de ofertas flash. Se declara acá arriba, antes del
-   primer uso: sin esto todo el panel de flash tiraba "flashState is not
-   defined" y la pestaña quedaba en el mensaje de error.
-   - cfg: la configuración que devuelve /api/flash (incluye si está activa).
-   - chosen: los productos elegidos a mano, con su % propio si lo tienen.
-   - searchTimer: el debounce del buscador predictivo. */
+function renderHomeBanners() {
+  const d = bnData;
+  const box = document.getElementById('home-banners');
+
+  const actuales = (d.actuales || []).map((b, i) => `
+    <figure class="bn-actual">
+      <img src="${esc(b.imagen)}" alt="Banner ${i + 1}" loading="lazy">
+      <figcaption>
+        <span class="bn-num">${i + 1}</span>
+        <span class="bn-dest">${esc((b.link || 'sin link').replace(/^https?:\/\/[^/]+/, '') || '/')}</span>
+        ${b.conTexto ? '' : '<span class="bn-alerta" title="El título está adentro de la imagen: no se adapta al celular y Google no lo lee">texto quemado</span>'}
+      </figcaption>
+    </figure>`).join('');
+
+  const propuestas = (d.recomendaciones || []).map((b, i) => `
+    <article class="bn-prop">
+      <header>
+        <span class="bn-tag ${b.superficie === 'slider' ? 'is-slider' : ''}">${b.superficie === 'slider' ? 'Carrusel' : 'Grilla'} · ${b.posicion}</span>
+        <span class="bn-medida">${esc(b.medida || '')}</span>
+      </header>
+      <div class="bn-copy">
+        <span class="bn-k">${esc(String(b.kicker || '').toUpperCase())}</span>
+        <b>${esc(b.titular)}</b>
+        ${b.bajada ? `<span class="bn-b">${esc(b.bajada)}</span>` : ''}
+        <span class="bn-cta">${esc(b.cta)} → ${esc(b.url)}</span>
+      </div>
+      <p class="bn-por">${esc(b.porque)}</p>
+      ${b.prompt ? `<details class="bn-prompt">
+        <summary>Generar la imagen con IA</summary>
+        <textarea readonly rows="5">${esc(b.prompt)}</textarea>
+        <div class="bn-acc">
+          <button class="btn-ghost btn-sm" onclick="bnCopiar(${i}, this)">Copiar el prompt</button>
+          <button class="btn-ghost btn-sm" onclick="bnEjemplo(${i}, this)">Ver un ejemplo armado</button>
+        </div>
+        ${b.queEvitar ? `<p class="hint">Evitar: ${esc(b.queEvitar)}</p>` : ''}
+      </details>` : ''}
+      <div class="bn-render" id="bn-render-${i}"></div>
+    </article>`).join('');
+
+  box.innerHTML = `<section class="hp-sec">
+    ${panelHead('Banners del carrusel',
+    'A la izquierda, lo que hay hoy arriba de tu home, leído de la tienda en vivo. A la derecha, qué conviene poner, con la medida exacta y el prompt para generar la imagen.')}
+    <div class="bn-cols">
+      <div>
+        <h4 class="bn-h">Hoy <span>${(d.actuales || []).length}</span></h4>
+        <div class="bn-actuales">${actuales || '<p class="hint">No pude leer el carrusel de la tienda.</p>'}</div>
+      </div>
+      <div>
+        <h4 class="bn-h">Conviene <span>${(d.recomendaciones || []).length}</span></h4>
+        <div class="bn-props">${propuestas}</div>
+      </div>
+    </div>
+  </section>`;
+  hydrateIcons();
+}
+
+async function bnCopiar(i, btn) {
+  const t = ((bnData.recomendaciones || [])[i] || {}).prompt || '';
+  if (!t) return;
+  try {
+    await navigator.clipboard.writeText(t);
+    const antes = btn.textContent;
+    btn.textContent = 'Copiado';
+    setTimeout(() => { btn.textContent = antes; }, 1600);
+  } catch (_) {
+    const ta = btn.closest('.bn-prompt').querySelector('textarea');
+    if (ta) { ta.focus(); ta.select(); }
+  }
+}
+
+/** Arma la pieza con la plantilla del motor (sin IA, gratis) para ver la idea. */
+async function bnEjemplo(i, btn) {
+  const caja = document.getElementById(`bn-render-${i}`);
+  btn.disabled = true;
+  const antes = btn.textContent;
+  btn.textContent = 'Armando…';
+  try {
+    const r = await api('/api/home/banners/render', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ index: i }),
+    });
+    caja.innerHTML = `<img src="${esc(r.url)}" alt="Ejemplo de banner" loading="lazy">
+      <p class="hint">${r.width}×${r.height} px · <a href="${esc(r.url)}" target="_blank" rel="noopener">abrir para descargar</a></p>`;
+  } catch (err) {
+    caja.innerHTML = `<p class="hint">No pude armarlo: ${esc(err.message)}</p>`;
+  } finally { btn.disabled = false; btn.textContent = antes; }
+}
+
 const flashState = { cfg: null, chosen: [], searchTimer: null };
 
 function flashMoney(n) {
