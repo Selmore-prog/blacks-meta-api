@@ -82,6 +82,27 @@ function vimeoId(url) {
 }
 
 /**
+ * De dónde sale el video, MIRANDO LA URL y no el desplegable.
+ *
+ * El desplegable era una trampa: el tipo "video" venía con YouTube elegido de
+ * fábrica, así que quien subía un MP4 propio y no tocaba ese campo terminaba con
+ * su archivo tratado como un embed — una fachada con botón de play que al
+ * clickear metía el .mp4 dentro de un <iframe>. Sin autoplay, sin loop y con el
+ * reproductor del navegador con barra de avance. Exactamente lo que pasó.
+ *
+ * La URL ya dice lo que es. Esto manda sobre lo que diga la configuración.
+ */
+function origenDelVideo(url) {
+  const s = String(url || '').trim();
+  if (!s) return 'ninguno';
+  if (youtubeId(s)) return 'youtube';
+  if (vimeoId(s)) return 'vimeo';
+  // Archivo servido directo: por extensión, o por el patrón de Supabase Storage.
+  if (/\.(mp4|webm|ogv|ogg|mov|m4v)(\?|#|$)/i.test(s)) return 'archivo';
+  return 'iframe';
+}
+
+/**
  * Devuelve el nodo de video listo para el DOM.
  *
  * - archivo (MP4 propio): <video> con preload="none" y poster. Si el dueño pidió
@@ -93,12 +114,21 @@ function vimeoId(url) {
  *   botón de play y el iframe aparece recién al tocarlo.
  */
 function video(d, { ratio, alt, posterSizes = '100vw' } = {}) {
-  const kind = d.video_kind;
-  if (!kind || kind === 'ninguno' || !d.video_url) return '';
+  // El ORIGEN sale de la URL, no del desplegable (ver origenDelVideo).
+  const kind = origenDelVideo(d.video_url);
+  if (kind === 'ninguno') return '';
 
   const estilo = ratioStyle(ratio, '16 / 9');
   const loop = d.video_loop !== false;
-  const controles = d.video_controls === true;
+  const sinSonido = d.video_muted !== false;
+
+  /* MODO CINTA (loop): el video se comporta como un GIF — arranca solo, se
+     repite y lo único que se puede hacer es pausarlo. Sin barra de avance:
+     dejar navegar un clip de ambiente de seis segundos no aporta nada y
+     ensucia la sección. Los controles nativos sólo aparecen cuando NO hay
+     loop, que es el caso del video explicativo. */
+  const modoCinta = kind === 'archivo' && loop;
+  const controles = !modoCinta && d.video_controls === true;
 
   if (kind === 'archivo') {
     const poster = d.image || d.image_mobile || '';
@@ -106,7 +136,9 @@ function video(d, { ratio, alt, posterSizes = '100vw' } = {}) {
     const attrs = [
       'class="hb-video"',
       'playsinline',
-      'muted',
+      // Sin `muted` en el HTML el navegador no deja arrancar solo. Si el dueño
+      // pidió sonido, se le saca recién al tocar el botón (gesto del usuario).
+      (sinSonido || auto) ? 'muted' : '',
       'preload="none"',
       poster ? `poster="${esc(poster)}"` : '',
       loop ? 'loop' : '',
@@ -115,15 +147,25 @@ function video(d, { ratio, alt, posterSizes = '100vw' } = {}) {
       `aria-label="${esc(alt || 'Video')}"`,
     ].filter(Boolean).join(' ');
 
-    // El <source> va con data-src: recién se convierte en src cuando el bloque
-    // se acerca a la pantalla, así el MP4 no se descarga en visitas que nunca
-    // llegan a scrollear hasta acá.
     const botones = [];
-    if (!controles && !auto) botones.push('<button type="button" class="hb-play" aria-label="Reproducir video"><span></span></button>');
-    if (d.video_sound_toggle) botones.push('<button type="button" class="hb-sound" aria-label="Activar sonido" aria-pressed="false"><span class="hb-sound-on" hidden>Sonido</span><span class="hb-sound-off">Sin sonido</span></button>');
+    if (modoCinta) {
+      // Pausa/reanudar, y nada más. Se dibuja siempre: es la única forma de
+      // frenar un video que arranca solo, y eso hay que poder hacerlo.
+      botones.push('<button type="button" class="hb-cinta-btn" data-hb-toggle aria-label="Pausar video">'
+        + '<svg viewBox="0 0 24 24" aria-hidden="true" class="hb-ic-pausa"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>'
+        + '<svg viewBox="0 0 24 24" aria-hidden="true" class="hb-ic-play" hidden><path d="M8 5l11 7-11 7z"/></svg>'
+        + '</button>');
+    } else if (!controles && !auto) {
+      botones.push('<button type="button" class="hb-play" aria-label="Reproducir video"><span></span></button>');
+    }
+    // El botón de sonido sólo tiene sentido si el dueño NO pidió silencio.
+    if (!sinSonido && d.video_sound_toggle) {
+      botones.push('<button type="button" class="hb-sound" aria-label="Activar sonido" aria-pressed="false">'
+        + '<span class="hb-sound-on" hidden>Sonido</span><span class="hb-sound-off">Sin sonido</span></button>');
+    }
 
-    return `<div class="hb-media hb-media--video" style="${estilo}" data-hb-video="archivo">`
-      + `<video ${attrs}><source data-src="${esc(d.video_url)}" type="video/mp4"></video>`
+    return `<div class="hb-media hb-media--video${modoCinta ? ' hb-media--cinta' : ''}" style="${estilo}" data-hb-video="archivo">`
+      + `<video ${attrs}><source data-src="${esc(d.video_url)}" type="${esc(tipoMime(d.video_url))}"></video>`
       + botones.join('')
       + '</div>';
   }
@@ -132,22 +174,20 @@ function video(d, { ratio, alt, posterSizes = '100vw' } = {}) {
   const yt = kind === 'youtube' ? youtubeId(d.video_url) : null;
   const vm = kind === 'vimeo' ? vimeoId(d.video_url) : null;
 
-  // OJO: la URL se arma con & pelado. El escapado lo hace esc() UNA sola vez al
-  // meterla en data-hb-embed; si se escapara acá también, el navegador leería
-  // "&amp;" como parte del parámetro y el video no arrancaría.
   let embed = '';
   if (yt) {
     const params = ['autoplay=1', 'rel=0', 'modestbranding=1', 'playsinline=1'];
     if (loop) params.push('loop=1', `playlist=${yt}`);
+    if (sinSonido) params.push('mute=1');
     if (!controles) params.push('controls=0');
-    embed = `https://www.youtube-nocookie.com/embed/${yt}?${params.join('&')}`;
+    embed = `https://www.youtube-nocookie.com/embed/${yt}?${params.join('&amp;')}`;
   } else if (vm) {
     const params = ['autoplay=1', 'dnt=1'];
     if (loop) params.push('loop=1');
-    embed = `https://player.vimeo.com/video/${vm}?${params.join('&')}`;
+    if (sinSonido) params.push('muted=1');
+    embed = `https://player.vimeo.com/video/${vm}?${params.join('&amp;')}`;
   } else {
-    // Embed genérico (Cloudflare Stream y compañía): la URL va tal cual.
-    embed = String(d.video_url);
+    embed = String(d.video_url).replace(/&/g, '&amp;');
   }
 
   const poster = d.image || (yt ? `https://i.ytimg.com/vi/${yt}/hqdefault.jpg` : '');
@@ -159,6 +199,13 @@ function video(d, { ratio, alt, posterSizes = '100vw' } = {}) {
     + fondo
     + '<button type="button" class="hb-play" aria-label="Reproducir video"><span></span></button>'
     + '</div>';
+}
+
+/** El type del <source>: si miente, Safari se niega a cargar el archivo. */
+function tipoMime(url) {
+  const ext = (String(url || '').match(/\.(mp4|webm|ogv|ogg|mov|m4v)(\?|#|$)/i) || [])[1];
+  const mapa = { mp4: 'video/mp4', m4v: 'video/mp4', mov: 'video/quicktime', webm: 'video/webm', ogv: 'video/ogg', ogg: 'video/ogg' };
+  return mapa[(ext || 'mp4').toLowerCase()] || 'video/mp4';
 }
 
 /** Imagen o video, lo que haya. El video manda. */
@@ -312,7 +359,8 @@ function videoBloque(b) {
       + botones(d);
   }
   const orden = d.layout === 'texto_izquierda' ? 'derecha' : 'izquierda';
-  return `<div class="hb-split hb-split--${orden}">`
+  const union = ['superpuesto', 'simple', 'marco'].includes(d.media_style) ? d.media_style : 'superpuesto';
+  return `<div class="hb-split hb-split--${orden} hb-u-${union}">`
     + `<div class="hb-split-media">${nodo}</div>`
     + texto
     + '</div>';
@@ -449,4 +497,4 @@ function renderBlock(b, ctx = {}) {
     + '</section>';
 }
 
-module.exports = { renderBlock, esc, imagen, video, youtubeId, vimeoId };
+module.exports = { renderBlock, esc, imagen, video, youtubeId, vimeoId, origenDelVideo };

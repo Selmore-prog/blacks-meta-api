@@ -67,42 +67,41 @@ const MEDIA_FIELDS = [
   { key: 'image_alt', label: 'Descripción de la imagen', type: 'texto', max: 120, help: 'Lo que lee Google y quien no puede ver la foto. Ej: "Operario con campera ignífuga en planta".' },
 ];
 
+/* VIDEO.
+   Ya no se pregunta "de dónde sale el video": se deduce de la URL
+   (ver origenDelVideo en homeBlocksRender.js). El desplegable era una trampa —
+   el tipo "video" venía con YouTube elegido de fábrica, así que quien subía un
+   MP4 propio y no lo tocaba terminaba con su archivo metido en un iframe, sin
+   autoplay y sin loop. */
 const VIDEO_FIELDS = [
   {
-    key: 'video_kind',
-    label: 'Origen del video',
-    type: 'opciones',
-    default: 'ninguno',
-    options: [
-      { value: 'ninguno', label: 'Sin video (sólo imagen)' },
-      { value: 'archivo', label: 'Archivo MP4 propio (subido acá)' },
-      { value: 'youtube', label: 'YouTube' },
-      { value: 'vimeo', label: 'Vimeo' },
-      { value: 'iframe', label: 'Otro embed (Cloudflare Stream…)' },
-    ],
+    key: 'video_url', label: 'Video', type: 'video',
+    help: 'Subí un MP4 propio, o pegá el link de YouTube, Vimeo o Cloudflare Stream. Me doy cuenta solo de cuál es.',
   },
   {
-    key: 'video_url', label: 'Video', type: 'video', when: { key: 'video_kind', not: 'ninguno' },
-    help: 'MP4 subido acá, o el link de YouTube/Vimeo, o la URL del iframe.',
+    key: 'video_loop', label: 'Repetir sin parar (como un GIF)', type: 'switch', default: true,
+    when: { key: 'video_url', lleno: true },
+    help: 'Arranca solo al entrar en pantalla, se repite y lo único que se puede tocar es pausa. Sin barra de avance: para un clip corto de ambiente es lo que corresponde.',
+  },
+  {
+    key: 'video_muted', label: 'Sin sonido', type: 'switch', default: true,
+    when: { key: 'video_url', lleno: true },
+    help: 'Recomendado. Un video que suena solo espanta. Además, ningún navegador deja que un video arranque solo CON sonido: si lo desactivás y el video arranca solo, igual empieza en silencio.',
   },
   {
     key: 'video_autoplay', label: 'Arrancar solo', type: 'switch', default: true,
-    when: { key: 'video_kind', not: 'ninguno' },
-    help: 'Sólo para MP4 propio y siempre SIN sonido (es lo único que dejan los navegadores). Arranca al entrar en pantalla y se pausa al salir. Con datos limitados o "reducir movimiento" activado no arranca: se ve la foto con el botón de play.',
-  },
-  {
-    key: 'video_loop', label: 'Repetir en loop', type: 'switch', default: true,
-    when: { key: 'video_kind', not: 'ninguno' },
+    when: { key: 'video_url', lleno: true },
+    help: 'Sólo para MP4 propio. Arranca al entrar en pantalla y se pausa al salir, para no gastar datos ni batería de fondo. Si el visitante tiene datos limitados o pidió "reducir movimiento", no arranca: ve la foto con el botón de play.',
   },
   {
     key: 'video_controls', label: 'Mostrar controles', type: 'switch', default: false,
-    when: { key: 'video_kind', not: 'ninguno' },
-    help: 'Un video de ambiente queda mejor sin controles. Uno explicativo los necesita.',
+    when: { key: 'video_url', lleno: true },
+    help: 'Barra de avance, volumen y pantalla completa. Para un video explicativo. No aplica si está en modo "repetir sin parar".',
   },
   {
-    key: 'video_sound_toggle', label: 'Botón de sonido', type: 'switch', default: false,
-    when: { key: 'video_kind', is: 'archivo' },
-    help: 'Agrega un botón para activar el audio. Sólo tiene sentido si el MP4 tiene audio.',
+    key: 'video_sound_toggle', label: 'Botón para activar el sonido', type: 'switch', default: false,
+    when: { key: 'video_muted', is: false },
+    help: 'Sólo si desactivaste "Sin sonido" y el archivo tiene audio.',
   },
 ];
 
@@ -322,7 +321,7 @@ const BLOCK_TYPES = {
       { key: 'text', label: 'Texto', type: 'textarea', max: 320 },
       { key: 'image', label: 'Foto de portada del video', type: 'imagen', help: 'Es lo primero que se ve y lo que se muestra si el video no puede arrancar solo. Si no la cargás, YouTube y Vimeo ponen la suya.' },
       { key: 'image_alt', label: 'Descripción de la portada', type: 'texto', max: 120 },
-      ...VIDEO_FIELDS.map((f) => (f.key === 'video_kind' ? { ...f, default: 'youtube', options: f.options.filter((o) => o.value !== 'ninguno') } : f)),
+      ...VIDEO_FIELDS,
       ...CTA_FIELDS('cta1', 'Botón'),
       {
         key: 'layout', label: 'Disposición', type: 'opciones', default: 'solo',
@@ -331,6 +330,16 @@ const BLOCK_TYPES = {
           { value: 'texto_derecha', label: 'Video a la izquierda, texto a la derecha' },
           { value: 'texto_izquierda', label: 'Video a la derecha, texto a la izquierda' },
         ],
+      },
+      {
+        key: 'media_style', label: 'Cómo se une el video con el texto', type: 'opciones', default: 'superpuesto',
+        options: [
+          { value: 'superpuesto', label: 'El texto monta sobre el video (recomendado)' },
+          { value: 'simple', label: 'Uno al lado del otro' },
+          { value: 'marco', label: 'Con marco de color detrás del video' },
+        ],
+        when: { key: 'layout', not: 'solo' },
+        help: 'Sólo cambia en computadora. En celular el video siempre va arriba del texto.',
       },
       {
         key: 'ratio', label: 'Forma del video', type: 'opciones', default: '16-9',
@@ -656,7 +665,7 @@ function validateConfig(input, { lenient = false } = {}) {
 
 function validarMinimos(type, data, slot) {
   const donde = `El bloque "${BLOCK_TYPES[type].label}" (${slot})`;
-  const hayMedia = data.image || data.image_mobile || (data.video_kind && data.video_kind !== 'ninguno' && data.video_url);
+  const hayMedia = data.image || data.image_mobile || data.video_url;
 
   if (type === 'portada') {
     if (!hayMedia) throw badRequest(`${donde} necesita una imagen o un video de fondo.`);
@@ -668,6 +677,12 @@ function validarMinimos(type, data, slot) {
   }
   if (type === 'video') {
     if (!data.video_url) throw badRequest(`${donde} necesita el video.`);
+  }
+  // Un MP4 propio con "arrancar solo" y sonido activado no puede sonar solo:
+  // lo bloquean todos los navegadores. Se avisa acá en vez de dejar que el
+  // dueño crea que configuró algo que nunca va a pasar.
+  if (data.video_url && data.video_autoplay && data.video_muted === false) {
+    data.video_muted = true;
   }
   if (type === 'productos') {
     if (!data.product_ids.length) throw badRequest(`${donde} necesita al menos un producto elegido.`);

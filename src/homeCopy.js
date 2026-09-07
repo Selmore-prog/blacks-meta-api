@@ -90,17 +90,21 @@ function esquemaDe(tipo) {
         encuadre: { type: 'string', description: 'Plano, luz y punto de vista.' },
         evitar: { type: 'string', description: 'El error típico que arruina esta foto.' },
         // Para pegar en Gemini/Nano Banana y sacar la pieza sin sesión de fotos.
+        tipo: {
+          type: 'string', enum: ['foto', 'video'],
+          description: 'Si este hueco se llena con una foto o con un video.',
+        },
         prompt_ia: {
           type: 'string',
-          description: 'Indicación EN INGLÉS para un generador de imágenes, en un solo párrafo, apuntando a foto documental realista: cámara y lente, luz natural con dirección, textura de tela y piel, desgaste real, postura natural. Sin texto ni logos.',
+          description: 'Indicación EN INGLÉS para el generador, en un solo párrafo. Si es foto: fotografía documental realista (cámara, lente, luz con dirección, textura de tela y piel, desgaste, postura natural). Si es video: un solo plano continuo de 5 a 8 segundos, describiendo el movimiento de cámara, el movimiento dentro del cuadro, el punto de foco y cómo cambia. Sin texto ni logos.',
         },
         producto_de_referencia: {
           type: 'string',
           description: 'Nombre EXACTO de un producto del catálogo cuya foto conviene adjuntar al generador para que la prenda sea la real. Vacío si la foto no muestra una prenda concreta.',
         },
       },
-      propertyOrdering: ['campo', 'que', 'formato', 'encuadre', 'evitar', 'prompt_ia', 'producto_de_referencia'],
-      required: ['campo', 'que', 'formato', 'encuadre', 'evitar', 'prompt_ia', 'producto_de_referencia'],
+      propertyOrdering: ['campo', 'tipo', 'que', 'formato', 'encuadre', 'evitar', 'prompt_ia', 'producto_de_referencia'],
+      required: ['campo', 'tipo', 'que', 'formato', 'encuadre', 'evitar', 'prompt_ia', 'producto_de_referencia'],
     },
   };
   orden.push('visuales');
@@ -271,8 +275,10 @@ function limpiar(salida, tipoDef, permitidas, numeros) {
     evitar: String(v.evitar || '').slice(0, 300),
     // El prompt del modelo es la idea; las reglas anti-"parece IA" se agregan
     // acá por código para que estén SIEMPRE, aunque el modelo se olvide.
-    prompt_ia: promptDeFoto(v),
+    tipo: String(v.tipo || '').toLowerCase() === 'video' ? 'video' : 'foto',
     producto_de_referencia: String(v.producto_de_referencia || '').slice(0, 120),
+    // Se arma DESPUÉS de normalizar tipo y producto: los usa.
+    prompt_ia: promptDeFoto({ ...v, tipo: String(v.tipo || '').toLowerCase() }),
   }));
 
   return {
@@ -283,32 +289,75 @@ function limpiar(salida, tipoDef, permitidas, numeros) {
   };
 }
 
-/* La cola técnica que separa una foto creíble de una imagen que grita "IA".
-   Va SIEMPRE, la ponga o no el modelo: son las cosas que el generador ignora si
-   no se las decís explícitamente, y las que más delatan la imagen. */
-const COLA_REALISMO = 'Shot on a Canon EOS R6 with a 35mm f/1.8 lens, natural directional daylight, '
-  + 'true shallow depth of field with natural background falloff, visible fabric weave and stitching, '
-  + 'real skin texture with pores and imperfections, authentic wear, dust and creases on the garment, '
-  + 'relaxed asymmetric posture caught mid-task, documentary photography, unretouched colour, '
-  + 'slight film grain. Argentina.';
+/* LA COLA TÉCNICA, EN PARTES INDEPENDIENTES.
+   Antes era un bloque único: si el modelo ya había elegido una cámara, se le
+   pegaba otra atrás y el prompt terminaba pidiendo "Canon C300" y "Sony FX3" a
+   la vez. Instrucciones contradictorias = generación peor. Ahora cada pieza
+   tiene su propia guarda y sólo se agrega la que falta.
 
-const NEGATIVO_REALISMO = 'No text, no letters, no watermarks, no logos, no invented brand marks, '
+   Todo esto va por código y no en el pedido al modelo porque es justo lo que el
+   modelo omite, y lo que más delata una imagen o un video generado. */
+const PIEZAS_FOTO = [
+  { falta: /canon|nikon|sony|leica|fujifilm|\d{2}mm|f\/\d/i,
+    texto: 'Shot on a Canon EOS R6 with a 35mm f/1.8 lens.' },
+  { falta: /daylight|natural light|golden hour|overcast|window light/i,
+    texto: 'Natural directional daylight with soft falloff.' },
+  { falta: /texture|weave|stitching|pores|grain/i,
+    texto: 'True shallow depth of field, visible fabric weave and stitching, real skin texture with pores and imperfections, authentic wear and creases, slight film grain.' },
+  { falta: /candid|documentary|unposed|mid-task/i,
+    texto: 'Relaxed asymmetric posture caught mid-task, documentary photography, unretouched colour.' },
+];
+
+const PIEZAS_VIDEO = [
+  { falta: /continuous take|single shot|one shot|no cuts/i,
+    texto: 'Single continuous take, no cuts, no scene changes, 6 seconds, 24fps.' },
+  { falta: /canon|sony|arri|red komodo|blackmagic|\d{2}mm|f\/\d/i,
+    texto: 'Shot on a Sony FX3 with a 35mm f/2 lens.' },
+  { falta: /handheld|gimbal|tripod|dolly|tracks|camera move/i,
+    texto: 'Handheld with subtle natural micro-movement, slow deliberate camera move.' },
+  { falta: /focus/i,
+    texto: 'Focus stays locked on the garment with a gentle rack focus at the end, shallow depth of field.' },
+  { falta: /daylight|natural light|overcast|window light/i,
+    texto: 'Natural directional daylight with soft falloff.' },
+  { falta: /texture|weave|stitching|ripstop grid|grain/i,
+    texto: 'Visible fabric weave, stitching and ripstop grid, authentic creases, dust and wear, real skin texture, slight grain.' },
+];
+
+/* Lo que NUNCA hay que dejar librado al modelo. La primera regla es la que más
+   importa para esta tienda: la prenda tiene que ser LA REAL. */
+const NEGATIVO_FOTO = 'No text, no letters, no watermarks, no logos, no invented brand marks, '
   + 'no plastic or waxy skin, no oversaturated colours, no perfect symmetry, no studio catalogue pose, '
   + 'no HDR glow, no rendered or 3D look, no stock-photo smile.';
 
+const NEGATIVO_VIDEO = 'Do not alter the garment: keep its exact colour, cut, pockets, seams and '
+  + 'hardware as shown in the reference photo. No invented logos, brand marks, prints or reflective '
+  + 'strips. No text or captions on screen. No cuts, no montage, no speed ramps, no camera orbit, '
+  + 'no drone shot. No plastic skin, no oversaturated colours, no studio catalogue pose, '
+  + 'no HDR glow, no 3D or rendered look, no morphing fabric.';
+
+/**
+ * Arma el prompt final: lo que escribió el modelo + sólo las piezas técnicas
+ * que le faltan + las prohibiciones + la referencia del producto real.
+ */
 function promptDeFoto(v) {
   const base = String(v.prompt_ia || v.que || '').trim();
   if (!base) return '';
+  const esVideo = String(v.tipo || '').toLowerCase() === 'video'
+    || /\bvideo\b|\bclip\b|footage|seconds long/i.test(String(v.campo || '') + ' ' + base);
+
   const partes = [base.slice(0, 900)];
-  if (!/canon|nikon|sony|lens|mm f\//i.test(base)) partes.push(COLA_REALISMO);
-  if (!/no text|without text/i.test(base)) partes.push(NEGATIVO_REALISMO);
+  const piezas = esVideo ? PIEZAS_VIDEO : PIEZAS_FOTO;
+  piezas.forEach((p) => { if (!p.falta.test(base)) partes.push(p.texto); });
+
+  const negativo = esVideo ? NEGATIVO_VIDEO : NEGATIVO_FOTO;
+  if (!/no text|do not alter|without text/i.test(base)) partes.push(negativo);
+
   if (v.formato) partes.push(`Aspect ratio: ${String(v.formato).slice(0, 60)}.`);
+  if (v.producto_de_referencia) {
+    partes.push(`The garment must match the attached reference photo of "${String(v.producto_de_referencia).slice(0, 90)}" exactly.`);
+  }
   return partes.join(' ');
 }
-
-/* -------------------------------------------------------------------------
- * GENERACIÓN
- * ----------------------------------------------------------------------- */
 
 const SISTEMA = `Escribís los textos de la página de inicio de BLACKS Indumentaria, una tienda argentina de ropa de trabajo, seguridad industrial y urbano, que vende al público y por mayor.
 
@@ -378,7 +427,9 @@ Además de los textos, devolvé en "visuales" una indicación por cada foto o vi
 
 En "respaldo" nombrá los productos REALES de los datos que sostienen lo que escribiste (los que el cliente va a encontrar si hace clic). Si lo que escribiste no tiene productos que lo respalden, decilo ahí en vez de inventar.
 
-En "prompt_ia" de cada visual, escribí la indicación para un generador de imágenes, EN INGLÉS y en un solo párrafo. Tiene que dar una foto que no parezca generada: cámara y lente concretos, luz natural con dirección, textura real de tela y piel, desgaste y polvo donde corresponda, postura natural y asimétrica, profundidad de campo verdadera. Ambientada en Argentina (obra, planta, taller o calle, según el caso). Sin texto, sin logos, sin marcas inventadas, sin piel plástica, sin saturación de más, sin simetría perfecta, sin pose de catálogo.`;
+En cada visual marcá en "tipo" si ese hueco se llena con "foto" o con "video" (los bloques de video llevan video; el resto, foto).
+
+En "prompt_ia" escribí la indicación para el generador, EN INGLÉS y en un solo párrafo. Si es video, describí UN SOLO plano continuo: qué hace la cámara, qué se mueve dentro del cuadro, dónde está el foco y cómo cambia. Si es foto, la escena fija. Tiene que dar una foto que no parezca generada: cámara y lente concretos, luz natural con dirección, textura real de tela y piel, desgaste y polvo donde corresponda, postura natural y asimétrica, profundidad de campo verdadera. Ambientada en Argentina (obra, planta, taller o calle, según el caso). Sin texto, sin logos, sin marcas inventadas, sin piel plástica, sin saturación de más, sin simetría perfecta, sin pose de catálogo.`;
 
   const salida = await generateJson({
     system: SISTEMA,

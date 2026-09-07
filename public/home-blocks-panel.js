@@ -263,6 +263,13 @@ function hbVisible(campo, data) {
   const w = campo.when;
   if (!w) return true;
   const actual = data[w.key];
+  // `lleno` = mostrar sólo si el otro campo tiene algo cargado. Lo usan las
+  // opciones de video, que ahora dependen de que haya una URL y no de un
+  // desplegable de tipo (ver VIDEO_FIELDS en src/homeBlocks.js).
+  if (w.lleno !== undefined) {
+    const tiene = Array.isArray(actual) ? actual.length > 0 : !!(actual && String(actual).trim());
+    return w.lleno ? tiene : !tiene;
+  }
   if (w.is !== undefined) return actual === w.is;
   if (w.not !== undefined) return actual !== w.not;
   return true;
@@ -273,7 +280,9 @@ function hbCampo(campo, valor, ruta, data) {
   const lab = `<span class="hb-f-lab">${esc(campo.label)}</span>`;
   const help = campo.help ? `<span class="hb-f-help">${esc(campo.help)}</span>` : '';
   // Cambiar este campo puede mostrar u ocultar otros: hay que redibujar.
-  const redibuja = campo.type === 'opciones' || campo.type === 'switch';
+  // Cambiar esto muestra u oculta otros campos, así que hay que redibujar.
+  // El campo 'video' entra porque de su URL dependen loop, sonido y autoplay.
+  const redibuja = campo.type === 'opciones' || campo.type === 'switch' || campo.type === 'video';
   const alCambiar = redibuja ? 'hbSetYRedibuja' : 'hbSet';
 
   switch (campo.type) {

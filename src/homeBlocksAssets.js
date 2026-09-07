@@ -137,11 +137,33 @@ const CSS = `
 }
 .hb-play span { width: 0; height: 0; margin-left: 4px; border-left: 16px solid #fff; border-top: 10px solid transparent; border-bottom: 10px solid transparent; }
 .hb-play:hover { transform: translate(-50%, -50%) scale(1.06); background: rgba(17,18,20,.82); }
+/* MODO CINTA: el botón de pausa vive discreto abajo a la derecha y sólo se
+   nota al pasar por encima. La idea es que el clip se lea como un GIF, no como
+   un reproductor. Igual queda siempre alcanzable con el teclado: es la única
+   forma de frenar algo que arrancó solo. */
+.hb-cinta-btn {
+  position: absolute; right: 12px; bottom: 12px; z-index: 2; cursor: pointer;
+  width: 34px; height: 34px; border-radius: 50%; display: grid; place-items: center;
+  border: 1px solid rgba(255,255,255,.35); background: rgba(17,18,20,.45);
+  color: #fff; opacity: 0; transition: opacity .2s ease, background .2s ease;
+  padding: 0;
+}
+.hb-cinta-btn svg { width: 15px; height: 15px; fill: currentColor; }
+.hb-media--cinta:hover .hb-cinta-btn,
+.hb-cinta-btn:focus-visible { opacity: 1; }
+.hb-cinta-btn:hover { background: rgba(17,18,20,.75); }
+/* En celular no hay hover: se muestra siempre, atenuado. */
+@media (hover: none) {
+  .hb-cinta-btn { opacity: .75; }
+}
+
 .hb-sound {
   position: absolute; right: 12px; bottom: 12px; z-index: 2; cursor: pointer;
   border: 1px solid rgba(255,255,255,.5); background: rgba(17,18,20,.55); color: #fff;
   font-size: 11px; letter-spacing: .08em; text-transform: uppercase; padding: 7px 12px; border-radius: 999px;
 }
+/* Con los dos botones, el de sonido se corre a la izquierda del de pausa. */
+.hb-media--cinta .hb-sound { right: 56px; }
 
 /* ===== PORTADA ========================================================== */
 .hb--portada { padding: 0; }
@@ -529,18 +551,37 @@ const JS = `
     if (s) { s.src = s.dataset.src; v.load(); }
   }
 
+  /* play() pedido justo después de load() se ABORTA: el navegador todavía está
+     buscando el archivo y tira "The play() request was interrupted by a new
+     load request". Como el .catch se lo tragaba, el video quedaba quieto sin
+     que nada lo dijera. Acá se reintenta una vez, cuando ya hay datos. */
+  function reproducir(v) {
+    var intento = v.play();
+    if (!intento || !intento.catch) return;
+    intento.catch(function () {
+      if (v.dataset.hbReintento) return;
+      v.dataset.hbReintento = '1';
+      v.addEventListener('loadeddata', function () {
+        v.play().catch(function () { /* el navegador dijo que no: queda el poster */ });
+      }, { once: true });
+    });
+  }
+
   var io = ('IntersectionObserver' in window) ? new IntersectionObserver(function (entradas) {
     entradas.forEach(function (e) {
       var v = e.target;
       if (e.isIntersecting) {
         activarVideo(v);
-        if (v.dataset.hbAutoplay && !reduce && !ahorro) {
-          var p = v.play();
-          if (p && p.catch) p.catch(function () { /* el navegador dijo que no: queda el poster */ });
+        if (v.dataset.hbAutoplay && !reduce && !ahorro && !v.dataset.hbPausadoAMano) {
+          reproducir(v);
         }
       } else if (!v.paused) {
+        // Fuera de pantalla se pausa siempre: un video corriendo que nadie ve
+        // gasta datos y batería. Al volver a entrar sigue solo.
         v.pause();
       }
+      var b = v.parentElement && v.parentElement.querySelector('[data-hb-toggle]');
+      if (b) pintarToggle(b, v.paused && !!v.dataset.hbPausadoAMano);
     });
   }, { rootMargin: '200px 0px', threshold: 0.25 }) : null;
 
@@ -552,7 +593,15 @@ const JS = `
     });
   }
 
-  /* --- clics: play de fachada, botón de sonido -------------------------- */
+  function pintarToggle(btn, pausado) {
+    var pausa = btn.querySelector('.hb-ic-pausa');
+    var play = btn.querySelector('.hb-ic-play');
+    if (pausa) pausa.hidden = pausado;
+    if (play) play.hidden = !pausado;
+    btn.setAttribute('aria-label', pausado ? 'Reproducir video' : 'Pausar video');
+  }
+
+  /* --- clics: play de fachada, pausa de cinta, botón de sonido ---------- */
   document.addEventListener('click', function (ev) {
     var play = ev.target.closest ? ev.target.closest('.hb-play') : null;
     if (play) {
@@ -575,10 +624,30 @@ const JS = `
         var v = caja.querySelector('video');
         if (!v) return;
         activarVideo(v);
-        v.play();
+        reproducir(v);
         v.setAttribute('controls', '');
         play.remove();
       }
+      return;
+    }
+
+    // Modo cinta (loop): pausa y reanudar, nada más. No hay barra de avance.
+    var tog = ev.target.closest ? ev.target.closest('[data-hb-toggle]') : null;
+    if (tog) {
+      var cajaT = tog.closest('.hb-media');
+      var vt = cajaT && cajaT.querySelector('video');
+      if (!vt) return;
+      ev.preventDefault();
+      if (vt.paused) {
+        activarVideo(vt);
+        reproducir(vt);
+      } else {
+        vt.pause();
+      }
+      pintarToggle(tog, vt.paused);
+      // Pausado a mano = pausado en serio: el observador no lo vuelve a arrancar
+      // al salir y entrar de pantalla.
+      vt.dataset.hbPausadoAMano = vt.paused ? '1' : '';
       return;
     }
 
@@ -604,6 +673,22 @@ const JS = `
     if (!cont) return;
     cont.querySelectorAll('.hb-faq-item[open]').forEach(function (o) { if (o !== d) o.open = false; });
   }, true);
+
+  /* VOLVER A LA PESTAÑA.
+     Chrome pausa el video sin audio cuando la pestaña se va a segundo plano
+     ("video-only background media was paused to save power") y al volver NO lo
+     reanuda. Como el observador sólo reacciona cuando cambia la intersección, y
+     al volver no cambia nada, el clip quedaba congelado hasta scrollear. Se
+     reanuda a mano lo que esté en pantalla y no haya pausado el visitante. */
+  document.addEventListener('visibilitychange', function () {
+    if (document.hidden) return;
+    document.querySelectorAll('.hb-video[data-hb-autoplay]').forEach(function (v) {
+      if (!v.paused || v.dataset.hbPausadoAMano || reduce || ahorro) return;
+      var r = v.getBoundingClientRect();
+      var visible = r.bottom > 0 && r.top < (window.innerHeight || 0);
+      if (visible) reproducir(v);
+    });
+  });
 
   window.blacksBlocksInit = registrar;
   registrar(document);
