@@ -244,7 +244,9 @@ function mediaTexto(b) {
     : '';
   const col = media(d, { ratio: d.ratio || '4-3', posterSizes: '(min-width: 768px) 50vw, 100vw' });
 
-  return `<div class="hb-split hb-split--${esc(d.media_side === 'derecha' ? 'derecha' : 'izquierda')}">`
+  const union = ['superpuesto', 'simple', 'marco'].includes(d.media_style) ? d.media_style : 'superpuesto';
+
+  return `<div class="hb-split hb-split--${esc(d.media_side === 'derecha' ? 'derecha' : 'izquierda')} hb-u-${union}">`
     + `<div class="hb-split-media">${col}</div>`
     + `<div class="hb-split-body">${encabezado(d)}${bullets}${botones(d)}</div>`
     + '</div>';

@@ -206,6 +206,20 @@ function diagnosticar(s) {
     }
   }
 
+  /* 1a. Bloques escritos en el motor que nunca se pusieron en la página.
+     Es el olvido más fácil del flujo: se arma el bloque acá, se publica, y falta
+     el paso de arrastrar el hueco en el panel de diseño de Tiendanube. Desde el
+     motor se ve "listo" y en la tienda no está. */
+  {
+    const enLaPagina = new Set(orden.map((x) => x.id));
+    const huerfanos = (s.bloques || []).filter((b) => b.enabled && !enLaPagina.has(b.slot));
+    if (huerfanos.length) {
+      av('alto', `Tenés ${huerfanos.length} ${huerfanos.length === 1 ? 'bloque armado que no está' : 'bloques armados que no están'} en la página`,
+        `${huerfanos.map((b) => b.slot.replace('block_', 'Bloque de contenido ')).join(', ')}. El contenido ya está escrito y publicado en el motor, pero el hueco no está puesto en el orden de la página de inicio: hay que arrastrarlo desde el panel de diseño de Tiendanube.`,
+        null);
+    }
+  }
+
   // 1b. Contenido duplicado entre las franjas fijas del theme.
   {
     const fijas = (s.home.secciones || []).filter((x) => x.fija && !x.oculta).map((x) => x.id);

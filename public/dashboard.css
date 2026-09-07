@@ -2157,3 +2157,16 @@ button .cost-tag { margin-left: 8px; }
 @media (max-width: 900px) {
   .sk-wrap { grid-template-columns: 1fr; }
 }
+
+/* Prompt de imagen para pegar en Gemini (Esquema ideal → bloque → visuales) */
+.hp-respaldo { margin-top: 14px; padding: 12px 14px; border: 1px solid var(--line); border-radius: 8px; }
+.hp-respaldo h5 { margin: 0 0 6px; font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; }
+.hp-respaldo p { margin: 0; font-size: 13px; line-height: 1.5; }
+.hp-prompt { margin-top: 10px; }
+.hp-prompt summary { cursor: pointer; font-size: 12px; color: var(--orange); }
+.hp-prompt textarea {
+  width: 100%; margin-top: 8px; padding: 10px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--fg, #f5f5f6);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical;
+}
+.hp-prompt button { margin-top: 6px; }

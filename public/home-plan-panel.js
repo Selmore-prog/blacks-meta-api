@@ -310,18 +310,49 @@ function hpCopy(c) {
       return `<div class="hp-campo"><span>${esc(k)}</span><div>${valor}</div></div>`;
     }).join('');
 
-  const visuales = (c.visuales || []).map((v) => `<div class="hp-visual">
+  const visuales = (c.visuales || []).map((v, i) => {
+    // El prompt se guarda en el estado y NO en un atributo del botón: llevarlo
+    // por HTML obliga a escapar comillas y saltos y se rompe con cualquier
+    // apóstrofo del texto.
+    hpState.prompts = hpState.prompts || {};
+    const id = `p${Date.now().toString(36)}${i}`;
+    hpState.prompts[id] = v.prompt_ia || '';
+    return `<div class="hp-visual">
       <b>${esc(v.campo)}</b>
       <p>${esc(v.que)}</p>
       <p class="hp-dato">${esc(v.formato)} · ${esc(v.encuadre)}</p>
       <p class="hp-evitar">Evitar: ${esc(v.evitar)}</p>
-    </div>`).join('');
+      ${v.prompt_ia ? `<details class="hp-prompt">
+        <summary>Generarla con IA${v.producto_de_referencia ? ` · adjuntá la foto de "${esc(v.producto_de_referencia)}"` : ''}</summary>
+        <textarea readonly rows="5">${esc(v.prompt_ia)}</textarea>
+        <button class="btn-ghost btn-sm" onclick="hpCopiarPrompt('${id}', this)">Copiar el prompt</button>
+        <p class="hp-dato">Pegalo en Gemini${v.producto_de_referencia ? ', adjuntando la foto del producto para que la prenda sea la real' : ''}. Está escrito para que la foto no parezca generada.</p>
+      </details>` : ''}
+    </div>`;
+  }).join('');
 
   return `<div class="hp-resultado">
     ${c.porQue ? `<p class="hp-porque-ia">${esc(c.porQue)}</p>` : ''}
     <div class="hp-campos">${campos}</div>
+    ${c.respaldo ? `<div class="hp-respaldo"><h5>Con qué productos se sostiene</h5><p>${esc(c.respaldo)}</p></div>` : ''}
     ${visuales ? `<div class="hp-visuales"><h5>Qué foto o video conseguir</h5>${visuales}</div>` : ''}
   </div>`;
+}
+
+async function hpCopiarPrompt(id, btn) {
+  const txt = (hpState.prompts || {})[id] || '';
+  if (!txt) return;
+  try {
+    await navigator.clipboard.writeText(txt);
+    const antes = btn.textContent;
+    btn.textContent = 'Copiado';
+    setTimeout(() => { btn.textContent = antes; }, 1600);
+  } catch (_) {
+    // Sin permiso de portapapeles: se selecciona para copiar a mano.
+    const ta = btn.parentElement.querySelector('textarea');
+    if (ta) { ta.focus(); ta.select(); }
+    toast('Copialo con Ctrl+C: el navegador no me dejó hacerlo solo.', 'warn');
+  }
 }
 
 async function hpEscribir(pos) {

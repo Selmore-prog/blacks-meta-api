@@ -115,7 +115,14 @@ const CSS = `
 
 /* --- media -------------------------------------------------------------- */
 .hb-media { position: relative; width: 100%; aspect-ratio: var(--hb-ratio, 4 / 3); overflow: hidden; border-radius: var(--hb-radio); background: rgba(127,127,127,.10); }
-.hb-pic { display: block; width: 100%; height: 100%; }
+/* LA FOTO RESERVA SU CAJA.
+   El HTML declara la proporción en --hb-ratio, pero hasta sep-2026 nadie la
+   aplicaba acá: la placa terminaba midiendo lo que midiera la foto que subió el
+   dueño. Si cargaba una apaisada en un hueco cuadrado, quedaba un hueco debajo
+   y el texto blanco (anclado abajo de la PLACA, no de la foto) caía sobre el
+   fondo del bloque y se volvía invisible. Además, sin caja reservada la página
+   salta cuando la foto carga, y ese salto lo paga el Core Web Vital de CLS. */
+.hb-pic { display: block; width: 100%; height: 100%; aspect-ratio: var(--hb-ratio, auto); }
 .hb-pic img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .hb-media > .hb-pic { position: absolute; inset: 0; }
 .hb-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
@@ -212,9 +219,15 @@ a.hb-attr:hover { border-color: currentColor; }
 
 /* ===== EDITORIAL ======================================================== */
 .hb-editorial { display: grid; gap: var(--hb-gap); }
-.hb-tile { position: relative; display: block; text-decoration: none; color: inherit; border-radius: var(--hb-radio); overflow: hidden; }
-.hb-tile-media { position: relative; }
-.hb-tile-media .hb-pic { display: block; }
+/* La foto llena la placa entera, en todos los casos. Antes se estiraba sólo en
+   dos combinaciones especiales y en el resto quedaba en flujo: cualquier
+   diferencia entre el alto de la placa (que lo fija la grilla) y el de la foto
+   dejaba el texto colgando abajo, fuera de la imagen. */
+.hb-tile { position: relative; display: block; text-decoration: none; color: inherit;
+  border-radius: var(--hb-radio); overflow: hidden; aspect-ratio: 4 / 3; }
+.hb-tile--chica { aspect-ratio: 3 / 2; }
+.hb-tile-media { position: absolute; inset: 0; }
+.hb-tile-media .hb-pic { position: absolute; inset: 0; display: block; aspect-ratio: auto; }
 .hb-tile-media img, .hb-tile-media .hb-poster-vacio { transition: transform .5s cubic-bezier(.2,.6,.2,1); }
 a.hb-tile:hover .hb-tile-media img { transform: scale(1.04); }
 .hb-tile-media::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,.72), rgba(0,0,0,.12) 55%, transparent); }
@@ -365,6 +378,49 @@ a.hb-rubro:hover .hb-rubro-media img { transform: scale(1.05); }
   .hb-split--derecha .hb-split-media { order: 2; }
   .hb-split-body { padding: 8px 0; }
 
+  /* CÓMO SE UNE LA FOTO CON EL TEXTO (sólo en escritorio).
+     "Uno al lado del otro" con 48 px de aire en el medio se lee como dos cajas
+     que no se conocen: la foto por un lado, un párrafo por el otro. Las otras
+     dos opciones las atan.
+
+     SUPERPUESTO (por defecto): la tarjeta de texto monta sobre el borde de la
+     foto. Es el recurso editorial de toda la vida y, a diferencia de sangrar la
+     imagen hasta el borde de la pantalla, no depende de calcular anchos de
+     ventana — así que no se rompe con el scrollbar ni en pantallas raras.
+     La columna del texto se angosta a 1fr/1.15fr para que la foto gane peso. */
+  .hb-split.hb-u-superpuesto { grid-template-columns: 1.15fr 1fr; gap: 0; align-items: center; }
+  .hb-split.hb-u-superpuesto .hb-split-body {
+    position: relative; z-index: 1;
+    background: var(--hb-bg);
+    border-radius: var(--hb-radio);
+    padding: 34px 36px;
+    margin-left: -64px;
+    box-shadow: 0 18px 50px rgba(0,0,0,.13);
+  }
+  /* Con la foto a la derecha, la tarjeta monta desde el otro lado. */
+  .hb-split.hb-u-superpuesto.hb-split--derecha { grid-template-columns: 1fr 1.15fr; }
+  .hb-split.hb-u-superpuesto.hb-split--derecha .hb-split-body {
+    margin-left: 0; margin-right: -64px;
+  }
+  /* En tema oscuro la sombra no se ve: se marca con un filete de acento. */
+  .hb-t-oscuro .hb-split.hb-u-superpuesto .hb-split-body,
+  .hb-t-acento .hb-split.hb-u-superpuesto .hb-split-body {
+    box-shadow: none; border: 1px solid var(--hb-line); border-left: 3px solid var(--hb-accent);
+  }
+  .hb-t-acento .hb-split.hb-u-superpuesto .hb-split-body { border-left-color: currentColor; }
+
+  /* MARCO: un bloque de color corrido detrás de la foto. Más sobrio que la
+     superposición y sirve cuando la foto ya tiene mucho contraste propio. */
+  .hb-split.hb-u-marco { gap: 56px; }
+  .hb-split.hb-u-marco .hb-split-media { position: relative; }
+  .hb-split.hb-u-marco .hb-split-media::before {
+    content: ""; position: absolute; z-index: 0;
+    inset: 22px -22px -22px 22px;
+    border: 2px solid var(--hb-accent); border-radius: var(--hb-radio);
+  }
+  .hb-split.hb-u-marco.hb-split--derecha .hb-split-media::before { inset: 22px 22px -22px -22px; }
+  .hb-split.hb-u-marco .hb-media { position: relative; z-index: 1; }
+
   .hb-attrs, .hb-attrs.hb-m-scroll, .hb-attrs.hb-m-dos {
     grid-auto-flow: row; grid-auto-columns: auto; overflow: visible; margin: 0; padding: 0;
     grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
@@ -377,27 +433,36 @@ a.hb-rubro:hover .hb-rubro-media img { transform: scale(1.05); }
 
   .hb-editorial, .hb-editorial.hb-m-scroll {
     grid-auto-flow: row; overflow: visible; margin: 0; padding: 0;
-    grid-template-columns: 1.35fr 1fr; grid-template-rows: 1fr 1fr;
+    grid-template-columns: 1.35fr 1fr;
+  }
+  /* ALTO TOPEADO.
+     Antes las filas eran 1fr 1fr sin alto declarado: lo marcaba la foto de las
+     placas chicas (1:1 sobre una columna de ~490 px = 490 px cada una), así que
+     el editorial medía 1.004 px de grilla y 1.211 px de sección — más de una
+     pantalla de notebook para tres fotos. Con el alto fijo la composición es la
+     misma pero entra en pantalla, y como la foto ahora llena la placa (no al
+     revés) recorta en vez de estirar. */
+  .hb-editorial[data-hb-tiles="3"] {
+    grid-template-rows: repeat(2, minmax(0, 1fr));
+    height: clamp(400px, 36vw, 520px);
   }
   .hb-editorial[data-hb-tiles="3"] .hb-tile--grande { grid-row: span 2; }
-  .hb-editorial[data-hb-tiles="2"] { grid-template-rows: auto; }
+  .hb-editorial[data-hb-tiles="2"] {
+    grid-template-rows: minmax(0, 1fr);
+    height: clamp(320px, 30vw, 440px);
+  }
+  /* La grilla manda el alto: las placas dejan de tener proporción propia. */
+  .hb-editorial .hb-tile { aspect-ratio: auto; height: 100%; }
   .hb-editorial .hb-tile-body { padding: 24px; }
-  /* La placa que se estira tiene que estirar TAMBIÉN su foto. Con 3 placas el
-     alto lo marcan las dos chicas y la grande las acompaña; con 2, al revés.
-     Sin esto la foto queda con su proporción y la placa termina con una franja
-     vacía abajo, justo donde va el título. */
-  .hb-editorial[data-hb-tiles="3"] .hb-tile--grande .hb-tile-media,
-  .hb-editorial[data-hb-tiles="2"] .hb-tile--chica .hb-tile-media { position: absolute; inset: 0; }
-  .hb-editorial[data-hb-tiles="3"] .hb-tile--grande .hb-pic,
-  .hb-editorial[data-hb-tiles="2"] .hb-tile--chica .hb-pic { position: absolute; inset: 0; height: 100%; aspect-ratio: auto; }
+  /* En una placa chica y baja, tres renglones de texto no entran: se recorta a
+     dos y el título a dos líneas, en vez de desbordar sobre la foto. */
+  .hb-editorial .hb-tile--chica .hb-tile-title {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .hb-editorial .hb-tile--chica .hb-tile-text {
+    display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+  }
 
-  /* CON POCOS PRODUCTOS, LAS TARJETAS NO SE ESTIRAN.
-     Con repeat(2, 1fr) en un contenedor de 1240 px, dos productos daban
-     tarjetas de ~600 px con la foto cuadrada: 600 px de alto cada una, un
-     bloque gigante en escritorio que en celular se veía perfecto. Una ficha de
-     producto tiene un tamaño natural (~300 px) y pasado eso no se ve mejor, se
-     ve rota. Se topea con minmax y la fila queda alineada a la izquierda,
-     debajo del título. */
   .hb-prods { grid-template-columns: repeat(4, 1fr); justify-content: start; }
   .hb-prods[data-hb-cols="3"] { grid-template-columns: repeat(3, minmax(0, 320px)); }
   .hb-prods[data-hb-cols="2"] { grid-template-columns: repeat(2, minmax(0, 320px)); }

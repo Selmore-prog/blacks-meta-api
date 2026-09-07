@@ -179,13 +179,23 @@ const BLOCK_TYPES = {
         help: 'En celular siempre queda arriba del texto.',
       },
       {
-        key: 'ratio', label: 'Forma de la imagen', type: 'opciones', default: '4-3',
+        key: 'ratio', label: 'Forma de la imagen', type: 'opciones', default: '3-2',
         options: [
           { value: '1-1', label: 'Cuadrada' },
+          { value: '3-2', label: 'Apaisada 3:2 (recomendada)' },
           { value: '4-3', label: 'Apaisada 4:3' },
           { value: '3-4', label: 'Vertical 3:4' },
           { value: '16-9', label: 'Panorámica 16:9' },
         ],
+      },
+      {
+        key: 'media_style', label: 'Cómo se une la foto con el texto', type: 'opciones', default: 'superpuesto',
+        options: [
+          { value: 'superpuesto', label: 'El texto monta sobre la foto (recomendado)' },
+          { value: 'simple', label: 'Uno al lado del otro' },
+          { value: 'marco', label: 'Con marco de color detrás de la foto' },
+        ],
+        help: 'Sólo cambia en computadora: en celular la foto siempre va arriba del texto. "Superpuesto" es lo que hace que la sección no parezca dos cajas sueltas.',
       },
     ],
     sugerencias: [
