@@ -359,8 +359,74 @@ function hbCampoArchivo(campo, valor, ruta, lab, help) {
       <input type="text" value="${hbAttr(valor || '')}" placeholder="${esVideo ? 'Pegá el link o subí un MP4' : 'Pegá la URL o subí la foto'}"
              oninput="hbSet('${ruta}', this.value)">
       <button class="hb-mini" onclick="hbSubir('${ruta}', ${esVideo})">Subir</button>
+      <button class="hb-mini" onclick="hbPrompt('${ruta}', '${hbAttr(campo.key)}')" title="Escribir el prompt para generar ${esVideo ? 'este video' : 'esta foto'} con IA">✨ Prompt</button>
       ${valor ? `<button class="hb-mini rojo" onclick="hbSetYRedibuja('${ruta}', '')">Quitar</button>` : ''}
-    </span>${help}${valor ? '' : hbNota(ruta, campo.key)}</label>`;
+    </span>${help}${valor ? '' : hbNota(ruta, campo.key)}${hbPromptCaja(ruta)}</label>`;
+}
+
+/* PROMPT A PEDIDO PARA ESTE HUECO.
+   El esquema ideal deja notas sólo para los bloques que él propone. Para los que
+   el dueño arma a mano —o para un video que agregó por su cuenta— el prompt se
+   pide desde acá, y sale mirando lo que YA escribió en ese bloque. */
+function hbPromptCaja(ruta) {
+  const p = (hbState.prompts || {})[ruta];
+  if (!p) return '';
+  if (p.cargando) return '<div class="hb-prompt-caja"><span class="loading">Escribiendo el prompt…</span></div>';
+  if (p.error) return `<div class="hb-prompt-caja hb-prompt-error">${esc(p.error)}</div>`;
+  return `<div class="hb-prompt-caja">
+    <p class="hb-prompt-que"><b>${p.tipo === 'video' ? 'Video' : 'Foto'}:</b> ${esc(p.que)}</p>
+    <p class="hb-f-help">${esc([p.formato, p.encuadre].filter(Boolean).join(' · '))}</p>
+    ${p.evitar ? `<p class="hb-f-help">Evitar: ${esc(p.evitar)}</p>` : ''}
+    ${p.producto_de_referencia ? `<p class="hb-prompt-ref">Adjuntá la foto de <b>${esc(p.producto_de_referencia)}</b> para que la prenda sea la real.</p>` : ''}
+    <textarea readonly rows="5">${esc(p.prompt_ia)}</textarea>
+    <span class="hb-prompt-acc">
+      <button class="hb-mini" onclick="hbCopiarPrompt('${ruta}', this)">Copiar</button>
+      <button class="hb-mini" onclick="hbPrompt('${ruta}', '${hbAttr(p.campo)}')">Otra versión</button>
+      <button class="hb-mini rojo" onclick="hbCerrarPrompt('${ruta}')">Cerrar</button>
+    </span>
+  </div>`;
+}
+
+async function hbPrompt(ruta, clave) {
+  const i = Number(ruta.split('.')[0]);
+  const b = hbState.bloques[i];
+  if (!b) return;
+  hbState.prompts = hbState.prompts || {};
+  // El campo que se manda es la ruta DENTRO del bloque (sin el índice del bloque),
+  // para que el motor sepa si el hueco vive adentro de una lista.
+  const campo = ruta.split('.').slice(2).join('.') || clave;
+  hbState.prompts[ruta] = { cargando: true, campo };
+  hbRenderEditor();
+  try {
+    const r = await api('/api/home/blocks/prompt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ tipo: b.type, data: b.data, campo }),
+    });
+    hbState.prompts[ruta] = { ...r, campo };
+  } catch (err) {
+    hbState.prompts[ruta] = { error: `No pude escribir el prompt: ${err.message}`, campo };
+  }
+  hbRenderEditor();
+}
+
+async function hbCopiarPrompt(ruta, btn) {
+  const p = (hbState.prompts || {})[ruta];
+  if (!p || !p.prompt_ia) return;
+  try {
+    await navigator.clipboard.writeText(p.prompt_ia);
+    const antes = btn.textContent;
+    btn.textContent = 'Copiado';
+    setTimeout(() => { btn.textContent = antes; }, 1600);
+  } catch (_) {
+    const ta = btn.closest('.hb-prompt-caja').querySelector('textarea');
+    if (ta) { ta.focus(); ta.select(); }
+  }
+}
+
+function hbCerrarPrompt(ruta) {
+  if (hbState.prompts) delete hbState.prompts[ruta];
+  hbRenderEditor();
 }
 
 function hbCampoProductos(campo, ids, ruta, lab, help) {

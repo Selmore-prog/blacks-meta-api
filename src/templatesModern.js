@@ -231,7 +231,7 @@ function buildRecorteHtml(opts, g, head) {
         letter-spacing:2.5px; color:rgba(255,255,255,.5); ${isStory ? '' : 'padding-bottom:8px;'}">BLACKSINDUMENTARIA.COM.AR</div>
     </div>
 
-    ${markSmall(opts.logos && opts.logos.light, { top: isStory ? g.safeTop + 10 : 52, left: g.padX, height: isStory ? 52 : 44 })}
+    ${opts.showBrand ? markSmall(opts.logos && opts.logos.light, { top: isStory ? g.safeTop + 10 : 52, left: g.padX, height: isStory ? 52 : 44 }) : ''}
     ${grain(0.18)}
   </body></html>`;
 }
@@ -342,16 +342,74 @@ function buildFichaHtml(opts, g, head) {
  * Acá el contenido ocupa la pieza: número gigante de fondo, bloques con jerarquía y
  * una franja de acento. Funciona con o sin foto.
  */
+/**
+ * BULLETS QUE ENTRAN EN LA CAJA.
+ *
+ * El editorial imprimía los puntos crudos, con tipografía y separación fijas.
+ * Un punto largo se partía en tres renglones, los tres puntos se apilaban y
+ * terminaban pisando el pie con la URL: es el "quedan amontonados" que se veía
+ * en las piezas reales. Acá se recorta cada punto y, si el bloque sigue sin
+ * entrar en el alto disponible, se baja la tipografía y la separación; recién
+ * como último recurso se muestra uno menos. Antes de que se rompa, sobra texto.
+ */
+function fitBullets(puntos, { maxWidth, boxHeight, isStory }) {
+  const limpios = (puntos || [])
+    .map((p) => String(p == null ? '' : p).replace(/\s+/g, ' ').replace(/[.\s]+$/, '').trim())
+    .filter(Boolean)
+    .map((p) => {
+      if (p.length <= 46) return p;
+      const corte = p.slice(0, 46);
+      const sp = corte.lastIndexOf(' ');
+      return (sp > 23 ? corte.slice(0, sp) : corte).replace(/[\s,;:.–—-]+$/, '');
+    })
+    .slice(0, 3);
+  if (!limpios.length) return null;
+
+  // Se prueban escalones de mayor a menor hasta que el bloque entre.
+  const escalones = isStory
+    ? [{ f: 30, n: 34, g: 26 }, { f: 27, n: 31, g: 21 }, { f: 24, n: 28, g: 17 }]
+    : [{ f: 26, n: 30, g: 22 }, { f: 23, n: 27, g: 18 }, { f: 21, n: 25, g: 15 }];
+
+  for (const lista of [limpios, limpios.slice(0, 2)]) {
+    for (const e of escalones) {
+      // Ancho de caracter ≈ 0.52 del cuerpo en Inter 600. El número de la
+      // izquierda y su separación se descuentan del ancho útil.
+      const util = maxWidth - (isStory ? 64 : 55);
+      const alto = lista.reduce((acc, p) => {
+        const renglones = Math.max(1, Math.ceil((p.length * e.f * 0.52) / util));
+        return acc + renglones * Math.round(e.f * 1.32);
+      }, 0) + (lista.length - 1) * e.g;
+      if (alto <= boxHeight) return { lista, ...e };
+    }
+  }
+  // Ni recortando entra: se muestra el más corto con el escalón más chico.
+  const ultimo = escalones[escalones.length - 1];
+  return { lista: limpios.slice(0, 1), ...ultimo };
+}
+
 function buildEditorialHtml(opts, g, head) {
   const { w, h, isStory } = g;
   const title = String(opts.title || opts.overlayTitle || '').trim();
   const kicker = opts.kicker || 'PARA SABER';
-  const bullets = (opts.points || opts.specs || []).slice(0, 3);
+  const bulletsCrudos = (opts.points || opts.specs || []).slice(0, 3);
   const stepNumber = opts.stepNumber || null;
   const cut = opts.cutoutUrl;
   // Bajada bajo el titular. Sin ella quedaba un pozo vacío de ~200px entre el titular
   // y la franja de acento (se veía en la pieza real "Guía para elegir tu campera").
   const deck = opts.deck || opts.subtitle || null;
+
+  /* Alto REAL que le queda a los puntos: desde donde arrancan hasta el pie con
+     la URL, menos un respiro. Sin esta cuenta el bloque crecía hacia abajo y se
+     comía el pie. */
+  const bulletsTop = Math.round(h * (isStory ? 0.52 : 0.50)) + (isStory ? 76 : 64);
+  const pieTop = h - (isStory ? g.safeBottom + 50 : 58) - (isStory ? 40 : 34);
+  const bulletsAncho = Math.round(w * (cut ? 0.60 : 0.82));
+  const fit = fitBullets(bulletsCrudos, {
+    maxWidth: bulletsAncho,
+    boxHeight: Math.max(120, pieTop - bulletsTop - 24),
+    isStory,
+  });
+  const bullets = fit ? fit.lista : [];
 
   return `${head}
   <body style="position:relative; width:${w}px; height:${h}px; background:#101014; overflow:hidden;">
@@ -385,12 +443,12 @@ function buildEditorialHtml(opts, g, head) {
         max-width:${Math.round(w * (cut ? 0.60 : 0.78))}px;">${esc(deck)}</div>` : ''}
     </div>
 
-    ${bullets.length ? `<div style="position:absolute; left:${g.padX}px; top:${Math.round(h * (isStory ? 0.52 : 0.50)) + (isStory ? 76 : 64)}px;
-      width:${Math.round(w * (cut ? 0.60 : 0.82))}px; z-index:5; display:flex; flex-direction:column; gap:${isStory ? 26 : 22}px;">
-      ${bullets.map((b, i) => `<div style="display:flex; gap:${isStory ? 20 : 17}px; align-items:flex-start;">
-        <span style="font-family:'Anton',sans-serif; font-size:${isStory ? 34 : 30}px; line-height:1;
+    ${fit ? `<div style="position:absolute; left:${g.padX}px; top:${bulletsTop}px;
+      width:${bulletsAncho}px; z-index:5; display:flex; flex-direction:column; gap:${fit.g}px;">
+      ${fit.lista.map((b, i) => `<div style="display:flex; gap:${isStory ? 20 : 17}px; align-items:flex-start;">
+        <span style="font-family:'Anton',sans-serif; font-size:${fit.n}px; line-height:1;
           color:${ACCENT}; min-width:${isStory ? 44 : 38}px;">${String(i + 1).padStart(2, '0')}</span>
-        <span style="font-family:'Inter',sans-serif; font-weight:600; font-size:${isStory ? 30 : 26}px;
+        <span style="font-family:'Inter',sans-serif; font-weight:600; font-size:${fit.f}px;
           line-height:1.32; color:rgba(255,255,255,.88);">${esc(b)}</span>
       </div>`).join('')}
     </div>` : ''}
@@ -402,7 +460,7 @@ function buildEditorialHtml(opts, g, head) {
   </body></html>`;
 }
 
-module.exports = { buildRecorteHtml, buildFichaHtml, buildEditorialHtml, cutoutLayer, priceBlock, fitTwoLines, ACCENT };
+module.exports = { buildRecorteHtml, buildFichaHtml, buildEditorialHtml, cutoutLayer, priceBlock, fitTwoLines, fitBullets, ACCENT };
 
 /* ========================================================================== *
  * 4) BANNER — para el home de la tienda (carrusel ancho y grilla cuadrada).   *

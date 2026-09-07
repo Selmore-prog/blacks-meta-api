@@ -1173,6 +1173,19 @@ app.get('/api/home/plan', wrap(async (req, res) => {
 /* Escribe los textos de UN bloque con IA, atados a datos reales: las URLs salen
    de la API de Tiendanube y los números del catálogo (ver src/homeCopy.js).
    Devuelve además la indicación de qué foto o video conseguir. */
+/* Prompt de foto o video para UN campo de un bloque que el dueño está armando
+   a mano. Distinto de /plan/copy: acá el bloque ya está escrito y sólo falta la
+   pieza. Ver promptDeCampo() en src/homeCopy.js. */
+app.post('/api/home/blocks/prompt', wrap(async (req, res) => {
+  const b = req.body || {};
+  res.json(await homeCopy.promptDeCampo({
+    tipo: b.tipo,
+    data: b.data || {},
+    campo: b.campo,
+    instrucciones: b.instrucciones || '',
+  }));
+}));
+
 app.post('/api/home/plan/copy', wrap(async (req, res) => {
   const b = req.body || {};
   res.json(await homeCopy.sugerirBloque({

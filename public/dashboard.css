@@ -2170,3 +2170,18 @@ button .cost-tag { margin-left: 8px; }
   font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical;
 }
 .hp-prompt button { margin-top: 6px; }
+
+/* Prompt de IA pedido desde un campo de imagen/video (Bloques de contenido) */
+.hb-prompt-caja {
+  margin-top: 8px; padding: 12px; border: 1px solid var(--line);
+  border-left: 3px solid var(--orange); border-radius: 8px; background: rgba(255,255,255,.02);
+}
+.hb-prompt-caja.hb-prompt-error { border-left-color: #C9503C; }
+.hb-prompt-que { margin: 0 0 4px; font-size: 13px; line-height: 1.45; }
+.hb-prompt-ref { margin: 8px 0 0; font-size: 12px; color: var(--orange); }
+.hb-prompt-caja textarea {
+  width: 100%; margin-top: 8px; padding: 10px; border-radius: 8px;
+  border: 1px solid var(--line); background: var(--panel); color: var(--fg, #f5f5f6);
+  font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; resize: vertical;
+}
+.hb-prompt-acc { display: flex; gap: 6px; margin-top: 6px; }

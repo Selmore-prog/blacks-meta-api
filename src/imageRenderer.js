@@ -1390,11 +1390,27 @@ function specChipsHtml(points, g, { marginBottom = 0, onPaper = false } = {}) {
  * de dejar un hueco (feedback real, jul-2026).
  */
 function pointsChecklistHtml(points, g, accent) {
-  if (!points.length) return '';
-  return `<div style="display:flex; flex-direction:column; gap:${g.isStory ? 22 : 16}px;">
-    ${points.map((p) => `<div style="display:flex; align-items:center; gap:${g.isStory ? 24 : 18}px; background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.13); border-radius:${g.isStory ? 24 : 20}px; padding:${g.isStory ? '26px 34px' : '20px 26px'};">
-      <span style="flex:0 0 auto; width:${g.isStory ? 52 : 42}px; height:${g.isStory ? 52 : 42}px; border-radius:50%; background:linear-gradient(135deg, #FF6B1A 0%, ${accent} 100%); display:flex; align-items:center; justify-content:center; font-size:${g.isStory ? 28 : 23}px; font-weight:800; color:#fff; box-shadow:0 8px 20px rgba(232,93,27,.4);">✓</span>
-      <span style="font-size:${g.isStory ? 36 : 29}px; font-weight:700; color:rgba(255,255,255,.94); letter-spacing:.3px;">${esc(p)}</span>
+  /* EL LARGO SE GARANTIZA ACÁ, no pidiéndoselo al modelo.
+     Los chips (specChipsHtml) ya pasaban por compactFact, pero esta checklist
+     imprimía el punto crudo: una frase de 70 caracteres a 29-36px se partía en
+     tres renglones, la tarjeta crecía y las tres quedaban amontonadas una encima
+     de otra. Acá se recorta y, si aun así son largos, se achica la tipografía en
+     vez de dejar que el bloque se desborde. */
+  const list = (points || []).map((p) => compactFact(p, 42)).filter(Boolean).slice(0, 3);
+  if (!list.length) return '';
+  const masLargo = list.reduce((n, p) => Math.max(n, p.length), 0);
+  // Punto de quiebre medido sobre el ancho útil de la tarjeta: pasado eso, el
+  // texto entra en dos renglones y hay que bajar un escalón.
+  const holgado = masLargo <= 26;
+  const fuente = g.isStory ? (holgado ? 36 : 30) : (holgado ? 29 : 25);
+  const alto = g.isStory ? (holgado ? 52 : 46) : (holgado ? 42 : 36);
+  const padY = g.isStory ? (holgado ? 26 : 20) : (holgado ? 20 : 16);
+  const gap = g.isStory ? (holgado ? 22 : 16) : (holgado ? 16 : 12);
+
+  return `<div style="display:flex; flex-direction:column; gap:${gap}px;">
+    ${list.map((p) => `<div style="display:flex; align-items:center; gap:${g.isStory ? 24 : 18}px; background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.13); border-radius:${g.isStory ? 24 : 20}px; padding:${padY}px ${g.isStory ? 34 : 26}px;">
+      <span style="flex:0 0 auto; width:${alto}px; height:${alto}px; border-radius:50%; background:linear-gradient(135deg, #FF6B1A 0%, ${accent} 100%); display:flex; align-items:center; justify-content:center; font-size:${Math.round(alto * 0.55)}px; font-weight:800; color:#fff; box-shadow:0 8px 20px rgba(232,93,27,.4);">✓</span>
+      <span style="font-size:${fuente}px; font-weight:700; line-height:1.25; color:rgba(255,255,255,.94); letter-spacing:.3px;">${esc(p)}</span>
     </div>`).join('')}
   </div>`;
 }
@@ -1976,7 +1992,21 @@ async function renderPostBuffer(options) {
     }
   }
 
-  const html = buildHtml({ ...options, format, bgImageUrl, productImageUrl, cutoutUrl, cutoutBox });
+  /* ¿VA EL LOGO EN ESTA PIEZA?
+     `showBrand` se leía en ocho plantillas y NO SE DEFINÍA EN NINGÚN LADO:
+     como `cornerBrand` sólo lo saltea con `=== false`, el logo terminaba
+     impreso en TODAS las piezas. Sumado a la barra de dominio, cada imagen
+     llevaba dos marcas — y el propio criterio del archivo de plantillas dice
+     "como MUCHO dos elementos de marca por pieza; el logo va chico o no va".
+
+     Criterio nuevo: la barra con el dominio ya dice de quién es la pieza. El
+     logo se reserva para cuando aporta algo — piezas de marca, o cuando quien
+     llama lo pide explícitamente. Se puede forzar con showBrand: true/false.  */
+  const showBrand = options.showBrand !== undefined
+    ? options.showBrand
+    : (options.pillar === 'marca' || options.template === 'mayorista');
+
+  const html = buildHtml({ ...options, showBrand, format, bgImageUrl, productImageUrl, cutoutUrl, cutoutBox });
 
   // Navegador compartido + a lo sumo 2 páginas a la vez (memoria de Render).
   await acquireRenderSlot();

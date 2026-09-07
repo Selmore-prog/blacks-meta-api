@@ -445,4 +445,101 @@ En "prompt_ia" escribí la indicación para el generador, EN INGLÉS y en un sol
   return limpiar(salida, tipoDef, permitidas, numerosPermitidos(contexto));
 }
 
-module.exports = { sugerirBloque, esquemaDe, corregirUrl, limpiar, sinNumerosInventados, promptDeFoto, productosPorCategoria };
+/**
+ * PROMPT PARA UN HUECO SUELTO.
+ *
+ * Distinto de sugerirBloque(): acá el bloque YA ESTÁ ESCRITO por el dueño y lo
+ * único que falta es la foto o el video de un campo puntual. Así que el
+ * contexto no es "qué debería decir este bloque" sino "esto es lo que dice —
+ * conseguime la imagen que le corresponde". Es lo que hacía falta para los
+ * bloques que se arman a mano y no salen de una recomendación del esquema.
+ *
+ * @param {string} tipo    tipo de bloque
+ * @param {object} data    lo que el dueño ya escribió
+ * @param {string} campo   qué hueco: image, image_mobile, video_url, tiles.1.image…
+ */
+async function promptDeCampo({ tipo, data = {}, campo = 'image', instrucciones = '' }) {
+  const tipoDef = BLOCK_TYPES[tipo];
+  if (!tipoDef) throw Object.assign(new Error(`Tipo de bloque desconocido: ${tipo}`), { status: 400 });
+  if (!hasGemini() && !process.env.GROQ_API_KEY) {
+    throw Object.assign(new Error('No hay GEMINI_API_KEY ni GROQ_API_KEY configuradas.'), { status: 400 });
+  }
+
+  const [productos, marca] = await Promise.all([
+    productosDestacados(12),
+    getBrandProfile().catch(() => null),
+  ]);
+
+  // El hueco puede estar adentro de una lista (placa 2 del editorial, por ej.):
+  // ahí lo que importa es el texto DE ESA placa, no el del bloque entero.
+  const partes = String(campo).split('.');
+  let textoDelHueco = data;
+  if (partes.length === 3) {
+    const lista = data[partes[0]];
+    if (Array.isArray(lista) && lista[Number(partes[1])]) textoDelHueco = lista[Number(partes[1])];
+  }
+  const esVideo = /video/.test(campo);
+
+  const escrito = Object.entries(textoDelHueco)
+    .filter(([k, v]) => typeof v === 'string' && v.trim() && !/^(image|video)/.test(k) && !/_url$/.test(k))
+    .map(([k, v]) => `${k}: ${v}`).join('\n');
+
+  const contexto = {
+    bloque: { tipo, para: tipoDef.para },
+    hueco: campo,
+    esVideo,
+    loQueYaDiceElBloque: escrito || '(todavía sin texto)',
+    productosDelCatalogo: productos,
+    vozDeMarca: marca && marca.tone ? marca.tone : null,
+    indicacionDelDueno: instrucciones || null,
+  };
+
+  const salida = await generateJson({
+    system: SISTEMA,
+    prompt: `Necesito ${esVideo ? 'un VIDEO' : 'una FOTO'} para un hueco puntual de un bloque de la página de inicio que YA ESTÁ ESCRITO. No reescribas los textos: conseguime la pieza que les corresponde.
+
+DATOS
+${JSON.stringify(contexto, null, 1)}
+
+Devolvé:
+- "que": qué tiene que mostrar, en una frase concreta.
+- "formato": proporción y orientación. La mayoría de las visitas son de celular.
+- "encuadre": plano, luz y punto de vista.
+- "evitar": el error típico que arruina esta pieza.
+- "producto_de_referencia": el nombre EXACTO de un producto del catálogo cuya foto conviene adjuntar al generador, si la pieza muestra una prenda concreta. Vacío si no.
+- "prompt_ia": la indicación para el generador, EN INGLÉS y en un solo párrafo.${esVideo
+  ? ' Describí UN SOLO plano continuo: qué hace la cámara, qué se mueve en el cuadro, dónde está el foco y cómo cambia.'
+  : ' La escena fija.'}`,
+    schema: {
+      type: 'object',
+      properties: {
+        que: { type: 'string' },
+        formato: { type: 'string' },
+        encuadre: { type: 'string' },
+        evitar: { type: 'string' },
+        producto_de_referencia: { type: 'string' },
+        prompt_ia: { type: 'string' },
+      },
+      propertyOrdering: ['que', 'formato', 'encuadre', 'evitar', 'producto_de_referencia', 'prompt_ia'],
+      required: ['que', 'formato', 'encuadre', 'evitar', 'producto_de_referencia', 'prompt_ia'],
+    },
+    temperature: 0.7,
+    maxTokens: 1200,
+    thinkingBudget: 400,
+  });
+
+  const v = {
+    campo,
+    tipo: esVideo ? 'video' : 'foto',
+    que: String(salida.que || '').slice(0, 300),
+    formato: String(salida.formato || '').slice(0, 80),
+    encuadre: String(salida.encuadre || '').slice(0, 300),
+    evitar: String(salida.evitar || '').slice(0, 300),
+    producto_de_referencia: String(salida.producto_de_referencia || '').slice(0, 120),
+  };
+  // Las reglas anti-"parece IA" se agregan por código, igual que en el resto.
+  v.prompt_ia = promptDeFoto({ ...v, prompt_ia: salida.prompt_ia });
+  return v;
+}
+
+module.exports = { promptDeCampo, sugerirBloque, esquemaDe, corregirUrl, limpiar, sinNumerosInventados, promptDeFoto, productosPorCategoria };
