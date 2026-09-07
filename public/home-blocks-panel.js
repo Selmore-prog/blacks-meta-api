@@ -30,7 +30,10 @@ let hbState = {
   buscando: null,      // resultados del buscador de productos, por ruta
 };
 
-const HB_ANCHOS = { mobile: 390, desktop: 1180 };
+/* Anchos a los que se dibuja la previa. NO son decorativos: los bloques cambian
+   de diseño a partir de 768 px, así que la previa tiene que renderizar a un
+   ancho real de escritorio o muestra el diseño de celular. */
+const HB_ANCHOS = { mobile: 390, desktop: 1280 };
 
 /* Escapado para ATRIBUTOS: esc() de dashboard.js no escapa las comillas y acá
    todo termina dentro de value="…" y de onclick="…". */
@@ -156,9 +159,12 @@ function renderHomeBlocks() {
           <span class="hb-previa-tit">Vista previa real</span>
         </div>
         <div class="hb-avisos" id="hb-avisos"></div>
-        <div class="hb-marco hb-marco--${hbState.device}">
-          <iframe id="hb-iframe" title="Vista previa de los bloques"></iframe>
+        <div class="hb-marco hb-marco--${hbState.device}" id="hb-marco">
+          <div class="hb-marco-vp" id="hb-marco-vp">
+            <iframe id="hb-iframe" title="Vista previa de los bloques"></iframe>
+          </div>
         </div>
+        <p class="hb-f-help" id="hb-escala"></p>
       </div>
     </div>`;
 
@@ -717,6 +723,7 @@ function hbDevice(d) {
   const marco = document.querySelector('.hb-marco');
   if (marco) marco.className = `hb-marco hb-marco--${d}`;
   hbPintarPrevia();
+  hbEscalarPrevia();
 }
 
 /** Pide la previa al motor, con freno para no pegarle en cada tecla. */
@@ -763,8 +770,14 @@ function hbPintarPrevia() {
   const p = hbState.previa;
   // Los borradores (apagados) también se pintan: si no, no se pueden terminar
   // de escribir. Van marcados para que no se confundan con lo publicado.
-  const cuerpo = hbState.bloques
-    .filter((b) => p.blocks[b.slot])
+  /* SÓLO EL BLOQUE QUE SE ESTÁ EDITANDO.
+     Antes se pintaban los cuatro apilados: había que buscar el propio entre los
+     demás y el iframe quedaba larguísimo. Se muestra el abierto; si no hay
+     ninguno abierto (recién entrado), se muestran todos. */
+  const abierto = hbState.abierto != null ? hbState.bloques[hbState.abierto] : null;
+  const aPintar = abierto ? [abierto] : hbState.bloques;
+  const cuerpo = aPintar
+    .filter((b) => b && p.blocks[b.slot])
     .map((b) => (b.enabled === false
       ? `<div class="hb-borrador"><span>Borrador — todavía no se ve en la tienda</span>${p.blocks[b.slot].html}</div>`
       : p.blocks[b.slot].html))
@@ -789,8 +802,65 @@ ${cuerpo || '<p style="padding:40px 20px;color:#888;font-size:14px;text-align:ce
 </body></html>`;
 
   marco.srcdoc = doc;
-  marco.onload = () => hbEnfocarPrevia(hbState.abierto);
+  marco.onload = () => { hbEscalarPrevia(); hbEnfocarPrevia(hbState.abierto); };
 }
+
+/* ANCHO REAL + ESCALA.
+ * El problema que resuelve: la previa de "Escritorio" medía lo que midiera la
+ * columna del panel (~600 px). Como los bloques cambian de diseño a partir de
+ * 768 px, la previa de escritorio mostraba SIEMPRE el diseño de celular — o
+ * sea, mentía justo en lo que uno va a mirar.
+ * Ahora el iframe se dibuja al ancho de verdad (390 / 1280) y se achica con
+ * transform para que entre en la columna: las media queries ven el ancho real
+ * y lo que se ve es una miniatura fiel, no otro diseño. */
+function hbEscalarPrevia() {
+  const marco = document.getElementById('hb-marco');
+  const vp = document.getElementById('hb-marco-vp');
+  const f = document.getElementById('hb-iframe');
+  const nota = document.getElementById('hb-escala');
+  if (!marco || !vp || !f) return;
+
+  const ancho = HB_ANCHOS[hbState.device] || 390;
+  const disponible = marco.clientWidth;
+
+  /* Si el contenedor todavía no tiene ancho (la pestaña está oculta, o el
+     navegador no terminó de acomodar la página) la cuenta da 0 y la previa
+     quedaba en scale(0), o sea invisible. Se reintenta en el próximo cuadro en
+     vez de escribir una escala rota. */
+  if (!disponible || disponible < 40) {
+    clearTimeout(hbState.timerEscala);
+    hbState.timerEscala = setTimeout(hbEscalarPrevia, 200);
+    return;
+  }
+
+  const escala = Math.min(1, disponible / ancho);
+
+  // El alto se toma del contenido real, para no dejar un pozo vacío abajo ni
+  // cortar el bloque a la mitad.
+  let alto = hbState.device === 'mobile' ? 720 : 640;
+  try {
+    const d = f.contentDocument;
+    if (d && d.body) alto = Math.max(240, Math.min(2400, d.body.scrollHeight));
+  } catch (_) { /* si el iframe todavía no cargó, queda el alto por defecto */ }
+
+  f.style.width = `${ancho}px`;
+  f.style.height = `${alto}px`;
+  f.style.transformOrigin = 'top left';
+  f.style.transform = `scale(${escala})`;
+  vp.style.height = `${Math.round(alto * escala)}px`;
+
+  if (nota) {
+    nota.textContent = escala < 0.995
+      ? `Se ve a ${Math.round(escala * 100)}% — el diseño es el de ${ancho} px de ancho.`
+      : `Ancho real: ${ancho} px.`;
+  }
+}
+
+// Al cambiar el tamaño de la ventana hay que recalcular la escala.
+window.addEventListener('resize', () => {
+  clearTimeout(hbState.timerEscala);
+  hbState.timerEscala = setTimeout(hbEscalarPrevia, 150);
+});
 
 /** Resalta y trae a la vista el bloque que se está editando. */
 function hbEnfocarPrevia(i) {

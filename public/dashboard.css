@@ -1924,11 +1924,15 @@ button .cost-tag { margin-left: 8px; }
    con lo que entra la mayoría. No es una decoración. */
 .hb-marco { background: #fff; border: 1px solid var(--line); border-radius: 12px; overflow: hidden;
   margin: 0 auto; transition: max-width .2s var(--ease); }
-.hb-marco iframe { display: block; width: 100%; border: 0; background: #fff; }
+/* El iframe se dibuja al ANCHO REAL del dispositivo (390 / 1280) y se achica con
+   transform desde el JS (hbEscalarPrevia). El ancho y el alto los pone el JS:
+   acá sólo se prepara la caja que lo recorta. Sin esto la previa de escritorio
+   medía lo que medía la columna (~600 px) y, como los bloques cambian de diseño
+   a los 768 px, mostraba el diseño de CELULAR con la etiqueta "Escritorio". */
+.hb-marco iframe { display: block; border: 0; background: #fff; }
+.hb-marco-vp { position: relative; overflow: hidden; width: 100%; }
 .hb-marco--mobile { max-width: 390px; }
-.hb-marco--mobile iframe { height: 720px; }
 .hb-marco--desktop { max-width: 100%; }
-.hb-marco--desktop iframe { height: 640px; }
 
 /* ---------- galería de tipos ---------- */
 .hb-modal { max-width: 860px; }
