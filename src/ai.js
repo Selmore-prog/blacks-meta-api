@@ -1449,6 +1449,19 @@ async function generateBackground({ theme, brief, occasion, format = 'feed', ref
   if (await imageBudgetExceeded()) return null; // tope diario: sigue con plantilla (gratis)
 
   const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
+
+  /* COMPOSICIÓN SEGÚN EL FORMATO.
+     Hasta acá el formato sólo viajaba como proporción: el modelo componía igual
+     para un feed 4:5 que para una historia 9:16 y solía centrar el producto o
+     llenarle el cuadro. Pero la pieza NO termina ahí — arriba y abajo el diseño
+     imprime el titular, los chips y el CTA (safeTop/safeBottom en
+     imageRenderer.js: 196 y 236 px en historia). Sin dejar ese aire, el texto
+     cae encima del producto y hay que descartar la imagen.
+     Los números salen de las mismas constantes del render, así que si cambian
+     las zonas seguras hay que actualizarlos acá. */
+  const composicion = format === 'story'
+    ? `- COMPOSICIÓN VERTICAL 9:16: dejá el TERCIO SUPERIOR (unos 200 px de 1920) y la FRANJA INFERIOR (unos 240 px) con aire respirable — fondo, sombra o superficie, sin nada importante. Ahí va el texto de la pieza y la interfaz de Instagram. El producto vive en la MITAD CENTRAL del cuadro, generoso pero sin tocar los bordes de arriba ni de abajo.`
+    : `- COMPOSICIÓN VERTICAL 4:5: el producto ocupa la zona central-baja del cuadro y arriba queda una franja de aire (fondo o superficie) para el titular. No lo pegues al borde superior.`;
   const brandStyle = await brandStyleForImages();
   const scene = sceneVariation(seed);
   const hasRefs = referenceImages.slice(0, 3).some((r) => r && r.data && r.mimeType);
@@ -1958,6 +1971,7 @@ CONTEXTO DE LA PIEZA: ${theme || productName || 'indumentaria laboral y segurida
 
 DIRECCIÓN DE FOTOGRAFÍA Y ÓPTICA COMERCIAL:
 ${shotDirection(shotSpec, scene, seed)}
+${composicion}
 - Color grading premium: ciencia de color Kodak Portra 400, con acentos naranja quemado (#C1440C) sutiles.
 ${brandStyle && allowScenery ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
 

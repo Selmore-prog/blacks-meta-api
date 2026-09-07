@@ -148,7 +148,14 @@ const CSS = `
   color: #fff; opacity: 0; transition: opacity .2s ease, background .2s ease;
   padding: 0;
 }
-.hb-cinta-btn svg { width: 15px; height: 15px; fill: currentColor; }
+.hb-cinta-btn svg { width: 15px; height: 15px; fill: currentColor; grid-area: 1 / 1; }
+/* Un ícono por vez. El estado lo marca la clase del botón, no el atributo
+   hidden (que sobre SVG no hace nada). */
+.hb-cinta-btn .hb-ic-play { display: none; }
+.hb-cinta-btn.is-pausado .hb-ic-pausa { display: none; }
+.hb-cinta-btn.is-pausado .hb-ic-play { display: block; }
+/* Pausado se ve siempre: si no, no hay forma de darle play de nuevo. */
+.hb-cinta-btn.is-pausado { opacity: 1; }
 .hb-media--cinta:hover .hb-cinta-btn,
 .hb-cinta-btn:focus-visible { opacity: 1; }
 .hb-cinta-btn:hover { background: rgba(17,18,20,.75); }
@@ -268,6 +275,13 @@ a.hb-tile:hover .hb-tile-media img { transform: scale(1.04); }
 /* ===== VIDEO ============================================================ */
 .hb-video-solo .hb-media { border-radius: var(--hb-radio); }
 .hb-w-completo .hb-video-solo .hb-media { border-radius: 0; }
+/* Un 16:9 a 1176 px de ancho mide 662 px de alto: con el título y el aire, la
+   sección se iba a 995 px y ocupaba una pantalla entera para un clip de seis
+   segundos. Se topea el alto y el video recorta a los costados en vez de
+   estirar la página. */
+@media (min-width: 768px) {
+  .hb-video-solo .hb-media { max-height: 56vh; }
+}
 
 /* ===== PRODUCTOS ======================================================== */
 .hb-prods { display: grid; gap: var(--hb-gap); grid-template-columns: 1fr 1fr; }
@@ -417,7 +431,14 @@ a.hb-rubro:hover .hb-rubro-media img { transform: scale(1.05); }
     border-radius: var(--hb-radio);
     padding: 34px 36px;
     margin-left: -64px;
+    /* Sobre tema claro la tarjeta es blanca sobre blanco: del lado que NO monta
+       sobre el video se desdibujaba y parecía texto suelto flotando. El filete
+       la cierra como objeto; la sombra sola no alcanza. */
+    border: 1px solid var(--hb-line);
     box-shadow: 0 18px 50px rgba(0,0,0,.13);
+    /* Con textos cortos la tarjeta no tiene por qué llegar al borde: se centra
+       verticalmente y deja aire, en vez de estirarse. */
+    align-self: center;
   }
   /* Con la foto a la derecha, la tarjeta monta desde el otro lado. */
   .hb-split.hb-u-superpuesto.hb-split--derecha { grid-template-columns: 1fr 1.15fr; }
@@ -594,10 +615,9 @@ const JS = `
   }
 
   function pintarToggle(btn, pausado) {
-    var pausa = btn.querySelector('.hb-ic-pausa');
-    var play = btn.querySelector('.hb-ic-play');
-    if (pausa) pausa.hidden = pausado;
-    if (play) play.hidden = !pausado;
+    // Una clase en el botón y el CSS decide cuál de los dos íconos se ve.
+    // (El atributo hidden no funciona sobre SVG: no es un HTMLElement.)
+    btn.classList.toggle('is-pausado', !!pausado);
     btn.setAttribute('aria-label', pausado ? 'Reproducir video' : 'Pausar video');
   }
 

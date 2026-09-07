@@ -151,9 +151,13 @@ function video(d, { ratio, alt, posterSizes = '100vw' } = {}) {
     if (modoCinta) {
       // Pausa/reanudar, y nada más. Se dibuja siempre: es la única forma de
       // frenar un video que arranca solo, y eso hay que poder hacerlo.
+      /* Los dos íconos van siempre en el HTML y el CSS muestra UNO según la
+         clase del botón. No se usa el atributo `hidden`: `hidden` es de
+         HTMLElement y NO aplica a elementos SVG, así que los dos se veían
+         encimados (el bug de "se ven dos iconos"). */
       botones.push('<button type="button" class="hb-cinta-btn" data-hb-toggle aria-label="Pausar video">'
         + '<svg viewBox="0 0 24 24" aria-hidden="true" class="hb-ic-pausa"><rect x="6" y="5" width="4" height="14" rx="1"/><rect x="14" y="5" width="4" height="14" rx="1"/></svg>'
-        + '<svg viewBox="0 0 24 24" aria-hidden="true" class="hb-ic-play" hidden><path d="M8 5l11 7-11 7z"/></svg>'
+        + '<svg viewBox="0 0 24 24" aria-hidden="true" class="hb-ic-play"><path d="M8 5l11 7-11 7z"/></svg>'
         + '</button>');
     } else if (!controles && !auto) {
       botones.push('<button type="button" class="hb-play" aria-label="Reproducir video"><span></span></button>');
@@ -351,7 +355,11 @@ function videoBloque(b) {
     alt: d.image_alt || d.title,
     posterSizes: solo ? '100vw' : '(min-width: 768px) 55vw, 100vw',
   });
-  const texto = `<div class="hb-video-body">${encabezado(d)}${botones(d)}</div>`;
+  /* La clase tiene que ser hb-split-body: TODAS las reglas de unión (superpuesto,
+     marco) y el centrado vertical cuelgan de ahí. Con hb-video-body el bloque de
+     video se quedaba afuera de todas y la opción "el texto monta sobre el video"
+     no hacía absolutamente nada — se veía igual que "uno al lado del otro". */
+  const texto = `<div class="hb-split-body hb-video-body">${encabezado(d)}${botones(d)}</div>`;
 
   if (solo) {
     return encabezado(d, { clase: 'hb-head--centro' })

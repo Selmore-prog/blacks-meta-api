@@ -19,6 +19,18 @@
         "start"
       ],
       "port": 8080
+    },
+    {
+      "name": "vid",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "4605",
+        "--directory",
+        "/private/tmp/claude-501/-Users-sebastianelmore-tiendanube-tpl/bc8b34f5-c856-44f2-aa89-0268614a3794/scratchpad"
+      ],
+      "port": 4605
     }
   ]
 }
