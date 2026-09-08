@@ -171,6 +171,46 @@ const CSS = `
 .hb-pic { display: block; width: 100%; height: 100%; aspect-ratio: var(--hb-ratio, auto); }
 .hb-pic img { display: block; width: 100%; height: 100%; object-fit: cover; }
 .hb-media > .hb-pic { position: absolute; inset: 0; }
+
+/* ==========================================================================
+   GIF DE DOS FOTOGRAMAS (Portada e Imagen y texto).
+
+   Dos fotos de produccion que se van pasando con CORTE SECO, como un GIF, y
+   con el boton del bloque abajo. Es lo que hace Adidas en las piezas grandes
+   de su landing, y no hace falta ni un GIF ni un video: un GIF esta limitado a
+   256 colores (en la tela se bandea), pesa un orden de magnitud mas y no se
+   puede apagar con prefers-reduced-motion.
+
+   DIFERENCIA IMPORTANTE con la segunda foto de las FICHAS (.bf-anima a secas):
+   alla el movimiento corre solo donde no hay puntero y una sola vez, porque
+   son veinte fichas chicas y compite con el scroll. Aca es UNA pieza grande y
+   elegida, asi que corre en todos lados. El contexto es lo que cambia, no el
+   criterio: en una pieza editorial el movimiento es contenido.
+
+   El reparto 50/50 con cruce de 2,5% es lo que lo hace leer como fotogramas y
+   no como un fundido. --bf-ritmo lo pone el motor segun el campo "Ritmo".
+   ========================================================================== */
+@keyframes bf-gif {
+  0%,   47.5% { opacity: 0; }
+  50%,  97.5% { opacity: 1; }
+  100%        { opacity: 0; }
+}
+.hb-media--alterna .bf-foto2 { opacity: 0; }
+.hb-media--alterna.bf-anima .bf-foto2 {
+  animation-name: bf-gif;
+  animation-duration: var(--bf-ritmo, 3.2s);
+  animation-timing-function: linear;
+  animation-iteration-count: 1;
+  animation-fill-mode: both;
+}
+.hb-media--alterna[data-foto-alterna="bucle"].bf-anima .bf-foto2 { animation-iteration-count: infinite; }
+/* Fuera de pantalla se PAUSA en vez de sacarle la clase: quitandola volveria a
+   empezar de la primera foto cada vez que se pasa por al lado. */
+.hb-media--alterna.bf-pausa .bf-foto2 { animation-play-state: paused; }
+
+@media (prefers-reduced-motion: reduce) {
+  .hb-media--alterna.bf-anima .bf-foto2 { animation: none; }
+}
 .hb-video { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; display: block; background: #000; }
 .hb-poster-vacio { position: absolute; inset: 0; background: repeating-linear-gradient(45deg, rgba(127,127,127,.10) 0 10px, rgba(127,127,127,.16) 10px 20px); }
 .hb-media iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; }

@@ -65,6 +65,34 @@ const MEDIA_FIELDS = [
   { key: 'image', label: 'Imagen (desktop)', type: 'imagen', help: 'Se usa en computadoras y, si no cargás una mobile, también en celulares. Ideal 1600 px de ancho.' },
   { key: 'image_mobile', label: 'Imagen (celular)', type: 'imagen', help: 'Opcional pero recomendado: una foto vertical pesa menos y encuadra mejor. El 80% de las visitas son de celular.' },
   { key: 'image_alt', label: 'Descripción de la imagen', type: 'texto', max: 120, help: 'Lo que lee Google y quien no puede ver la foto. Ej: "Operario con campera ignífuga en planta".' },
+  /* SEGUNDA FOTO QUE SE ALTERNA — el "GIF" de dos fotogramas.
+     Va acá (en MEDIA_FIELDS) y no en un tipo de bloque nuevo porque es una
+     propiedad de la foto, no una sección aparte: la heredan Portada e Imagen y
+     texto, que son los dos bloques grandes y los dos que ya traen botón. Con
+     una sola pieza en pantalla el movimiento se lee como contenido, que es lo
+     contrario de lo que pasa en una grilla de fichas chicas. */
+  {
+    key: 'image_b', label: 'Segunda foto (se van alternando)', type: 'imagen',
+    help: 'Si cargás una segunda foto, las dos se van pasando como un GIF, con corte seco. Sirve para mostrar el mismo look con y sin abrigo. Que las dos estén encuadradas igual: si el modelo cambia de lugar entre una y otra, el cambio se ve como un salto. Sin video: si cargaste un video, manda el video.',
+  },
+  {
+    key: 'anim_mode', label: 'Cómo se pasan', type: 'opciones', default: 'bucle',
+    options: [
+      { value: 'bucle', label: 'Sin parar, como un GIF' },
+      { value: 'una', label: 'Una pasada y queda en la primera' },
+    ],
+    help: 'Sin parar sólo se mueve mientras la pieza está en pantalla; apenas sale, se frena.',
+    when: { key: 'image_b', lleno: true },
+  },
+  {
+    key: 'anim_speed', label: 'Ritmo', type: 'opciones', default: 'normal',
+    options: [
+      { value: 'lento', label: 'Lento (2,2 s cada foto)' },
+      { value: 'normal', label: 'Normal (1,6 s cada foto)' },
+      { value: 'rapido', label: 'Rápido (1,1 s cada foto)' },
+    ],
+    when: { key: 'image_b', lleno: true },
+  },
 ];
 
 /* VIDEO.

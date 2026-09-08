@@ -214,18 +214,40 @@ function tipoMime(url) {
 }
 
 /** Imagen o video, lo que haya. El video manda. */
+const RITMOS = { lento: '4.4s', normal: '3.2s', rapido: '2.2s' };
+
 function media(d, opciones = {}) {
   const v = video(d, opciones);
   if (v) return v;
+  const sizes = opciones.posterSizes || '100vw';
   const img = imagen({
     src: d.image,
     srcMobile: d.image_mobile,
     alt: d.image_alt,
     ratio: opciones.ratio,
     eager: opciones.eager,
-    sizes: opciones.posterSizes || '100vw',
+    sizes,
   });
-  return img ? `<div class="hb-media" style="${ratioStyle(opciones.ratio)}">${img}</div>` : '';
+  if (!img) return '';
+
+  /* SEGUNDA FOTO: las dos se van pasando como un GIF de dos fotogramas.
+     El alt va vacío porque la primera ya describe la escena; nombrar las dos
+     hace que un lector de pantalla lea la misma imagen dos veces.
+     La segunda se pide siempre diferida aunque la primera sea `eager`: la
+     primera puede ser el LCP del home y no conviene que compitan. */
+  const segunda = d.image_b
+    ? imagen({ src: d.image_b, alt: '', ratio: opciones.ratio, sizes, clase: 'bf-foto2' })
+    : '';
+
+  const bucle = segunda && (d.anim_mode || 'bucle') === 'bucle';
+  const attrs = segunda
+    ? ` data-foto-alterna="${bucle ? 'bucle' : 'una'}"`
+      // ratioStyle NO cierra con punto y coma: hay que ponerlo acá o las dos
+      // propiedades se pegan y el navegador descarta las dos.
+      + ` style="${ratioStyle(opciones.ratio)};--bf-ritmo:${RITMOS[d.anim_speed] || RITMOS.normal}"`
+    : ` style="${ratioStyle(opciones.ratio)}"`;
+
+  return `<div class="hb-media${segunda ? ' hb-media--alterna' : ''}"${attrs}>${img}${segunda}</div>`;
 }
 
 /* --------------------------------------------------------------------- texto */
