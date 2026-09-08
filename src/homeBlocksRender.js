@@ -144,6 +144,7 @@ function video(d, { ratio, alt, posterSizes = '100vw' } = {}) {
       loop ? 'loop' : '',
       controles ? 'controls' : '',
       auto ? 'data-hb-autoplay="1"' : '',
+      d.video_speed && d.video_speed !== '1' ? `data-hb-speed="${esc(d.video_speed)}"` : '',
       `aria-label="${esc(alt || 'Video')}"`,
     ].filter(Boolean).join(' ');
 

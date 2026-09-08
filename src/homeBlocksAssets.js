@@ -608,7 +608,29 @@ const JS = `
     if (v.dataset.hbListo) return;
     v.dataset.hbListo = '1';
     var s = v.querySelector('source[data-src]');
-    if (s) { s.src = s.dataset.src; v.load(); }
+    if (s) {
+      s.src = s.dataset.src;
+      /* preload pasa de "none" a "auto" ACÁ, no en el HTML.
+         En el HTML sigue en "none" para no bajar el video en visitas que nunca
+         scrollean hasta el bloque. Pero una vez que el bloque entró en pantalla
+         conviene bajarlo ENTERO: con "none" el clip llegaba al final todavía
+         descargando y el loop se quedaba esperando datos — es el tironeo al
+         volver a empezar. Con el archivo completo en el buffer, la vuelta es
+         instantánea. */
+      v.preload = 'auto';
+      v.load();
+    }
+    aplicarVelocidad(v);
+  }
+
+  /* Velocidad de reproducción configurable desde el panel. Se reaplica después
+     de cada load(): el navegador la resetea a 1 al cambiar de fuente. */
+  function aplicarVelocidad(v) {
+    var r = parseFloat(v.dataset.hbSpeed || '1');
+    if (r > 0 && r !== 1) {
+      v.playbackRate = r;
+      v.addEventListener('loadeddata', function () { v.playbackRate = r; }, { once: true });
+    }
   }
 
   /* play() pedido justo después de load() se ABORTA: el navegador todavía está

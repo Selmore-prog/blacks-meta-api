@@ -33,6 +33,7 @@ const homeBlocks = require('./homeBlocks');
 const homeBlocksAssets = require('./homeBlocksAssets');
 const homePlan = require('./homePlan');
 const homeCopy = require('./homeCopy');
+const searchAnalytics = require('./searchAnalytics');
 const storeHome = require('./storeHome');
 const storeCategories = require('./storeCategories');
 
@@ -81,7 +82,7 @@ app.use(async (req, res, next) => {
   // de la tienda: tampoco puede pedir sesión del panel. Va protegido con su
   // propio "state" de un solo uso (ver más abajo).
   const open = ['/health', '/api/health', '/api/login', '/login.html', '/favicon.ico',
-    '/api/leads/click', '/api/home/rails', '/api/home/products', '/api/tiendanube/oauth/callback',
+    '/api/leads/click', '/api/home/rails', '/api/home/products', '/api/search/chips', '/api/tiendanube/oauth/callback',
     // Portal del equipo: la pantalla de ingreso y su hoja de estilos. No exponen
     // nada — son el formulario de login y CSS. Ver src/teamPortal.js.
     '/equipo.html', '/equipo.js', '/works-panel.js', '/dashboard.css', '/api/team/login'];
@@ -972,6 +973,20 @@ app.get('/api/home/products', publicGetCors, wrap(async (req, res) => {
   if (!handles.length) return res.json({ products: {} });
   res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=1800');
   res.json({ products: await homeBlocks.productsByHandle(handles) });
+}));
+
+/* QUÉ BUSCA LA GENTE. Sale de GA4 (cada búsqueda es una visita a /search/?q=…),
+   así que no hay que instrumentar nada en la tienda. Ver src/searchAnalytics.js. */
+app.get('/api/search/terms', wrap(async (req, res) => {
+  res.json(await searchAnalytics.buscadas({ force: req.query.force === '1' }));
+}));
+
+/* Los chips de "Búsquedas frecuentes" del buscador del theme. Público y sólo de
+   lectura: son las palabras más buscadas QUE DEVUELVEN productos con stock. */
+app.options('/api/search/chips', publicGetCors);
+app.get('/api/search/chips', publicGetCors, wrap(async (req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=1800, stale-while-revalidate=86400');
+  res.json({ chips: await searchAnalytics.chips(8) });
 }));
 
 app.get('/api/home/rails', publicGetCors, wrap(async (req, res) => {

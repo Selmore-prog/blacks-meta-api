@@ -31,11 +31,35 @@ const HP_ESTADO = {
 async function loadHomePlan(force = false) {
   const cont = document.getElementById('hs-plan');
   if (!hpState.plan) cont.innerHTML = skeleton('rows', 5);
+
+  /* "Volver a leer" no daba NINGUNA señal: con el esquema ya en pantalla no se
+     dibuja el esqueleto, así que se apretaba el botón y durante unos segundos
+     no pasaba nada visible — parecía que no funcionaba. Ahora el botón se
+     bloquea y avisa mientras vuelve a bajar la tienda. */
+  const btn = document.querySelector('[onclick*="loadHomePlan(true)"]');
+  const antes = btn ? btn.innerHTML : null;
+  if (btn && force) { btn.disabled = true; btn.textContent = 'Leyendo la tienda…'; }
+
   try {
     hpState.plan = await api(`/api/home/plan${force ? '?force=1' : ''}`);
     renderHomePlan();
   } catch (err) {
-    cont.innerHTML = `<p class="hint">No pude armar el esquema: ${esc(err.message)}</p>`;
+    /* Si ya había un esquema en pantalla NO se borra: se avisa arriba y se deja
+       lo anterior. Antes un error dejaba la pestaña vacía y había que salir y
+       volver a entrar para recuperar lo que ya estaba calculado. */
+    if (hpState.plan) {
+      const aviso = document.createElement('p');
+      aviso.className = 'hint hp-mal';
+      aviso.textContent = `No pude volver a leer la tienda: ${err.message}`;
+      cont.prepend(aviso);
+      setTimeout(() => aviso.remove(), 8000);
+    } else {
+      cont.innerHTML = `<p class="hint">No pude armar el esquema: ${esc(err.message)}</p>`;
+    }
+  } finally {
+    // renderHomePlan() redibuja el botón, así que se vuelve a buscar.
+    const b = document.querySelector('[onclick*="loadHomePlan(true)"]');
+    if (b) { b.disabled = false; if (antes && b.innerHTML !== antes) b.innerHTML = antes; }
   }
 }
 

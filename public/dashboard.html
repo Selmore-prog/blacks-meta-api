@@ -423,6 +423,16 @@
         <div>
           <h2>Análisis web</h2>
           <div class="sub">Qué pasa adentro de una sección del sitio: de dónde viene la gente, qué mira, a dónde va y cuántos terminan consultando.</div>
+
+      <!-- Sub-pestañas. Clase propia (.antab) y NO .mtab / .ptab:
+           switchMetricsPane() hace querySelectorAll('.mtab') sobre TODO el
+           documento y le sacaría el .active a estas al entrar en Métricas. -->
+      <div class="an-tabs">
+        <button class="antab active" data-pane="secciones" onclick="switchAnalysisPane('secciones')">Secciones del sitio</button>
+        <button class="antab" data-pane="buscador" onclick="switchAnalysisPane('buscador')">Buscador</button>
+      </div>
+
+      <div id="an-secciones" class="an-pane">
         </div>
       </div>
 
@@ -488,6 +498,13 @@
       </div>
 
       <div id="an-out"></div>
+      </div>
+
+      <!-- Qué busca la gente adentro de la tienda. Sale de GA4: cada búsqueda es
+           una visita a /search/?q=… Ver src/searchAnalytics.js -->
+      <div id="an-buscador" class="an-pane hidden">
+        <div id="search-stats"><p class="loading">Cargando búsquedas…</p></div>
+      </div>
     </section>
   </div>
 

@@ -89,6 +89,19 @@ const VIDEO_FIELDS = [
     help: 'Recomendado. Un video que suena solo espanta. Además, ningún navegador deja que un video arranque solo CON sonido: si lo desactivás y el video arranca solo, igual empieza en silencio.',
   },
   {
+    key: 'video_speed', label: 'Velocidad', type: 'opciones', default: '1',
+    when: { key: 'video_url', lleno: true },
+    options: [
+      { value: '0.5', label: 'Mitad de velocidad (0,5x)' },
+      { value: '0.75', label: 'Un poco más lento (0,75x)' },
+      { value: '1', label: 'Normal' },
+      { value: '1.25', label: 'Un poco más rápido (1,25x)' },
+      { value: '1.5', label: 'Rápido (1,5x)' },
+      { value: '2', label: 'Doble (2x)' },
+    ],
+    help: 'Para un clip de ambiente, bajarlo a 0,75x suele quedar mejor. Ojo: si el video tiene sonido, cambiar la velocidad también cambia el tono.',
+  },
+  {
     key: 'video_autoplay', label: 'Arrancar solo', type: 'switch', default: true,
     when: { key: 'video_url', lleno: true },
     help: 'Sólo para MP4 propio. Arranca al entrar en pantalla y se pausa al salir, para no gastar datos ni batería de fondo. Si el visitante tiene datos limitados o pidió "reducir movimiento", no arranca: ve la foto con el botón de play.',
