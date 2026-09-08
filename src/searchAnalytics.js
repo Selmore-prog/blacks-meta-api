@@ -166,42 +166,100 @@ async function chips(limite = 8) {
  *   2º stock, de mayor a menor. Entre cosas igual de relevantes, primero lo que
  *      se puede vender sin quedarse corto.
  * ========================================================================= */
+/* --- normalización y raíces ---------------------------------------------
+ * El catálogo está escrito en singular y la gente busca en plural (y al revés):
+ * "zapatos" tiene que encontrar "Zapato de Seguridad", y "botin" tiene que
+ * encontrar "Botines". Comparar el texto crudo no alcanzaba.
+ *
+ * Y hay un caso que NO se puede resolver a lo bruto: "zapatos" NO puede traer
+ * "Zapatillas". Por eso no se compara por prefijo corto (zapat…), que las
+ * mezclaría, sino por RAÍZ COMPLETA de cada palabra.
+ */
+function normalizar(t) {
+  return String(t || '')
+    .toLowerCase()
+    .normalize('NFD').replace(/[\u0300-\u036f]/g, '')   // saca acentos
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/** Raíz aproximada para el castellano: alcanza para singular/plural. */
+function raiz(p) {
+  if (p.length > 5 && p.endsWith('es')) return p.slice(0, -2);   // botines → botin
+  if (p.length > 3 && p.endsWith('s')) return p.slice(0, -1);    // zapatos → zapato
+  return p;
+}
+
+const VACIAS = new Set(['de', 'del', 'la', 'el', 'los', 'las', 'con', 'sin', 'para', 'por', 'y', 'a', 'en', 'un', 'una']);
+
+function palabrasDe(t) {
+  return normalizar(t).split(' ').filter((w) => w && !VACIAS.has(w)).map(raiz);
+}
+
+/* =========================================================================
+ * BUSCADOR PREDICTIVO DEL SITIO
+ *
+ * Reemplaza al scraping. Hasta sep-2026 el panel se bajaba la PÁGINA DE
+ * RESULTADOS COMPLETA en cada tecla (medido: 2,28 MB para "grafa") y le sacaba
+ * los productos con DOMParser. De ese HTML tampoco se puede leer CUÁNTO stock
+ * hay —sólo si está agotado—, así que era imposible ordenar por stock.
+ *
+ * Como el catálogo elegible son ~70 productos, se traen todos y se puntúan acá:
+ * es más barato que pelear con SQL y permite un criterio mucho más fino.
+ *
+ * EL ORDEN:
+ *   1º cuánto coincide con lo que se tipeó (ver puntaje)
+ *   2º stock, de mayor a menor
+ * La relevancia va primero a propósito: buscando "botines seguridad", los
+ * botines tienen que ganarle a una faja lumbar aunque la faja tenga más stock.
+ * ========================================================================= */
 async function buscarProductos(q, limite = 8) {
-  const texto = String(q || '').trim().toLowerCase().replace(/\s+/g, ' ').slice(0, 60);
-  if (texto.length < 2) return [];
-  const palabras = texto.split(' ').filter(Boolean).slice(0, 5);
+  const consulta = palabrasDe(q);
+  if (!consulta.length || normalizar(q).length < 2) return [];
 
   const { rows } = await pool.query(
     `SELECT id, name, brand, category, price, promo_price, stock, image_url,
             COALESCE(permalink, raw->'handle'->>'es', raw->>'canonical_url') AS permalink
        FROM products_cache
       WHERE COALESCE(published, true) = true
-        AND price > 0                      -- minorista: el mayorista va sin precio
-        AND COALESCE(stock, 0) > 0         -- agotados fuera del predictivo
-        AND (lower(name) LIKE '%' || $1 || '%'
-             OR lower(COALESCE(brand,'')) LIKE '%' || $1 || '%'
-             OR lower(COALESCE(category,'')) LIKE '%' || $1 || '%'
-             OR EXISTS (SELECT 1 FROM unnest($2::text[]) w
-                         WHERE lower(name) LIKE '%' || w || '%'
-                            OR lower(COALESCE(brand,'')) LIKE '%' || w || '%'))
-      LIMIT 300`,
-    [texto, palabras]
+        AND price > 0                 -- minorista: el mayorista va sin precio
+        AND COALESCE(stock, 0) > 0`   // agotados fuera del predictivo
   ).catch((e) => { console.warn('[buscarProductos]', e.message); return { rows: [] }; });
 
-  // Con LIKE de una sola palabra se pierden los que tienen las palabras
-  // separadas ("botines ... seguridad"), así que el filtro fino va acá.
   const { productPath } = require('./homeRails');
-  /* El nombre pesa más que la marca: "Grafa 70" en el título es una
-     coincidencia más fuerte que la marca del producto. */
+
+  /* Puntaje de UNA palabra buscada contra las palabras del producto.
+     3 = es la misma palabra · 2 = el producto la empieza (segur→seguridad)
+     1 = la contiene · 0 = nada. NO hay coincidencia por prefijo corto: es lo
+     que haría que "zapato" trajera "zapatilla". */
+  const puntoPalabra = (w, palabras) => {
+    let mejor = 0;
+    for (const p of palabras) {
+      if (p === w) return 3;
+      if (w.length >= 4 && p.startsWith(w)) mejor = Math.max(mejor, 2);
+      else if (w.length >= 4 && p.includes(w)) mejor = Math.max(mejor, 1);
+    }
+    return mejor;
+  };
+
   const puntaje = (fila) => {
-    const t = String(fila.name).toLowerCase();
-    const extra = `${fila.brand || ''} ${fila.category || ''}`.toLowerCase();
-    if (t.startsWith(texto)) return 5;
-    if (t.includes(texto)) return 4;
-    if (palabras.every((w) => t.includes(w))) return 3;
-    if (extra.includes(texto)) return 2;
-    if (palabras.some((w) => t.includes(w) || extra.includes(w))) return 1;
-    return 0;
+    const enNombre = palabrasDe(fila.name);
+    const enExtra = palabrasDe(`${fila.brand || ''} ${fila.category || ''}`);
+
+    let total = 0;
+    for (const w of consulta) {
+      const nom = puntoPalabra(w, enNombre);
+      const ext = nom ? 0 : puntoPalabra(w, enExtra);
+      // TODAS las palabras buscadas tienen que aparecer en algún lado. Así
+      // "zapatos seguridad" encuentra "Zapato de Seguridad 649" aunque las
+      // palabras no estén pegadas, y no trae cualquier cosa que diga "zapato".
+      if (!nom && !ext) return 0;
+      total += nom ? nom * 2 : ext; // el nombre pesa el doble que marca/categoría
+    }
+    // Empieza con lo buscado: es la coincidencia más fuerte que hay.
+    if (normalizar(fila.name).startsWith(normalizar(q))) total += 4;
+    return total;
   };
 
   return rows
