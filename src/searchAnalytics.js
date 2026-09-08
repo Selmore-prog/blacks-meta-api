@@ -147,6 +147,85 @@ async function chips(limite = 8) {
     }));
 }
 
+/* =========================================================================
+ * BUSCADOR PREDICTIVO DEL SITIO
+ *
+ * Reemplaza al scraping. Hasta sep-2026 el panel del buscador se bajaba la
+ * PÁGINA DE RESULTADOS COMPLETA en cada tecla (medido: 2,28 MB para "grafa")
+ * y le sacaba los productos con DOMParser. Además, de ese HTML no se puede
+ * leer CUÁNTO stock hay —sólo si está agotado o no—, así que era imposible
+ * poner arriba lo que más stock tiene.
+ *
+ * Acá se busca directo contra products_cache: una respuesta de unos pocos KB,
+ * con el stock real, y el orden decidido por nosotros.
+ *
+ * EL ORDEN, que es lo que importa:
+ *   1º relevancia contra lo que se tipeó (empieza con la frase > la contiene >
+ *      están todas las palabras > alguna). Un producto con mucho stock pero que
+ *      no tiene que ver NO puede ganarle a la coincidencia exacta.
+ *   2º stock, de mayor a menor. Entre cosas igual de relevantes, primero lo que
+ *      se puede vender sin quedarse corto.
+ * ========================================================================= */
+async function buscarProductos(q, limite = 8) {
+  const texto = String(q || '').trim().toLowerCase().replace(/\s+/g, ' ').slice(0, 60);
+  if (texto.length < 2) return [];
+  const palabras = texto.split(' ').filter(Boolean).slice(0, 5);
+
+  const { rows } = await pool.query(
+    `SELECT id, name, brand, category, price, promo_price, stock, image_url,
+            COALESCE(permalink, raw->'handle'->>'es', raw->>'canonical_url') AS permalink
+       FROM products_cache
+      WHERE COALESCE(published, true) = true
+        AND price > 0                      -- minorista: el mayorista va sin precio
+        AND COALESCE(stock, 0) > 0         -- agotados fuera del predictivo
+        AND (lower(name) LIKE '%' || $1 || '%'
+             OR lower(COALESCE(brand,'')) LIKE '%' || $1 || '%'
+             OR lower(COALESCE(category,'')) LIKE '%' || $1 || '%'
+             OR EXISTS (SELECT 1 FROM unnest($2::text[]) w
+                         WHERE lower(name) LIKE '%' || w || '%'
+                            OR lower(COALESCE(brand,'')) LIKE '%' || w || '%'))
+      LIMIT 300`,
+    [texto, palabras]
+  ).catch((e) => { console.warn('[buscarProductos]', e.message); return { rows: [] }; });
+
+  // Con LIKE de una sola palabra se pierden los que tienen las palabras
+  // separadas ("botines ... seguridad"), así que el filtro fino va acá.
+  const { productPath } = require('./homeRails');
+  /* El nombre pesa más que la marca: "Grafa 70" en el título es una
+     coincidencia más fuerte que la marca del producto. */
+  const puntaje = (fila) => {
+    const t = String(fila.name).toLowerCase();
+    const extra = `${fila.brand || ''} ${fila.category || ''}`.toLowerCase();
+    if (t.startsWith(texto)) return 5;
+    if (t.includes(texto)) return 4;
+    if (palabras.every((w) => t.includes(w))) return 3;
+    if (extra.includes(texto)) return 2;
+    if (palabras.some((w) => t.includes(w) || extra.includes(w))) return 1;
+    return 0;
+  };
+
+  return rows
+    .map((r) => ({ r, rel: puntaje(r) }))
+    .filter((x) => x.rel > 0)
+    .sort((a, b) => (b.rel - a.rel) || (Number(b.r.stock || 0) - Number(a.r.stock || 0)))
+    .slice(0, limite)
+    .map(({ r }) => {
+      const price = r.price == null ? null : Number(r.price);
+      const promo = r.promo_price == null ? null : Number(r.promo_price);
+      const oferta = promo != null && price != null && promo > 0 && promo < price;
+      return {
+        name: r.name,
+        url: productPath(r.permalink),
+        image: r.image_url || '',
+        price,
+        promo_price: oferta ? promo : null,
+        discount_pct: oferta ? Math.round(((price - promo) / price) * 100) : null,
+        stock: Number(r.stock || 0),
+      };
+    })
+    .filter((p) => p.url);
+}
+
 function invalidate() { cache = { at: 0, data: null }; }
 
-module.exports = { buscadas, chips, terminoDe, invalidate };
+module.exports = { buscadas, chips, terminoDe, buscarProductos, invalidate };

@@ -156,7 +156,13 @@ function switchTab(view) {
   if (view === 'home') switchHomePane(homePaneGuardado());
 
   if (view === 'studio') loadStudio();
-  if (view === 'analysis') setupAnalysis();
+  if (view === 'analysis') {
+    setupAnalysis();
+    // Se restaura la sub-pestaña que quedó abierta la última vez.
+    let pane = 'secciones';
+    try { pane = localStorage.getItem('analysisPane') || 'secciones'; } catch (_) { /* modo privado */ }
+    switchAnalysisPane(pane);
+  }
   if (view === 'ads') loadAdsPerformance();
 }
 
@@ -6774,4 +6780,99 @@ async function abrirDetalleConsultas(tipo) {
   } catch (err) {
     cuerpo.innerHTML = `<p class="hint">No pude traer el detalle: ${esc(err.message)}</p>`;
   }
+}
+
+/* =========================================================================
+ * BUSCADOR — qué busca la gente adentro de la tienda.
+ *
+ * El dato sale de GA4 sin instrumentar nada: cada búsqueda es una visita a
+ * /search/?q=… (ver src/searchAnalytics.js). Lo que importa no es el ranking
+ * —ese es el dato bonito— sino las dos listas de abajo: lo que se busca y no
+ * hay stock, y lo que se busca y no devuelve NADA. Eso último casi siempre es
+ * un problema de cómo están nombrados los productos, no de catálogo faltante.
+ * ========================================================================= */
+
+let searchStats = null;
+
+function switchAnalysisPane(name) {
+  document.querySelectorAll('#view-analysis .antab').forEach((b) => b.classList.toggle('active', b.dataset.pane === name));
+  document.querySelectorAll('#view-analysis .an-pane').forEach((p) => p.classList.toggle('hidden', p.id !== `an-${name}`));
+  try { localStorage.setItem('analysisPane', name); } catch (_) { /* modo privado */ }
+  if (name === 'buscador' && !searchStats) loadSearchStats();
+}
+
+async function loadSearchStats(force = false) {
+  const box = document.getElementById('search-stats');
+  if (!box) return;
+  if (!searchStats) box.innerHTML = skeleton('rows', 4);
+  const btn = document.getElementById('bs-refresh');
+  if (btn) { btn.disabled = true; btn.textContent = 'Leyendo…'; }
+  try {
+    searchStats = await api(`/api/search/terms${force ? '?force=1' : ''}`);
+    renderSearchStats();
+  } catch (err) {
+    box.innerHTML = `<p class="hint">No pude leer las búsquedas: ${esc(err.message)}</p>`;
+  }
+}
+
+function renderSearchStats() {
+  const d = searchStats;
+  const box = document.getElementById('search-stats');
+
+  if (!d.disponible) {
+    box.innerHTML = `<div class="panel"><p class="hint">${esc(d.motivo || 'No hay datos de búsqueda.')}</p></div>`;
+    return;
+  }
+
+  const url = (t) => `https://blacksindumentaria.com.ar/search/?q=${encodeURIComponent(t)}`;
+  const max = d.terminos.length ? d.terminos[0].busquedas : 1;
+
+  // Ranking con barra proporcional: se lee de un vistazo cuánto pesa cada uno.
+  const fila = (t) => {
+    const estado = t.con_stock > 0
+      ? `<span class="bs-ok">${t.con_stock} con stock</span>`
+      : t.productos > 0
+        ? '<span class="bs-warn">sin stock</span>'
+        : '<span class="bs-bad">sin resultados</span>';
+    return `<a class="bs-fila" href="${esc(url(t.termino))}" target="_blank" rel="noopener" title="Ver qué devuelve esta búsqueda en la tienda">
+      <span class="bs-n">${t.busquedas}</span>
+      <span class="bs-t">${esc(t.termino)}</span>
+      <span class="bs-barra"><i style="width:${Math.round((t.busquedas / max) * 100)}%"></i></span>
+      ${estado}
+    </a>`;
+  };
+
+  const lista = (items, vacio) => (items.length
+    ? items.map(fila).join('')
+    : `<p class="hint" style="margin:6px 0 0;">${vacio}</p>`);
+
+  box.innerHTML = `
+    <div class="bs-top">
+      <div class="bs-kpis">
+        <span><b>${d.total}</b> búsquedas</span>
+        <span><b>${d.distintas}</b> términos distintos</span>
+        <span>últimos <b>${d.dias}</b> días</span>
+      </div>
+      <button class="btn-ghost btn-sm" id="bs-refresh" onclick="loadSearchStats(true)"><span data-ic="refresh"></span> Volver a leer</button>
+    </div>
+
+    <div class="bs-cols">
+      <section class="panel">
+        ${panelHead('Lo más buscado', 'Sale de GA4: cada búsqueda es una visita a /search/. Tocá cualquiera para ver qué devuelve hoy en la tienda.')}
+        <div class="bs-lista">${lista(d.terminos.slice(0, 20), 'Todavía no hay búsquedas registradas.')}</div>
+      </section>
+
+      <div class="bs-col2">
+        <section class="panel bs-alerta">
+          ${panelHead('Lo buscan y no hay stock', 'La gente entra, busca esto y encuentra la ficha agotada. Es demanda que ya tenés y se va sin comprar.')}
+          <div class="bs-lista">${lista(d.sinStock.slice(0, 10), 'Nada agotado entre lo que se busca.')}</div>
+        </section>
+
+        <section class="panel bs-alerta bs-alerta--fuerte">
+          ${panelHead('Lo buscan y no encuentran nada', 'Cero resultados. Casi siempre es un problema de cómo está nombrado el producto, no de que falte: fijate si lo tenés con otro nombre y agregale esa palabra al título o a la categoría.')}
+          <div class="bs-lista">${lista(d.sinResultado.slice(0, 12), 'Todas las búsquedas devuelven algo.')}</div>
+        </section>
+      </div>
+    </div>`;
+  hydrateIcons();
 }

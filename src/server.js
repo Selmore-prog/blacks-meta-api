@@ -82,7 +82,7 @@ app.use(async (req, res, next) => {
   // de la tienda: tampoco puede pedir sesión del panel. Va protegido con su
   // propio "state" de un solo uso (ver más abajo).
   const open = ['/health', '/api/health', '/api/login', '/login.html', '/favicon.ico',
-    '/api/leads/click', '/api/home/rails', '/api/home/products', '/api/search/chips', '/api/tiendanube/oauth/callback',
+    '/api/leads/click', '/api/home/rails', '/api/home/products', '/api/search/chips', '/api/search', '/api/tiendanube/oauth/callback',
     // Portal del equipo: la pantalla de ingreso y su hoja de estilos. No exponen
     // nada — son el formulario de login y CSS. Ver src/teamPortal.js.
     '/equipo.html', '/equipo.js', '/works-panel.js', '/dashboard.css', '/api/team/login'];
@@ -983,6 +983,16 @@ app.get('/api/search/terms', wrap(async (req, res) => {
 
 /* Los chips de "Búsquedas frecuentes" del buscador del theme. Público y sólo de
    lectura: son las palabras más buscadas QUE DEVUELVEN productos con stock. */
+/* Buscador predictivo del sitio. Público y de sólo lectura.
+   Reemplaza al scraping: el panel se bajaba la página de resultados COMPLETA en
+   cada tecla (2,28 MB medidos para "grafa"). Acá van unos pocos KB, con el
+   stock real y el orden que decidimos: relevancia primero, stock después. */
+app.options('/api/search', publicGetCors);
+app.get('/api/search', publicGetCors, wrap(async (req, res) => {
+  res.setHeader('Cache-Control', 'public, max-age=120, stale-while-revalidate=600');
+  res.json({ products: await searchAnalytics.buscarProductos(req.query.q, 8) });
+}));
+
 app.options('/api/search/chips', publicGetCors);
 app.get('/api/search/chips', publicGetCors, wrap(async (req, res) => {
   res.setHeader('Cache-Control', 'public, max-age=1800, stale-while-revalidate=86400');
