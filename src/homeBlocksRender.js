@@ -497,6 +497,7 @@ function renderBlock(b, ctx = {}) {
     `hb-w-${b.width || 'contenido'}`,
     `hb-sp-${b.spacing || 'normal'}`,
     b.device && b.device !== 'todos' ? `hb-solo-${b.device}` : '',
+    b.borde_suave !== false ? 'hb-borde-suave' : '',
   ].filter(Boolean).join(' ');
 
   const estilo = b.accent ? ` style="--hb-accent:${esc(b.accent)}"` : '';

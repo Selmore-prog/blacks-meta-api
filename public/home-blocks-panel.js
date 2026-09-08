@@ -251,6 +251,10 @@ function hbFormulario(b, i) {
         ${opciones('width', hbState.catalogo.widths, { titulo: 'Ancho', map: { contenido: 'Centrado (como el resto)', completo: 'De borde a borde' } })}
         ${opciones('spacing', hbState.catalogo.spacings, { titulo: 'Aire alrededor', map: { compacto: 'Compacto', normal: 'Normal', amplio: 'Amplio' } })}
         ${opciones('device', hbState.catalogo.devices, { titulo: 'Dónde se ve', map: { todos: 'Celular y computadora', mobile: 'Sólo en celular', desktop: 'Sólo en computadora' } })}
+        ${(b.theme === 'oscuro' || b.theme === 'acento') ? `<label class="hb-f hb-f--sw">
+          <input type="checkbox" ${b.borde_suave !== false ? 'checked' : ''} onchange="hbSetOpcion(${i}, 'borde_suave', this.checked)">
+          <span><span class="hb-f-lab">Fundir los bordes</span><span class="hb-f-help">El color entra y sale de a poco en vez de cortar de golpe contra la sección de arriba y la de abajo. Sólo aplica a los fondos oscuro y de acento.</span></span>
+        </label>` : ''}
         <label class="hb-f">
           <span class="hb-f-lab">Color de acento</span>
           <span class="hb-color">

@@ -658,6 +658,9 @@ function validateConfig(input, { lenient = false } = {}) {
       // Vacío = hereda el de la tienda. Se valida acá porque va a parar a un
       // atributo style= del HTML.
       accent: /^#[0-9a-fA-F]{6}$/.test(String(b.accent || '')) ? String(b.accent) : '',
+      // Bordes fundidos: sólo hace algo en los temas oscuro y acento, que son
+      // los que contrastan contra el fondo de la página.
+      borde_suave: b.borde_suave !== false,
       /* Indicaciones de foto/video que dejó el plan del home: qué mostrar, en
          qué formato y qué evitar. NO se renderizan en la tienda — son para el
          que después tiene que sacar o buscar la imagen, y se muestran al lado

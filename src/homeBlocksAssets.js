@@ -58,6 +58,26 @@ const CSS = `
 }
 .hb *, .hb *::before, .hb *::after { box-sizing: border-box; }
 
+/* BORDES FUNDIDOS.
+   Un bloque oscuro entre dos claros se lee como una caja negra suelta, no como
+   un cambio de capítulo: corta de golpe arriba y de golpe abajo. Con los bordes
+   fundidos, el color entra y sale en 56px y el cambio se lee intencional.
+   Sólo tiene sentido en los temas que contrastan contra la página (oscuro y
+   acento); en claro y arena no se nota y se ahorra el degradado.
+   La parte transparente deja ver el fondo de la página, así que funciona sea
+   cual sea ese fondo — no hay que saberlo de antemano. */
+.hb-borde-suave.hb-t-oscuro,
+.hb-borde-suave.hb-t-acento {
+  background:
+    linear-gradient(to bottom, transparent 0, var(--hb-bg) 56px),
+    linear-gradient(to top, transparent 0, var(--hb-bg) 56px);
+  background-repeat: no-repeat;
+  background-size: 100% 50.5%, 100% 50.5%;
+  background-position: top, bottom;
+}
+/* Con el borde fundido, el contenido no puede arrancar pegado al degradado. */
+.hb-borde-suave.hb-t-oscuro, .hb-borde-suave.hb-t-acento { padding-top: calc(var(--hb-pad) + 24px); padding-bottom: calc(var(--hb-pad) + 24px); }
+
 /* --- temas ------------------------------------------------------------- */
 .hb-t-oscuro {
   --hb-bg: #0E0F11; --hb-fg: #F6F6F5; --hb-muted: #A7ABB2;
