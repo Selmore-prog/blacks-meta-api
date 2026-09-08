@@ -390,7 +390,7 @@ a.hb-tile:hover .hb-tile-media img { transform: scale(1.04); }
   .bf-anima .bf-foto2 {
     animation-name: bf-alterna; animation-duration: 3.4s;
     animation-timing-function: ease-in-out; animation-delay: var(--bf-delay, 0ms);
-    animation-iteration-count: 2; animation-fill-mode: both;
+    animation-iteration-count: 1; animation-fill-mode: both;
   }
 }
 @media (prefers-reduced-motion: reduce) {
@@ -761,10 +761,14 @@ const JS = `
       v.dataset.hbObs = '1';
       if (io) io.observe(v); else activarVideo(v);
     });
-    // Segunda foto de las fichas del bloque de productos. Vive en el theme
-    // (snipplets/home/home-second-photo.tpl) porque la comparten el riel y las
-    // ofertas flash; en la vista previa del panel no existe y no pasa nada:
-    // sin ella las fichas se quedan en la foto del producto y el hover anda.
+    // Segunda foto que se muestra sola. Hoy la pide UN solo caso: las placas
+    // de rubro con dos imágenes cargadas a mano (por eso el atributo
+    // data-foto-alterna quedó sólo ahí, y no en las fichas de producto). Es
+    // una placa grande, elegida, y la segunda foto es contenido — no un tic de
+    // interfaz repetido en veinte fichas chicas.
+    // El helper vive en el theme (snipplets/home/home-second-photo.tpl); en la
+    // vista previa del panel no existe y no pasa nada: sin él las placas se
+    // quedan en la primera foto y el hover anda igual.
     if (window.blacksFotoAlterna) window.blacksFotoAlterna(raiz || document);
   }
 

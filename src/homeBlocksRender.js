@@ -388,15 +388,17 @@ function fichaProducto(p, { mostrarPrecio, grande = false }) {
   const foto = p.image
     ? imagen({ src: p.image, alt: p.name, ratio: '1-1', sizes })
     : '<div class="hb-poster-vacio" aria-hidden="true"></div>';
-  /* Segunda foto: al pasar el mouse en la computadora y, en celular, sola
-     cuando la ficha entra en pantalla. Va con alt vacío a propósito — es la
-     misma prenda, y un lector de pantalla que la nombre repite el producto. */
+  /* Segunda foto: SÓLO al pasar el mouse. Sin `data-foto-alterna`, así que en
+     celular no arranca sola — misma decisión que en el riel y las ofertas: en
+     una ficha de catálogo el movimiento que nadie pidió compite con el scroll.
+     Alt vacío a propósito: es la misma prenda, y un lector de pantalla que la
+     nombre repite el producto. */
   const foto2 = p.image && p.image_hover
     ? imagen({ src: p.image_hover, alt: '', ratio: '1-1', sizes, clase: 'bf-foto2' })
     : '';
 
   return `<a class="hb-p${grande ? ' hb-p--grande' : ''}" href="${esc(p.url)}">`
-    + `<div class="hb-p-foto"${foto2 ? ' data-foto-alterna' : ''}>${foto}${foto2}${badge}</div>`
+    + `<div class="hb-p-foto">${foto}${foto2}${badge}</div>`
     + `<div class="hb-p-body"><h3 class="hb-p-nombre">${esc(p.name)}</h3>${precio}</div>`
     + '</a>';
 }
