@@ -384,15 +384,19 @@ function fichaProducto(p, { mostrarPrecio, grande = false }) {
       + '</div>'
     : '';
   const badge = p.discount_pct ? `<span class="hb-p-off">-${p.discount_pct}%</span>` : '';
+  const sizes = grande ? '(min-width: 768px) 50vw, 100vw' : '(min-width: 768px) 25vw, 45vw';
   const foto = p.image
-    ? imagen({
-      src: p.image, alt: p.name, ratio: '1-1',
-      sizes: grande ? '(min-width: 768px) 50vw, 100vw' : '(min-width: 768px) 25vw, 45vw',
-    })
+    ? imagen({ src: p.image, alt: p.name, ratio: '1-1', sizes })
     : '<div class="hb-poster-vacio" aria-hidden="true"></div>';
+  /* Segunda foto: al pasar el mouse en la computadora y, en celular, sola
+     cuando la ficha entra en pantalla. Va con alt vacío a propósito — es la
+     misma prenda, y un lector de pantalla que la nombre repite el producto. */
+  const foto2 = p.image && p.image_hover
+    ? imagen({ src: p.image_hover, alt: '', ratio: '1-1', sizes, clase: 'bf-foto2' })
+    : '';
 
   return `<a class="hb-p${grande ? ' hb-p--grande' : ''}" href="${esc(p.url)}">`
-    + `<div class="hb-p-foto">${foto}${badge}</div>`
+    + `<div class="hb-p-foto"${foto2 ? ' data-foto-alterna' : ''}>${foto}${foto2}${badge}</div>`
     + `<div class="hb-p-body"><h3 class="hb-p-nombre">${esc(p.name)}</h3>${precio}</div>`
     + '</a>';
 }
@@ -455,10 +459,16 @@ function rubros(b) {
   const items = (d.items || []).filter((x) => x.title);
   const conFoto = (d.style || 'foto') === 'foto';
   const cuerpo = items.map((x) => {
+    const sizes = '(min-width: 768px) 25vw, 45vw';
     const foto = conFoto && x.image
-      ? imagen({ src: x.image, alt: x.title, ratio: '3-4', sizes: '(min-width: 768px) 25vw, 45vw' })
+      ? imagen({ src: x.image, alt: x.title, ratio: '3-4', sizes })
       : '';
-    const dentro = (foto ? `<div class="hb-rubro-media">${foto}</div>` : '')
+    /* Segunda foto de la placa: el efecto de "dos imágenes que se van
+       pasando". Alt vacío porque el rubro ya lo nombra el título de al lado. */
+    const foto2 = foto && x.image_2
+      ? imagen({ src: x.image_2, alt: '', ratio: '3-4', sizes, clase: 'bf-foto2' })
+      : '';
+    const dentro = (foto ? `<div class="hb-rubro-media"${foto2 ? ' data-foto-alterna' : ''}>${foto}${foto2}</div>` : '')
       + `<div class="hb-rubro-body"><h3>${esc(x.title)}</h3>${x.text ? `<p>${esc(x.text)}</p>` : ''}</div>`;
     return x.url
       ? `<a class="hb-rubro" href="${esc(x.url)}">${dentro}</a>`

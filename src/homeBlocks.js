@@ -468,6 +468,10 @@ const BLOCK_TYPES = {
           { key: 'title', label: 'Rubro', type: 'texto', max: 40, placeholder: 'Construcción' },
           { key: 'text', label: 'Texto corto', type: 'texto', max: 90 },
           { key: 'image', label: 'Imagen', type: 'imagen' },
+          {
+            key: 'image_2', label: 'Segunda imagen (opcional)', type: 'imagen',
+            help: 'Si cargás una segunda foto, la placa las va alternando: se muestra sola al entrar en pantalla en el celular, y al pasar el mouse en la computadora. Sirve para mostrar el mismo look con y sin abrigo, o dos prendas de la misma categoría. Conviene que las dos estén encuadradas parecido.',
+          },
           { key: 'url', label: 'Link', type: 'url' },
         ],
       },
@@ -735,7 +739,7 @@ async function fetchProducts(ids) {
   // El mismo COALESCE que usan los rieles: `permalink` está en NULL para el
   // catálogo viejo y ahí el handle hay que sacarlo del JSON crudo.
   const { rows } = await pool.query(
-    `SELECT id, name, price, stock, image_url, promo_price,
+    `SELECT id, name, price, stock, image_url, images, promo_price,
             COALESCE(permalink, raw->'handle'->>'es', raw->>'canonical_url') AS permalink
        FROM products_cache
       WHERE id = ANY($1::bigint[])`,
@@ -747,11 +751,17 @@ async function fetchProducts(ids) {
     const price = r.price == null ? null : Number(r.price);
     const promo = r.promo_price == null ? null : Number(r.promo_price);
     const conOferta = promo != null && price != null && promo > 0 && promo < price;
+    // Segunda foto del producto, la misma que ya usan los rieles y las ofertas
+    // flash: en la tienda se muestra al pasar el mouse y, en celular, sola al
+    // entrar la ficha en pantalla. Si el producto tiene una sola foto, queda
+    // en null y la ficha no la anuncia — no se rompe nada.
+    const fotos = Array.isArray(r.images) ? r.images : [];
     return {
       id: Number(r.id),
       name: r.name,
       url: productPath(r.permalink) || '',
       image: r.image_url || '',
+      image_hover: fotos.find((src) => src && src !== r.image_url) || null,
       stock: r.stock == null ? null : Number(r.stock),
       price,
       promo_price: conOferta ? promo : null,

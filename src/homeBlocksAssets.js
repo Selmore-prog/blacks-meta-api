@@ -367,6 +367,36 @@ a.hb-tile:hover .hb-tile-media img { transform: scale(1.04); }
 .hb-p-foto .hb-pic { position: absolute; inset: 0; }
 .hb-p-foto img { transition: transform .5s cubic-bezier(.2,.6,.2,1); }
 .hb-p:hover .hb-p-foto img { transform: scale(1.04); }
+
+/* SEGUNDA FOTO DE LA FICHA.
+   Es la misma pieza que usan el riel y las ofertas flash del theme, repetida
+   aca porque el CSS de los bloques tiene que bastarse solo: la vista previa
+   del panel dibuja este HTML sin el CSS de la tienda, y sin estas reglas la
+   segunda foto se veria apilada debajo de la primera en vez de encima.
+   Con puntero manda el hover; sin puntero, la ficha la muestra sola al entrar
+   en pantalla (la clase .bf-anima la pone home-second-photo.tpl) y se queda
+   quieta. El cruce es de 85 ms a proposito: fundir mas mezcla las dos fotos y
+   se ve doble exposicion, que es justo lo que arruina el efecto. */
+.hb-p-foto .bf-foto2 { opacity: 0; transition: opacity .3s ease; }
+@media (hover: hover) {
+  .hb-p:hover .bf-foto2 { opacity: 1; }
+}
+@keyframes bf-alterna {
+  0%,     24% { opacity: 0; }
+  26.5%,  62% { opacity: 1; }
+  64.5%, 100% { opacity: 0; }
+}
+@media (hover: none) {
+  .bf-anima .bf-foto2 {
+    animation-name: bf-alterna; animation-duration: 3.4s;
+    animation-timing-function: ease-in-out; animation-delay: var(--bf-delay, 0ms);
+    animation-iteration-count: 2; animation-fill-mode: both;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .bf-anima .bf-foto2 { animation: none; }
+  .hb-p-foto .bf-foto2 { transition: none; }
+}
 .hb-p-off {
   position: absolute; left: 10px; top: 10px; z-index: 2; background: var(--hb-accent); color: #fff;
   font-size: 11px; font-weight: 700; letter-spacing: .04em; padding: 4px 8px; border-radius: 3px;
@@ -439,6 +469,14 @@ a.hb-tile:hover .hb-tile-media img { transform: scale(1.04); }
 .hb-rubro-media::after { content: ""; position: absolute; inset: 0; background: linear-gradient(to top, rgba(0,0,0,.78), rgba(0,0,0,.15) 60%, rgba(0,0,0,.05)); }
 .hb-rubro-media img { transition: transform .5s cubic-bezier(.2,.6,.2,1); }
 a.hb-rubro:hover .hb-rubro-media img { transform: scale(1.05); }
+/* Segunda foto de la placa. Va DEBAJO del ::after a proposito: el degradado
+   tiene que seguir oscureciendo el pie de la placa con las dos fotos, si no el
+   titulo blanco se pierde justo cuando cambia la imagen. Como el pseudo se
+   pinta despues de los hijos, alcanza con no darle z-index a la foto. */
+.hb-rubro-media .bf-foto2 { position: absolute; inset: 0; opacity: 0; transition: opacity .3s ease; }
+@media (hover: hover) {
+  a.hb-rubro:hover .bf-foto2 { opacity: 1; }
+}
 .hb-rubros--foto .hb-rubro-body { position: absolute; left: 0; right: 0; bottom: 0; padding: 14px; color: #fff; }
 .hb-rubros--texto .hb-rubro { border: 1px solid var(--hb-line); }
 .hb-rubros--texto .hb-rubro-body { padding: 18px 16px; min-height: 108px; display: flex; flex-direction: column; justify-content: flex-end; }
@@ -723,6 +761,11 @@ const JS = `
       v.dataset.hbObs = '1';
       if (io) io.observe(v); else activarVideo(v);
     });
+    // Segunda foto de las fichas del bloque de productos. Vive en el theme
+    // (snipplets/home/home-second-photo.tpl) porque la comparten el riel y las
+    // ofertas flash; en la vista previa del panel no existe y no pasa nada:
+    // sin ella las fichas se quedan en la foto del producto y el hover anda.
+    if (window.blacksFotoAlterna) window.blacksFotoAlterna(raiz || document);
   }
 
   function pintarToggle(btn, pausado) {
