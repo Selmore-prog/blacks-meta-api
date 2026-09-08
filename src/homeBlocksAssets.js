@@ -239,6 +239,36 @@ const CSS = `
 /* ===== IMAGEN Y TEXTO / VIDEO CON TEXTO ================================= */
 .hb-split { display: grid; gap: 22px; }
 .hb-split-body { align-self: center; }
+
+/* EN CELULAR, LA TARJETA TAMBIÉN MONTA (versión chica de lo que hace en
+   escritorio). Apilados sin más, el video y el texto se leían como dos cajas
+   sueltas y la sección quedaba "básica": foto, y abajo un párrafo. Con la
+   tarjeta subida 22px sobre el borde del video, y el video con las esquinas de
+   abajo rectas, los dos se leen como UNA pieza. Es el mismo recurso editorial
+   del escritorio, adaptado al ancho de un teléfono. */
+@media (max-width: 767px) {
+  .hb-split.hb-u-superpuesto { gap: 0; }
+  .hb-split.hb-u-superpuesto .hb-split-media .hb-media {
+    border-bottom-left-radius: 0;
+    border-bottom-right-radius: 0;
+  }
+  .hb-split.hb-u-superpuesto .hb-split-body {
+    position: relative;
+    z-index: 1;
+    margin: -22px 14px 0;
+    padding: 20px 18px 22px;
+    background: var(--hb-bg);
+    border: 1px solid var(--hb-line);
+    border-radius: var(--hb-radio);
+    box-shadow: 0 -6px 22px rgba(0,0,0,.10);
+  }
+  /* Con la tarjeta más angosta, el título necesita un punto menos para no
+     partirse en cinco renglones. */
+  .hb-split.hb-u-superpuesto .hb-title { font-size: clamp(21px, 5.4vw, 30px); }
+  .hb-split.hb-u-superpuesto .hb-kicker { margin-bottom: 8px; }
+  .hb-split.hb-u-superpuesto .hb-ctas { margin-top: 16px; }
+  .hb-split.hb-u-superpuesto .hb-btn { width: 100%; }
+}
 .hb-bullets { list-style: none; margin: 18px 0 0; padding: 0; display: grid; gap: 10px; }
 .hb-bullets li { position: relative; padding-left: 26px; font-size: 15px; line-height: 1.45; }
 .hb-bullets li::before {
