@@ -36,7 +36,6 @@ const storeCategories = require('./storeCategories');
 const SETTING_KEY = 'nav_menu_style';
 const CACHE_TTL_MS = 5 * 60 * 1000;
 let cache = { at: 0, payload: null };
-let cacheMenu = { at: 0, datos: null };
 
 /* Tipografías para el ítem destacado. Son pocas a propósito: cada una que se usa
    es una webfont más que baja el visitante, y en un menú entran dos o tres
@@ -121,6 +120,12 @@ const REGLA_FIELDS = [
     options: ESTILOS_BADGE, when: { key: 'badge_text', lleno: true },
   },
   { grupo: 'aspecto', key: 'badge_forma', label: 'Forma del globito', type: 'opciones', default: 'pastilla', options: FORMAS_BADGE, when: { key: 'badge_text', lleno: true } },
+  /* Con "A elección" el globito deja de usar la paleta fija y toma estos tres
+     colores. Es lo que pidió Sebastián: poder poner CUALQUIER degradado, no
+     elegir entre cuatro. */
+  { grupo: 'aspecto', key: 'badge_c1', label: 'Globito: color 1', type: 'color', when: { key: 'badge_text', lleno: true } },
+  { grupo: 'aspecto', key: 'badge_c2', label: 'Globito: color 2 (degradado)', type: 'color', when: { key: 'badge_c1', lleno: true } },
+  { grupo: 'aspecto', key: 'badge_tinta', label: 'Globito: color de la letra', type: 'color', when: { key: 'badge_c1', lleno: true } },
   {
     grupo: 'aspecto', key: 'icono', label: 'Ícono', type: 'opciones', default: '',
     options: Object.entries(ICONOS).map(([value, o]) => ({ value, label: o.label })),
@@ -132,6 +137,17 @@ const REGLA_FIELDS = [
     grupo: 'aspecto', key: 'bg2', label: 'Segundo color (degradado)', type: 'color',
     when: { key: 'bg', lleno: true },
     help: 'Con dos colores el fondo va en degradado en vez de plano.',
+  },
+  {
+    grupo: 'aspecto', key: 'bg_ang', label: 'Hacia dónde va el degradado', type: 'opciones', default: '100',
+    options: [
+      { value: '90', label: 'De izquierda a derecha →' },
+      { value: '100', label: 'Apenas inclinado ↘' },
+      { value: '135', label: 'En diagonal ↘↘' },
+      { value: '180', label: 'De arriba abajo ↓' },
+      { value: '45', label: 'Hacia arriba ↗' },
+    ],
+    when: { key: 'bg2', lleno: true },
   },
   { grupo: 'aspecto', key: 'mayus', label: 'TODO EN MAYÚSCULAS', type: 'switch', default: false },
   {
@@ -242,6 +258,10 @@ function validarRegla(r, i, { lenient = false, faltantes = [] } = {}) {
     // copia de la librería de íconos.
     icono_d: (ICONOS[d.icono || ''] || ICONOS['']).d,
     bg2: color(d.bg2),
+    bg_ang: /^(45|90|100|135|180)$/.test(String(d.bg_ang || '')) ? String(d.bg_ang) : '100',
+    badge_c1: color(d.badge_c1),
+    badge_c2: color(d.badge_c2),
+    badge_tinta: color(d.badge_tinta),
     mayus: d.mayus === true,
     animacion: ANIMACIONES.some((a) => a.value === d.animacion) ? (d.animacion || '') : '',
     image: urlDeImagen(d.image),
@@ -618,11 +638,148 @@ async function estructuraDelMenu({ force = false } = {}) {
   return datos;
 }
 
+/* =========================================================================
+ * PROMPT PARA GENERAR LA "PALABRA HECHA IMAGEN".
+ *
+ * Cuando el dueño quiere poner SUPERLIQUIDACIÓN como imagen en vez de texto,
+ * el problema no es subirla: es CONSEGUIRLA. Esto arma el pedido para pegarle
+ * a Gemini o ChatGPT, con las restricciones que hacen que sirva de verdad en
+ * un menú y que un prompt escrito a mano casi siempre olvida:
+ *
+ *   · fondo TRANSPARENTE (si viene con fondo blanco, en el menú negro se ve
+ *     un recuadro y no sirve);
+ *   · alto chico — se ve a ~22 px: sin peso alto y trazo grueso, a ese tamaño
+ *     no se lee nada;
+ *   · el texto EXACTO, y la instrucción de no agregar ni una palabra más
+ *     (los modelos meten "SALE" o "50% OFF" de su cosecha);
+ *   · lectura horizontal, sin marco ni sombra, con aire mínimo al costado.
+ *
+ * Se devuelve en inglés porque es como mejor responden los modelos de imagen,
+ * igual que los prompts del home (ver homeCopy.js).
+ * ========================================================================= */
+function promptDeImagen({ texto = '', colores = [], sobreFondo = 'oscuro', estilo = 'condensada' } = {}) {
+  const palabra = String(texto || '').trim() || 'OFERTA';
+  const paleta = (colores || []).filter((c) => COLOR_OK.test(String(c || '')));
+
+  const ESTILOS = {
+    condensada: 'a tall condensed grotesque sans-serif, very heavy weight, tight letter spacing, like industrial signage',
+    bloque: 'a chunky geometric block sans-serif, extra bold, slightly rounded corners',
+    manuscrita: 'a confident brush-script lettering with thick strokes and a slight upward slant',
+    stencil: 'a stencil-cut industrial typeface, heavy, with visible bridges, like painted on a crate',
+  };
+  const tipo = ESTILOS[estilo] || ESTILOS.condensada;
+  const tinta = paleta.length
+    ? `Colors: ${paleta.join(' to ')}${paleta.length > 1 ? ', as a smooth left-to-right gradient across the letters' : ''}.`
+    : 'Colors: warm orange #FF6B00 fading to deep red #E02B00 across the letters.';
+
+  const contraste = sobreFondo === 'claro'
+    ? 'It will sit on a WHITE background, so keep the letters dark enough to read on white.'
+    : 'It will sit on a BLACK background, so keep the letters bright enough to read on black.';
+
+  return [
+    `Create a transparent PNG of the single word "${palabra}" as custom lettering — a logotype, not a poster.`,
+    `Typography: ${tipo}. All caps.`,
+    tinta,
+    contraste,
+    'Hard requirements:',
+    '- Transparent background (alpha), no card, no box, no frame, no drop shadow, no glow.',
+    `- The image must contain ONLY the word "${palabra}". Do not add any other word, number, percentage, star, sparkle, price or decoration.`,
+    '- Single horizontal line, letters tightly packed, tiny even margin around the word.',
+    '- Crop tight to the lettering: no empty space above or below.',
+    '- Wide aspect ratio, roughly 8:1 to 5:1. Render large (at least 1200 px wide) so it stays sharp when shown small.',
+    '- It will be displayed only ~22 px tall in a navigation menu: strokes must be thick and the shapes simple, so it survives at that size. No thin serifs, no hairlines, no fine texture.',
+    '- Flat vector look, crisp edges, no photo, no 3D, no bevel, no mockup, no hand holding it.',
+  ].join('\n');
+}
+
+/* =========================================================================
+ * EL MENÚ REAL DE LA TIENDA, para la vista previa.
+ *
+ * Antes el panel dibujaba un menú inventado ("Inicio · Urbano · Industria")
+ * con su propio HTML. Por eso Sebastián vio que el ítem "Tienda" no se parecía
+ * en nada al de su tienda: la previa no probaba nada.
+ *
+ * Esto baja la página real y devuelve el marcado del menú tal cual, con sus
+ * clases, su jerarquía y sus desplegables. El panel lo mete en un iframe junto
+ * con el CSS y el JS de src/navAssets.js — los MISMOS que corren en la tienda.
+ * ========================================================================= */
+let cacheMenu = { at: 0, data: null };
+
+async function menuDeLaTienda({ force = false } = {}) {
+  if (!force && cacheMenu.data && Date.now() - cacheMenu.at < 10 * 60 * 1000) return cacheMenu.data;
+
+  let html = '';
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
+    const res = await fetch(config.storeUrl, {
+      redirect: 'follow',
+      signal: ctrl.signal,
+      headers: { 'User-Agent': config.tiendanube.userAgent, 'Accept-Language': 'es-AR,es' },
+    });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    html = await res.text();
+  } catch (err) {
+    return { ok: false, error: err.message, desktop: '', mobile: '', css: '' };
+  }
+
+  /* El CSS del menú viaja en los <style> de la propia página (el theme los
+     inserta inline). Se conservan ENTEROS: filtrar "sólo lo del menú" es lo
+     que haría que la previa vuelva a mentir. Lo que sí se saca son los
+     <script>, que no tienen nada que hacer en una previa. */
+  const estilos = [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)]
+    .map((m) => m[1]).join('\n');
+
+  const sinScripts = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ');
+
+  /* Los dos árboles del menú, con los nombres REALES que usa este theme
+     (verificados sobre el HTML en vivo, no adivinados):
+       · escritorio → <ul class="js-nav-desktop-list nav-desktop-list">
+       · hamburguesa → <ul class="nav-list" data-component="menu">
+     ⚠️ NO se pueden recortar con una regex no-greedy hasta el primer </ul>:
+     las dos listas tienen sublistas anidadas (.list-subitems) y el recorte
+     cortaba en el primer cierre, devolviendo medio menú. Hay que BALANCEAR. */
+  const listaBalanceada = (reAbre) => {
+    const m = reAbre.exec(sinScripts);
+    if (!m) return '';
+    const desde = m.index;
+    let i = desde;
+    let nivel = 0;
+    const tag = /<(\/?)ul\b/gi;
+    tag.lastIndex = desde;
+    let t;
+    while ((t = tag.exec(sinScripts))) {
+      nivel += t[1] ? -1 : 1;
+      i = tag.lastIndex;
+      if (nivel === 0) {
+        const cierre = sinScripts.indexOf('>', i);
+        return sinScripts.slice(desde, cierre + 1);
+      }
+    }
+    return sinScripts.slice(desde);
+  };
+
+  const desktop = listaBalanceada(/<ul[^>]*class=["'][^"']*nav-desktop-list[^"']*["'][^>]*>/i);
+  const mobile = listaBalanceada(/<ul[^>]*class=["'][^"']*\bnav-list\b[^"']*["'][^>]*data-component=["']menu["'][^>]*>/i);
+
+  const data = {
+    ok: true,
+    desktop,
+    mobile,
+    css: estilos,
+    // Para poder decir en el panel de cuándo es la foto que se está mirando.
+    leido: new Date().toISOString(),
+  };
+  cacheMenu = { at: Date.now(), data };
+  return data;
+}
+
 function getCatalog() {
   return { fields: REGLA_FIELDS, fuentes: FUENTES, badges: ESTILOS_BADGE, grupos: GRUPOS, iconos: ICONOS };
 }
 
 module.exports = {
   getCatalog, getConfig, saveConfig, validateConfig, buildPayload, getStyle, importarDelTheme, estructuraDelMenu,
-  opcionesDeItem, normalizarUrl, normalizarTexto, SETTING_KEY,
+  opcionesDeItem, normalizarUrl, normalizarTexto, promptDeImagen, menuDeLaTienda, SETTING_KEY,
 };

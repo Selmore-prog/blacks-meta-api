@@ -10,7 +10,7 @@
  * Backend: src/navMenu.js + las rutas /api/nav/* de src/server.js.
  * ========================================================================= */
 
-const navState = { campos: [], fuentes: [], badges: [], grupos: [], iconos: {}, items: [], reglas: [], abierta: null, sucio: false, menu: [], vista: 'desktop', abierto: null };
+const navState = { campos: [], fuentes: [], badges: [], grupos: [], iconos: {}, items: [], reglas: [], abierta: null, tienda: null, previaModo: 'desktop', previaAbierto: false, sucio: false, menu: [], vista: 'desktop', abierto: null };
 
 /* Campos de los que DEPENDEN otros (los que aparecen en algún `when`). Sólo al
    cambiar uno de estos hay que rehacer el formulario, porque cambia QUÉ campos
@@ -155,11 +155,16 @@ function navUnCampo(campos, r, i) {
         ${v ? `<button class="btn btn-sm" onclick="navSet(${i},'${c.key}','')">Sacar</button>` : ''}
       </div>`;
     } else if (c.type === 'imagen') {
+      // El botón de prompt sólo va en la que reemplaza la palabra: es la única
+      // que hay que MANDAR A HACER (la miniatura y la foto del desplegable son
+      // fotos de producto, no lettering).
+      const conPrompt = c.key === 'image';
       control = `<div class="nav-img">
         ${v ? `<img src="${esc(v)}" alt="">` : '<span class="nav-img-vacia">Sin imagen</span>'}
         <button class="btn btn-sm" onclick="navSubir(${i},'${c.key}')">${v ? 'Cambiar' : 'Subir PNG o GIF'}</button>
         ${v ? `<button class="btn btn-sm" onclick="navSet(${i},'${c.key}','')">Sacar</button>` : ''}
-      </div>`;
+        ${conPrompt ? `<button class="btn btn-sm" onclick="navPrompt(${i})">✨ Pedirle el diseño a la IA</button>` : ''}
+      </div>${conPrompt ? `<div id="nav-prompt-${i}"></div>` : ''}`;
     } else if (c.type === 'numero') {
       control = `<input type="number" value="${esc(v)}" min="${c.min || 0}" max="${c.max || 999}"
         onchange="navSet(${i},'${c.key}',this.value)">`;
@@ -288,6 +293,57 @@ async function navImportar() {
   } catch (err) { toast(err.message, 'error'); }
 }
 
+/**
+ * Arma el pedido para que Gemini o ChatGPT dibuje la palabra del ítem.
+ * Lo que aporta no es "pedir una imagen" —eso lo hace cualquiera— sino las
+ * restricciones que hacen que la pieza SIRVA en un menú: fondo transparente,
+ * trazo grueso porque se ve a 22 px, y sólo esa palabra (los modelos suelen
+ * agregar "SALE" o un porcentaje por su cuenta).
+ */
+async function navPrompt(i) {
+  const r = navState.reglas[i];
+  const caja = document.getElementById('nav-prompt-' + i);
+  if (!caja) return;
+  const nombre = navNombreDe(r);
+  caja.innerHTML = '<p class="hint" style="margin:8px 0 0">Armando el pedido…</p>';
+  try {
+    const d = await api('/api/nav/menu/prompt', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        texto: r.match_text || nombre,
+        // Se le pasan los colores que ya eligió para el ítem, así la pieza sale
+        // de la misma gama y no hay que retocarla después.
+        colores: [r.bg, r.bg2, r.color, r.badge_c1].filter(Boolean),
+        sobreFondo: 'oscuro',
+        estilo: 'condensada',
+      }),
+    });
+    caja.innerHTML = `
+      <div class="nav-prompt">
+        <div class="nav-prompt-cab">
+          <strong>Pegale esto a Gemini o a ChatGPT</strong>
+          <button class="btn btn-sm" onclick="navCopiar(${i})">Copiar</button>
+        </div>
+        <textarea id="nav-prompt-txt-${i}" rows="9" readonly></textarea>
+        <p class="nav-help">Pedile el PNG con fondo transparente. Cuando lo tengas, subilo con el botón de arriba.</p>
+      </div>`;
+    // El texto va por propiedad, nunca dentro del HTML: tiene comillas y saltos.
+    document.getElementById('nav-prompt-txt-' + i).value = d.prompt;
+  } catch (err) {
+    caja.innerHTML = `<p class="error" style="margin:8px 0 0">${esc(err.message)}</p>`;
+  }
+}
+
+function navCopiar(i) {
+  const t = document.getElementById('nav-prompt-txt-' + i);
+  if (!t) return;
+  t.select();
+  navigator.clipboard.writeText(t.value)
+    .then(() => toast('Copiado. Pegalo en Gemini o ChatGPT.', 'ok'))
+    .catch(() => toast('No pude copiarlo solo: seleccionalo y copialo a mano.', 'error'));
+}
+
 async function navPublicar() {
   try {
     const r = await api('/api/nav/menu', {
@@ -305,141 +361,125 @@ async function navPublicar() {
 /* --------------------------------------------------------------- previa - */
 
 /**
- * Dibuja un menú de mentira con las reglas puestas. No pide nada al servidor:
- * aplica lo mismo que aplica la tienda, para que lo que se ve acá sea lo que
- * va a pasar allá.
- */
-/**
- * VISTA PREVIA — el menú real de la tienda con las reglas puestas.
+ * LA PREVIA ES EL MENÚ DE VERDAD.
  *
- * Antes dibujaba cuatro ítems inventados en una fila. Servía para ver un color
- * y nada más: no se veía cómo queda el globito AL LADO de los ítems que
- * realmente están al lado, ni cómo entra la placa en el desplegable de esa
- * categoría, ni qué pasa en el celular. Ahora usa la estructura real
- * (navState.menu, leída del HTML de la tienda) y tiene las dos vistas.
+ * Antes acá se dibujaba un menú inventado ("Inicio · Urbano · Industria") con
+ * HTML propio. Por eso el ítem "Tienda" no se parecía en nada al de la tienda
+ * real y la previa no servía para probar: mentía sobre tipografías, tamaños,
+ * separaciones y desplegables.
+ *
+ * Ahora se pide el marcado REAL (/api/nav/menu/tienda) y se mete en un iframe
+ * junto con el CSS de la tienda y con el CSS y el JS de navAssets.js — los
+ * mismos que corren en producción. Adentro se stubea fetch() para que ese JS
+ * reciba las reglas que se están editando en vez de las publicadas.
  */
+const NAV_ANCHOS = { desktop: 1280, mobile: 390 };
+
 function navPrevia() {
   const caja = document.getElementById('nav-previa');
   if (!caja) return;
-
-  if (!navState.menu.length) {
-    caja.innerHTML = '<p class="np-vacio">No pude leer el menú de la tienda para la vista previa. '
-      + 'Las reglas igual se publican bien.</p>';
+  if (!navState.tienda) { navPediTienda(); return; }
+  if (navState.tienda.error) {
+    caja.innerHTML = `<p class="hint">No se pudo leer el menú de la tienda: ${esc(navState.tienda.error)}.
+      <button class="btn btn-sm" onclick="navPediTienda(true)">Reintentar</button></p>`;
     return;
   }
 
-  const esCel = navState.vista === 'mobile';
-  caja.className = 'nav-previa-caja' + (esCel ? ' np-cel' : '');
-  caja.innerHTML = `
-    <div class="np-switch">
-      <button class="np-tab ${!esCel ? 'on' : ''}" onclick="navVista('desktop')">Computadora</button>
-      <button class="np-tab ${esCel ? 'on' : ''}" onclick="navVista('mobile')">Celular</button>
-      ${!esCel ? '<span class="np-ayuda">Tocá un ítem con flechita para abrir su desplegable</span>' : ''}
-    </div>
-    ${esCel ? navPreviaCel() : navPreviaDesk()}`;
-}
+  const modo = navState.previaModo || 'desktop';
+  const ancho = NAV_ANCHOS[modo];
+  const t = navState.tienda;
+  const cuerpo = modo === 'mobile' ? t.mobile : t.desktop;
 
-function navVista(v) { navState.vista = v; navState.abierto = null; navPrevia(); }
-function navAbrirPrevia(u) { navState.abierto = navState.abierto === u ? null : u; navPrevia(); }
-
-/** La regla que aplica a un ítem, respetando el filtro de dispositivo. */
-function navReglaDe(url, nombre) {
-  const cel = navState.vista === 'mobile';
-  return navState.reglas.find((r) => {
-    if (r.enabled === false) return false;
-    if (r.device === 'mobile' && !cel) return false;
-    if (r.device === 'desktop' && cel) return false;
-    return (r.match && r.match === url)
-      || (!r.match && r.match_text && r.match_text.toLowerCase() === String(nombre).toLowerCase());
+  // Las reglas tal como están AHORA en el editor, con el mismo shape que
+  // devuelve /api/nav/style.
+  const estilo = JSON.stringify({
+    v: 1,
+    reglas: navState.reglas
+      .filter((r) => r.enabled !== false && (r.match || r.match_text))
+      // ⚠️ `icono_d` (el path del SVG) lo resuelve el motor en validarRegla, y
+      // las reglas que se están editando todavía no pasaron por ahí: sin esto
+      // el ícono se veía en la tienda pero NO en la previa, que es justo la
+      // clase de diferencia que esta previa vino a eliminar.
+      .map((r) => ({
+        ...r,
+        icono_d: (navState.iconos[r.icono || ''] || {}).d || '',
+      })),
+    fuentes: [...new Set(navState.reglas.map((r) => r.font).filter(Boolean))],
   });
+
+  const doc = `<!doctype html><html><head><meta charset="utf-8">
+<style>${t.css || ''}</style>
+<style>${t.css_fx || ''}</style>
+<style>
+  body { margin:0; padding:18px; background:${modo === 'mobile' ? '#fff' : '#000'}; }
+  /* El desplegable se muestra abierto a pedido, para poder ver la placa. */
+  body.abierto .js-desktop-dropdown, body.abierto .nav-mega-wrapper { display:block !important; opacity:1 !important; visibility:visible !important; }
+  body.abierto .mobile-dropdown-list { display:block !important; }
+</style>
+</head><body class="${navState.previaAbierto ? 'abierto' : ''}">
+${cuerpo || '<p style="color:#888;font:14px sans-serif">No se encontró este menú en la tienda.</p>'}
+<script>
+  // El JS de la tienda pide las reglas por fetch: acá se las damos ya escritas.
+  window.fetch = function () {
+    return Promise.resolve({ ok: true, json: function () { return Promise.resolve(${estilo}); } });
+  };
+  try { sessionStorage.clear(); } catch (e) {}
+<\/script>
+<script>${t.js_fx || ''}<\/script>
+</body></html>`;
+
+  caja.innerHTML = `
+    <div class="np-barra">
+      <button class="btn btn-sm" data-on="${modo === 'desktop'}" onclick="navPreviaModo('desktop')">Computadora</button>
+      <button class="btn btn-sm" data-on="${modo === 'mobile'}" onclick="navPreviaModo('mobile')">Celular</button>
+      <button class="btn btn-sm" data-on="${!!navState.previaAbierto}" onclick="navPreviaAbrir()">
+        ${navState.previaAbierto ? 'Desplegables abiertos' : 'Desplegables cerrados'}
+      </button>
+      <button class="btn btn-sm" onclick="navPediTienda(true)" title="Volver a leer el menú de la tienda">Recargar</button>
+      <span class="np-nota">Es el menú real de tu tienda, con el mismo código que corre en producción.</span>
+    </div>
+    <div class="np-marco" id="np-marco">
+      <iframe id="np-iframe" style="width:${ancho}px" title="Vista previa del menú"></iframe>
+    </div>`;
+
+  const f = document.getElementById('np-iframe');
+  f.srcdoc = doc;
+  f.onload = () => navEscalarPrevia();
+  navEscalarPrevia();
 }
 
-/** Un ítem del menú con su regla aplicada, igual que lo hace el theme. */
-function navItemHtml(it, { chico = false } = {}) {
-  const r = navReglaDe(it.url, it.nombre);
-  if (r && r.hide) return '';
-  const est = [];
-  if (r && r.color) est.push(`color:${esc(r.color)}`);
-  if (r && r.bg) {
-    const fondo = r.bg2 ? `linear-gradient(100deg, ${esc(r.bg)}, ${esc(r.bg2)})` : esc(r.bg);
-    est.push(`background:${fondo};padding:4px 10px;border-radius:5px`);
-    if (!r.color) est.push(`color:${navContraste(r.bg)}`);
+/** Dibuja el iframe al ancho REAL y lo achica para que entre en la columna.
+    Sin esto, a 600px de panel las media queries verían "mobile" y la solapa
+    "Computadora" mostraría el diseño de celular. */
+function navEscalarPrevia() {
+  const marco = document.getElementById('np-marco');
+  const f = document.getElementById('np-iframe');
+  if (!marco || !f) return;
+  const disp = marco.clientWidth;
+  // Con la pestaña oculta clientWidth da 0: reintentar, no escalar a cero.
+  if (!disp) { setTimeout(navEscalarPrevia, 200); return; }
+  const ancho = NAV_ANCHOS[navState.previaModo || 'desktop'];
+  const escala = Math.min(1, disp / ancho);
+  f.style.transform = `scale(${escala})`;
+  try {
+    const alto = f.contentDocument ? f.contentDocument.body.scrollHeight : 260;
+    f.style.height = Math.max(120, alto) + 'px';
+    marco.style.height = Math.max(120, alto) * escala + 'px';
+  } catch (e) { /* todavía no cargó */ }
+}
+
+function navPreviaModo(m) { navState.previaModo = m; navPrevia(); }
+function navPreviaAbrir() { navState.previaAbierto = !navState.previaAbierto; navPrevia(); }
+
+async function navPediTienda(force) {
+  const caja = document.getElementById('nav-previa');
+  if (caja && !navState.tienda) caja.innerHTML = '<p class="loading">Leyendo el menú de tu tienda…</p>';
+  try {
+    navState.tienda = await api('/api/nav/menu/tienda' + (force ? '?force=1' : ''));
+  } catch (err) {
+    navState.tienda = { error: err.message };
   }
-  if (r && r.font) { est.push(`font-family:'${esc(r.font)}',Inter,sans-serif`); navPedirFuente(r.font); }
-  if (r && r.mayus) est.push('text-transform:uppercase;letter-spacing:.04em');
-
-  // El ícono se dibuja con el mismo path que le manda el motor al theme.
-  const ico = r && r.icono && navState.iconos[r.icono] && navState.iconos[r.icono].d
-    ? `<svg class="np-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="${esc(navState.iconos[r.icono].d)}"/></svg>` : '';
-
-  let cuerpo;
-  if (r && r.image) {
-    cuerpo = `<img src="${esc(r.image)}" alt="" style="height:${Number(r.image_h) || 22}px;vertical-align:middle">`;
-  } else if (r && r.thumb) {
-    cuerpo = `<img class="np-thumb" src="${esc(r.thumb)}" alt="">${esc(it.nombre)}`;
-  } else {
-    cuerpo = esc(it.nombre);
-  }
-  const badge = r && r.badge_text
-    ? `<span class="np-badge" data-fx="${esc(r.badge_style || 'sale')}" data-forma="${esc(r.badge_forma || 'pastilla')}">${esc(r.badge_text)}</span>` : '';
-  const anim = r && r.animacion ? ` np-anim-${esc(r.animacion)}` : '';
-  return `<span class="np-item ${chico ? 'np-sub' : ''}${anim}" style="${est.join(';')}">${ico}${cuerpo}${badge}</span>`;
-}
-
-/** Blanco o negro según el fondo, igual que en la tienda. */
-function navContraste(hex) {
-  let h = String(hex).replace('#', '');
-  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
-  const n = parseInt(h, 16);
-  const l = 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
-  return l > 150 ? '#111' : '#fff';
-}
-
-function navPreviaDesk() {
-  const fila = navState.menu.map((it) => {
-    const item = navItemHtml(it);
-    if (!item) return '';
-    const tiene = it.hijos.length > 0;
-    const abierto = navState.abierto === it.url;
-    return `<button class="np-nav-btn ${abierto ? 'on' : ''}" ${tiene ? `onclick="navAbrirPrevia('${esc(it.url)}')"` : 'disabled'}>
-      ${item}${tiene ? '<span class="np-chev"></span>' : ''}</button>`;
-  }).join('');
-
-  const abierta = navState.menu.find((it) => it.url === navState.abierto);
-  let desplegable = '';
-  if (abierta) {
-    const r = navReglaDe(abierta.url, abierta.nombre);
-    const subs = abierta.hijos.map((h) => navItemHtml(h, { chico: true })).filter(Boolean).join('');
-    const placa = r && r.mega_image ? `
-      <div class="np-placa-caja"><a class="np-placa">
-        <img src="${esc(r.mega_image)}" alt="">
-        <span class="np-placa-body">
-          ${r.mega_kicker ? `<span class="np-placa-kicker">${esc(r.mega_kicker)}</span>` : ''}
-          <span class="np-placa-tit">${esc(r.mega_title || abierta.nombre)}</span>
-          ${r.mega_text ? `<span class="np-placa-txt">${esc(r.mega_text)}</span>` : ''}
-          ${r.mega_cta ? `<span class="np-placa-cta">${esc(r.mega_cta)} →</span>` : ''}
-        </span></a></div>` : '';
-    desplegable = `<div class="np-drop"><div class="np-drop-subs">${subs || '<span class="np-vacio">Sin subcategorías</span>'}</div>${placa}</div>`;
-  }
-  return `<div class="np-barra">${fila}</div>${desplegable}`;
-}
-
-function navPreviaCel() {
-  const filas = navState.menu.map((it) => {
-    const item = navItemHtml(it);
-    if (!item) return '';
-    const tiene = it.hijos.length > 0;
-    const abierto = navState.abierto === it.url;
-    const subs = abierto
-      ? `<div class="np-cel-subs">${it.hijos.map((h) => {
-          const x = navItemHtml(h, { chico: true });
-          return x ? `<div class="np-cel-sub">${x}</div>` : '';
-        }).join('')}</div>` : '';
-    return `<div class="np-cel-fila ${abierto ? 'on' : ''}" ${tiene ? `onclick="navAbrirPrevia('${esc(it.url)}')"` : ''}>
-        ${item}${tiene ? '<span class="np-chev"></span>' : ''}
-      </div>${subs}`;
-  }).join('');
-  return `<div class="np-cel-caja"><div class="np-cel-top">Menú</div>${filas}</div>`;
+  navPrevia();
 }
 
 const navFuentesPedidas = {};

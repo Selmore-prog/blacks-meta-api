@@ -16,6 +16,7 @@
 const fs = require('fs');
 const path = require('path');
 const { CSS, JS } = require('../src/homeBlocksAssets');
+const navAssets = require('../src/navAssets');
 
 const destino = process.argv[2] || path.join(__dirname, '..', '..', 'tiendanube-tpl');
 const carpeta = path.join(destino, 'snipplets', 'home');
@@ -177,3 +178,27 @@ const kb = (s) => (Buffer.byteLength(s) / 1024).toFixed(1) + ' KB';
 console.log('Escritos en ' + carpeta + ':');
 console.log('  home-content-blocks.tpl         ' + kb(HOST));
 console.log('  home-content-blocks-assets.tpl  ' + kb(ASSETS));
+
+/* ------------------------------------------------------------------ MENÚ --
+ * Los estilos del menú (globitos, colores, íconos, placas del desplegable).
+ * Misma lógica que los bloques: la fuente es src/navAssets.js y la previa del
+ * panel usa EXACTAMENTE este CSS y este JS, así no puede mentir.             */
+const carpetaNav = path.join(destino, 'snipplets', 'navigation');
+if (fs.existsSync(carpetaNav)) {
+  const navTpl = `{# =========================================================================
+   ARCHIVO GENERADO — NO EDITAR A MANO.
+   Fuente: blacks-content-engine/src/navAssets.js (npm run export:theme).
+   Editarlo acá lo pisa el próximo export y además rompe la paridad con la
+   vista previa del panel, que carga este mismo CSS y este mismo JS.
+
+${navAssets.DOC}
+   ========================================================================= #}
+
+<style>${navAssets.CSS}</style>
+
+<script>${navAssets.JS}</script>
+`;
+  const rutaNav = path.join(carpetaNav, 'nav-estilos.tpl');
+  fs.writeFileSync(rutaNav, navTpl);
+  console.log(`  nav-estilos.tpl                 ${(Buffer.byteLength(navTpl) / 1024).toFixed(1)} KB`);
+}

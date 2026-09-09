@@ -2455,3 +2455,23 @@ button .cost-tag { margin-left: 8px; }
 @media (prefers-reduced-motion: reduce) {
   .np-anim-pulso .np-badge, .np-anim-brillo .np-badge::after { animation: none; }
 }
+
+/* --- Previa del menú: el iframe con el menú REAL de la tienda ----------- */
+.np-barra { display: flex; gap: 7px; align-items: center; flex-wrap: wrap; margin-bottom: 10px; }
+.np-barra .btn[data-on="true"] { background: #eceaf4; border-color: #eceaf4; color: #121215; }
+.np-barra .np-nota { margin-left: auto; font-size: 11.5px; color: #6a6a75; }
+/* El iframe se dibuja al ancho real y se achica con transform, así las media
+   queries del theme ven el ancho de verdad y la solapa "Computadora" muestra
+   el diseño de computadora. */
+.np-marco { overflow: hidden; border-radius: 8px; border: 1px solid #2a2a30; background: #000; }
+.np-marco iframe { border: 0; display: block; transform-origin: 0 0; }
+
+/* --- El pedido de diseño para la IA ------------------------------------- */
+.nav-prompt { margin-top: 10px; background: #0f0f12; border: 1px solid #33333c; border-radius: 8px; padding: 12px; }
+.nav-prompt-cab { display: flex; align-items: center; justify-content: space-between; gap: 10px; margin-bottom: 8px; }
+.nav-prompt-cab strong { font-size: 12.5px; color: #c8c8d2; }
+.nav-prompt textarea {
+  width: 100%; background: #08080a; border: 1px solid #2a2a30; color: #b9b9c4;
+  border-radius: 6px; padding: 10px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
+  resize: vertical;
+}

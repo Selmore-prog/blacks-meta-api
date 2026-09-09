@@ -31,6 +31,7 @@ const { getRails, getRailsConfig, saveRailsConfig, validateConfig, buildPayload,
 const flashSale = require('./flashSale');
 const homeBlocks = require('./homeBlocks');
 const navMenu = require('./navMenu');
+const navAssets = require('./navAssets');
 const homeBlocksAssets = require('./homeBlocksAssets');
 const homePlan = require('./homePlan');
 const homeCopy = require('./homeCopy');
@@ -1197,6 +1198,23 @@ app.post('/api/nav/menu', wrap(async (req, res) => {
    Es lo que hace seguro apagar los sistemas viejos. */
 app.get('/api/nav/menu/importar', wrap(async (req, res) => {
   res.json(await navMenu.importarDelTheme());
+}));
+
+/* El menú REAL de la tienda + el CSS y el JS que corren en ella, para que la
+   vista previa del panel sea la misma cosa y no una maqueta parecida. Pesa
+   (medio mega de CSS inline del theme), por eso va cacheado 10 min. */
+app.get('/api/nav/menu/tienda', wrap(async (req, res) => {
+  const menu = await navMenu.menuDeLaTienda({ force: req.query.force === '1' });
+  res.json({ ...menu, css_fx: navAssets.CSS, js_fx: navAssets.JS });
+}));
+
+/* Prompt para que Gemini o ChatGPT genere la "palabra hecha imagen" de un ítem.
+   No usa IA: es una plantilla. Lo que aporta son las restricciones que hacen
+   que la pieza SIRVA en un menú (fondo transparente, trazo grueso, sólo esa
+   palabra) y que un prompt escrito a mano casi siempre olvida. */
+app.post('/api/nav/menu/prompt', wrap(async (req, res) => {
+  const b = req.body || {};
+  res.json({ prompt: navMenu.promptDeImagen(b) });
 }));
 
 // Vista previa de una config sin guardar: tolerante, junta los problemas en
