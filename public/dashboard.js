@@ -5105,6 +5105,9 @@ const HS_SUBS = {
   flash: 'Ofertas con contador y descuento real escrito en Tiendanube.',
   plan: 'Cómo está tu página hoy, cómo convendría que esté y qué falta para eso.',
   reco: 'Qué banners conviene poner, con el número que justifica cada uno.',
+  // Ojo: el menú NO es del home, se ve en todas las páginas. Está acá porque es
+  // donde se toca cómo se ve la tienda, y el subtítulo lo aclara.
+  menu: 'Globitos, colores e imágenes en los ítems del menú. Se ve en toda la tienda.',
 };
 
 // Acciones de la barra de arriba: cambian según la sub-pestaña abierta.
@@ -5140,6 +5143,7 @@ function switchHomePane(name) {
   if (name === 'plan') loadHomePlan();
   if (name === 'reco') loadHomeBanners();
   if (name === 'bloques') loadHomeBlocks();
+  if (name === 'menu') navCargar();
 }
 
 /* =========================================================================

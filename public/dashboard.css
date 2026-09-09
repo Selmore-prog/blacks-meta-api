@@ -2261,3 +2261,71 @@ button .cost-tag { margin-left: 8px; }
 .bs-bad { background: rgba(201,80,60,.18); color: #E08B7A; }
 
 @media (max-width: 980px) { .bs-cols { grid-template-columns: minmax(0, 1fr); } }
+
+/* =========================================================================
+   PERSONALIZADOR DEL MENÚ (public/nav-panel.js, src/navMenu.js)
+   El panel es oscuro (--panel #121215): los controles van claros sobre él, y
+   la previa del menú va CLARA porque así es el menú de la tienda — mostrarlo
+   en oscuro mentiría sobre cómo van a quedar los colores que elige el dueño.
+   ========================================================================= */
+
+.nav-reglas { display: flex; flex-direction: column; gap: 10px; }
+
+.nav-regla { border: 1px solid #2a2a30; border-radius: 8px; background: #17171b; overflow: hidden; }
+.nav-regla.abierta { border-color: #3d3d46; }
+.nav-regla.apagada { opacity: .55; }
+
+.nav-regla-cab {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  padding: 13px 15px; cursor: pointer;
+}
+.nav-regla-cab:hover { background: #1c1c21; }
+.nav-regla-cab strong { display: block; font-size: 14px; }
+.nav-regla-que { display: block; font-size: 12px; color: #8a8a95; margin-top: 3px; }
+.nav-regla-btns { display: flex; gap: 6px; flex: none; }
+
+.nav-regla-cuerpo {
+  padding: 4px 15px 16px; border-top: 1px solid #2a2a30;
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px;
+}
+.nav-campo { display: flex; flex-direction: column; gap: 5px; padding-top: 12px; }
+.nav-label { font-size: 12px; font-weight: 600; color: #c8c8d2; }
+.nav-help { font-size: 11.5px; color: #7d7d88; line-height: 1.45; }
+.nav-campo input[type="text"], .nav-campo input[type="number"], .nav-campo select {
+  background: #0f0f12; border: 1px solid #33333c; color: #eceaf4;
+  border-radius: 6px; padding: 8px 10px; font-size: 13px; width: 100%;
+}
+.nav-campo input:focus, .nav-campo select:focus { outline: 2px solid #FF6B00; outline-offset: 1px; }
+
+.nav-color { display: flex; gap: 6px; align-items: center; }
+.nav-color input[type="color"] { width: 38px; height: 34px; padding: 0; border: 1px solid #33333c; border-radius: 6px; background: none; flex: none; }
+.nav-color input[type="text"] { flex: 1; min-width: 0; }
+
+.nav-img { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+/* Fondo a cuadros: casi todas estas imágenes son PNG con transparencia, y sobre
+   el panel oscuro un logo blanco transparente se ve como un rectángulo vacío. */
+.nav-img img {
+  height: 30px; width: auto; border-radius: 4px; padding: 3px 5px;
+  background-color: #fff;
+  background-image: linear-gradient(45deg, #e3e3e3 25%, transparent 25%, transparent 75%, #e3e3e3 75%),
+                    linear-gradient(45deg, #e3e3e3 25%, transparent 25%, transparent 75%, #e3e3e3 75%);
+  background-size: 10px 10px; background-position: 0 0, 5px 5px;
+}
+.nav-img-vacia { font-size: 12px; color: #7d7d88; }
+.nav-sw { display: flex; align-items: center; gap: 7px; font-size: 13px; color: #c8c8d2; }
+
+.nav-acciones { display: flex; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
+
+.nav-previa { margin-top: 26px; }
+.nav-previa h4 { margin: 0 0 10px; font-size: 13px; color: #c8c8d2; }
+.nav-previa-caja { background: #fff; border-radius: 8px; padding: 16px; }
+.np-menu { display: flex; flex-wrap: wrap; gap: 8px 22px; align-items: center; }
+.np-item { color: #111; font-size: 14px; font-weight: 600; white-space: nowrap; }
+.np-badge {
+  display: inline-block; margin-left: 6px; padding: 2px 6px; border-radius: 3px;
+  font-size: .62rem; font-weight: 800; letter-spacing: .03em; line-height: 1.5;
+  vertical-align: middle; color: #fff; background: #FF6B00;
+}
+.np-badge[data-fx="rojo"]  { background: #dc2626; }
+.np-badge[data-fx="verde"] { background: #15803d; }
+.np-badge[data-fx="negro"] { background: #111; }

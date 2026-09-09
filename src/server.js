@@ -30,6 +30,7 @@ const { getRails, getRailsConfig, saveRailsConfig, validateConfig, buildPayload,
   invalidate: invalidateRails, RULES, SPECIAL_RULES, SLOT_IDS, LAYOUTS } = require('./homeRails');
 const flashSale = require('./flashSale');
 const homeBlocks = require('./homeBlocks');
+const navMenu = require('./navMenu');
 const homeBlocksAssets = require('./homeBlocksAssets');
 const homePlan = require('./homePlan');
 const homeCopy = require('./homeCopy');
@@ -83,6 +84,9 @@ app.use(async (req, res, next) => {
   // propio "state" de un solo uso (ver más abajo).
   const open = ['/health', '/api/health', '/api/login', '/login.html', '/favicon.ico',
     '/api/leads/click', '/api/home/rails', '/api/home/products', '/api/search/chips', '/api/search', '/api/tiendanube/oauth/callback',
+    // El estilo del menú lo pide la TIENDA en todas sus páginas. Es de sólo
+    // lectura y devuelve lo que ya se ve en el menú: colores y globitos.
+    '/api/nav/style',
     // Portal del equipo: la pantalla de ingreso y su hoja de estilos. No exponen
     // nada — son el formulario de login y CSS. Ver src/teamPortal.js.
     '/equipo.html', '/equipo.js', '/works-panel.js', '/dashboard.css', '/api/team/login'];
@@ -961,6 +965,7 @@ const publicGetCors = (req, res, next) => {
 // igual para que agregar un header en el futuro no rompa la llamada en silencio.
 app.options('/api/home/rails', publicGetCors);
 app.options('/api/home/products', publicGetCors);
+app.options('/api/nav/style', publicGetCors);
 
 /* Foto, nombre y precio de productos elegidos a mano en el panel de DISEÑO de
    Tiendanube (los ocho layouts viejos del theme, que se configuran pegando la
@@ -1153,6 +1158,37 @@ app.post('/api/home/blocks', wrap(async (req, res) => {
   const config = await homeBlocks.saveBlocksConfig(req.body);
   const payload = await homeBlocks.getBlocks({ force: true });
   res.json({ ok: true, config, avisos: payload.avisos || [] });
+}));
+
+/* ------------------- PERSONALIZADOR DEL MENÚ (src/navMenu.js) -------------
+ * La capa estética de los ítems de navegación: globitos, colores, fondo
+ * destacado, una imagen o GIF en lugar del texto. El menú en sí lo sigue
+ * armando Tiendanube; acá sólo se le pone algo encima.                      */
+
+// La pide la TIENDA, en todas sus páginas. Cacheada 5 min en memoria y una vez
+// por sesión en el navegador (ver snipplets/navigation/nav-estilos.tpl).
+app.get('/api/nav/style', publicGetCors, wrap(async (req, res) => {
+  res.set('Cache-Control', 'public, max-age=60');
+  res.json(await navMenu.getStyle());
+}));
+
+// El panel: catálogo de campos, config guardada y las categorías reales para
+// el desplegable (así el dueño elige de una lista en vez de tipear una URL).
+app.get('/api/nav/menu', wrap(async (req, res) => {
+  const [config, items] = await Promise.all([navMenu.getConfig(), navMenu.opcionesDeItem()]);
+  res.json({ ...navMenu.getCatalog(), config, items });
+}));
+
+app.post('/api/nav/menu', wrap(async (req, res) => {
+  const config = await navMenu.saveConfig(req.body);
+  res.json({ ok: true, config, style: await navMenu.getStyle({ force: true }) });
+}));
+
+// Vista previa de una config sin guardar: tolerante, junta los problemas en
+// `faltantes` en vez de tirar, igual que los bloques del home.
+app.post('/api/nav/menu/preview', wrap(async (req, res) => {
+  const cfg = navMenu.validateConfig(req.body, { lenient: true });
+  res.json({ style: navMenu.buildPayload(cfg), faltantes: cfg.faltantes });
 }));
 
 // Buscador de productos para el bloque "Productos elegidos".

@@ -256,11 +256,18 @@
         <button class="hstab" data-pane="flash" onclick="switchHomePane('flash')">Ofertas flash</button>
         <button class="hstab" data-pane="plan" onclick="switchHomePane('plan')">Esquema ideal</button>
         <button class="hstab" data-pane="reco" onclick="switchHomePane('reco')">Banners</button>
+        <button class="hstab" data-pane="menu" onclick="switchHomePane('menu')">Menú</button>
       </div>
 
       <!-- Bloques de contenido: portadas, videos, informativos, editoriales.
            Todo el panel lo dibuja public/home-blocks-panel.js. -->
       <div class="hs-pane" id="hs-bloques"><p class="loading">Cargando bloques…</p></div>
+
+      <!-- Personalizador del menú. Ojo: es lo ÚNICO de esta pantalla que no es
+           del home — el menú está en todas las páginas de la tienda. Vive acá
+           porque es donde se toca cómo se ve la tienda, y el subtítulo de la
+           solapa lo aclara. Lo dibuja public/nav-panel.js (src/navMenu.js). -->
+      <div class="hs-pane hidden" id="hs-menu"><p class="loading">Cargando menú…</p></div>
 
       <!-- Carruseles automáticos (rail_1..rail_4). Ver src/homeRails.js. -->
       <div class="hs-pane hidden" id="hs-rieles">
@@ -554,6 +561,8 @@
   <!-- Bloques de contenido del home. Aparte de dashboard.js (que ya tiene 6.700
        líneas) y DESPUÉS de él: usa api(), esc(), toast() y tip(). -->
   <script src="/home-blocks-panel.js"></script>
+  <!-- Personalizador del menú. Usa los helpers de dashboard.js (api, esc, toast). -->
+  <script src="/nav-panel.js"></script>
   <!-- Esquema ideal del home. Va después de home-blocks-panel.js: para crear un
        bloque desde el plan usa su estado (hbState) y sus funciones. -->
   <script src="/home-plan-panel.js"></script>
