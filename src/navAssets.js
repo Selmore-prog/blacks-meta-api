@@ -136,14 +136,20 @@ const CSS = `
 }
 
 /* Ítem con fondo propio: necesita aire y esquinas, si no el color queda pegado
-   al texto de al lado y se lee como un error. */
+   al texto de al lado y se lee como un error.
+   Es un <span> DENTRO del link (no el link), así en el celular el color toma
+   sólo la palabra y no la fila entera. */
 .nav-fx-bg {
-    padding: 4px 10px !important;
-    border-radius: 4px;
+    display: inline-flex;
+    align-items: center;
+    width: fit-content;
+    padding: 4px 10px;
+    border-radius: 5px;
+    line-height: 1.3;
 }
-/* En el menú de celular el link ocupa toda la fila, así que el fondo se pinta
-   como una banda y conviene que respire distinto. */
-.mobile-nav-row .nav-fx-bg { display: inline-block; margin: 2px 0; }
+/* El link del celular es flex y estira a sus hijos: sin esto el envoltorio
+   volvería a ocupar todo el ancho y estaríamos igual que antes. */
+.mobile-nav-row .nav-fx-bg { flex: 0 0 auto; align-self: center; margin: 2px 0; }
 
 /* La palabra hecha imagen. El alto lo manda la regla (--nav-fx-h); el ancho es
    automático para no deformar el PNG ni el GIF. */
@@ -375,20 +381,33 @@ const JS = `
             // con 'color' solo el texto seguiría transparente.
             link.style.setProperty('-webkit-text-fill-color', r.color, 'important');
         }
+        /* EL FONDO VA EN UN ENVOLTORIO, NO EN EL LINK.
+           En el celular el link ocupa TODA la fila (.mobile-link es flex:1),
+           así que pintándolo a él la banda de color se estiraba de punta a
+           punta y el texto quedaba pegado a la izquierda — se veía como una
+           barra, no como un destacado. Envolviendo el contenido, el color toma
+           sólo la palabra y el link sigue ocupando la fila entera, que es lo
+           que mantiene el área táctil grande. */
+        var caja = link;
         if (r.bg) {
-            link.classList.add('nav-fx-bg');
+            var pill = document.createElement('span');
+            pill.className = 'nav-fx-bg';
+            while (link.firstChild) pill.appendChild(link.firstChild);
+            link.appendChild(pill);
+            caja = pill;
+
             // Dos colores = degradado; uno solo = plano.
-            const fondo = r.bg2
+            var fondo = r.bg2
                 ? 'linear-gradient(' + (r.bg_ang || '100') + 'deg, ' + r.bg + ', ' + r.bg2 + ')'
                 : r.bg;
-            link.style.setProperty('background', fondo, 'important');
+            pill.style.setProperty('background', fondo, 'important');
             // Sin color propio sobre un fondo lleno el texto queda ilegible la
             // mitad de las veces: se elige blanco o negro según qué tan oscuro
             // sea el fondo, en vez de dejarlo librado al CSS del theme.
             if (!r.color) {
-                const tinta = contraste(r.bg);
-                link.style.setProperty('color', tinta, 'important');
-                link.style.setProperty('-webkit-text-fill-color', tinta, 'important');
+                var tinta = contraste(r.bg);
+                pill.style.setProperty('color', tinta, 'important');
+                pill.style.setProperty('-webkit-text-fill-color', tinta, 'important');
             }
         }
         if (r.mayus) link.classList.add('nav-fx-mayus');
@@ -430,7 +449,7 @@ const JS = `
             var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
             path.setAttribute('d', r.icono_d);
             svg.appendChild(path);
-            link.insertBefore(svg, link.firstChild);
+            caja.insertBefore(svg, caja.firstChild);
         }
 
         if (r.badge_text) {
@@ -449,7 +468,7 @@ const JS = `
                 b.style.setProperty('border-color', 'transparent', 'important');
             }
             b.textContent = r.badge_text;
-            link.appendChild(b);
+            caja.appendChild(b);
         }
 
         // La placa del desplegable es del ítem de nivel 1, no del link: se
