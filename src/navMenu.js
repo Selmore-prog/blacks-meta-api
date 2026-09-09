@@ -51,11 +51,46 @@ const FUENTES = [
   { value: 'Rubik Mono One', label: 'Rubik Mono One — bloque, muy llamativa' },
 ];
 
+/* ICONOS. SVG de línea, NO emoji: el emoji lo dibuja cada sistema operativo a
+   su manera (en Android el fuego es otro dibujo que en iPhone), no toma el
+   color del ítem y en un menú serio queda infantil. Estos son paths sueltos que
+   se pintan con `currentColor`, así heredan el color que tenga el ítem.
+   El motor manda el path YA RESUELTO dentro de la regla, así el theme no
+   necesita tener la librería duplicada. */
+const ICONOS = {
+  '': { label: 'Sin ícono', d: '' },
+  fuego: { label: 'Fuego (oferta caliente)', d: 'M12 2s4 4 4 8a4 4 0 0 1-8 0c0-1 .5-2 1-2.5C9 9 9 11 9 11S8 6 12 2z M6.5 13a5.5 5.5 0 0 0 11 0c0 4-2.5 9-5.5 9s-5.5-5-5.5-9z' },
+  rayo: { label: 'Rayo (flash)', d: 'M13 2L4.5 13.5H11l-1 8.5L19.5 10.5H13z' },
+  estrella: { label: 'Estrella (nuevo)', d: 'M12 2.5l2.9 5.9 6.6.9-4.8 4.6 1.2 6.5L12 17.3l-5.9 3.1 1.2-6.5L2.5 9.3l6.6-.9z' },
+  etiqueta: { label: 'Etiqueta (precio)', d: 'M3 12V4a1 1 0 0 1 1-1h8l9 9-9 9zM7.5 7.5h.01' },
+  porcentaje: { label: 'Porcentaje', d: 'M19 5L5 19M7.5 7.5a2 2 0 1 0 0-.01M16.5 16.5a2 2 0 1 0 0-.01' },
+  reloj: { label: 'Reloj (por poco tiempo)', d: 'M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18zM12 7v5l3.5 2' },
+  copo: { label: 'Copo (invierno)', d: 'M12 2v20M4 6l16 12M20 6L4 18M12 6l-2.5-2M12 6l2.5-2M12 18l-2.5 2M12 18l2.5 2' },
+  sol: { label: 'Sol (verano)', d: 'M12 17a5 5 0 1 0 0-10 5 5 0 0 0 0 10zM12 1v3M12 20v3M4.2 4.2l2.1 2.1M17.7 17.7l2.1 2.1M1 12h3M20 12h3M4.2 19.8l2.1-2.1M17.7 6.3l2.1-2.1' },
+  casco: { label: 'Casco (industria)', d: 'M4 15a8 8 0 0 1 16 0M9 15V8a3 3 0 0 1 6 0v7M2 15h20v3H2z' },
+  camion: { label: 'Camión (envío)', d: 'M2 6h11v10H2zM13 9h4l4 3v4h-8zM7 18a2 2 0 1 0 0-.01M17 18a2 2 0 1 0 0-.01' },
+  corona: { label: 'Corona (premium)', d: 'M3 18h18M4 8l4 4 4-7 4 7 4-4-2 10H6z' },
+  fleche: { label: 'Flecha (ir)', d: 'M5 12h14M12 5l7 7-7 7' },
+};
+
 const ESTILOS_BADGE = [
   { value: 'sale', label: 'Naranja (oferta)' },
   { value: 'rojo', label: 'Rojo (urgencia)' },
   { value: 'verde', label: 'Verde (novedad)' },
   { value: 'negro', label: 'Negro (neutro)' },
+  { value: 'degradado', label: 'Degradado naranja → rojo' },
+  { value: 'contorno', label: 'Sólo contorno (discreto)' },
+];
+
+const FORMAS_BADGE = [
+  { value: 'pastilla', label: 'Pastilla (redondeada)' },
+  { value: 'recto', label: 'Recto (esquinas vivas)' },
+];
+
+const ANIMACIONES = [
+  { value: '', label: 'Quieto' },
+  { value: 'pulso', label: 'Latido suave' },
+  { value: 'brillo', label: 'Destello que pasa' },
 ];
 
 /* -------------------------------------------------------------------------
@@ -85,8 +120,24 @@ const REGLA_FIELDS = [
     grupo: 'aspecto', key: 'badge_style', label: 'Color del globito', type: 'opciones', default: 'sale',
     options: ESTILOS_BADGE, when: { key: 'badge_text', lleno: true },
   },
+  { grupo: 'aspecto', key: 'badge_forma', label: 'Forma del globito', type: 'opciones', default: 'pastilla', options: FORMAS_BADGE, when: { key: 'badge_text', lleno: true } },
+  {
+    grupo: 'aspecto', key: 'icono', label: 'Ícono', type: 'opciones', default: '',
+    options: Object.entries(ICONOS).map(([value, o]) => ({ value, label: o.label })),
+    help: 'Un dibujo de línea antes del nombre. No son emojis a propósito: el emoji lo dibuja cada teléfono a su manera y no toma el color del ítem.',
+  },
   { grupo: 'aspecto', key: 'color', label: 'Color del texto', type: 'color' },
   { grupo: 'aspecto', key: 'bg', label: 'Fondo del ítem', type: 'color', help: 'Pinta el ítem entero. Para una "SUPERLIQUIDACIÓN" que tiene que saltar a la vista.' },
+  {
+    grupo: 'aspecto', key: 'bg2', label: 'Segundo color (degradado)', type: 'color',
+    when: { key: 'bg', lleno: true },
+    help: 'Con dos colores el fondo va en degradado en vez de plano.',
+  },
+  { grupo: 'aspecto', key: 'mayus', label: 'TODO EN MAYÚSCULAS', type: 'switch', default: false },
+  {
+    grupo: 'aspecto', key: 'animacion', label: 'Movimiento', type: 'opciones', default: '', options: ANIMACIONES,
+    help: 'Se apaga solo si el visitante pidió menos movimiento en su teléfono. Usalo en UNO, no en cinco.',
+  },
   {
     grupo: 'aspecto', key: 'font', label: 'Tipografía', type: 'opciones', default: '', options: FUENTES,
     help: 'La fuente se baja SÓLO si algún ítem la usa.',
@@ -185,6 +236,14 @@ function validarRegla(r, i, { lenient = false, faltantes = [] } = {}) {
     color: color(d.color),
     bg: color(d.bg),
     font: FUENTES.some((f) => f.value === d.font) ? d.font : '',
+    badge_forma: FORMAS_BADGE.some((f) => f.value === d.badge_forma) ? d.badge_forma : 'pastilla',
+    icono: Object.prototype.hasOwnProperty.call(ICONOS, d.icono || '') ? (d.icono || '') : '',
+    // El path va resuelto en el payload: así el theme no necesita su propia
+    // copia de la librería de íconos.
+    icono_d: (ICONOS[d.icono || ''] || ICONOS['']).d,
+    bg2: color(d.bg2),
+    mayus: d.mayus === true,
+    animacion: ANIMACIONES.some((a) => a.value === d.animacion) ? (d.animacion || '') : '',
     image: urlDeImagen(d.image),
     image_h: Number.isFinite(alto) ? Math.min(60, Math.max(12, Math.round(alto))) : 22,
     hide: d.hide === true,
@@ -200,7 +259,7 @@ function validarRegla(r, i, { lenient = false, faltantes = [] } = {}) {
 
   // Una regla que no hace NADA es casi siempre un olvido, no una intención.
   const hacéAlgo = out.badge_text || out.color || out.bg || out.font || out.image
-    || out.hide || out.thumb || out.mega_image;
+    || out.hide || out.thumb || out.mega_image || out.icono || out.mayus || out.animacion;
   if (!hacéAlgo) {
     const msg = `La regla ${i + 1} no le cambia nada al ítem: ponele al menos un globito, un color o una imagen.`;
     if (!lenient) throw new Error(msg);
@@ -560,7 +619,7 @@ async function estructuraDelMenu({ force = false } = {}) {
 }
 
 function getCatalog() {
-  return { fields: REGLA_FIELDS, fuentes: FUENTES, badges: ESTILOS_BADGE, grupos: GRUPOS };
+  return { fields: REGLA_FIELDS, fuentes: FUENTES, badges: ESTILOS_BADGE, grupos: GRUPOS, iconos: ICONOS };
 }
 
 module.exports = {

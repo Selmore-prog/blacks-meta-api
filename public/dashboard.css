@@ -2431,3 +2431,27 @@ button .cost-tag { margin-left: 8px; }
   display: inline-block; margin-top: 9px; background: #fff; color: #111;
   border-radius: 999px; padding: 5px 10px; font-size: 10px; font-weight: 700;
 }
+
+/* --- Previa: íconos, degradados y movimiento --------------------------- */
+.np-ico {
+  width: 1em; height: 1em; margin-right: 6px; vertical-align: -0.12em;
+  stroke: currentColor; fill: none; stroke-width: 2;
+  stroke-linecap: round; stroke-linejoin: round;
+}
+.np-badge[data-fx="degradado"] { background: linear-gradient(100deg, #FF6B00, #E02B00); }
+.np-badge[data-fx="contorno"] { background: transparent; border: 1px solid #FF6B00; color: #FF6B00; }
+.np-badge[data-forma="recto"] { border-radius: 3px; }
+.np-badge { border-radius: 999px; }
+
+@keyframes np-pulso { 0%,100% { transform: scale(1); } 50% { transform: scale(1.06); } }
+.np-anim-pulso .np-badge { animation: np-pulso 2.4s ease-in-out infinite; }
+.np-anim-brillo .np-badge { position: relative; overflow: hidden; }
+.np-anim-brillo .np-badge::after {
+  content: ""; position: absolute; top: 0; bottom: 0; left: -60%; width: 40%;
+  background: linear-gradient(100deg, transparent, rgba(255,255,255,.55), transparent);
+  animation: np-brillo 3.2s ease-in-out infinite;
+}
+@keyframes np-brillo { 0%,62% { left: -60%; } 92%,100% { left: 130%; } }
+@media (prefers-reduced-motion: reduce) {
+  .np-anim-pulso .np-badge, .np-anim-brillo .np-badge::after { animation: none; }
+}

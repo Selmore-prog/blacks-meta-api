@@ -10,7 +10,7 @@
  * Backend: src/navMenu.js + las rutas /api/nav/* de src/server.js.
  * ========================================================================= */
 
-const navState = { campos: [], fuentes: [], badges: [], grupos: [], items: [], reglas: [], abierta: null, sucio: false, menu: [], vista: 'desktop', abierto: null };
+const navState = { campos: [], fuentes: [], badges: [], grupos: [], iconos: {}, items: [], reglas: [], abierta: null, sucio: false, menu: [], vista: 'desktop', abierto: null };
 
 /* Campos de los que DEPENDEN otros (los que aparecen en algún `when`). Sólo al
    cambiar uno de estos hay que rehacer el formulario, porque cambia QUÉ campos
@@ -29,6 +29,7 @@ async function navCargar() {
     navState.campos = d.fields || [];
     navState.fuentes = d.fuentes || [];
     navState.badges = d.badges || [];
+    navState.iconos = d.iconos || {};
     navState.grupos = d.grupos || [];
     navState.items = d.items || [];
     navState.menu = (d.menu && d.menu.items) || [];
@@ -83,6 +84,7 @@ function navQueHace(r) {
     r.bg ? 'fondo' : '', r.color ? 'color' : '',
     r.image ? 'imagen' : '', r.font ? r.font : '', r.hide ? 'escondido' : '',
     r.thumb ? 'miniatura' : '', r.mega_image ? 'foto en el desplegable' : '',
+    r.icono ? 'ícono' : '', r.bg2 ? 'degradado' : '', r.animacion ? 'con movimiento' : '',
   ].filter(Boolean).join(' · ') || 'sin nada todavía';
 }
 
@@ -358,8 +360,17 @@ function navItemHtml(it, { chico = false } = {}) {
   if (r && r.hide) return '';
   const est = [];
   if (r && r.color) est.push(`color:${esc(r.color)}`);
-  if (r && r.bg) est.push(`background:${esc(r.bg)};padding:4px 10px;border-radius:4px;color:${navContraste(r.bg)}`);
+  if (r && r.bg) {
+    const fondo = r.bg2 ? `linear-gradient(100deg, ${esc(r.bg)}, ${esc(r.bg2)})` : esc(r.bg);
+    est.push(`background:${fondo};padding:4px 10px;border-radius:5px`);
+    if (!r.color) est.push(`color:${navContraste(r.bg)}`);
+  }
   if (r && r.font) { est.push(`font-family:'${esc(r.font)}',Inter,sans-serif`); navPedirFuente(r.font); }
+  if (r && r.mayus) est.push('text-transform:uppercase;letter-spacing:.04em');
+
+  // El ícono se dibuja con el mismo path que le manda el motor al theme.
+  const ico = r && r.icono && navState.iconos[r.icono] && navState.iconos[r.icono].d
+    ? `<svg class="np-ico" viewBox="0 0 24 24" aria-hidden="true"><path d="${esc(navState.iconos[r.icono].d)}"/></svg>` : '';
 
   let cuerpo;
   if (r && r.image) {
@@ -370,8 +381,9 @@ function navItemHtml(it, { chico = false } = {}) {
     cuerpo = esc(it.nombre);
   }
   const badge = r && r.badge_text
-    ? `<span class="np-badge" data-fx="${esc(r.badge_style || 'sale')}">${esc(r.badge_text)}</span>` : '';
-  return `<span class="np-item ${chico ? 'np-sub' : ''}" style="${est.join(';')}">${cuerpo}${badge}</span>`;
+    ? `<span class="np-badge" data-fx="${esc(r.badge_style || 'sale')}" data-forma="${esc(r.badge_forma || 'pastilla')}">${esc(r.badge_text)}</span>` : '';
+  const anim = r && r.animacion ? ` np-anim-${esc(r.animacion)}` : '';
+  return `<span class="np-item ${chico ? 'np-sub' : ''}${anim}" style="${est.join(';')}">${ico}${cuerpo}${badge}</span>`;
 }
 
 /** Blanco o negro según el fondo, igual que en la tienda. */
