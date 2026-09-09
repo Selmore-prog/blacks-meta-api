@@ -63,42 +63,69 @@ const ESTILOS_BADGE = [
  * ----------------------------------------------------------------------- */
 const REGLA_FIELDS = [
   {
-    key: 'match', label: 'Ítem del menú', type: 'categoria',
+    grupo: 'item', key: 'match', label: 'Ítem del menú', type: 'categoria',
     help: 'Elegí la categoría de tu tienda. La regla se ata a la URL, así que si después le cambiás el nombre en el admin, el estilo la sigue.',
   },
   {
-    key: 'match_text', label: 'O el texto del ítem', type: 'texto', max: 40,
+    grupo: 'item', key: 'match_text', label: 'O el texto del ítem', type: 'texto', max: 40,
     help: 'Sólo si el ítem NO es una categoría (una página, un link suelto). Se compara sin distinguir mayúsculas.',
   },
   {
-    key: 'device', label: 'Dónde se aplica', type: 'opciones', default: 'todos',
+    grupo: 'item', key: 'device', label: 'Dónde se aplica', type: 'opciones', default: 'todos',
     options: [
       { value: 'todos', label: 'Celular y computadora' },
       { value: 'mobile', label: 'Sólo celular' },
       { value: 'desktop', label: 'Sólo computadora' },
     ],
   },
-  { key: 'badge_text', label: 'Globito', type: 'texto', max: 24, placeholder: 'hasta 45% off' },
+  { grupo: 'aspecto', key: 'badge_text', label: 'Globito', type: 'texto', max: 24, placeholder: 'hasta 45% off' },
   {
-    key: 'badge_style', label: 'Color del globito', type: 'opciones', default: 'sale',
+    grupo: 'aspecto', key: 'badge_style', label: 'Color del globito', type: 'opciones', default: 'sale',
     options: ESTILOS_BADGE, when: { key: 'badge_text', lleno: true },
   },
-  { key: 'color', label: 'Color del texto', type: 'color' },
-  { key: 'bg', label: 'Fondo del ítem', type: 'color', help: 'Pinta el ítem entero. Para una "SUPERLIQUIDACIÓN" que tiene que saltar a la vista.' },
+  { grupo: 'aspecto', key: 'color', label: 'Color del texto', type: 'color' },
+  { grupo: 'aspecto', key: 'bg', label: 'Fondo del ítem', type: 'color', help: 'Pinta el ítem entero. Para una "SUPERLIQUIDACIÓN" que tiene que saltar a la vista.' },
   {
-    key: 'font', label: 'Tipografía', type: 'opciones', default: '', options: FUENTES,
+    grupo: 'aspecto', key: 'font', label: 'Tipografía', type: 'opciones', default: '', options: FUENTES,
     help: 'La fuente se baja SÓLO si algún ítem la usa.',
   },
   {
-    key: 'image', label: 'Imagen o GIF en lugar del texto', type: 'imagen',
+    grupo: 'aspecto', key: 'image', label: 'Imagen o GIF en lugar del texto', type: 'imagen',
     help: 'La palabra hecha imagen. Subí un PNG con fondo transparente o un GIF. El nombre del ítem se sigue leyendo por los lectores de pantalla y por Google, así que no se pierde nada.',
   },
   {
-    key: 'image_h', label: 'Alto de la imagen (px)', type: 'numero', default: 22, min: 12, max: 60,
-    when: { key: 'image', lleno: true },
+    grupo: 'aspecto', key: 'image_h', label: 'Alto de la imagen (px)', type: 'numero', default: 22, min: 12, max: 60,
+    when: { grupo: 'aspecto', key: 'image', lleno: true },
     help: 'En el menú de celular entra más alto que en el de la computadora. 22 px es lo que mide el texto normal.',
   },
-  { key: 'hide', label: 'Esconder este ítem', type: 'switch', default: false },
+  { grupo: 'aspecto', key: 'hide', label: 'Esconder este ítem', type: 'switch', default: false },
+
+  /* ----------------------------------------------------------------------
+     MINIATURA DEL SUBÍTEM (reemplaza a subcat_visual_1..8 del theme).
+     Lo viejo: ocho huecos en el panel de diseño, matcheados por NOMBRE, con la
+     foto como archivo del theme (subcat_visual_3_img.jpg) — o sea, cambiar una
+     miniatura era volver a subir el theme. Y con ocho se acababa.
+     -------------------------------------------------------------------- */
+  {
+    grupo: 'fotos', key: 'thumb', label: 'Miniatura (si es un subítem)', type: 'imagen',
+    help: 'La fotito redonda que va al lado del nombre cuando el ítem cuelga de otro. Cuadrada queda mejor.',
+  },
+
+  /* ----------------------------------------------------------------------
+     PLACA DEL MEGA MENÚ (reemplaza a mega_menu_cat_1..4 del theme).
+     Lo viejo: cuatro huecos, por NOMBRE, foto como archivo del theme y un
+     único párrafo de texto. Ahora: las que quieras, foto subida desde acá,
+     con volanta, título, bajada y botón.
+     -------------------------------------------------------------------- */
+  {
+    grupo: 'fotos', key: 'mega_image', label: 'Foto del desplegable', type: 'imagen',
+    help: 'Aparece al costado del desplegable en la computadora, cuando este ítem tiene subcategorías. Vertical (3:4) es lo que mejor entra.',
+  },
+  { grupo: 'fotos', key: 'mega_kicker', label: 'Volanta de la foto', type: 'texto', max: 30, placeholder: 'Nuevo', when: { grupo: 'fotos', key: 'mega_image', lleno: true } },
+  { grupo: 'fotos', key: 'mega_title', label: 'Título de la foto', type: 'texto', max: 60, placeholder: 'Línea invierno', when: { key: 'mega_image', lleno: true } },
+  { grupo: 'fotos', key: 'mega_text', label: 'Bajada de la foto', type: 'texto', max: 120, when: { key: 'mega_image', lleno: true } },
+  { grupo: 'fotos', key: 'mega_cta', label: 'Texto del botón', type: 'texto', max: 28, placeholder: 'Ver la línea', when: { key: 'mega_image', lleno: true } },
+  { grupo: 'fotos', key: 'mega_url', label: 'Link de la foto', type: 'url', placeholder: '/otono-invierno', when: { key: 'mega_image', lleno: true } },
 ];
 
 /* ------------------------------------------------------------------ helpers */
@@ -159,11 +186,19 @@ function validarRegla(r, i, { lenient = false, faltantes = [] } = {}) {
     image: urlDeImagen(d.image),
     image_h: Number.isFinite(alto) ? Math.min(60, Math.max(12, Math.round(alto))) : 22,
     hide: d.hide === true,
+    thumb: urlDeImagen(d.thumb),
+    mega_image: urlDeImagen(d.mega_image),
+    mega_kicker: String(d.mega_kicker || '').trim().slice(0, 30),
+    mega_title: String(d.mega_title || '').trim().slice(0, 60),
+    mega_text: String(d.mega_text || '').trim().slice(0, 120),
+    mega_cta: String(d.mega_cta || '').trim().slice(0, 28),
+    mega_url: String(d.mega_url || '').trim().slice(0, 300),
     enabled: d.enabled !== false,
   };
 
   // Una regla que no hace NADA es casi siempre un olvido, no una intención.
-  const hacéAlgo = out.badge_text || out.color || out.bg || out.font || out.image || out.hide;
+  const hacéAlgo = out.badge_text || out.color || out.bg || out.font || out.image
+    || out.hide || out.thumb || out.mega_image;
   if (!hacéAlgo) {
     const msg = `La regla ${i + 1} no le cambia nada al ítem: ponele al menos un globito, un color o una imagen.`;
     if (!lenient) throw new Error(msg);
@@ -228,24 +263,45 @@ async function getStyle({ force = false } = {}) {
  * mismo módulo que ya usa el esquema ideal del home.
  */
 async function opcionesDeItem() {
-  // Ojo: la función se llama `categorias` y los campos vienen en español
-  // (`nombre`, `url`), no en inglés. Devuelve las 105 categorías anidadas de la
-  // API de Tiendanube, con cuántos productos y ventas tiene cada una — eso se
-  // muestra al lado del nombre para no mandar un ítem destacado a una vacía.
-  const cats = await storeCategories.categorias().catch(() => []);
-  return (cats || [])
+  /* ⚠️ `categorias()` NO devuelve un array: devuelve
+     { disponible, error, total, lista, vendibles, mayoristas, leido }.
+     Las categorías están en `.lista`. (Suponer que era un array fue un bug real:
+     "(cats || []).map is not a function" al abrir la pestaña.)
+     Y los campos vienen en español: `nombre`, `url`, `ruta`, `productos`. */
+  const data = await storeCategories.categorias().catch(() => null);
+  const lista = data && Array.isArray(data.lista) ? data.lista : [];
+
+  return lista
     .map((c) => ({
       value: normalizarUrl(c.url),
-      label: c.nombre,
+      // `ruta` trae el padre adelante ("Pantalones › Cargo"). Importa: hay
+      // nombres repetidos en ramas distintas y con el nombre pelado no se sabe
+      // cuál se está eligiendo.
+      label: c.ruta || c.nombre,
       productos: Number(c.productos) || 0,
       stock: Number(c.stock) || 0,
+      ventas: Number(c.ventas_30d) || 0,
     }))
     .filter((o) => o.value && o.label)
-    .sort((a, b) => a.label.localeCompare(b.label, 'es'));
+    // Primero las que tienen productos: son las que sirven para destacar. El
+    // resto va al final pero no se esconde (puede ser una categoría recién
+    // creada, justo la que se quiere estrenar con un cartel).
+    .sort((a, b) => (b.productos > 0) - (a.productos > 0)
+      || b.ventas - a.ventas
+      || a.label.localeCompare(b.label, 'es'));
 }
 
+/* Los tres grupos en los que el panel parte el formulario. Con 18 controles
+   en una lista corrida no se encuentra nada; partido, cada grupo contesta una
+   pregunta: a qué ítem, cómo se ve, y qué fotos lleva. */
+const GRUPOS = [
+  { id: 'item', label: 'A qué ítem' },
+  { id: 'aspecto', label: 'Cómo se ve' },
+  { id: 'fotos', label: 'Fotos (miniatura y desplegable)' },
+];
+
 function getCatalog() {
-  return { fields: REGLA_FIELDS, fuentes: FUENTES, badges: ESTILOS_BADGE };
+  return { fields: REGLA_FIELDS, fuentes: FUENTES, badges: ESTILOS_BADGE, grupos: GRUPOS };
 }
 
 module.exports = {

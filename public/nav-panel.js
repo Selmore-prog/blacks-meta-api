@@ -10,7 +10,7 @@
  * Backend: src/navMenu.js + las rutas /api/nav/* de src/server.js.
  * ========================================================================= */
 
-const navState = { campos: [], fuentes: [], badges: [], items: [], reglas: [], abierta: null };
+const navState = { campos: [], fuentes: [], badges: [], grupos: [], items: [], reglas: [], abierta: null };
 
 /* --------------------------------------------------------------- cargar - */
 
@@ -22,6 +22,7 @@ async function navCargar() {
     navState.campos = d.fields || [];
     navState.fuentes = d.fuentes || [];
     navState.badges = d.badges || [];
+    navState.grupos = d.grupos || [];
     navState.items = d.items || [];
     navState.reglas = (d.config && d.config.reglas) || [];
     navRender();
@@ -68,6 +69,7 @@ function navFila(r, i) {
     r.badge_text ? `globito "${r.badge_text}"` : '',
     r.bg ? 'fondo' : '', r.color ? 'color' : '',
     r.image ? 'imagen' : '', r.font ? r.font : '', r.hide ? 'escondido' : '',
+    r.thumb ? 'miniatura' : '', r.mega_image ? 'foto en el desplegable' : '',
   ].filter(Boolean).join(' · ') || 'sin nada todavía';
 
   return `
@@ -87,7 +89,22 @@ function navFila(r, i) {
 }
 
 function navCampos(r, i) {
-  return navState.campos.map((c) => {
+  // Partido en grupos: dieciocho controles en una lista corrida no se leen.
+  // Cada grupo contesta una pregunta — a qué ítem, cómo se ve, qué fotos lleva.
+  const grupos = navState.grupos.length ? navState.grupos : [{ id: null, label: '' }];
+  return grupos.map((g) => {
+    const campos = navState.campos.filter((c) => (g.id ? c.grupo === g.id : true));
+    const html = navUnCampo(campos, r, i);
+    if (!html.trim()) return '';
+    return `<div class="nav-grupo">
+      ${g.label ? `<h5 class="nav-grupo-tit">${esc(g.label)}</h5>` : ''}
+      <div class="nav-grupo-campos">${html}</div>
+    </div>`;
+  }).join('');
+}
+
+function navUnCampo(campos, r, i) {
+  return campos.map((c) => {
     // `when` esconde el campo si el otro no está puesto (mismo criterio que los
     // bloques del home): no tiene sentido preguntar el color del globito si no
     // hay globito.
@@ -222,15 +239,37 @@ function navPrevia() {
       if (r.font) { est.push(`font-family:'${esc(r.font)}',Inter,sans-serif`); navPedirFuente(r.font); }
       const cuerpo = r.image
         ? `<img src="${esc(r.image)}" alt="" style="height:${Number(r.image_h) || 22}px;vertical-align:middle">`
-        : esc(nombre);
+        : (r.thumb
+          ? `<img class="np-thumb" src="${esc(r.thumb)}" alt="">${esc(nombre)}`
+          : esc(nombre));
       const badge = r.badge_text
         ? `<span class="np-badge" data-fx="${esc(r.badge_style || 'sale')}">${esc(r.badge_text)}</span>` : '';
       return `<span class="np-item" style="${est.join(';')}">${cuerpo}${badge}</span>`;
     }).join('');
 
   const escondidos = navState.reglas.filter((r) => r.enabled !== false && r.hide).length;
-  caja.innerHTML = `<div class="np-menu">${html}</div>`
-    + (escondidos ? `<p class="hint" style="margin:10px 0 0">Además se esconden ${escondidos} ítem(s).</p>` : '');
+
+  // Las placas del desplegable se muestran aparte: en la tienda sólo se ven al
+  // pasar el mouse por su ítem, así que en la previa no pueden estar en la fila.
+  const conPlaca = activas.filter((r) => r.mega_image);
+  const placas = conPlaca.length ? `
+    <div class="np-placas">
+      <p class="np-placas-tit">Al abrir el desplegable (sólo en computadora)</p>
+      <div class="np-placas-fila">${conPlaca.map((r) => {
+        const it = navState.items.find((o) => o.value === r.match);
+        return `<a class="np-placa">
+          <img src="${esc(r.mega_image)}" alt="">
+          <span class="np-placa-body">
+            ${r.mega_kicker ? `<span class="np-placa-kicker">${esc(r.mega_kicker)}</span>` : ''}
+            <span class="np-placa-tit">${esc(r.mega_title || (it ? it.label : 'Título'))}</span>
+            ${r.mega_text ? `<span class="np-placa-txt">${esc(r.mega_text)}</span>` : ''}
+            ${r.mega_cta ? `<span class="np-placa-cta">${esc(r.mega_cta)} →</span>` : ''}
+          </span></a>`;
+      }).join('')}</div>
+    </div>` : '';
+
+  caja.innerHTML = `<div class="np-menu">${html}</div>` + placas
+    + (escondidos ? `<p class="np-nota">Además se esconden ${escondidos} ítem(s).</p>` : '');
 }
 
 const navFuentesPedidas = {};

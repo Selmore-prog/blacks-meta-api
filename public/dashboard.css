@@ -2329,3 +2329,52 @@ button .cost-tag { margin-left: 8px; }
 .np-badge[data-fx="rojo"]  { background: #dc2626; }
 .np-badge[data-fx="verde"] { background: #15803d; }
 .np-badge[data-fx="negro"] { background: #111; }
+
+/* --- Menú: grupos del formulario y previa de las placas ------------------ */
+.nav-regla-cuerpo { display: block; }   /* los grupos mandan el layout ahora */
+.nav-grupo { padding-top: 14px; }
+.nav-grupo + .nav-grupo { border-top: 1px solid #26262c; margin-top: 4px; }
+.nav-grupo-tit {
+  margin: 0 0 2px; font-size: 11px; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase; color: #7d7d88;
+}
+.nav-grupo-campos {
+  display: grid; grid-template-columns: repeat(auto-fit, minmax(230px, 1fr)); gap: 14px;
+}
+
+.np-thumb {
+  width: 22px; height: 22px; object-fit: cover; border-radius: 5px;
+  vertical-align: middle; margin-right: 7px;
+}
+.np-nota { margin: 12px 0 0; font-size: 12.5px; color: #6a6a75; }
+
+.np-placas { margin-top: 18px; border-top: 1px solid #e8e6e2; padding-top: 14px; }
+.np-placas-tit {
+  margin: 0 0 10px; font-size: 11px; font-weight: 700;
+  letter-spacing: .1em; text-transform: uppercase; color: #9a958c;
+}
+.np-placas-fila { display: flex; gap: 12px; flex-wrap: wrap; }
+/* Misma proporción y mismo tratamiento que la placa real del desplegable
+   (.nav-fx-placa en el theme), a escala: la previa tiene que mentir lo menos
+   posible sobre cómo va a quedar. */
+.np-placa {
+  position: relative; width: 150px; aspect-ratio: 3/4;
+  border-radius: 10px; overflow: hidden; display: block; background: #eceae6;
+}
+.np-placa img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.np-placa::after {
+  content: ""; position: absolute; inset: 0;
+  background: linear-gradient(to top, rgba(0,0,0,.82) 4%, rgba(0,0,0,.28) 46%, rgba(0,0,0,.02) 74%);
+}
+.np-placa-body { position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; padding: 10px 11px 12px; }
+.np-placa-kicker {
+  display: inline-block; background: #FF6B00; color: #fff; border-radius: 2px;
+  font-size: 8px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
+  padding: 2px 5px; margin-bottom: 5px;
+}
+.np-placa-tit { display: block; color: #fff; font-size: 13px; font-weight: 800; line-height: 1.15; }
+.np-placa-txt { display: block; color: rgba(255,255,255,.85); font-size: 10px; margin-top: 4px; line-height: 1.35; }
+.np-placa-cta {
+  display: inline-block; margin-top: 8px; background: #fff; color: #111;
+  border-radius: 999px; padding: 5px 10px; font-size: 9.5px; font-weight: 700;
+}
