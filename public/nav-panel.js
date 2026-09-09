@@ -21,11 +21,14 @@ function navDisparanRedibujo() {
 
 /* --------------------------------------------------------------- cargar - */
 
-async function navCargar() {
+async function navCargar(force) {
   const cont = document.getElementById('hs-menu');
   if (!cont) return;
   try {
-    const d = await api('/api/nav/menu');
+    // El caché de categorías del motor dura SEIS HORAS: sin `force`, una
+    // categoría recién creada en Tiendanube no aparece en el buscador hasta
+    // que se vence solo.
+    const d = await api('/api/nav/menu' + (force ? '?force=1' : ''));
     navState.campos = d.fields || [];
     navState.fuentes = d.fuentes || [];
     navState.badges = d.badges || [];
@@ -64,6 +67,7 @@ function navRender() {
       <button class="btn" onclick="navAgregar()">+ Agregar una regla</button>
       <button class="btn" onclick="navImportar()">Importar lo que ya está puesto</button>
       <button class="btn btn-primary" id="nav-publicar" onclick="navPublicar()">Publicar en la tienda</button>
+      <button class="btn" onclick="navRefrescarCategorias(this)" title="Volver a leer las categorías de Tiendanube">Buscar categorías nuevas</button>
       <span class="nav-sucio hidden" id="nav-sucio">Hay cambios sin publicar</span>
     </div>
     <div class="nav-previa">
@@ -393,6 +397,27 @@ function navCopiar(i) {
   navigator.clipboard.writeText(t.value)
     .then(() => toast('Copiado. Pegalo en Gemini o ChatGPT.', 'ok'))
     .catch(() => toast('No pude copiarlo solo: seleccionalo y copialo a mano.', 'error'));
+}
+
+/**
+ * Relee las categorías de Tiendanube salteando el caché de seis horas.
+ * Es lo que hay que apretar después de crear una categoría nueva: si no, no
+ * aparece en el buscador hasta que el caché se vence solo.
+ */
+async function navRefrescarCategorias(btn) {
+  const antes = navState.items.length;
+  if (btn) { btn.disabled = true; btn.textContent = 'Leyendo tu tienda…'; }
+  try {
+    await navCargar(true);
+    const nuevas = navState.items.length - antes;
+    toast(nuevas > 0
+      ? `Listo: ${nuevas} categoría(s) nueva(s).`
+      : 'Ya estaban todas. Si acabás de crearla, fijate que esté publicada en Tiendanube.', 'ok');
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    if (btn && document.contains(btn)) { btn.disabled = false; btn.textContent = 'Buscar categorías nuevas'; }
+  }
 }
 
 async function navPublicar() {

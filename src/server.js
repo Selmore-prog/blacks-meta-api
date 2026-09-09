@@ -1176,15 +1176,13 @@ app.get('/api/nav/style', publicGetCors, wrap(async (req, res) => {
 // El panel: catálogo de campos, config guardada y las categorías reales para
 // el desplegable (así el dueño elige de una lista en vez de tipear una URL).
 app.get('/api/nav/menu', wrap(async (req, res) => {
-  // `menu` es la estructura REAL de la navegación (leída del HTML de la tienda):
-  // con eso la vista previa dibuja el menú de verdad, con los ítems que están
-  // al lado y los desplegables que existen, en vez de cuatro nombres de mentira.
-  const [config, items, menu] = await Promise.all([
-    navMenu.getConfig(),
-    navMenu.opcionesDeItem(),
-    navMenu.estructuraDelMenu().catch(() => ({ ok: false, items: [] })),
-  ]);
-  res.json({ ...navMenu.getCatalog(), config, items, menu });
+  /* ?force=1 vuelve a leer las categorías de Tiendanube salteando el caché.
+     Hace falta porque ese caché dura SEIS HORAS: sin esto, una categoría recién
+     creada no aparecía en el buscador del panel hasta la tarde, y no había
+     forma de apurarlo. */
+  if (req.query.force === '1') storeCategories.invalidate();
+  const [config, items] = await Promise.all([navMenu.getConfig(), navMenu.opcionesDeItem()]);
+  res.json({ ...navMenu.getCatalog(), config, items });
 }));
 
 app.post('/api/nav/menu', wrap(async (req, res) => {

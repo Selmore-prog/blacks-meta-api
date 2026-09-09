@@ -568,95 +568,12 @@ async function importarDelTheme() {
   };
 }
 
-/* =========================================================================
- * ESTRUCTURA REAL DEL MENÚ — para que la vista previa no invente.
- *
- * La previa mostraba cuatro ítems de mentira ("Inicio, Urbano, Industria,
- * Calzado"). Servía para ver un color, no para decidir: no se veía cómo queda
- * el globito al lado de los ítems que REALMENTE están al lado, ni cómo entra
- * la placa en el desplegable de esa categoría, ni qué pasa en el celular.
- * Esto lee el menú de la tienda en vivo y devuelve el árbol como está.
- * ========================================================================= */
-async function estructuraDelMenu({ force = false } = {}) {
-  if (!force && cacheMenu.datos && Date.now() - cacheMenu.at < 30 * 60 * 1000) return cacheMenu.datos;
-
-  let html = '';
-  try {
-    const ctrl = new AbortController();
-    const timer = setTimeout(() => ctrl.abort(), 15000);
-    const res = await fetch(config.storeUrl, {
-      redirect: 'follow',
-      signal: ctrl.signal,
-      headers: { 'User-Agent': config.tiendanube.userAgent, 'Accept-Language': 'es-AR,es' },
-    });
-    clearTimeout(timer);
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
-    html = await res.text();
-  } catch (err) {
-    return { ok: false, error: err.message, items: [] };
-  }
-
-  // Mismo saneo que el importador: sin esto se leen selectores CSS como si
-  // fueran elementos.
-  html = html.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
-             .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ');
-
-  // El menú de escritorio es el <ul> con los ítems de nivel 1. Se lo ubica por
-  // la clase que el theme le pone a cada uno.
-  const items = [];
-  const vistos = new Set();
-  const bloques = [...html.matchAll(/<li\b[^>]*class=["']([^"']*)["'][^>]*>/gi)];
-
-  for (const b of bloques) {
-    const clases = b[1];
-    if (!/js-nav-main-item|nav-main-item/.test(clases)) continue;   // sólo nivel 1
-
-    const desde = b.index;
-    // Hasta el próximo ítem de nivel 1, o 60 k (un desplegable grande mide ~40 k).
-    const sig = bloques.find((x) => x.index > desde && /js-nav-main-item|nav-main-item/.test(x[1]));
-    let trozo = html.slice(desde, sig ? sig.index : Math.min(html.length, desde + 60000));
-    /* El ÚLTIMO ítem no tiene un "siguiente" que lo corte, así que se llevaba
-       puesto el menú de celular entero (Favoritos aparecía con los hijos de
-       SALE INVIERNO). El menú mobile empieza en la primera .mobile-nav-row:
-       ahí se corta. */
-    const finMobile = trozo.indexOf('mobile-nav-row');
-    if (finMobile > 0) trozo = trozo.slice(0, finMobile);
-
-    const links = [...trozo.matchAll(/<a\b[^>]*class=["'][^"']*nav-list-link[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi)];
-    if (!links.length) continue;
-
-    const padre = links[0];
-    const url = normalizarUrl(atributo(padre[0], 'href'));
-    const nombre = textoPlano(padre[1]).replace(/\s*(-?\d+%|hasta .*)$/i, '').trim();
-    if (!nombre || vistos.has(url + nombre)) continue;
-    vistos.add(url + nombre);
-
-    const hijos = links.slice(1).map((l) => ({
-      nombre: textoPlano(l[1]).replace(/\s*(-?\d+%|hasta .*)$/i, '').trim(),
-      url: normalizarUrl(atributo(l[0], 'href')),
-    })).filter((h) => h.nombre && h.url
-      // "Ver todo en X" es la fila que agrega el theme arriba de cada
-      // desplegable de celular: es navegación, no una subcategoría.
-      && !/^ver todo/i.test(h.nombre)
-      && h.url !== url);
-
-    // Los subítems se repiten entre el menú de escritorio y el de celular.
-    const unicos = [];
-    const yaVi = new Set();
-    for (const h of hijos) {
-      if (yaVi.has(h.url)) continue;
-      yaVi.add(h.url);
-      unicos.push(h);
-    }
-
-    items.push({ nombre, url, hijos: unicos.slice(0, 14) });
-    if (items.length >= 12) break;
-  }
-
-  const datos = { ok: true, items, leido: new Date().toISOString() };
-  cacheMenu = { at: Date.now(), datos };
-  return datos;
-}
+/* La vieja `estructuraDelMenu()` se eliminó (sep-2026): la previa dejó de
+   dibujar un árbol propio y pasa a usar `menuDeLaTienda()`, que trae el header
+   real. Quedaba llamándose desde /api/nav/menu, así que cada vez que se abría
+   el panel se bajaba un mega de HTML PARA NADA — el panel ya ni lo leía. Y de
+   paso compartía la variable `cacheMenu` con menuDeLaTienda: una le borraba el
+   caché a la otra. */
 
 /* =========================================================================
  * PROMPT PARA GENERAR LA "PALABRA HECHA IMAGEN".
@@ -826,6 +743,6 @@ function getCatalog() {
 }
 
 module.exports = {
-  getCatalog, getConfig, saveConfig, validateConfig, buildPayload, getStyle, importarDelTheme, estructuraDelMenu,
+  getCatalog, getConfig, saveConfig, validateConfig, buildPayload, getStyle, importarDelTheme,
   opcionesDeItem, normalizarUrl, normalizarTexto, promptDeImagen, menuDeLaTienda, SETTING_KEY,
 };
