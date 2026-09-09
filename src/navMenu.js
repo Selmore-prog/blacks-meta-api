@@ -352,9 +352,29 @@ async function opcionesDeItem() {
   const data = await storeCategories.categorias().catch(() => null);
   const lista = data && Array.isArray(data.lista) ? data.lista : [];
 
+  /* ⚠️ RECONSTRUIR LA RUTA COMPLETA, no usar `c.url`.
+     storeCategories arma la url como "/" + handle, SIN la rama del padre, pero
+     Tiendanube sirve las subcategorías con la ruta entera. Guardando sólo el
+     handle, una regla para "SALE INVIERNO › Pantalones" quedaba como
+     "pantalones2" y el link del menú es "/otono-invierno/pantalones2/": no
+     matcheaban, y toda regla sobre una subcategoría no hacía nada.
+     (El theme además tolera las dos formas, para no romper lo ya guardado.) */
+  const porId = new Map(lista.map((c) => [c.id, c]));
+  const rutaDe = (c) => {
+    const partes = [];
+    let cur = c;
+    const vistos = new Set();
+    while (cur && !vistos.has(cur.id)) {
+      vistos.add(cur.id);   // por si el árbol viniera con un ciclo
+      partes.unshift(normalizarUrl(cur.url));
+      cur = cur.padre ? porId.get(cur.padre) : null;
+    }
+    return partes.filter(Boolean).join('/');
+  };
+
   return lista
     .map((c) => ({
-      value: normalizarUrl(c.url),
+      value: rutaDe(c),
       // `ruta` trae el padre adelante ("Pantalones › Cargo"). Importa: hay
       // nombres repetidos en ramas distintas y con el nombre pelado no se sabe
       // cuál se está eligiendo.

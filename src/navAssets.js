@@ -284,6 +284,27 @@ const JS = `
         return s.replace(/^\\/+|\\/+$/g, '');
     }
 
+    /**
+     * Es la URL del itiem esta regla?
+     *
+     * NO alcanza con comparar por igual, y esto costo encontrarlo: el motor
+     * arma la URL de cada categoria como "/" + handle (storeCategories.js), o
+     * sea SIN la rama del padre, pero Tiendanube sirve las subcategorias con la
+     * ruta entera. Una regla para "SALE INVIERNO > Pantalones" quedaba guardada
+     * como "pantalones2" y el link del menu es "/otono-invierno/pantalones2/":
+     * no matcheaban nunca. Resultado: TODA regla sobre una subcategoria no
+     * hacia nada y solo andaban las de primer nivel.
+     *
+     * Se acepta que una sea el final de la otra, por segmento completo, para
+     * que "pantalones2" no matchee "otros-pantalones2".
+     */
+    function mismaUrl(url, match) {
+        if (url === match) return true;
+        if (!url || !match) return false;
+        return url.slice(-(match.length + 1)) === '/' + match
+            || match.slice(-(url.length + 1)) === '/' + url;
+    }
+
     function normTexto(t) {
         return String(t || '').trim().toLowerCase().replace(/\\s+/g, ' ');
     }
@@ -541,7 +562,7 @@ const JS = `
                 if (r.device === 'desktop' && mobile) continue;
                 // La URL manda; el texto es el respaldo para los ítems que no
                 // son categorías (una página, un link suelto).
-                var pega = (r.match && url && url === r.match)
+                var pega = (r.match && url && mismaUrl(url, r.match))
                     || (!r.match && r.match_text && texto === r.match_text);
                 if (pega) { aplicarA(link, r); break; }
             }

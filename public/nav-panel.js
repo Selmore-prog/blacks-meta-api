@@ -470,6 +470,17 @@ ${(t.hojas || []).map((h) => `<link rel="stylesheet" href="${esc(h)}">`).join(''
   /* El header real es sticky/fixed: en la previa eso lo saca del flujo y el
      iframe mide cero. Acá se lo devuelve al flujo normal. */
   body.m-desktop #main-header { position: static !important; }
+
+  /* El hamburguesa vive dentro de un modal con scroll propio: acá tiene que
+     poder crecer todo lo que necesite, o la previa lo corta y no se ve lo que
+     se está por publicar. */
+  body.m-mobile .modal-nav-hamburger,
+  body.m-mobile .nav-primary,
+  body.m-mobile .nav-list {
+    max-height: none !important; height: auto !important; overflow: visible !important;
+    position: static !important; transform: none !important;
+    display: block !important; width: 100% !important;
+  }
   #np-desktop, #np-mobile { display:none; }
   body.m-desktop #np-desktop { display:block; }
   body.m-mobile #np-mobile { display:block; }
@@ -492,11 +503,25 @@ ${(t.hojas || []).map((h) => `<link rel="stylesheet" href="${esc(h)}">`).join(''
     display:block !important; opacity:1 !important; visibility:visible !important;
     pointer-events:auto !important;
   }
-  body.abierto .np-abierto .mobile-dropdown-list { display:block !important; }
+  /* ⚠️ En celular NO alcanza con el display: el acordeón del theme se abre con
+     la clase 'open' en el <ul> (navigation-nav-list.tpl lo hace por onclick).
+     Sin ella la lista quedaba visible pero con alto 0, así que la previa no se
+     estiraba y parecía que el botón no hacía nada. La clase la pone
+     navMarcarAbierto(); esto es sólo el respaldo por si el theme cambia.
+     ⚠️⚠️ Y OJO CON LOS BACKTICKS ACÁ ADENTRO: este comentario vive DENTRO del
+     template literal que arma el documento del iframe. Un backtick lo cierra y
+     el srcdoc sale vacío — la previa queda en negro. Pasó con este mismo texto. */
+  body.abierto .np-abierto > .mobile-dropdown-list { display:block !important; }
 </style>
 </head><body class="m-desktop">
 <div id="np-desktop">${t.desktop || '<p style="color:#888;font:14px sans-serif">No se encontró el menú de escritorio.</p>'}</div>
-<div id="np-mobile">${t.mobile || '<p style="color:#888;font:14px sans-serif">No se encontró el menú de celular.</p>'}</div>
+<!-- ⚠️ El menú de celular VA ENVUELTO en .modal-nav-hamburger > .nav-primary.
+     Casi todo su estilo cuelga de esa clase (style-async.scss: alto de fila,
+     tipografía, separadores). Suelto, el CSS no aplicaba y las opciones se
+     acomodaban en DOS COLUMNAS, apretadas — que es como se veía. -->
+<div id="np-mobile"><div class="modal-nav-hamburger"><div class="nav-primary">
+${t.mobile || '<p style="color:#888;font:14px sans-serif">No se encontró el menú de celular.</p>'}
+</div></div></div>
 <script>
   // El JS de la tienda pide las reglas por fetch: acá se las damos escritas.
   window.fetch = function () {
@@ -577,7 +602,14 @@ function navMarcarAbierto(d) {
     li.querySelector('.js-desktop-dropdown, .nav-mega-wrapper, .mobile-dropdown-list'));
   if (!conHijos.length) return;
   const i = Math.min(navState.previaCual || 0, conHijos.length - 1);
-  conHijos[i].classList.add('np-abierto');
+  const elegido = conHijos[i];
+  elegido.classList.add('np-abierto');
+
+  // El acordeón de celular vive de la clase `.open` (la pone el onclick del
+  // theme). Se la damos a mano, que es lo que realmente lo despliega.
+  d.querySelectorAll('.mobile-dropdown-list.open').forEach((u) => u.classList.remove('open'));
+  const lista = elegido.querySelector(':scope > .mobile-dropdown-list');
+  if (lista) lista.classList.add('open');
 }
 
 /** Llena el desplegable "cuál abrir" con los ítems que tienen subcategorías. */
@@ -637,7 +669,14 @@ function navEscalarPrevia() {
           const fin = r.bottom + (d.documentElement.scrollTop || 0);
           if (r.height && fin > piso) piso = fin;
         });
-      alto = Math.max(180, Math.min(Math.ceil(piso) + 20, 1600));
+      // En celular el que manda es el árbol del hamburguesa: el body puede
+      // medir poco porque el modal del theme le pone su propio alto.
+      const arbol = d.querySelector('body.m-mobile #np-mobile');
+      if (arbol) {
+        const r = arbol.getBoundingClientRect();
+        if (r.bottom > piso) piso = r.bottom;
+      }
+      alto = Math.max(180, Math.min(Math.ceil(piso) + 20, 3000));
     }
   } catch (e) { /* todavía no cargó */ }
 
