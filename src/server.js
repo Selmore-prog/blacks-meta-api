@@ -32,6 +32,7 @@ const flashSale = require('./flashSale');
 const homeBlocks = require('./homeBlocks');
 const navMenu = require('./navMenu');
 const navAssets = require('./navAssets');
+const benefits = require('./benefits');
 const homeBlocksAssets = require('./homeBlocksAssets');
 const homePlan = require('./homePlan');
 const homeCopy = require('./homeCopy');
@@ -1170,7 +1171,11 @@ app.post('/api/home/blocks', wrap(async (req, res) => {
 // por sesión en el navegador (ver snipplets/navigation/nav-estilos.tpl).
 app.get('/api/nav/style', publicGetCors, wrap(async (req, res) => {
   res.set('Cache-Control', 'public, max-age=60');
-  res.json(await navMenu.getStyle());
+  /* La franja de beneficios viaja ACÁ y no en su propio endpoint: la tienda ya
+     pide esto una vez por sesión en todas las páginas, así que sumarla sale
+     gratis, mientras que un endpoint aparte sería un pedido más por visita. */
+  const [style, beneficios] = await Promise.all([navMenu.getStyle(), benefits.getBenefits()]);
+  res.json({ ...style, beneficios });
 }));
 
 // El panel: catálogo de campos, config guardada y las categorías reales para
@@ -1204,6 +1209,28 @@ app.get('/api/nav/menu/importar', wrap(async (req, res) => {
 app.get('/api/nav/menu/tienda', wrap(async (req, res) => {
   const menu = await navMenu.menuDeLaTienda({ force: req.query.force === '1' });
   res.json({ ...menu, css_fx: navAssets.CSS, js_fx: navAssets.JS });
+}));
+
+/* ------------------ FRANJA DE BENEFICIOS (src/benefits.js) ---------------
+ * La tira de "envío gratis / cuotas / cambios" arriba de las categorías. Se
+ * publica igual que el menú; la lee la tienda dentro de /api/nav/style.      */
+app.get('/api/nav/benefits', wrap(async (req, res) => {
+  if (req.query.force === '1') storeCategories.invalidate();
+  const [config, rutas] = await Promise.all([
+    benefits.getConfig(),
+    benefits.getConfig().then((c) => benefits.rutasDe(c)).catch(() => []),
+  ]);
+  res.json({ ...benefits.getCatalog(), config, rutas, iconos: navMenu.getCatalog().iconos });
+}));
+
+app.post('/api/nav/benefits', wrap(async (req, res) => {
+  const config = await benefits.saveConfig(req.body);
+  res.json({ ok: true, config, payload: await benefits.getBenefits({ force: true }) });
+}));
+
+app.post('/api/nav/benefits/preview', wrap(async (req, res) => {
+  const cfg = benefits.validateConfig(req.body, { lenient: true });
+  res.json({ payload: await benefits.buildPayload(cfg), faltantes: cfg.faltantes });
 }));
 
 /* Prompt para que Gemini o ChatGPT genere la "palabra hecha imagen" de un ítem.

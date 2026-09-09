@@ -5108,6 +5108,7 @@ const HS_SUBS = {
   // Ojo: el menú NO es del home, se ve en todas las páginas. Está acá porque es
   // donde se toca cómo se ve la tienda, y el subtítulo lo aclara.
   menu: 'Globitos, colores e imágenes en los ítems del menú. Se ve en toda la tienda.',
+  beneficios: 'La tira de envío gratis, cuotas y cambios arriba de cada categoría.',
 };
 
 // Acciones de la barra de arriba: cambian según la sub-pestaña abierta.
@@ -5144,6 +5145,7 @@ function switchHomePane(name) {
   if (name === 'reco') loadHomeBanners();
   if (name === 'bloques') loadHomeBlocks();
   if (name === 'menu') navCargar();
+  if (name === 'beneficios') bfCargar();
 }
 
 /* =========================================================================

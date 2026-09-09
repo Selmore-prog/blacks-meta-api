@@ -172,6 +172,79 @@ const CSS = `
 }
 .nav-fx-hide { display: none !important; }
 
+/* ==========================================================================
+   FRANJA DE BENEFICIOS (arriba de las categorias)
+
+   Las categorias no tenian ninguna: la franja de confianza del theme esta solo
+   en el home, asi que quien entra directo desde un anuncio no veia el envio
+   gratis, ni el descuento por transferencia, ni que se puede cambiar.
+
+   Arranca OCULTA y sin alto: si el motor no contesta no queda un hueco vacio
+   arriba de la grilla.
+   ========================================================================== */
+.bf-franja[hidden] { display: none !important; }
+.bf-franja {
+    background: var(--bf-bg, #f6f5f3);
+    color: var(--bf-color, #121212);
+    border-bottom: 1px solid rgba(0,0,0,.06);
+}
+.bf-wrap {
+    max-width: 1240px;
+    margin: 0 auto;
+    padding: 10px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 10px 28px;
+    flex-wrap: wrap;
+}
+.bf-item {
+    display: inline-flex;
+    align-items: center;
+    gap: 7px;
+    font-size: 12.5px;
+    font-weight: 600;
+    line-height: 1.35;
+    white-space: nowrap;
+}
+.bf-ico {
+    width: 15px; height: 15px; flex: none;
+    stroke: currentColor; fill: none; stroke-width: 2;
+    stroke-linecap: round; stroke-linejoin: round;
+    opacity: .78;
+}
+/* El separador va en el CSS y no como texto: asi no lo lee un lector de
+   pantalla ni se copia al seleccionar. */
+.bf-franja--linea .bf-item + .bf-item::before {
+    content: "";
+    width: 3px; height: 3px; border-radius: 50%;
+    background: currentColor; opacity: .3;
+    margin-right: 21px;
+}
+.bf-franja--tarjetas .bf-wrap { gap: 10px; }
+.bf-franja--tarjetas .bf-item {
+    background: rgba(0,0,0,.045);
+    border-radius: 7px;
+    padding: 8px 13px;
+}
+
+/* En celular no entran cuatro mensajes en una linea: se deslizan de costado,
+   que es mejor que apilarlos y empujar la grilla media pantalla para abajo. */
+@media (max-width: 767px) {
+    .bf-wrap {
+        justify-content: flex-start;
+        flex-wrap: nowrap;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+        scrollbar-width: none;
+        gap: 0 18px;
+        padding: 9px 14px;
+    }
+    .bf-wrap::-webkit-scrollbar { display: none; }
+    .bf-item { font-size: 12px; }
+    .bf-franja--linea .bf-item + .bf-item::before { margin-right: 14px; }
+}
+
 @media (prefers-reduced-motion: reduce) {
     .nav-fx-anim-pulso .nav-fx-badge,
     .nav-fx-anim-brillo .nav-fx-badge::after { animation: none; }
@@ -611,11 +684,72 @@ const JS = `
         }
     }
 
+    /* ------------------------------------------------ franja de beneficios */
+
+    /**
+     * Dibuja la tira de "envio gratis / cuotas / cambios" arriba de la grilla.
+     *
+     * Sólo hace algo si el theme dejó el hueco (category.tpl pone un
+     * <div class="bf-franja" hidden>). Asi el JS no tiene que adivinar en qué
+     * página está: si el hueco existe, es una categoría.
+     */
+    function pintarBeneficios(b) {
+        var host = document.querySelector('[data-bf-host]');
+        if (!host || !b || !b.items || !b.items.length) return;
+        if (host.getAttribute('data-bf-listo')) return;
+
+        // ¿Corresponde en ESTA categoría? El motor manda las rutas RAÍZ y acá se
+        // compara por prefijo, así una categoría nueva colgada de una rama ya
+        // cubierta funciona sola, sin volver a publicar.
+        var aca = normUrl(window.location.pathname);
+        if (!b.todas) {
+            var entra = false;
+            for (var i = 0; i < (b.rutas || []).length; i++) {
+                var r = b.rutas[i];
+                if (r && (aca === r || aca.indexOf(r + '/') === 0)) { entra = true; break; }
+            }
+            if (!entra) return;
+        }
+
+        host.setAttribute('data-bf-listo', '1');
+        host.className = 'bf-franja bf-franja--' + (b.estilo === 'tarjetas' ? 'tarjetas' : 'linea');
+        if (b.bg) host.style.setProperty('--bf-bg', b.bg);
+        if (b.color) host.style.setProperty('--bf-color', b.color);
+
+        var wrap = document.createElement('div');
+        wrap.className = 'bf-wrap';
+
+        b.items.forEach(function (it) {
+            if (!it || !it.text) return;
+            var span = document.createElement('span');
+            span.className = 'bf-item';
+            if (it.icono_d) {
+                var svg = document.createElementNS('http://www.w3.org/2000/svg', 'svg');
+                svg.setAttribute('viewBox', '0 0 24 24');
+                svg.setAttribute('class', 'bf-ico');
+                svg.setAttribute('aria-hidden', 'true');
+                var path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
+                path.setAttribute('d', it.icono_d);
+                svg.appendChild(path);
+                span.appendChild(svg);
+            }
+            // textContent y no innerHTML: el texto sale de un formulario.
+            var t = document.createElement('span');
+            t.textContent = it.text;
+            span.appendChild(t);
+            wrap.appendChild(span);
+        });
+
+        host.appendChild(wrap);
+        host.hidden = false;
+    }
+
     var estilo = deCache();
     if (estilo) {
         // Caché tibia: se pinta sin esperar a nadie, así no hay parpadeo del
         // menú sin estilo en la segunda página que visita alguien.
         cuandoHayaMenu(function () { aplicar(estilo); });
+        pintarBeneficios(estilo.beneficios);
     }
 
     var ctrl = ('AbortController' in window) ? new AbortController() : null;
@@ -629,6 +763,7 @@ const JS = `
             // aplicarA() marca cada link y no repite lo ya hecho.
             estilo = d;
             cuandoHayaMenu(function () { aplicar(d); });
+            pintarBeneficios(d.beneficios);
         })
         .catch(function (err) {
             // El menú se ve normal. No es un caso de error, es el plan B.

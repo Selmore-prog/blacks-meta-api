@@ -257,6 +257,7 @@
         <button class="hstab" data-pane="plan" onclick="switchHomePane('plan')">Esquema ideal</button>
         <button class="hstab" data-pane="reco" onclick="switchHomePane('reco')">Banners</button>
         <button class="hstab" data-pane="menu" onclick="switchHomePane('menu')">Menú</button>
+        <button class="hstab" data-pane="beneficios" onclick="switchHomePane('beneficios')">Beneficios</button>
       </div>
 
       <!-- Bloques de contenido: portadas, videos, informativos, editoriales.
@@ -268,6 +269,11 @@
            porque es donde se toca cómo se ve la tienda, y el subtítulo de la
            solapa lo aclara. Lo dibuja public/nav-panel.js (src/navMenu.js). -->
       <div class="hs-pane hidden" id="hs-menu"><p class="loading">Cargando menú…</p></div>
+
+      <!-- Franja de beneficios de las categorías. Como el menú, no es del home:
+           está acá porque es donde se toca cómo se ve la tienda.
+           La dibuja public/benefits-panel.js (src/benefits.js). -->
+      <div class="hs-pane hidden" id="hs-beneficios"><p class="loading">Cargando…</p></div>
 
       <!-- Carruseles automáticos (rail_1..rail_4). Ver src/homeRails.js. -->
       <div class="hs-pane hidden" id="hs-rieles">
@@ -563,6 +569,8 @@
   <script src="/home-blocks-panel.js"></script>
   <!-- Personalizador del menú. Usa los helpers de dashboard.js (api, esc, toast). -->
   <script src="/nav-panel.js"></script>
+  <!-- Franja de beneficios. Usa los helpers de dashboard.js, igual que nav-panel. -->
+  <script src="/benefits-panel.js"></script>
   <!-- Esquema ideal del home. Va después de home-blocks-panel.js: para crear un
        bloque desde el plan usa su estado (hbState) y sus funciones. -->
   <script src="/home-plan-panel.js"></script>
