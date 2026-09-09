@@ -2463,8 +2463,16 @@ button .cost-tag { margin-left: 8px; }
 /* El iframe se dibuja al ancho real y se achica con transform, así las media
    queries del theme ven el ancho de verdad y la solapa "Computadora" muestra
    el diseño de computadora. */
-.np-marco { overflow: hidden; border-radius: 8px; border: 1px solid #2a2a30; background: #000; }
-.np-marco iframe { border: 0; display: block; transform-origin: 0 0; }
+/* El iframe va a TAMAÑO REAL: si no entra, el marco scrollea en horizontal
+   (mejor que achicarlo, que era lo que amontonaba todo). Y si sobra lugar —el
+   celular mide 390 px— se centra, para no dejar medio panel vacío al costado. */
+.np-marco {
+  overflow-x: auto; overflow-y: hidden;
+  border-radius: 8px; border: 1px solid #2a2a30; background: #0a0a0c;
+  display: flex; justify-content: flex-start;
+}
+.np-marco.np-centrado { justify-content: center; }
+.np-marco iframe { border: 0; display: block; flex: none; }
 
 /* --- El pedido de diseño para la IA ------------------------------------- */
 .nav-prompt { margin-top: 10px; background: #0f0f12; border: 1px solid #33333c; border-radius: 8px; padding: 12px; }

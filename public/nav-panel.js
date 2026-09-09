@@ -481,13 +481,16 @@ ${(t.hojas || []).map((h) => `<link rel="stylesheet" href="${esc(h)}">`).join(''
   .js-desktop-dropdown, .nav-mega-wrapper, .mobile-dropdown-list {
     display: none !important;
   }
-  /* ⚠️ Y se abre UNO SOLO, el que se está mirando: abrirlos todos los apilaba
-     unos encima de otros. Además se pasa a flujo normal (position:static) para
-     que el alto del iframe lo pueda medir. */
+  /* ⚠️ Se abre UNO SOLO, el que se está mirando: abrirlos todos los apilaba
+     unos encima de otros.
+     ⚠️ Y se lo deja en su posición NATURAL (absolute). Forzarlo a
+     position:static lo sacaba de su lugar y desarmaba el mega menú — se veía
+     un panel blanco encimado y el resto de los ítems cortados. El alto del
+     iframe se resuelve MIDIENDO el desplegable, no moviéndolo. */
   body.abierto .np-abierto .js-desktop-dropdown,
   body.abierto .np-abierto .nav-mega-wrapper {
     display:block !important; opacity:1 !important; visibility:visible !important;
-    position:static !important; transform:none !important; width:auto !important;
+    pointer-events:auto !important;
   }
   body.abierto .np-abierto .mobile-dropdown-list { display:block !important; }
 </style>
@@ -595,47 +598,66 @@ function navLlenarCual() {
 }
 
 /**
- * Dibuja el iframe al ancho REAL y lo achica para que entre en la columna: sin
- * esto, a 600 px de panel las media queries del theme verían "celular" y la
- * solapa "Computadora" mostraría el diseño de celular.
+ * El iframe se muestra a TAMAÑO REAL (1280 o 390), nunca escalado.
+ *
+ * Antes se achicaba con transform:scale() para que entrara en la columna del
+ * panel. Dos problemas, los dos reportados: en computadora el contenido
+ * quedaba amontonado y cortado a la derecha, y en celular —donde 390 px entran
+ * de sobra— el iframe ocupaba su ancho real y el resto del marco quedaba como
+ * un rectángulo negro enorme al costado.
+ *
+ * Ahora: ancho real siempre, el marco scrollea en horizontal si no entra, y el
+ * iframe se centra cuando sobra lugar. El alto se MIDE (incluyendo los
+ * desplegables, que son position:absolute y no cuentan en scrollHeight), así
+ * la caja se estira sola al abrir uno.
  */
 function navEscalarPrevia() {
   const marco = document.getElementById('np-marco');
   const f = document.getElementById('np-iframe');
   if (!marco || !f) return;
-  const disp = marco.clientWidth;
-  // Con la pestaña oculta clientWidth da 0: reintentar, no escalar a cero.
-  if (!disp) { setTimeout(navEscalarPrevia, 200); return; }
 
   const ancho = NAV_ANCHOS[navState.previaModo || 'desktop'];
-  const escala = Math.min(1, disp / ancho);
-  f.style.transform = `scale(${escala})`;
+  f.style.width = ancho + 'px';
+  f.style.transform = 'none';
+  // Centrado cuando sobra lugar (celular), pegado a la izquierda cuando falta.
+  marco.classList.toggle('np-centrado', marco.clientWidth > ancho);
 
-  /* El alto se mide DESPUÉS de que carguen las fuentes del theme. Midiendo
-     antes daba 217 px para un menú que ocupa el triple, y el iframe salía
-     cortado — que es exactamente lo que se veía. */
-  let alto = 260;
+  let alto = 240;
   try {
     const d = f.contentDocument;
     if (d && d.body) {
-      // Los desplegables son position:absolute y NO cuentan en scrollHeight:
-      // se mide el más bajo a mano.
       let piso = d.body.scrollHeight;
-      d.querySelectorAll('.np-abierto *').forEach((e) => {
-        const r = e.getBoundingClientRect();
-        if (r.height && r.bottom > piso) piso = r.bottom;
-      });
-      alto = Math.max(160, Math.min(piso + 24, 1400));
+      /* Los desplegables abiertos son position:absolute: NO suman a
+         scrollHeight, así que el alto salía corto y el panel quedaba cortado
+         justo donde empezaba lo que se quería mirar. Se mide su borde inferior
+         a mano y se toma el más bajo. */
+      d.querySelectorAll('.np-abierto .js-desktop-dropdown, .np-abierto .nav-mega-wrapper, .np-abierto .mobile-dropdown-list')
+        .forEach((e) => {
+          const r = e.getBoundingClientRect();
+          const fin = r.bottom + (d.documentElement.scrollTop || 0);
+          if (r.height && fin > piso) piso = fin;
+        });
+      alto = Math.max(180, Math.min(Math.ceil(piso) + 20, 1600));
     }
   } catch (e) { /* todavía no cargó */ }
 
   f.style.height = alto + 'px';
-  marco.style.height = Math.round(alto * escala) + 'px';
+  marco.style.height = alto + 'px';
 }
 
 function navPreviaModo(m) { navState.previaModo = m; navPreviaSync(); navLlenarCual(); }
-function navPreviaAbrir() { navState.previaAbierto = !navState.previaAbierto; navPreviaSync(); }
-function navPreviaCual(i) { navState.previaCual = Number(i) || 0; navPreviaSync(); }
+function navPreviaAbrir() {
+  navState.previaAbierto = !navState.previaAbierto;
+  navPreviaSync();
+  // El desplegable tarda un cuadro en ocupar su lugar: medirlo antes da el
+  // alto de cuando todavía estaba cerrado.
+  setTimeout(navEscalarPrevia, 60);
+}
+function navPreviaCual(i) {
+  navState.previaCual = Number(i) || 0;
+  navPreviaSync();
+  setTimeout(navEscalarPrevia, 60);
+}
 
 /** Rehace el documento del iframe. Sólo cuando cambian las REGLAS. */
 let navRedibujoPendiente = null;
