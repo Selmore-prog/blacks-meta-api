@@ -135,12 +135,18 @@ function navUnCampo(campos, r, i) {
     let control = '';
 
     if (c.type === 'categoria') {
-      const ops = navState.items.map((o) => {
-        const dato = o.productos ? ` (${o.productos} productos${o.stock ? '' : ', sin stock'})` : ' (vacía)';
-        return `<option value="${esc(o.value)}"${o.value === v ? ' selected' : ''}>${esc(o.label)}${esc(dato)}</option>`;
-      }).join('');
-      control = `<select onchange="navSet(${i},'${c.key}',this.value)">
-        <option value="">— Elegí una categoría —</option>${ops}</select>`;
+      /* Buscador en vez de un <select>: son 105 categorías y en una lista
+         desplegable hay que scrollear a ciegas. Se escribe y se filtra. */
+      const elegida = navState.items.find((o) => o.value === v);
+      control = `<div class="nav-busca" data-i="${i}">
+        <input type="text" class="nav-busca-inp" placeholder="Escribí para buscar…"
+          value="${esc(elegida ? elegida.label : '')}"
+          oninput="navBuscar(${i}, this.value)"
+          onfocus="navBuscar(${i}, '')"
+          autocomplete="off">
+        ${v ? `<button class="btn btn-sm nav-busca-x" onclick="navElegir(${i}, '')" title="Sacar">×</button>` : ''}
+        <div class="nav-busca-lista hidden" id="nav-busca-${i}"></div>
+      </div>`;
     } else if (c.type === 'opciones') {
       control = `<select onchange="navSet(${i},'${c.key}',this.value)">${
         (c.options || []).map((o) => `<option value="${esc(o.value)}"${o.value === v ? ' selected' : ''}>${esc(o.label)}</option>`).join('')
@@ -178,6 +184,51 @@ function navUnCampo(campos, r, i) {
 
 /* ------------------------------------------------------------- acciones - */
 
+/* --------------------------------------------------- buscar categorías - */
+
+/**
+ * Filtra las categorías mientras se escribe. Sin acentos y por PALABRAS
+ * sueltas: buscando "invierno chal" tiene que aparecer
+ * "SALE INVIERNO › Chalecos", que con un `includes` pelado no aparecería.
+ */
+function navBuscar(i, texto) {
+  const caja = document.getElementById('nav-busca-' + i);
+  if (!caja) return;
+  const limpia = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  const partes = limpia(texto).split(/\s+/).filter(Boolean);
+
+  const halla = navState.items.filter((o) => {
+    if (!partes.length) return true;
+    const h = limpia(o.label + ' ' + o.value);
+    return partes.every((p) => h.includes(p));
+  }).slice(0, 40);
+
+  if (!halla.length) {
+    caja.innerHTML = '<p class="nav-busca-nada">No hay ninguna categoría con eso.</p>';
+    caja.classList.remove('hidden');
+    return;
+  }
+  caja.innerHTML = halla.map((o) => {
+    const dato = o.productos ? `${o.productos} productos` : 'vacía';
+    return `<button type="button" class="nav-busca-op" onclick="navElegir(${i}, '${esc(o.value)}')">
+      <span>${esc(o.label)}</span><em>${esc(dato)}</em></button>`;
+  }).join('');
+  caja.classList.remove('hidden');
+}
+
+function navElegir(i, valor) {
+  const caja = document.getElementById('nav-busca-' + i);
+  if (caja) caja.classList.add('hidden');
+  navSet(i, 'match', valor);
+  navRender();   // el nombre elegido cambia el título de la regla
+}
+
+// Un clic afuera cierra la lista: si no, queda abierta tapando los campos.
+document.addEventListener('click', (ev) => {
+  if (ev.target.closest && ev.target.closest('.nav-busca')) return;
+  document.querySelectorAll('.nav-busca-lista').forEach((l) => l.classList.add('hidden'));
+});
+
 function navAbrir(i) { navState.abierta = navState.abierta === i ? null : i; navRender(); }
 function navAgregar() {
   navState.reglas.push({ device: 'todos', badge_style: 'sale', image_h: 22, enabled: true });
@@ -214,7 +265,7 @@ function navSet(i, k, v) {
   // Rehacer el formulario sólo si aparecen o desaparecen campos.
   if (navDisparanRedibujo().has(k) && (!antes !== !v)) { navRender(); return; }
 
-  navPrevia();
+  navRefrescarPrevia();
   navResumen(i);
 }
 
@@ -375,6 +426,85 @@ async function navPublicar() {
  */
 const NAV_ANCHOS = { desktop: 1280, mobile: 390 };
 
+/**
+ * Arma el documento del iframe UNA sola vez con los DOS menús adentro.
+ *
+ * Antes se rearmaba el srcdoc entero en cada clic. Con medio mega de CSS de la
+ * tienda, cambiar de "Computadora" a "Celular" tardaba segundos y parecía que
+ * el botón no andaba. Ahora el srcdoc sólo se rehace cuando cambian las REGLAS;
+ * cambiar de modo es poner una clase y el ancho, y es instantáneo.
+ */
+function navDocPrevia() {
+  const t = navState.tienda;
+  const estilo = JSON.stringify({
+    v: 1,
+    reglas: navState.reglas
+      .filter((r) => r.enabled !== false && (r.match || r.match_text))
+      // `icono_d` (el path del SVG) lo resuelve el motor en validarRegla, y las
+      // reglas en edición no pasaron por ahí: sin esto el ícono se ve en la
+      // tienda pero no en la previa, que es lo que esta previa vino a evitar.
+      .map((r) => ({ ...r, icono_d: (navState.iconos[r.icono || ''] || {}).d || '' })),
+    fuentes: [...new Set(navState.reglas.map((r) => r.font).filter(Boolean))],
+  });
+
+  return `<!doctype html><html><head><meta charset="utf-8">
+<!-- ⚠️ SIN ESTE <base> EL MENÚ SE VE EN TIMES.
+     El CSS del theme trae @font-face con rutas relativas, y un iframe armado
+     con srcdoc no tiene URL propia contra la cual resolverlas: las fuentes (y
+     las imágenes) no cargaban y todo caía al serif del navegador. -->
+<base href="${esc((navState.tienda && navState.tienda.url) || 'https://blacksindumentaria.com.ar/')}">
+<!-- Las hojas del theme (la base, el header y la tipografía Inter) van ANTES
+     del CSS propio, en el mismo orden que en la tienda. -->
+${(t.hojas || []).map((h) => `<link rel="stylesheet" href="${esc(h)}">`).join('')}
+<style>${t.css || ''}</style>
+<style>${t.css_fx || ''}</style>
+<style>
+  html, body { margin:0; padding:0; }
+  body { padding:18px; }
+  /* Los dos menús viven juntos y se muestra uno según la clase del body: así
+     cambiar de modo no obliga a rearmar el documento entero. */
+  /* El header de escritorio trae su propio fondo; el árbol del hamburguesa va
+     sobre blanco, como en el modal de la tienda. */
+  body.m-desktop { background:#111; padding:0; }
+  body.m-mobile { background:#fff; padding:0; }
+  /* El header real es sticky/fixed: en la previa eso lo saca del flujo y el
+     iframe mide cero. Acá se lo devuelve al flujo normal. */
+  body.m-desktop #main-header { position: static !important; }
+  #np-desktop, #np-mobile { display:none; }
+  body.m-desktop #np-desktop { display:block; }
+  body.m-mobile #np-mobile { display:block; }
+
+  /* Los desplegables arrancan CERRADOS. Sin el JS del theme (que los abre al
+     pasar el mouse) algunas reglas los dejaban visibles, y como son
+     position:absolute no cuentan para el alto: el iframe se cortaba y se veía
+     todo encimado. */
+  .js-desktop-dropdown, .nav-mega-wrapper, .mobile-dropdown-list {
+    display: none !important;
+  }
+  /* ⚠️ Y se abre UNO SOLO, el que se está mirando: abrirlos todos los apilaba
+     unos encima de otros. Además se pasa a flujo normal (position:static) para
+     que el alto del iframe lo pueda medir. */
+  body.abierto .np-abierto .js-desktop-dropdown,
+  body.abierto .np-abierto .nav-mega-wrapper {
+    display:block !important; opacity:1 !important; visibility:visible !important;
+    position:static !important; transform:none !important; width:auto !important;
+  }
+  body.abierto .np-abierto .mobile-dropdown-list { display:block !important; }
+</style>
+</head><body class="m-desktop">
+<div id="np-desktop">${t.desktop || '<p style="color:#888;font:14px sans-serif">No se encontró el menú de escritorio.</p>'}</div>
+<div id="np-mobile">${t.mobile || '<p style="color:#888;font:14px sans-serif">No se encontró el menú de celular.</p>'}</div>
+<script>
+  // El JS de la tienda pide las reglas por fetch: acá se las damos escritas.
+  window.fetch = function () {
+    return Promise.resolve({ ok: true, json: function () { return Promise.resolve(${estilo}); } });
+  };
+  try { sessionStorage.clear(); } catch (e) {}
+<\/script>
+<script>${t.js_fx || ''}<\/script>
+</body></html>`;
+}
+
 function navPrevia() {
   const caja = document.getElementById('nav-previa');
   if (!caja) return;
@@ -386,71 +516,89 @@ function navPrevia() {
   }
 
   const modo = navState.previaModo || 'desktop';
-  const ancho = NAV_ANCHOS[modo];
-  const t = navState.tienda;
-  const cuerpo = modo === 'mobile' ? t.mobile : t.desktop;
+  // La barra se dibuja una sola vez; después sólo se actualizan los botones.
+  if (!document.getElementById('np-iframe')) {
+    caja.innerHTML = `
+      <div class="np-barra">
+        <button class="btn btn-sm" data-modo="desktop" onclick="navPreviaModo('desktop')">Computadora</button>
+        <button class="btn btn-sm" data-modo="mobile" onclick="navPreviaModo('mobile')">Celular</button>
+        <button class="btn btn-sm" id="np-abrir" onclick="navPreviaAbrir()">Abrir el desplegable</button>
+        <select class="np-sel" id="np-cual" onchange="navPreviaCual(this.value)"></select>
+        <button class="btn btn-sm" onclick="navPediTienda(true)">Recargar</button>
+        <span class="np-nota">Es el menú real de tu tienda, con el mismo código que corre en producción.</span>
+      </div>
+      <div class="np-marco" id="np-marco"><iframe id="np-iframe" title="Vista previa del menú"></iframe></div>`;
+    const f = document.getElementById('np-iframe');
+    f.onload = () => { navPreviaSync(); navLlenarCual(); };
+    f.srcdoc = navDocPrevia();
+  }
+  navPreviaSync();
+}
 
-  // Las reglas tal como están AHORA en el editor, con el mismo shape que
-  // devuelve /api/nav/style.
-  const estilo = JSON.stringify({
-    v: 1,
-    reglas: navState.reglas
-      .filter((r) => r.enabled !== false && (r.match || r.match_text))
-      // ⚠️ `icono_d` (el path del SVG) lo resuelve el motor en validarRegla, y
-      // las reglas que se están editando todavía no pasaron por ahí: sin esto
-      // el ícono se veía en la tienda pero NO en la previa, que es justo la
-      // clase de diferencia que esta previa vino a eliminar.
-      .map((r) => ({
-        ...r,
-        icono_d: (navState.iconos[r.icono || ''] || {}).d || '',
-      })),
-    fuentes: [...new Set(navState.reglas.map((r) => r.font).filter(Boolean))],
-  });
-
-  const doc = `<!doctype html><html><head><meta charset="utf-8">
-<style>${t.css || ''}</style>
-<style>${t.css_fx || ''}</style>
-<style>
-  body { margin:0; padding:18px; background:${modo === 'mobile' ? '#fff' : '#000'}; }
-  /* El desplegable se muestra abierto a pedido, para poder ver la placa. */
-  body.abierto .js-desktop-dropdown, body.abierto .nav-mega-wrapper { display:block !important; opacity:1 !important; visibility:visible !important; }
-  body.abierto .mobile-dropdown-list { display:block !important; }
-</style>
-</head><body class="${navState.previaAbierto ? 'abierto' : ''}">
-${cuerpo || '<p style="color:#888;font:14px sans-serif">No se encontró este menú en la tienda.</p>'}
-<script>
-  // El JS de la tienda pide las reglas por fetch: acá se las damos ya escritas.
-  window.fetch = function () {
-    return Promise.resolve({ ok: true, json: function () { return Promise.resolve(${estilo}); } });
-  };
-  try { sessionStorage.clear(); } catch (e) {}
-<\/script>
-<script>${t.js_fx || ''}<\/script>
-</body></html>`;
-
-  caja.innerHTML = `
-    <div class="np-barra">
-      <button class="btn btn-sm" data-on="${modo === 'desktop'}" onclick="navPreviaModo('desktop')">Computadora</button>
-      <button class="btn btn-sm" data-on="${modo === 'mobile'}" onclick="navPreviaModo('mobile')">Celular</button>
-      <button class="btn btn-sm" data-on="${!!navState.previaAbierto}" onclick="navPreviaAbrir()">
-        ${navState.previaAbierto ? 'Desplegables abiertos' : 'Desplegables cerrados'}
-      </button>
-      <button class="btn btn-sm" onclick="navPediTienda(true)" title="Volver a leer el menú de la tienda">Recargar</button>
-      <span class="np-nota">Es el menú real de tu tienda, con el mismo código que corre en producción.</span>
-    </div>
-    <div class="np-marco" id="np-marco">
-      <iframe id="np-iframe" style="width:${ancho}px" title="Vista previa del menú"></iframe>
-    </div>`;
-
+/** Refresca sólo lo que cambia: el ancho, la clase del body y los botones. */
+function navPreviaSync() {
   const f = document.getElementById('np-iframe');
-  f.srcdoc = doc;
-  f.onload = () => navEscalarPrevia();
+  const marco = document.getElementById('np-marco');
+  if (!f || !marco) return;
+  const modo = navState.previaModo || 'desktop';
+
+  document.querySelectorAll('.np-barra .btn[data-modo]').forEach((b) => {
+    b.dataset.on = String(b.dataset.modo === modo);
+  });
+  const abrir = document.getElementById('np-abrir');
+  if (abrir) {
+    abrir.dataset.on = String(!!navState.previaAbierto);
+    abrir.textContent = navState.previaAbierto ? 'Cerrar el desplegable' : 'Abrir el desplegable';
+  }
+  const sel = document.getElementById('np-cual');
+  if (sel) sel.classList.toggle('hidden', !navState.previaAbierto);
+
+  f.style.width = NAV_ANCHOS[modo] + 'px';
+
+  const d = f.contentDocument;
+  if (d && d.body) {
+    d.body.className = 'm-' + modo + (navState.previaAbierto ? ' abierto' : '');
+    navMarcarAbierto(d);
+  }
   navEscalarPrevia();
 }
 
-/** Dibuja el iframe al ancho REAL y lo achica para que entre en la columna.
-    Sin esto, a 600px de panel las media queries verían "mobile" y la solapa
-    "Computadora" mostraría el diseño de celular. */
+/** Marca UNO solo para abrir: el elegido, o el primero que tenga desplegable. */
+function navMarcarAbierto(d) {
+  d.querySelectorAll('.np-abierto').forEach((e) => e.classList.remove('np-abierto'));
+  if (!navState.previaAbierto) return;
+  const modo = navState.previaModo || 'desktop';
+  const raiz = d.getElementById(modo === 'mobile' ? 'np-mobile' : 'np-desktop');
+  if (!raiz) return;
+  const conHijos = [...raiz.querySelectorAll('li')].filter((li) =>
+    li.querySelector('.js-desktop-dropdown, .nav-mega-wrapper, .mobile-dropdown-list'));
+  if (!conHijos.length) return;
+  const i = Math.min(navState.previaCual || 0, conHijos.length - 1);
+  conHijos[i].classList.add('np-abierto');
+}
+
+/** Llena el desplegable "cuál abrir" con los ítems que tienen subcategorías. */
+function navLlenarCual() {
+  const sel = document.getElementById('np-cual');
+  const f = document.getElementById('np-iframe');
+  if (!sel || !f || !f.contentDocument) return;
+  const modo = navState.previaModo || 'desktop';
+  const raiz = f.contentDocument.getElementById(modo === 'mobile' ? 'np-mobile' : 'np-desktop');
+  if (!raiz) return;
+  const conHijos = [...raiz.querySelectorAll('li')].filter((li) =>
+    li.querySelector('.js-desktop-dropdown, .nav-mega-wrapper, .mobile-dropdown-list'));
+  sel.innerHTML = conHijos.map((li, i) => {
+    const a = li.querySelector('.nav-list-link');
+    const nombre = a ? a.textContent.trim().slice(0, 26) : 'Ítem ' + (i + 1);
+    return `<option value="${i}"${i === (navState.previaCual || 0) ? ' selected' : ''}>${esc(nombre)}</option>`;
+  }).join('');
+}
+
+/**
+ * Dibuja el iframe al ancho REAL y lo achica para que entre en la columna: sin
+ * esto, a 600 px de panel las media queries del theme verían "celular" y la
+ * solapa "Computadora" mostraría el diseño de celular.
+ */
 function navEscalarPrevia() {
   const marco = document.getElementById('np-marco');
   const f = document.getElementById('np-iframe');
@@ -458,18 +606,47 @@ function navEscalarPrevia() {
   const disp = marco.clientWidth;
   // Con la pestaña oculta clientWidth da 0: reintentar, no escalar a cero.
   if (!disp) { setTimeout(navEscalarPrevia, 200); return; }
+
   const ancho = NAV_ANCHOS[navState.previaModo || 'desktop'];
   const escala = Math.min(1, disp / ancho);
   f.style.transform = `scale(${escala})`;
+
+  /* El alto se mide DESPUÉS de que carguen las fuentes del theme. Midiendo
+     antes daba 217 px para un menú que ocupa el triple, y el iframe salía
+     cortado — que es exactamente lo que se veía. */
+  let alto = 260;
   try {
-    const alto = f.contentDocument ? f.contentDocument.body.scrollHeight : 260;
-    f.style.height = Math.max(120, alto) + 'px';
-    marco.style.height = Math.max(120, alto) * escala + 'px';
+    const d = f.contentDocument;
+    if (d && d.body) {
+      // Los desplegables son position:absolute y NO cuentan en scrollHeight:
+      // se mide el más bajo a mano.
+      let piso = d.body.scrollHeight;
+      d.querySelectorAll('.np-abierto *').forEach((e) => {
+        const r = e.getBoundingClientRect();
+        if (r.height && r.bottom > piso) piso = r.bottom;
+      });
+      alto = Math.max(160, Math.min(piso + 24, 1400));
+    }
   } catch (e) { /* todavía no cargó */ }
+
+  f.style.height = alto + 'px';
+  marco.style.height = Math.round(alto * escala) + 'px';
 }
 
-function navPreviaModo(m) { navState.previaModo = m; navPrevia(); }
-function navPreviaAbrir() { navState.previaAbierto = !navState.previaAbierto; navPrevia(); }
+function navPreviaModo(m) { navState.previaModo = m; navPreviaSync(); navLlenarCual(); }
+function navPreviaAbrir() { navState.previaAbierto = !navState.previaAbierto; navPreviaSync(); }
+function navPreviaCual(i) { navState.previaCual = Number(i) || 0; navPreviaSync(); }
+
+/** Rehace el documento del iframe. Sólo cuando cambian las REGLAS. */
+let navRedibujoPendiente = null;
+function navRefrescarPrevia() {
+  const f = document.getElementById('np-iframe');
+  if (!f || !navState.tienda || navState.tienda.error) { navPrevia(); return; }
+  // Se agrupan los cambios: escribir en un campo dispara uno por tecla y
+  // rearmar un srcdoc de casi un mega en cada una traba el panel.
+  clearTimeout(navRedibujoPendiente);
+  navRedibujoPendiente = setTimeout(() => { f.srcdoc = navDocPrevia(); }, 350);
+}
 
 async function navPediTienda(force) {
   const caja = document.getElementById('nav-previa');

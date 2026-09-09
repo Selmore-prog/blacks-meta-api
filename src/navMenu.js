@@ -731,6 +731,18 @@ async function menuDeLaTienda({ force = false } = {}) {
   const estilos = [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)]
     .map((m) => m[1]).join('\n');
 
+  /* ⚠️ LAS HOJAS EXTERNAS TAMBIÉN, o la previa se ve en Times.
+     Los <style> inline son sólo el CSS propio del theme: la base (grillas,
+     tipografías, el header entero) y la fuente Inter vienen en cuatro
+     <link rel="stylesheet">. Sin ellos el menú perdía la tipografía y el
+     layout, y se veía desordenado — que es exactamente lo que se reportó.
+     Se absolutizan porque el theme las sirve con protocolo relativo. */
+  const hojas = [...html.matchAll(/<link\b[^>]*rel=["']stylesheet["'][^>]*>/gi)]
+    .map((m) => (/href\s*=\s*["']([^"']+)["']/i.exec(m[0]) || [])[1])
+    .filter(Boolean)
+    .map((u) => (u.startsWith('//') ? 'https:' + u : u))
+    .filter((u) => /^https?:\/\//i.test(u));
+
   const sinScripts = html.replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ');
 
   /* Los dos árboles del menú, con los nombres REALES que usa este theme
@@ -740,34 +752,48 @@ async function menuDeLaTienda({ force = false } = {}) {
      ⚠️ NO se pueden recortar con una regex no-greedy hasta el primer </ul>:
      las dos listas tienen sublistas anidadas (.list-subitems) y el recorte
      cortaba en el primer cierre, devolviendo medio menú. Hay que BALANCEAR. */
-  const listaBalanceada = (reAbre) => {
+  const balanceado = (reAbre, nombreTag) => {
     const m = reAbre.exec(sinScripts);
     if (!m) return '';
     const desde = m.index;
-    let i = desde;
     let nivel = 0;
-    const tag = /<(\/?)ul\b/gi;
+    const tag = new RegExp('<(\\/?)' + nombreTag + '\\b', 'gi');
     tag.lastIndex = desde;
     let t;
     while ((t = tag.exec(sinScripts))) {
       nivel += t[1] ? -1 : 1;
-      i = tag.lastIndex;
       if (nivel === 0) {
-        const cierre = sinScripts.indexOf('>', i);
+        const cierre = sinScripts.indexOf('>', tag.lastIndex);
         return sinScripts.slice(desde, cierre + 1);
       }
     }
     return sinScripts.slice(desde);
   };
 
-  const desktop = listaBalanceada(/<ul[^>]*class=["'][^"']*nav-desktop-list[^"']*["'][^>]*>/i);
-  const mobile = listaBalanceada(/<ul[^>]*class=["'][^"']*\bnav-list\b[^"']*["'][^>]*data-component=["']menu["'][^>]*>/i);
+  /* ESCRITORIO: el <header> ENTERO, no sólo el <ul>.
+     Con la lista sola, el menú perdía el contexto que le da su aspecto — el
+     header es negro con texto blanco, y suelto quedaba en gris sobre negro,
+     casi ilegible. La previa tiene que mostrar lo mismo que ve el cliente, así
+     que se trae el header completo (logo, buscador y menú). */
+  const header = balanceado(/<header\b[^>]*id=["']main-header["'][^>]*>/i, 'header');
+  const desktop = header
+    || balanceado(/<ul[^>]*class=["'][^"']*nav-desktop-list[^"']*["'][^>]*>/i, 'ul');
+
+  /* CELULAR: el árbol del hamburguesa, que en el theme vive fuera del header
+     (es el contenido de un modal) y va sobre fondo blanco. */
+  const mobile = balanceado(
+    /<ul[^>]*class=["'][^"']*\bnav-list\b[^"']*["'][^>]*data-component=["']menu["'][^>]*>/i, 'ul');
 
   const data = {
     ok: true,
     desktop,
     mobile,
     css: estilos,
+    hojas: [...new Set(hojas)],
+    /* La previa lo usa como <base> del iframe: el CSS del theme trae @font-face
+       con rutas relativas y un iframe hecho con srcdoc no tiene URL propia
+       contra la cual resolverlas — sin esto el menú se ve en Times. */
+    url: config.storeUrl,
     // Para poder decir en el panel de cuándo es la foto que se está mirando.
     leido: new Date().toISOString(),
   };

@@ -2475,3 +2475,39 @@ button .cost-tag { margin-left: 8px; }
   border-radius: 6px; padding: 10px; font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace;
   resize: vertical;
 }
+
+/* --- Buscador de categorías (105 no entran en un <select>) --------------- */
+.nav-busca { position: relative; }
+.nav-busca-inp {
+  width: 100%; background: #0f0f12; border: 1px solid #33333c; color: #eceaf4;
+  border-radius: 6px; padding: 8px 30px 8px 10px; font-size: 13px;
+}
+.nav-busca-inp:focus { outline: 2px solid #FF6B00; outline-offset: 1px; }
+.nav-busca-x {
+  position: absolute; right: 4px; top: 4px; padding: 3px 7px; line-height: 1;
+  background: transparent; border: 0; color: #8a8a95; font-size: 15px;
+}
+.nav-busca-lista {
+  position: absolute; z-index: 30; left: 0; right: 0; top: calc(100% + 4px);
+  max-height: 260px; overflow-y: auto;
+  background: #17171b; border: 1px solid #3d3d46; border-radius: 8px;
+  box-shadow: 0 12px 30px rgba(0,0,0,.5);
+}
+.nav-busca-lista.hidden { display: none; }
+.nav-busca-op {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 10px;
+  width: 100%; text-align: left; background: transparent; border: 0;
+  padding: 8px 11px; color: #eceaf4; font-size: 12.5px; cursor: pointer;
+  border-bottom: 1px solid #232329;
+}
+.nav-busca-op:last-child { border-bottom: 0; }
+.nav-busca-op:hover { background: #22222a; }
+.nav-busca-op em { font-style: normal; font-size: 11px; color: #7d7d88; flex: none; }
+.nav-busca-nada { margin: 0; padding: 10px 11px; font-size: 12.5px; color: #7d7d88; }
+
+/* Selector de qué desplegable abrir en la previa */
+.np-sel {
+  background: #222228; border: 1px solid #33333c; color: #eceaf4;
+  border-radius: 6px; padding: 5px 8px; font-size: 12px; max-width: 190px;
+}
+.np-sel.hidden { display: none; }
