@@ -1175,13 +1175,28 @@ app.get('/api/nav/style', publicGetCors, wrap(async (req, res) => {
 // El panel: catálogo de campos, config guardada y las categorías reales para
 // el desplegable (así el dueño elige de una lista en vez de tipear una URL).
 app.get('/api/nav/menu', wrap(async (req, res) => {
-  const [config, items] = await Promise.all([navMenu.getConfig(), navMenu.opcionesDeItem()]);
-  res.json({ ...navMenu.getCatalog(), config, items });
+  // `menu` es la estructura REAL de la navegación (leída del HTML de la tienda):
+  // con eso la vista previa dibuja el menú de verdad, con los ítems que están
+  // al lado y los desplegables que existen, en vez de cuatro nombres de mentira.
+  const [config, items, menu] = await Promise.all([
+    navMenu.getConfig(),
+    navMenu.opcionesDeItem(),
+    navMenu.estructuraDelMenu().catch(() => ({ ok: false, items: [] })),
+  ]);
+  res.json({ ...navMenu.getCatalog(), config, items, menu });
 }));
 
 app.post('/api/nav/menu', wrap(async (req, res) => {
   const config = await navMenu.saveConfig(req.body);
   res.json({ ok: true, config, style: await navMenu.getStyle({ force: true }) });
+}));
+
+/* Lee el menú de la tienda EN VIVO y devuelve las reglas que reproducirían lo
+   que ya está configurado a mano en el theme (mega_menu_cat_1..4 y
+   subcat_visual_1..8). No guarda nada: el dueño revisa y publica si le cierra.
+   Es lo que hace seguro apagar los sistemas viejos. */
+app.get('/api/nav/menu/importar', wrap(async (req, res) => {
+  res.json(await navMenu.importarDelTheme());
 }));
 
 // Vista previa de una config sin guardar: tolerante, junta los problemas en

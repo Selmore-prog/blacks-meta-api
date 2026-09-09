@@ -10,7 +10,14 @@
  * Backend: src/navMenu.js + las rutas /api/nav/* de src/server.js.
  * ========================================================================= */
 
-const navState = { campos: [], fuentes: [], badges: [], grupos: [], items: [], reglas: [], abierta: null };
+const navState = { campos: [], fuentes: [], badges: [], grupos: [], items: [], reglas: [], abierta: null, sucio: false, menu: [], vista: 'desktop', abierto: null };
+
+/* Campos de los que DEPENDEN otros (los que aparecen en algún `when`). Sólo al
+   cambiar uno de estos hay que rehacer el formulario, porque cambia QUÉ campos
+   se muestran. Para todo lo demás, tocar el DOM es un error — ver navSet(). */
+function navDisparanRedibujo() {
+  return new Set(navState.campos.filter((c) => c.when && c.when.key).map((c) => c.when.key));
+}
 
 /* --------------------------------------------------------------- cargar - */
 
@@ -24,8 +31,10 @@ async function navCargar() {
     navState.badges = d.badges || [];
     navState.grupos = d.grupos || [];
     navState.items = d.items || [];
+    navState.menu = (d.menu && d.menu.items) || [];
     navState.reglas = (d.config && d.config.reglas) || [];
     navRender();
+    navSucio(false);
   } catch (err) {
     cont.innerHTML = `<p class="error">No se pudo cargar: ${esc(err.message)}</p>`;
   }
@@ -52,7 +61,9 @@ function navRender() {
     <div class="nav-reglas">${filas}</div>
     <div class="nav-acciones">
       <button class="btn" onclick="navAgregar()">+ Agregar una regla</button>
-      <button class="btn btn-primary" onclick="navPublicar()">Publicar en la tienda</button>
+      <button class="btn" onclick="navImportar()">Importar lo que ya está puesto</button>
+      <button class="btn btn-primary" id="nav-publicar" onclick="navPublicar()">Publicar en la tienda</button>
+      <span class="nav-sucio hidden" id="nav-sucio">Hay cambios sin publicar</span>
     </div>
     <div class="nav-previa">
       <h4>Así se va a ver</h4>
@@ -61,16 +72,24 @@ function navRender() {
   navPrevia();
 }
 
-function navFila(r, i) {
-  const abierta = navState.abierta === i;
+function navNombreDe(r) {
   const item = navState.items.find((o) => o.value === r.match);
-  const nombre = item ? item.label : (r.match_text || r.match || 'Sin elegir');
-  const que = [
+  return item ? item.label : (r.match_text || r.match || 'Sin elegir');
+}
+
+function navQueHace(r) {
+  return [
     r.badge_text ? `globito "${r.badge_text}"` : '',
     r.bg ? 'fondo' : '', r.color ? 'color' : '',
     r.image ? 'imagen' : '', r.font ? r.font : '', r.hide ? 'escondido' : '',
     r.thumb ? 'miniatura' : '', r.mega_image ? 'foto en el desplegable' : '',
   ].filter(Boolean).join(' · ') || 'sin nada todavía';
+}
+
+function navFila(r, i) {
+  const abierta = navState.abierta === i;
+  const nombre = navNombreDe(r);
+  const que = navQueHace(r);
 
   return `
     <div class="nav-regla ${abierta ? 'abierta' : ''} ${r.enabled === false ? 'apagada' : ''}">
@@ -168,9 +187,48 @@ function navToggle(i) {
   navState.reglas[i].enabled = navState.reglas[i].enabled === false;
   navRender();
 }
+/**
+ * Guarda un valor y actualiza lo MÍNIMO de la pantalla.
+ *
+ * ⚠️ Antes esto llamaba a navRender(), que rehace todo el HTML del panel. Era un
+ * bug feo y silencioso: los <input> guardan con `onchange`, que dispara cuando
+ * el campo pierde el foco — o sea, JUSTO al hacer clic en "Publicar". El DOM se
+ * rehacía entre el mousedown y el mouseup, el botón dejaba de existir y **el
+ * clic nunca llegaba**. Se editaba, se apretaba Publicar y no pasaba nada.
+ * (Verificado: después del change, document.contains(botón) === false.)
+ * De paso se perdía el foco en cada tecla y el selector de color, que usa
+ * `oninput`, rehacía la pantalla en cada píxel del arrastre.
+ */
 function navSet(i, k, v) {
+  const antes = navState.reglas[i][k];
   navState.reglas[i][k] = v;
-  navRender();
+  navSucio(true);
+
+  // Rehacer el formulario sólo si aparecen o desaparecen campos.
+  if (navDisparanRedibujo().has(k) && (!antes !== !v)) { navRender(); return; }
+
+  navPrevia();
+  navResumen(i);
+}
+
+/** Refresca sólo la línea de resumen de una regla, sin tocar su formulario. */
+function navResumen(i) {
+  const cab = document.querySelectorAll('.nav-regla')[i];
+  if (!cab) return;
+  const r = navState.reglas[i];
+  const nom = cab.querySelector('strong');
+  const que = cab.querySelector('.nav-regla-que');
+  if (nom) nom.textContent = navNombreDe(r);
+  if (que) que.textContent = navQueHace(r);
+}
+
+/** Marca que hay cambios sin publicar, y lo dice — si no, se pierden al salir. */
+function navSucio(v) {
+  navState.sucio = v;
+  const aviso = document.getElementById('nav-sucio');
+  if (aviso) aviso.classList.toggle('hidden', !v);
+  const btn = document.getElementById('nav-publicar');
+  if (btn) btn.classList.toggle('nav-pendiente', !!v);
 }
 
 function navSubir(i, k) {
@@ -200,6 +258,34 @@ function navSubir(i, k) {
   inp.click();
 }
 
+/**
+ * Trae a reglas lo que hoy está configurado a mano en el theme. Es el paso
+ * previo a apagar los sistemas viejos: sin esto, apagarlos borraría fotos y
+ * miniaturas que hay que rehacer de memoria.
+ * No publica solo: deja las reglas cargadas para revisar.
+ */
+async function navImportar() {
+  if (navState.reglas.length && !confirm(
+    'Voy a leer el menú de tu tienda y agregar una regla por cada globito, miniatura y foto '
+    + 'que ya tengas puestos. Las reglas que ya cargaste se conservan. ¿Sigo?')) return;
+  try {
+    const r = await api('/api/nav/menu/importar');
+    if (!r.ok) { toast(r.error || 'No se pudo leer la tienda.', 'error'); return; }
+    if (!r.reglas.length) { toast('No encontré nada configurado para importar.', 'ok'); return; }
+
+    // No se pisan las reglas que ya existen para el mismo ítem: lo cargado a
+    // mano gana sobre lo que se lee de la tienda.
+    const yaEstan = new Set(navState.reglas.map((x) => x.match).filter(Boolean));
+    const nuevas = r.reglas.filter((x) => !yaEstan.has(x.match));
+    navState.reglas = navState.reglas.concat(nuevas);
+    navRender();
+    navSucio(true);
+    const s = r.resumen;
+    toast(`Importadas ${nuevas.length}: ${s.badges} globitos, ${s.miniaturas} miniaturas, `
+      + `${s.placas} foto(s) de desplegable. Revisá y publicá.`, 'ok');
+  } catch (err) { toast(err.message, 'error'); }
+}
+
 async function navPublicar() {
   try {
     const r = await api('/api/nav/menu', {
@@ -208,6 +294,7 @@ async function navPublicar() {
       body: JSON.stringify({ reglas: navState.reglas }),
     });
     navState.reglas = r.config.reglas;
+    navSucio(false);
     navRender();
     toast('Publicado. En la tienda se ve al recargar.', 'ok');
   } catch (err) { toast(err.message, 'error'); }
@@ -220,56 +307,127 @@ async function navPublicar() {
  * aplica lo mismo que aplica la tienda, para que lo que se ve acá sea lo que
  * va a pasar allá.
  */
+/**
+ * VISTA PREVIA — el menú real de la tienda con las reglas puestas.
+ *
+ * Antes dibujaba cuatro ítems inventados en una fila. Servía para ver un color
+ * y nada más: no se veía cómo queda el globito AL LADO de los ítems que
+ * realmente están al lado, ni cómo entra la placa en el desplegable de esa
+ * categoría, ni qué pasa en el celular. Ahora usa la estructura real
+ * (navState.menu, leída del HTML de la tienda) y tiene las dos vistas.
+ */
 function navPrevia() {
   const caja = document.getElementById('nav-previa');
   if (!caja) return;
 
-  const activas = navState.reglas.filter((r) => r.enabled !== false && !r.hide);
-  const base = ['Inicio', 'Urbano', 'Industria', 'Calzado'];
-  const propios = activas.map((r) => {
-    const it = navState.items.find((o) => o.value === r.match);
-    return { nombre: it ? it.label : (r.match_text || 'Ítem'), r };
+  if (!navState.menu.length) {
+    caja.innerHTML = '<p class="np-vacio">No pude leer el menú de la tienda para la vista previa. '
+      + 'Las reglas igual se publican bien.</p>';
+    return;
+  }
+
+  const esCel = navState.vista === 'mobile';
+  caja.className = 'nav-previa-caja' + (esCel ? ' np-cel' : '');
+  caja.innerHTML = `
+    <div class="np-switch">
+      <button class="np-tab ${!esCel ? 'on' : ''}" onclick="navVista('desktop')">Computadora</button>
+      <button class="np-tab ${esCel ? 'on' : ''}" onclick="navVista('mobile')">Celular</button>
+      ${!esCel ? '<span class="np-ayuda">Tocá un ítem con flechita para abrir su desplegable</span>' : ''}
+    </div>
+    ${esCel ? navPreviaCel() : navPreviaDesk()}`;
+}
+
+function navVista(v) { navState.vista = v; navState.abierto = null; navPrevia(); }
+function navAbrirPrevia(u) { navState.abierto = navState.abierto === u ? null : u; navPrevia(); }
+
+/** La regla que aplica a un ítem, respetando el filtro de dispositivo. */
+function navReglaDe(url, nombre) {
+  const cel = navState.vista === 'mobile';
+  return navState.reglas.find((r) => {
+    if (r.enabled === false) return false;
+    if (r.device === 'mobile' && !cel) return false;
+    if (r.device === 'desktop' && cel) return false;
+    return (r.match && r.match === url)
+      || (!r.match && r.match_text && r.match_text.toLowerCase() === String(nombre).toLowerCase());
   });
+}
 
-  const html = base.map((n) => `<span class="np-item">${esc(n)}</span>`).join('')
-    + propios.map(({ nombre, r }) => {
-      const est = [];
-      if (r.color) est.push(`color:${esc(r.color)}`);
-      if (r.bg) est.push(`background:${esc(r.bg)};padding:4px 10px;border-radius:4px`);
-      if (r.font) { est.push(`font-family:'${esc(r.font)}',Inter,sans-serif`); navPedirFuente(r.font); }
-      const cuerpo = r.image
-        ? `<img src="${esc(r.image)}" alt="" style="height:${Number(r.image_h) || 22}px;vertical-align:middle">`
-        : (r.thumb
-          ? `<img class="np-thumb" src="${esc(r.thumb)}" alt="">${esc(nombre)}`
-          : esc(nombre));
-      const badge = r.badge_text
-        ? `<span class="np-badge" data-fx="${esc(r.badge_style || 'sale')}">${esc(r.badge_text)}</span>` : '';
-      return `<span class="np-item" style="${est.join(';')}">${cuerpo}${badge}</span>`;
-    }).join('');
+/** Un ítem del menú con su regla aplicada, igual que lo hace el theme. */
+function navItemHtml(it, { chico = false } = {}) {
+  const r = navReglaDe(it.url, it.nombre);
+  if (r && r.hide) return '';
+  const est = [];
+  if (r && r.color) est.push(`color:${esc(r.color)}`);
+  if (r && r.bg) est.push(`background:${esc(r.bg)};padding:4px 10px;border-radius:4px;color:${navContraste(r.bg)}`);
+  if (r && r.font) { est.push(`font-family:'${esc(r.font)}',Inter,sans-serif`); navPedirFuente(r.font); }
 
-  const escondidos = navState.reglas.filter((r) => r.enabled !== false && r.hide).length;
+  let cuerpo;
+  if (r && r.image) {
+    cuerpo = `<img src="${esc(r.image)}" alt="" style="height:${Number(r.image_h) || 22}px;vertical-align:middle">`;
+  } else if (r && r.thumb) {
+    cuerpo = `<img class="np-thumb" src="${esc(r.thumb)}" alt="">${esc(it.nombre)}`;
+  } else {
+    cuerpo = esc(it.nombre);
+  }
+  const badge = r && r.badge_text
+    ? `<span class="np-badge" data-fx="${esc(r.badge_style || 'sale')}">${esc(r.badge_text)}</span>` : '';
+  return `<span class="np-item ${chico ? 'np-sub' : ''}" style="${est.join(';')}">${cuerpo}${badge}</span>`;
+}
 
-  // Las placas del desplegable se muestran aparte: en la tienda sólo se ven al
-  // pasar el mouse por su ítem, así que en la previa no pueden estar en la fila.
-  const conPlaca = activas.filter((r) => r.mega_image);
-  const placas = conPlaca.length ? `
-    <div class="np-placas">
-      <p class="np-placas-tit">Al abrir el desplegable (sólo en computadora)</p>
-      <div class="np-placas-fila">${conPlaca.map((r) => {
-        const it = navState.items.find((o) => o.value === r.match);
-        return `<a class="np-placa">
-          <img src="${esc(r.mega_image)}" alt="">
-          <span class="np-placa-body">
-            ${r.mega_kicker ? `<span class="np-placa-kicker">${esc(r.mega_kicker)}</span>` : ''}
-            <span class="np-placa-tit">${esc(r.mega_title || (it ? it.label : 'Título'))}</span>
-            ${r.mega_text ? `<span class="np-placa-txt">${esc(r.mega_text)}</span>` : ''}
-            ${r.mega_cta ? `<span class="np-placa-cta">${esc(r.mega_cta)} →</span>` : ''}
-          </span></a>`;
-      }).join('')}</div>
-    </div>` : '';
+/** Blanco o negro según el fondo, igual que en la tienda. */
+function navContraste(hex) {
+  let h = String(hex).replace('#', '');
+  if (h.length === 3) h = h[0] + h[0] + h[1] + h[1] + h[2] + h[2];
+  const n = parseInt(h, 16);
+  const l = 0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255);
+  return l > 150 ? '#111' : '#fff';
+}
 
-  caja.innerHTML = `<div class="np-menu">${html}</div>` + placas
-    + (escondidos ? `<p class="np-nota">Además se esconden ${escondidos} ítem(s).</p>` : '');
+function navPreviaDesk() {
+  const fila = navState.menu.map((it) => {
+    const item = navItemHtml(it);
+    if (!item) return '';
+    const tiene = it.hijos.length > 0;
+    const abierto = navState.abierto === it.url;
+    return `<button class="np-nav-btn ${abierto ? 'on' : ''}" ${tiene ? `onclick="navAbrirPrevia('${esc(it.url)}')"` : 'disabled'}>
+      ${item}${tiene ? '<span class="np-chev"></span>' : ''}</button>`;
+  }).join('');
+
+  const abierta = navState.menu.find((it) => it.url === navState.abierto);
+  let desplegable = '';
+  if (abierta) {
+    const r = navReglaDe(abierta.url, abierta.nombre);
+    const subs = abierta.hijos.map((h) => navItemHtml(h, { chico: true })).filter(Boolean).join('');
+    const placa = r && r.mega_image ? `
+      <div class="np-placa-caja"><a class="np-placa">
+        <img src="${esc(r.mega_image)}" alt="">
+        <span class="np-placa-body">
+          ${r.mega_kicker ? `<span class="np-placa-kicker">${esc(r.mega_kicker)}</span>` : ''}
+          <span class="np-placa-tit">${esc(r.mega_title || abierta.nombre)}</span>
+          ${r.mega_text ? `<span class="np-placa-txt">${esc(r.mega_text)}</span>` : ''}
+          ${r.mega_cta ? `<span class="np-placa-cta">${esc(r.mega_cta)} →</span>` : ''}
+        </span></a></div>` : '';
+    desplegable = `<div class="np-drop"><div class="np-drop-subs">${subs || '<span class="np-vacio">Sin subcategorías</span>'}</div>${placa}</div>`;
+  }
+  return `<div class="np-barra">${fila}</div>${desplegable}`;
+}
+
+function navPreviaCel() {
+  const filas = navState.menu.map((it) => {
+    const item = navItemHtml(it);
+    if (!item) return '';
+    const tiene = it.hijos.length > 0;
+    const abierto = navState.abierto === it.url;
+    const subs = abierto
+      ? `<div class="np-cel-subs">${it.hijos.map((h) => {
+          const x = navItemHtml(h, { chico: true });
+          return x ? `<div class="np-cel-sub">${x}</div>` : '';
+        }).join('')}</div>` : '';
+    return `<div class="np-cel-fila ${abierto ? 'on' : ''}" ${tiene ? `onclick="navAbrirPrevia('${esc(it.url)}')"` : ''}>
+        ${item}${tiene ? '<span class="np-chev"></span>' : ''}
+      </div>${subs}`;
+  }).join('');
+  return `<div class="np-cel-caja"><div class="np-cel-top">Menú</div>${filas}</div>`;
 }
 
 const navFuentesPedidas = {};

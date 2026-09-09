@@ -30,11 +30,13 @@
  * ========================================================================= */
 
 const { getSetting, setSetting } = require('./settings');
+const config = require('./config');
 const storeCategories = require('./storeCategories');
 
 const SETTING_KEY = 'nav_menu_style';
 const CACHE_TTL_MS = 5 * 60 * 1000;
 let cache = { at: 0, payload: null };
+let cacheMenu = { at: 0, datos: null };
 
 /* Tipografías para el ítem destacado. Son pocas a propósito: cada una que se usa
    es una webfont más que baja el visitante, y en un menú entran dos o tres
@@ -300,11 +302,268 @@ const GRUPOS = [
   { id: 'fotos', label: 'Fotos (miniatura y desplegable)' },
 ];
 
+/* =========================================================================
+ * IMPORTADOR — pasa a reglas lo que YA está configurado en el theme.
+ *
+ * Sin esto, apagar los sistemas viejos (mega_menu_cat_1..4 y subcat_visual_1..8)
+ * le borraría al dueño fotos y miniaturas que cargó a mano, y tendría que
+ * rehacerlas de memoria. Acá se leen del HTML de la tienda EN VIVO — el mismo
+ * truco que usa storeHome.js para leer el orden del home, porque el panel de
+ * diseño de Tiendanube no tiene API — y se arman las reglas equivalentes.
+ *
+ * Las fotos NO se re-suben: se apunta a la URL que ya sirve el theme, que sigue
+ * andando. O sea, importar no cuesta ni una subida.
+ * ========================================================================= */
+
+function atributo(tag, nombre) {
+  const m = new RegExp(`${nombre}\\s*=\\s*["']([^"']*)["']`, 'i').exec(tag || '');
+  return m ? m[1] : '';
+}
+
+/* El theme sirve sus imágenes con protocolo relativo (//acdn-us.mitiendanube…).
+   Rechazarlas por no empezar con http fue un bug real: el importador encontraba
+   los badges y CERO miniaturas, teniendo 83 en la página. */
+function absolutizar(src) {
+  const u = String(src || '').trim();
+  if (!u) return '';
+  if (u.startsWith('//')) return 'https:' + u;
+  return /^https?:\/\//i.test(u) ? u : '';
+}
+
+function textoPlano(html) {
+  return String(html || '').replace(/<[^>]*>/g, ' ').replace(/&nbsp;/g, ' ')
+    .replace(/&amp;/g, '&').replace(/&quot;/g, '"').replace(/&#39;/g, "'")
+    .replace(/&lt;/g, '<').replace(/&gt;/g, '>')
+    .replace(/\s+/g, ' ').trim();
+}
+
+/**
+ * Lee el menú de la tienda y devuelve las reglas que reproducirían lo que hoy
+ * se ve. No guarda nada: el dueño revisa y recién ahí publica.
+ */
+async function importarDelTheme() {
+  const url = config.storeUrl;
+  let html = '';
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
+    const res = await fetch(url, {
+      redirect: 'follow',
+      signal: ctrl.signal,
+      headers: { 'User-Agent': config.tiendanube.userAgent, 'Accept-Language': 'es-AR,es' },
+    });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    html = await res.text();
+  } catch (err) {
+    return { ok: false, error: `No se pudo leer la tienda: ${err.message}`, reglas: [] };
+  }
+
+  /* ⚠️ FUERA EL CSS Y EL JS ANTES DE BUSCAR NADA.
+     El theme trae sus estilos en <style> dentro de la misma página, y ahí
+     aparecen literales `.nav-mega-visual`, `.nav-list-link`, `.nav-subitem-img`…
+     Buscándolos sobre el HTML crudo, lo primero que se encuentra son REGLAS,
+     no elementos: por eso el importador daba 38 placas donde hay 1, y no
+     encontraba a qué ítem pertenecía (el "link más cercano hacia atrás" era un
+     selector CSS). Sacarlos de entrada arregla las tres búsquedas de una. */
+  html = html.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+             .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ');
+
+  const porItem = new Map();   // url normalizada -> regla en armado
+  const toma = (u, nombre) => {
+    const k = normalizarUrl(u);
+    if (!k) return null;
+    if (!porItem.has(k)) {
+      porItem.set(k, { match: k, _nombre: nombre || k, device: 'todos', badge_style: 'sale', image_h: 22, enabled: true });
+    }
+    return porItem.get(k);
+  };
+
+  /* --- 1) Los <li> del menú, uno por uno ------------------------------- */
+  const items = html.split(/<li\b/i).slice(1);
+  for (const trozo of items) {
+    const linkTag = /<a\b[^>]*class=["'][^"']*nav-list-link[^"']*["'][^>]*>/i.exec(trozo);
+    if (!linkTag) continue;
+    const href = atributo(linkTag[0], 'href');
+    if (!href) continue;
+
+    // Nombre del ítem: lo que hay entre el <a> y su cierre, sin etiquetas.
+    const cuerpo = trozo.slice(linkTag.index + linkTag[0].length);
+    const nombre = textoPlano(cuerpo.split('</a>')[0]).replace(/\s*(-?\d+%|hasta .*)$/i, '').trim();
+
+    // 1.a Badge que hoy pinta el theme por nombre (looks / combos / temporada).
+    const badge = /<span[^>]*class=["'][^"']*nav-savings-badge([^"']*)["'][^>]*>([^<]+)</i.exec(cuerpo.split('</a>')[0]);
+    if (badge) {
+      const r = toma(href, nombre);
+      if (r) {
+        r.badge_text = textoPlano(badge[2]).slice(0, 24);
+        r.badge_style = /--sale/.test(badge[1]) ? 'sale' : 'negro';
+      }
+    }
+
+    // 1.b Miniatura del subítem (subcat_visual_1..8).
+    const thumb = /<img[^>]*class=["'][^"']*nav-subitem-img[^"']*["'][^>]*>/i.exec(cuerpo.split('</a>')[0]);
+    if (thumb) {
+      const r = toma(href, nombre);
+      const src = absolutizar(atributo(thumb[0], 'src'));
+      if (r && src) r.thumb = src;
+    }
+  }
+
+  /* --- 2) Las placas del mega menú (mega_menu_cat_1..4) ----------------- */
+  // Cada .nav-mega-visual vive dentro del <li> de su categoría, así que se
+  // busca hacia atrás el link de nivel 1 al que pertenece.
+  /* ⚠️ Se busca el ATRIBUTO class de un tag, no el texto "nav-mega-visual"
+     suelto: el theme trae sus estilos en un <style> dentro de la misma página,
+     así que un indexOf() plano encontraba primero las REGLAS CSS y salía con
+     las manos vacías. */
+  const marcas = [...html.matchAll(/<div[^>]*class=["'][^"']*nav-mega-visual[^"']*["'][^>]*>/gi)];
+  for (const marca of marcas) {
+    const i = marca.index;
+    const bloque = html.slice(i, i + 2600);
+    const img = /<img[^>]*>/i.exec(bloque);
+    const src = img ? absolutizar(atributo(img[0], 'src')) : '';
+    if (!src) continue;
+
+    /* ⚠️ La placa pertenece al ítem de NIVEL 1, y el link más cercano hacia
+       atrás NO es ese: es el último SUBÍTEM de la lista que la placa tiene al
+       lado (daba /mayorista/merchandising/insumos en vez de /mayorista).
+       El corte está en `js-desktop-dropdown`, que abre el desplegable: el link
+       de nivel 1 es el último que hay ANTES de esa apertura. */
+    /* Sin ventana fija: medido en la tienda real, el desplegable abre 40.583
+       caracteres antes que la placa (la lista de subcategorías es enorme).
+       Con una ventana de 12 k la placa terminaba colgada del último subítem,
+       /mayorista/merchandising/insumos en vez de /mayorista. */
+    const antes = html.slice(0, i);
+    const corte = antes.lastIndexOf('js-desktop-dropdown');
+    const zona = corte > 0 ? antes.slice(0, corte) : antes;
+    const links = [...zona.matchAll(/<a\b[^>]*class=["'][^"']*nav-list-link[^"']*["'][^>]*>/gi)];
+    const ultimo = links.length ? links[links.length - 1][0] : null;
+    const href = ultimo ? atributo(ultimo, 'href') : '';
+    const r = toma(href, '');
+    if (!r) continue;
+
+    r.mega_image = src;
+    r.mega_title = atributo(img[0], 'alt') || r._nombre || '';
+    const promo = /<p[^>]*class=["'][^"']*mega-promo-text[^"']*["'][^>]*>([^<]*)</i.exec(bloque);
+    if (promo) r.mega_text = textoPlano(promo[1]).slice(0, 120);
+    const enlace = /<a[^>]*class=["'][^"']*mega-visual-link[^"']*["'][^>]*>/i.exec(bloque);
+    // El href viene escapado en el HTML (&amp;): sin desescapar, un link de
+    // WhatsApp con varios parámetros queda roto al volver a publicarlo.
+    if (enlace) r.mega_url = atributo(enlace[0], 'href').replace(/&amp;/g, '&');
+  }
+
+  const reglas = [...porItem.values()]
+    .filter((r) => r.badge_text || r.thumb || r.mega_image)
+    .map(({ _nombre, ...r }) => r);
+
+  return {
+    ok: true,
+    reglas,
+    resumen: {
+      total: reglas.length,
+      badges: reglas.filter((r) => r.badge_text).length,
+      miniaturas: reglas.filter((r) => r.thumb).length,
+      placas: reglas.filter((r) => r.mega_image).length,
+    },
+  };
+}
+
+/* =========================================================================
+ * ESTRUCTURA REAL DEL MENÚ — para que la vista previa no invente.
+ *
+ * La previa mostraba cuatro ítems de mentira ("Inicio, Urbano, Industria,
+ * Calzado"). Servía para ver un color, no para decidir: no se veía cómo queda
+ * el globito al lado de los ítems que REALMENTE están al lado, ni cómo entra
+ * la placa en el desplegable de esa categoría, ni qué pasa en el celular.
+ * Esto lee el menú de la tienda en vivo y devuelve el árbol como está.
+ * ========================================================================= */
+async function estructuraDelMenu({ force = false } = {}) {
+  if (!force && cacheMenu.datos && Date.now() - cacheMenu.at < 30 * 60 * 1000) return cacheMenu.datos;
+
+  let html = '';
+  try {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => ctrl.abort(), 15000);
+    const res = await fetch(config.storeUrl, {
+      redirect: 'follow',
+      signal: ctrl.signal,
+      headers: { 'User-Agent': config.tiendanube.userAgent, 'Accept-Language': 'es-AR,es' },
+    });
+    clearTimeout(timer);
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    html = await res.text();
+  } catch (err) {
+    return { ok: false, error: err.message, items: [] };
+  }
+
+  // Mismo saneo que el importador: sin esto se leen selectores CSS como si
+  // fueran elementos.
+  html = html.replace(/<style\b[^>]*>[\s\S]*?<\/style>/gi, ' ')
+             .replace(/<script\b[^>]*>[\s\S]*?<\/script>/gi, ' ');
+
+  // El menú de escritorio es el <ul> con los ítems de nivel 1. Se lo ubica por
+  // la clase que el theme le pone a cada uno.
+  const items = [];
+  const vistos = new Set();
+  const bloques = [...html.matchAll(/<li\b[^>]*class=["']([^"']*)["'][^>]*>/gi)];
+
+  for (const b of bloques) {
+    const clases = b[1];
+    if (!/js-nav-main-item|nav-main-item/.test(clases)) continue;   // sólo nivel 1
+
+    const desde = b.index;
+    // Hasta el próximo ítem de nivel 1, o 60 k (un desplegable grande mide ~40 k).
+    const sig = bloques.find((x) => x.index > desde && /js-nav-main-item|nav-main-item/.test(x[1]));
+    let trozo = html.slice(desde, sig ? sig.index : Math.min(html.length, desde + 60000));
+    /* El ÚLTIMO ítem no tiene un "siguiente" que lo corte, así que se llevaba
+       puesto el menú de celular entero (Favoritos aparecía con los hijos de
+       SALE INVIERNO). El menú mobile empieza en la primera .mobile-nav-row:
+       ahí se corta. */
+    const finMobile = trozo.indexOf('mobile-nav-row');
+    if (finMobile > 0) trozo = trozo.slice(0, finMobile);
+
+    const links = [...trozo.matchAll(/<a\b[^>]*class=["'][^"']*nav-list-link[^"']*["'][^>]*>([\s\S]*?)<\/a>/gi)];
+    if (!links.length) continue;
+
+    const padre = links[0];
+    const url = normalizarUrl(atributo(padre[0], 'href'));
+    const nombre = textoPlano(padre[1]).replace(/\s*(-?\d+%|hasta .*)$/i, '').trim();
+    if (!nombre || vistos.has(url + nombre)) continue;
+    vistos.add(url + nombre);
+
+    const hijos = links.slice(1).map((l) => ({
+      nombre: textoPlano(l[1]).replace(/\s*(-?\d+%|hasta .*)$/i, '').trim(),
+      url: normalizarUrl(atributo(l[0], 'href')),
+    })).filter((h) => h.nombre && h.url
+      // "Ver todo en X" es la fila que agrega el theme arriba de cada
+      // desplegable de celular: es navegación, no una subcategoría.
+      && !/^ver todo/i.test(h.nombre)
+      && h.url !== url);
+
+    // Los subítems se repiten entre el menú de escritorio y el de celular.
+    const unicos = [];
+    const yaVi = new Set();
+    for (const h of hijos) {
+      if (yaVi.has(h.url)) continue;
+      yaVi.add(h.url);
+      unicos.push(h);
+    }
+
+    items.push({ nombre, url, hijos: unicos.slice(0, 14) });
+    if (items.length >= 12) break;
+  }
+
+  const datos = { ok: true, items, leido: new Date().toISOString() };
+  cacheMenu = { at: Date.now(), datos };
+  return datos;
+}
+
 function getCatalog() {
   return { fields: REGLA_FIELDS, fuentes: FUENTES, badges: ESTILOS_BADGE, grupos: GRUPOS };
 }
 
 module.exports = {
-  getCatalog, getConfig, saveConfig, validateConfig, buildPayload, getStyle,
+  getCatalog, getConfig, saveConfig, validateConfig, buildPayload, getStyle, importarDelTheme, estructuraDelMenu,
   opcionesDeItem, normalizarUrl, normalizarTexto, SETTING_KEY,
 };

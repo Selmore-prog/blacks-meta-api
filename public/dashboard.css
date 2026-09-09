@@ -2348,17 +2348,70 @@ button .cost-tag { margin-left: 8px; }
 }
 .np-nota { margin: 12px 0 0; font-size: 12.5px; color: #6a6a75; }
 
-.np-placas { margin-top: 18px; border-top: 1px solid #e8e6e2; padding-top: 14px; }
-.np-placas-tit {
-  margin: 0 0 10px; font-size: 11px; font-weight: 700;
-  letter-spacing: .1em; text-transform: uppercase; color: #9a958c;
+/* --- Vista previa: el menú real, en computadora y en celular ------------- */
+.np-switch { display: flex; gap: 6px; align-items: center; margin-bottom: 14px; }
+.np-tab {
+  background: #f1efec; border: 1px solid #e0ddd7; color: #55524c;
+  border-radius: 999px; padding: 6px 13px; font-size: 12px; font-weight: 700; cursor: pointer;
 }
-.np-placas-fila { display: flex; gap: 12px; flex-wrap: wrap; }
-/* Misma proporción y mismo tratamiento que la placa real del desplegable
-   (.nav-fx-placa en el theme), a escala: la previa tiene que mentir lo menos
-   posible sobre cómo va a quedar. */
+.np-tab.on { background: #16150f; border-color: #16150f; color: #fff; }
+.np-ayuda { font-size: 11.5px; color: #9a958c; margin-left: 4px; }
+
+.np-barra { display: flex; flex-wrap: wrap; gap: 4px 6px; align-items: center; }
+.np-nav-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: none; border: 1px solid transparent; border-radius: 6px;
+  padding: 6px 8px; cursor: pointer; font: inherit;
+}
+.np-nav-btn:disabled { cursor: default; }
+.np-nav-btn:not(:disabled):hover { border-color: #e0ddd7; }
+.np-nav-btn.on { border-color: #16150f; }
+.np-chev {
+  width: 0; height: 0; flex: none;
+  border-left: 4px solid transparent; border-right: 4px solid transparent;
+  border-top: 5px solid #9a958c;
+}
+.np-nav-btn.on .np-chev { transform: rotate(180deg); }
+
+/* El desplegable: subcategorías a la izquierda, placa a la derecha — el mismo
+   reparto que hace el theme en .nav-mega-container. */
+.np-drop {
+  display: flex; gap: 26px; align-items: flex-start;
+  margin-top: 12px; padding: 18px; border-radius: 12px;
+  background: #f7f6f4; border: 1px solid #e8e6e2;
+}
+.np-drop-subs { flex: 1; display: flex; flex-wrap: wrap; gap: 10px 22px; align-content: flex-start; }
+.np-sub { font-weight: 500; font-size: 13px; }
+.np-placa-caja { flex: none; }
+.np-vacio { color: #9a958c; font-size: 12.5px; }
+
+/* Celular: la columna del menú hamburguesa, al ancho de un teléfono. */
+.np-cel-caja {
+  max-width: 330px; border: 1px solid #e8e6e2; border-radius: 12px; overflow: hidden; background: #fff;
+}
+.np-cel-top {
+  background: #16150f; color: #fff; padding: 11px 15px;
+  font-size: 11px; font-weight: 700; letter-spacing: .12em; text-transform: uppercase;
+}
+.np-cel-fila {
+  display: flex; align-items: center; justify-content: space-between; gap: 10px;
+  padding: 13px 15px; border-bottom: 1px solid #f0eeea; cursor: pointer;
+}
+.np-cel-fila.on { background: #faf9f7; }
+.np-cel-subs { background: #f7f6f4; border-bottom: 1px solid #f0eeea; }
+.np-cel-sub { padding: 10px 15px 10px 28px; border-bottom: 1px solid #efedea; }
+.np-cel-sub:last-child { border-bottom: 0; }
+
+.np-thumb {
+  width: 22px; height: 22px; object-fit: cover; border-radius: 5px;
+  vertical-align: middle; margin-right: 7px;
+}
+.np-nota { margin: 12px 0 0; font-size: 12.5px; color: #6a6a75; }
+
+/* La placa, con el mismo tratamiento que .nav-fx-placa del theme a escala: la
+   previa tiene que mentir lo menos posible sobre cómo va a quedar. */
 .np-placa {
-  position: relative; width: 150px; aspect-ratio: 3/4;
+  position: relative; width: 172px; aspect-ratio: 3/4;
   border-radius: 10px; overflow: hidden; display: block; background: #eceae6;
 }
 .np-placa img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
@@ -2366,15 +2419,15 @@ button .cost-tag { margin-left: 8px; }
   content: ""; position: absolute; inset: 0;
   background: linear-gradient(to top, rgba(0,0,0,.82) 4%, rgba(0,0,0,.28) 46%, rgba(0,0,0,.02) 74%);
 }
-.np-placa-body { position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; padding: 10px 11px 12px; }
+.np-placa-body { position: absolute; left: 0; right: 0; bottom: 0; z-index: 1; padding: 11px 12px 13px; }
 .np-placa-kicker {
   display: inline-block; background: #FF6B00; color: #fff; border-radius: 2px;
   font-size: 8px; font-weight: 800; letter-spacing: .1em; text-transform: uppercase;
   padding: 2px 5px; margin-bottom: 5px;
 }
-.np-placa-tit { display: block; color: #fff; font-size: 13px; font-weight: 800; line-height: 1.15; }
-.np-placa-txt { display: block; color: rgba(255,255,255,.85); font-size: 10px; margin-top: 4px; line-height: 1.35; }
+.np-placa-tit { display: block; color: #fff; font-size: 14px; font-weight: 800; line-height: 1.15; }
+.np-placa-txt { display: block; color: rgba(255,255,255,.85); font-size: 10.5px; margin-top: 4px; line-height: 1.35; }
 .np-placa-cta {
-  display: inline-block; margin-top: 8px; background: #fff; color: #111;
-  border-radius: 999px; padding: 5px 10px; font-size: 9.5px; font-weight: 700;
+  display: inline-block; margin-top: 9px; background: #fff; color: #111;
+  border-radius: 999px; padding: 5px 10px; font-size: 10px; font-weight: 700;
 }
