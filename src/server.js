@@ -33,6 +33,7 @@ const homeBlocks = require('./homeBlocks');
 const navMenu = require('./navMenu');
 const navAssets = require('./navAssets');
 const benefits = require('./benefits');
+const metaPausa = require('./metaPausa');
 const homeBlocksAssets = require('./homeBlocksAssets');
 const homePlan = require('./homePlan');
 const homeCopy = require('./homeCopy');
@@ -1642,12 +1643,19 @@ app.post('/api/catalog/sync', wrap(async (req, res) => {
   const { syncCatalogAvailability } = require('./catalogSync');
   const body = req.body || {};
   const only = Array.isArray(body.only) ? body.only.map(String).filter(Boolean) : null;
-  res.json(await syncCatalogAvailability({ apply: Boolean(body.apply), only }));
+  const aplicar = Boolean(body.apply);
+  // La PREVIA (apply:false) sigue andando aunque esté pausado: sólo lee, y es
+  // lo que deja ver qué haría si se volviera a prender. Se frena la escritura.
+  if (aplicar && await metaPausa.estaPausado('sync')) {
+    return res.json(metaPausa.respuestaPausada('sync'));
+  }
+  res.json(await syncCatalogAvailability({ apply: aplicar, only }));
 }));
 
 // Versión cron: corre todos los días después del sync de productos (06:45 ARG),
 // así el catálogo de anuncios amanece alineado con el stock del día.
 app.post('/api/cron/sync-catalog', authCron, wrap(async (req, res) => {
+  if (await metaPausa.estaPausado('sync')) return res.json(metaPausa.respuestaPausada('sync'));
   const { syncCatalogAvailability } = require('./catalogSync');
   res.json({ ok: true, ...(await syncCatalogAvailability({ apply: true })) });
 }));
@@ -1657,8 +1665,12 @@ app.post('/api/cron/sync-catalog', authCron, wrap(async (req, res) => {
  * rota, en temporada, un item por producto). NO toca el catálogo: sólo
  * escribe la lista del conjunto. apply=false es un dry-run completo.        */
 app.post('/api/catalog/ad-set', wrap(async (req, res) => {
+  const aplicar = Boolean(req.body && req.body.apply);
+  if (aplicar && await metaPausa.estaPausado('ad_set')) {
+    return res.json(metaPausa.respuestaPausada('ad_set'));
+  }
   const { buildAdSet } = require('./adCatalogSet');
-  res.json(await buildAdSet({ apply: Boolean(req.body && req.body.apply) }));
+  res.json(await buildAdSet({ apply: aplicar }));
 }));
 
 // Último cálculo guardado, para abrir el panel sin esperar los 20-40 s que
@@ -1685,8 +1697,20 @@ app.get('/api/catalog/ad-set', wrap(async (req, res) => {
 // anuncios no debe cambiar cada hora — con la histéresis del módulo, rotar
 // cuatro veces por día es suficiente y no desordena la entrega de Meta.
 app.post('/api/cron/ad-set', authCron, wrap(async (req, res) => {
+  if (await metaPausa.estaPausado('ad_set')) return res.json(metaPausa.respuestaPausada('ad_set'));
   const { buildAdSet } = require('./adCatalogSet');
   res.json({ ok: true, ...(await buildAdSet({ apply: true })) });
+}));
+
+/* Prender y apagar lo automático hacia Meta. Es una PAUSA, no un borrado: el
+   código de los dos módulos queda intacto y volver a prenderlos es un clic. */
+app.get('/api/meta/pausa', wrap(async (req, res) => {
+  res.json(await metaPausa.estado({ force: true }));
+}));
+
+app.post('/api/meta/pausa', wrap(async (req, res) => {
+  const b = req.body || {};
+  res.json({ ok: true, ...(await metaPausa.guardar(b.pausados)) });
 }));
 
 // Atribución por pieza: sesiones/compras de Google Analytics cuyas campañas empiezan

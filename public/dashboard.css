@@ -2577,3 +2577,13 @@ button .cost-tag { margin-left: 8px; }
   background-size: 14px 14px; background-position: 0 0, 7px 7px;
   padding-left: 0; padding-right: 0;
 }
+
+/* --- Pausa de lo automático hacia Meta ---------------------------------- */
+.mp-caja { margin-top: 16px; padding: 14px 16px; background: #17171b; border: 1px solid #2a2a30; border-radius: 8px; }
+.mp-caja h4 { margin: 0 0 4px; font-size: 13px; color: #c8c8d2; }
+.mp-fila { display: flex; align-items: center; gap: 10px; padding: 7px 0; font-size: 13px; }
+.mp-fila + .mp-fila { border-top: 1px solid #232329; }
+.mp-nombre { flex: 1; }
+.mp-estado { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; }
+.mp-on  { background: rgba(47,125,79,.18); color: #6FBF8E; }
+.mp-off { background: rgba(255,107,0,.15); color: #FFB27A; }

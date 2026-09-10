@@ -3617,12 +3617,14 @@ async function loadAdsSummary() {
           <button class="btn-ghost btn-sm" id="ad-set-btn">${icon('tag')} Conjunto de anuncios</button>
           <span class="hint" style="margin:0;">Analiza campañas, anuncios y catálogos (cruzado con tu stock real) y detecta lo que la agencia no ve.</span>
         </div>
+        <div id="meta-pausa"></div>
         <div id="ads-audit-out"></div>
       </div>`;
     const btn = el.querySelector('#ads-audit-btn');
     btn.addEventListener('click', () => runAdsAudit(btn));
     el.querySelector('#cat-sync-btn').addEventListener('click', (e) => openCatalogSync(e.currentTarget));
     el.querySelector('#ad-set-btn').addEventListener('click', (e) => openAdSet(e.currentTarget));
+    renderMetaPausa();
     // Si ya hay una auditoría hecha en esta sesión del server, mostrarla al entrar.
     try {
       const cached = await api('/api/ads/audit');
@@ -3644,6 +3646,73 @@ async function loadAdsSummary() {
  * y esa fila se marca en naranja, con el saldo "quedan N de M talles" recalculado
  * en vivo a medida que se tilda o destilda.
  */
+/* =========================================================================
+ * LO AUTOMÁTICO HACIA META — prender y pausar.
+ *
+ * Son los dos procesos que el motor le escribe SOLO a Meta: el conjunto curado
+ * de anuncios (cada 6 h) y el sincronizador de stock del catálogo (diario).
+ * Sebastián pidió pausarlos en sep-2026. Es una PAUSA, no un borrado: el código
+ * queda entero y volver a prenderlos es un clic.
+ *
+ * Las vistas previas de los dos botones de arriba siguen andando pausadas: sólo
+ * LEEN, y son las que dejan ver qué haría cada uno si se prendiera.
+ * ========================================================================= */
+async function renderMetaPausa() {
+  const box = document.getElementById('meta-pausa');
+  if (!box) return;
+  let d;
+  try {
+    d = await api('/api/meta/pausa');
+  } catch (e) {
+    box.innerHTML = '';
+    return;
+  }
+  const filas = Object.entries(d.procesos || {}).map(([id, label]) => {
+    const pausado = (d.pausados || []).includes(id);
+    return `<label class="mp-fila">
+      <input type="checkbox" ${pausado ? '' : 'checked'} onchange="toggleMetaPausa('${id}', !this.checked)">
+      <span class="mp-nombre">${esc(label)}</span>
+      <span class="mp-estado ${pausado ? 'mp-off' : 'mp-on'}">${pausado ? 'Pausado' : 'Activo'}</span>
+    </label>`;
+  }).join('');
+
+  box.innerHTML = `
+    <div class="mp-caja">
+      <h4>Lo que el motor le escribe solo a Meta</h4>
+      <p class="hint" style="margin:0 0 10px">
+        Destildado = pausado: el proceso automático no escribe nada en Meta. El código queda igual,
+        así que volver a prenderlo es tildar acá. Las vistas previas de los botones de arriba
+        siguen funcionando: sólo leen.
+      </p>
+      ${filas}
+      ${!d.guardado ? '<p class="hint" style="margin:10px 0 0">Todavía no se guardó ninguna preferencia: arrancan pausados.</p>' : ''}
+    </div>`;
+}
+
+async function toggleMetaPausa(id, pausar) {
+  const box = document.getElementById('meta-pausa');
+  let actual = [];
+  try {
+    const d = await api('/api/meta/pausa');
+    actual = d.pausados || [];
+  } catch (e) { /* se arma igual con lo que se está tocando */ }
+  const pausados = pausar
+    ? [...new Set([...actual, id])]
+    : actual.filter((x) => x !== id);
+  try {
+    const r = await api('/api/meta/pausa', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pausados }),
+    });
+    toast(pausar ? 'Pausado: no le va a escribir nada a Meta.' : 'Activado: vuelve a correr solo.', 'ok');
+    await renderMetaPausa();
+  } catch (e) {
+    toast(e.message, 'err');
+    await renderMetaPausa();
+  }
+}
+
 async function openCatalogSync(btn) {
   btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Revisando catálogo…`;
   let d;
