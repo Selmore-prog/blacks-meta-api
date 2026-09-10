@@ -41,10 +41,10 @@ const SUPERFICIES = {
 /** Temporada del hemisferio sur: define qué conviene empujar hoy. */
 function temporada(date = new Date()) {
   const m = date.getMonth();
-  if (m === 11 || m <= 1) return { nombre: 'verano', liquida: 'primavera', empuja: /remera|chomba|bermuda|short|gorra|ojota/i };
-  if (m <= 4) return { nombre: 'otoño', liquida: 'verano', empuja: /campera|buzo|pantal[oó]n|camisa/i };
-  if (m <= 7) return { nombre: 'invierno', liquida: 'otoño', empuja: /campera|polar|buzo|t[eé]rmic|softshell|abrigo/i };
-  return { nombre: 'primavera', liquida: 'invierno', empuja: /pantal[oó]n|camisa|chomba|remera|softshell/i };
+  if (m === 11 || m <= 1) return { nombre: 'verano', liquida: 'primavera', liquida_regex: /pantal[oó]n|camisa|chomba|remera|softshell/i, empuja: /remera|chomba|bermuda|short|gorra|ojota/i };
+  if (m <= 4) return { nombre: 'otoño', liquida: 'verano', liquida_regex: /remera|chomba|bermuda|short|gorra|ojota/i, empuja: /campera|buzo|pantal[oó]n|camisa/i };
+  if (m <= 7) return { nombre: 'invierno', liquida: 'otoño', liquida_regex: /campera|buzo|pantal[oó]n|camisa/i, empuja: /campera|polar|buzo|t[eé]rmic|softshell|abrigo/i };
+  return { nombre: 'primavera', liquida: 'invierno', liquida_regex: /campera|polar|buzo|t[eé]rmic|softshell|abrigo/i, empuja: /pantal[oó]n|camisa|chomba|remera|softshell/i };
 }
 
 /** Los números reales con los que se arma y se justifica cada recomendación. */
@@ -83,6 +83,7 @@ async function gatherContext() {
 
   const est = temporada();
   const deTemporada = masVendidos.filter((p) => est.empuja.test(p.name));
+  const deLiquidacion = enOferta.filter((p) => est.liquida_regex.test(p.name));
 
   return {
     temporada: est.nombre,
@@ -95,6 +96,7 @@ async function gatherContext() {
     masVendidos,
     enOferta,
     deTemporada,
+    deLiquidacion,
     mayorista: ws || null,
     descuentoMaximo: enOferta.length ? enOferta[0].off : null,
   };
@@ -165,7 +167,7 @@ async function recommendBanners() {
   // 2. LA OFERTA, SOLA. El banner actual mezcla "45% OFF" con "10% OFF en la segunda
   //    unidad": son dos promesas peleando. Va una, con el número más alto REAL.
   if (ctx.descuentoMaximo && ctx.enOferta.length) {
-    const p = ctx.enOferta[0];
+    const p = ctx.deLiquidacion.length ? ctx.deLiquidacion[0] : ctx.enOferta[0];
     recs.push({
       superficie: 'slider',
       posicion: 2,
@@ -177,7 +179,7 @@ async function recommendBanners() {
       url: '/ofertas',
       producto: p,
       porque: `Hay ${ctx.enOferta.length} productos con precio promocional cargado en Tiendanube; el mayor descuento real es ${ctx.descuentoMaximo}%. El banner actual mezcla ese número con un "10% OFF en la segunda unidad" y una franja de envíos: tres promesas compitiendo en la misma imagen.`,
-      queMostrar: `El número del descuento ENORME, ocupando la mitad del alto del banner. Un solo producto rebajado al costado. El "${ctx.descuentoMaximo}%" es el protagonista, no la prenda.`,
+      queMostrar: `Un producto de ${ctx.liquida} rebajado, exhibido de forma atractiva y natural. La imagen debe servir como un fondo limpio para que resalten los textos de descuento que se agregarán por encima en la tienda. No renderices texto ni números de descuento.`,
       queEvitar: 'Sacá de acá el "10% OFF en la segunda unidad" y la franja de envíos: son otra promesa y otro banner. Si querés contar el 10%, que sea el segundo slide del carrusel.',
     });
   }
