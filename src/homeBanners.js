@@ -232,18 +232,21 @@ async function recommendBanners() {
      promptDeFoto en homeCopy.js) y con la MEDIDA de la superficie, que es el
      dato que más se olvida y el que obliga a rehacer la imagen. */
   const { promptDeFoto } = require('./homeCopy');
-  recs.forEach((r) => {
+  recs.forEach((r, idx) => {
     const sup = SUPERFICIES[r.superficie] || SUPERFICIES.slider;
     /* Se aclara que la foto es el FONDO. Sin esto, una recomendación como
        "el número del descuento enorme" hacía que el generador dibujara el
        número dentro de la imagen — justo lo que no se quiere: el titular y el
        precio se tipografían encima después, y quemados en el JPG no se adaptan
        al celular ni los lee Google. */
+    const side = idx % 2 === 0 ? 'left' : 'right';
+    const prodRef = r.producto ? ` Feature our specific product ("${r.producto.name}") realistically instead of generic clothing.` : '';
+    
     const enIngles = 'This is the BACKGROUND PHOTOGRAPH of a banner for an Argentine workwear and safety '
       + 'clothing store. The headline, any discount figure and the button are typeset on top afterwards, '
       + 'so the photograph itself must contain no text and no numbers. '
-      + `Scene: ${r.queMostrar} `
-      + `Leave the ${r.superficie === 'slider' ? 'left third' : 'lower third'} of the frame calm and `
+      + `Scene: ${r.queMostrar}${prodRef} `
+      + `Leave the ${r.superficie === 'slider' ? `${side} third` : 'lower third'} of the frame calm and `
       + 'uncluttered so the typography can sit there and stay readable.';
     r.medida = `${sup.w} x ${sup.h} px`;
     r.prompt = promptDeFoto({
@@ -258,7 +261,7 @@ async function recommendBanners() {
       const enInglesMob = 'This is the BACKGROUND PHOTOGRAPH of a mobile banner for an Argentine workwear and safety '
         + 'clothing store. The headline, any discount figure and the button are typeset on top afterwards, '
         + 'so the photograph itself must contain no text and no numbers. '
-        + `Scene: ${r.queMostrar} `
+        + `Scene: ${r.queMostrar}${prodRef} `
         + 'Leave the lower third of the frame calm and uncluttered so the typography can sit there and stay readable.';
       r.medidaMobile = `${supMob.w} x ${supMob.h} px`;
       r.promptMobile = promptDeFoto({
