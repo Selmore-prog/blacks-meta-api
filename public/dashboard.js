@@ -5967,6 +5967,13 @@ function renderHomeBanners() {
           <button class="btn-ghost btn-sm" onclick="bnCopiar(${i}, this)">Copiar el prompt</button>
           <button class="btn-ghost btn-sm" onclick="bnEjemplo(${i}, this)">Ver un ejemplo armado</button>
         </div>
+        ${b.promptMobile ? `
+        <h5 style="margin-top:12px; margin-bottom:6px; font-size:12px; font-weight:700; color: #f5f5f5; text-transform:uppercase;">Versión celular (${esc(b.medidaMobile)})</h5>
+        <textarea readonly rows="5">${esc(b.promptMobile)}</textarea>
+        <div class="bn-acc">
+          <button class="btn-ghost btn-sm" onclick="bnCopiarMobile(${i}, this)">Copiar el prompt (celular)</button>
+        </div>
+        ` : ''}
         ${b.queEvitar ? `<p class="hint">Evitar: ${esc(b.queEvitar)}</p>` : ''}
       </details>` : ''}
       <div class="bn-render" id="bn-render-${i}"></div>
@@ -5991,6 +5998,20 @@ function renderHomeBanners() {
 
 async function bnCopiar(i, btn) {
   const t = ((bnData.recomendaciones || [])[i] || {}).prompt || '';
+  if (!t) return;
+  try {
+    await navigator.clipboard.writeText(t);
+    const antes = btn.textContent;
+    btn.textContent = 'Copiado';
+    setTimeout(() => { btn.textContent = antes; }, 1600);
+  } catch (_) {
+    const ta = btn.closest('.bn-prompt').querySelector('textarea');
+    if (ta) { ta.focus(); ta.select(); }
+  }
+}
+
+async function bnCopiarMobile(i, btn) {
+  const t = ((bnData.recomendaciones || [])[i] || {}).promptMobile || '';
   if (!t) return;
   try {
     await navigator.clipboard.writeText(t);
