@@ -5139,13 +5139,38 @@ function switchHomePane(name) {
 
   if (hsCargados.has(name)) return;
   hsCargados.add(name);
-  if (name === 'rieles') loadHomeRails();
-  if (name === 'flash') loadFlash();
-  if (name === 'plan') loadHomePlan();
-  if (name === 'reco') loadHomeBanners();
-  if (name === 'bloques') loadHomeBlocks();
-  if (name === 'menu') navCargar();
-  if (name === 'beneficios') bfCargar();
+
+  /* ⚠️ Se llama por nombre y con guarda, NO directo.
+     Los paneles de Menú y Beneficios viven en archivos aparte (nav-panel.js,
+     benefits-panel.js). Si uno de esos archivos no llegó —un deploy a medias,
+     un 404, un error de sintaxis que corta el script— llamarlo directo tira
+     ReferenceError, y como esto corre dentro de switchTab(), reventaba la
+     navegación ENTERA del panel: no se podía ni cambiar de pestaña. Pasó.
+     Con la guarda, el panel que falta queda en "Cargando…" y todo lo demás
+     sigue andando. */
+  const cargar = {
+    rieles: 'loadHomeRails',
+    flash: 'loadFlash',
+    plan: 'loadHomePlan',
+    reco: 'loadHomeBanners',
+    bloques: 'loadHomeBlocks',
+    menu: 'navCargar',
+    beneficios: 'bfCargar',
+  }[name];
+
+  if (!cargar) return;
+  if (typeof window[cargar] !== 'function') {
+    console.error(`[panel] Falta ${cargar}(): el archivo de esa pestaña no cargó.`);
+    const pane = document.getElementById(`hs-${name}`);
+    if (pane) {
+      pane.innerHTML = '<p class="error">Esta pestaña no cargó. Probá recargar la página; '
+        + 'si sigue igual, puede ser que el último deploy no haya subido todos los archivos.</p>';
+    }
+    // Se saca de los cargados para que vuelva a intentar al reabrir la pestaña.
+    hsCargados.delete(name);
+    return;
+  }
+  window[cargar]();
 }
 
 /* =========================================================================

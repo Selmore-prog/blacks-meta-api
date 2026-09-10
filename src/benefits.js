@@ -91,7 +91,15 @@ const CAMPOS = [
     help: 'Si la categoría tiene banner, arriba de todo la franja queda por encima del banner y se pierde.',
   },
   { key: 'mobile', label: 'En el celular', type: 'opciones', default: 'desliza', options: MOBILE },
-  { key: 'bg', label: 'Color de fondo', type: 'color' },
+  /* ⚠️ Con estilo "tarjetas" + fondo de franja quedan DOS cajas, una dentro de
+     otra: el gris de la franja y el gris de cada mensaje. Se ve pesado y es lo
+     que se reportó. Con este interruptor se puede dejar la franja sin fondo y
+     que los badges queden sueltos sobre el blanco de la página. */
+  {
+    key: 'fondo', label: 'Ponerle fondo a la franja', type: 'switch', default: true,
+    help: 'Si lo apagás, los mensajes quedan sueltos sobre el fondo de la página. Con el estilo de tarjetas suele verse mejor apagado: si no, hay una caja adentro de otra.',
+  },
+  { key: 'bg', label: 'Color de fondo', type: 'color', when: { key: 'fondo', is: true } },
   { key: 'color', label: 'Color del texto', type: 'color' },
   { key: 'enabled', label: 'Mostrar la franja', type: 'switch', default: true },
 ];
@@ -142,6 +150,7 @@ function validateConfig(input, { lenient = false } = {}) {
     rutas,
     estilo: ESTILOS.some((o) => o.value === d.estilo) ? d.estilo : 'linea',
     posicion: POSICIONES.some((o) => o.value === d.posicion) ? d.posicion : 'interior',
+    fondo: d.fondo !== false,
     mobile: MOBILE.some((o) => o.value === d.mobile) ? d.mobile : 'desliza',
     bg: color(d.bg),
     color: color(d.color),
@@ -154,7 +163,7 @@ function validateConfig(input, { lenient = false } = {}) {
 
 async function getConfig() {
   const raw = await getSetting(SETTING_KEY);
-  const vacio = { items: [], donde: 'minoristas', rutas: [], estilo: 'linea', posicion: 'interior', mobile: 'desliza', bg: '', color: '', enabled: false };
+  const vacio = { items: [], donde: 'minoristas', rutas: [], estilo: 'linea', posicion: 'interior', mobile: 'desliza', fondo: true, bg: '', color: '', enabled: false };
   if (!raw) return vacio;
   try {
     // Los defaults se rellenan por si la config se guardó antes de que
@@ -209,6 +218,7 @@ async function buildPayload(cfg) {
     estilo: cfg.estilo,
     posicion: cfg.posicion,
     mobile: cfg.mobile,
+    fondo: cfg.fondo,
     bg: cfg.bg,
     color: cfg.color,
     rutas: await rutasDe(cfg),

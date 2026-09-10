@@ -101,12 +101,20 @@ function bfRender() {
           </select>
         </label>
         <label class="nav-campo">
+          <span class="nav-label">Fondo de la franja</span>
+          <label class="nav-sw" style="padding-top:6px">
+            <input type="checkbox" ${c.fondo !== false ? 'checked' : ''} onchange="bfSet('fondo', this.checked)">
+            <span>${c.fondo !== false ? 'Con fondo' : 'Sin fondo (mensajes sueltos)'}</span>
+          </label>
+          <span class="nav-help">Con el estilo de tarjetas conviene apagarlo: si no, queda una caja adentro de otra.</span>
+        </label>
+        ${c.fondo !== false ? `<label class="nav-campo">
           <span class="nav-label">Color de fondo</span>
           <div class="nav-color">
             <input type="color" value="${esc(c.bg || '#f6f5f3')}" oninput="bfSet('bg', this.value)">
             ${c.bg ? `<button class="btn btn-sm" onclick="bfSet('bg','')">Sacar</button>` : ''}
           </div>
-        </label>
+        </label>` : ''}
         <label class="nav-campo">
           <span class="nav-label">Color del texto</span>
           <div class="nav-color">
@@ -151,11 +159,13 @@ function bfPrevia() {
   const c = bfState.cfg;
   const items = c.items.filter((x) => x && x.text);
 
-  caja.style.setProperty('--bf-bg', c.bg || '#f6f5f3');
+  // Sin fondo la previa tiene que mostrarse sin caja, igual que la tienda.
+  caja.style.setProperty('--bf-bg', c.fondo === false ? 'transparent' : (c.bg || '#f6f5f3'));
   caja.style.setProperty('--bf-color', c.color || '#121212');
   // Las mismas clases que usa la tienda, para que la previa no invente nada.
   caja.className = 'bf-previa bf-previa--' + (c.estilo === 'tarjetas' ? 'tarjetas' : 'linea')
-    + (bfState.verMobile ? ' bf-previa--m bf-previa--m-' + (c.mobile === 'grilla' ? 'grilla' : 'desliza') : '');
+    + (bfState.verMobile ? ' bf-previa--m bf-previa--m-' + (c.mobile === 'grilla' ? 'grilla' : 'desliza') : '')
+    + (c.fondo === false ? ' bf-previa--sinfondo' : '');
   caja.innerHTML = items.length
     ? items.map((it) => {
         const d = (bfState.iconos[it.icono || ''] || {}).d || '';
@@ -186,7 +196,7 @@ function bfSet(ruta, valor) {
   // Cambiar "dónde" o el estilo cambia qué campos y qué ayuda se muestran; el
   // resto sólo repinta la previa, para no rehacer el formulario en cada tecla
   // (que fue el bug que hacía que el botón Publicar no recibiera el clic).
-  if (['donde', 'estilo', 'bg', 'color', 'posicion', 'mobile'].includes(ruta)) bfRender();
+  if (['donde', 'estilo', 'bg', 'color', 'posicion', 'mobile', 'fondo'].includes(ruta)) bfRender();
   else bfPrevia();
 }
 

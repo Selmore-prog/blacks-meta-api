@@ -221,6 +221,15 @@ const CSS = `
     background: currentColor; opacity: .3;
     margin-right: 21px;
 }
+/* Sin fondo: la franja desaparece como caja y quedan sólo los mensajes sobre
+   el fondo de la pagina. Es lo que conviene con el estilo de tarjetas, donde
+   cada mensaje YA tiene su propio fondo y si no queda una caja dentro de otra. */
+.bf-franja--sinfondo {
+    background: transparent !important;
+    border: 0 !important;
+}
+.bf-franja--sinfondo .bf-wrap { padding-left: 0; padding-right: 0; }
+
 .bf-franja--tarjetas .bf-wrap { gap: 10px; }
 .bf-franja--tarjetas .bf-item {
     background: rgba(0,0,0,.045);
@@ -752,7 +761,8 @@ const JS = `
         host.className = 'bf-franja'
             + ' bf-franja--' + (b.estilo === 'tarjetas' ? 'tarjetas' : 'linea')
             + ' bf-m-' + (b.mobile === 'grilla' ? 'grilla' : 'desliza')
-            + (quiero === 'interior' ? ' bf-franja--interior' : '');
+            + (quiero === 'interior' ? ' bf-franja--interior' : '')
+            + (b.fondo === false ? ' bf-franja--sinfondo' : '');
         if (b.bg) host.style.setProperty('--bf-bg', b.bg);
         if (b.color) host.style.setProperty('--bf-color', b.color);
 
