@@ -179,6 +179,11 @@ const REGLA_FIELDS = [
     grupo: 'fotos', key: 'thumb', label: 'Miniatura (si es un subítem)', type: 'imagen',
     help: 'La fotito redonda que va al lado del nombre cuando el ítem cuelga de otro. Cuadrada queda mejor.',
   },
+  {
+    grupo: 'fotos', key: 'thumb_size', label: 'Tamaño de miniatura (px)', type: 'numero', default: 34, min: 20, max: 120,
+    help: 'Ajusta el tamaño (por defecto 34).',
+    when: { key: 'thumb', lleno: true }
+  },
 
   /* ----------------------------------------------------------------------
      PLACA DEL MEGA MENÚ (reemplaza a mega_menu_cat_1..4 del theme).
@@ -243,6 +248,7 @@ function validarRegla(r, i, { lenient = false, faltantes = [] } = {}) {
   }
 
   const alto = Number(d.image_h);
+  const t_size = Number(d.thumb_size);
   const out = {
     match,
     match_text: matchText,
@@ -268,6 +274,7 @@ function validarRegla(r, i, { lenient = false, faltantes = [] } = {}) {
     image_h: Number.isFinite(alto) ? Math.min(60, Math.max(12, Math.round(alto))) : 22,
     hide: d.hide === true,
     thumb: urlDeImagen(d.thumb),
+    thumb_size: Number.isFinite(t_size) ? Math.min(120, Math.max(20, Math.round(t_size))) : 34,
     mega_image: urlDeImagen(d.mega_image),
     mega_kicker: String(d.mega_kicker || '').trim().slice(0, 30),
     mega_title: String(d.mega_title || '').trim().slice(0, 60),
