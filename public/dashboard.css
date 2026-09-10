@@ -2552,3 +2552,18 @@ button .cost-tag { margin-left: 8px; }
 }
 .bf-previa--tarjetas { gap: 10px; }
 .bf-previa--tarjetas .bf-p-item { background: rgba(0,0,0,.045); border-radius: 7px; padding: 8px 13px; }
+
+/* --- Previa de la franja: solapa de celular ----------------------------- */
+.bf-previa-caja { transition: max-width .18s ease; }
+/* 390 px reales, no una simulación aproximada: es donde el modo "una línea"
+   deja de entrar y se nota la diferencia con el modo grilla. */
+.bf-previa-caja--mobile { max-width: 390px; }
+.bf-previa--m { padding: 11px 14px; }
+.bf-previa--m-desliza { flex-wrap: nowrap; overflow-x: auto; justify-content: flex-start; gap: 0 18px; }
+.bf-previa--m-desliza::-webkit-scrollbar { display: none; }
+.bf-previa--m-desliza.bf-previa--linea .bf-p-item + .bf-p-item::before { margin-right: 14px; }
+.bf-previa--m-grilla {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 8px 12px; overflow: visible;
+}
+.bf-previa--m-grilla .bf-p-item { justify-content: flex-start; line-height: 1.3; }
+.bf-previa--m-grilla.bf-previa--linea .bf-p-item + .bf-p-item::before { display: none; }

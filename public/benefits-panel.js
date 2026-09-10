@@ -9,7 +9,7 @@
  * nav-panel.js. Backend: src/benefits.js + /api/nav/benefits.
  * ========================================================================= */
 
-const bfState = { campos: [], donde: [], estilos: [], sugerencias: [], iconos: {}, rutas: [], cfg: null, sucio: false };
+const bfState = { campos: [], donde: [], estilos: [], posiciones: [], mobiles: [], sugerencias: [], iconos: {}, rutas: [], cfg: null, sucio: false, verMobile: false };
 
 async function bfCargar(force) {
   const cont = document.getElementById('hs-beneficios');
@@ -19,6 +19,8 @@ async function bfCargar(force) {
     bfState.campos = d.fields || [];
     bfState.donde = d.donde || [];
     bfState.estilos = d.estilos || [];
+    bfState.posiciones = d.posiciones || [];
+    bfState.mobiles = d.mobiles || [];
     bfState.sugerencias = d.sugerencias || [];
     bfState.iconos = d.iconos || {};
     bfState.rutas = d.rutas || [];
@@ -86,6 +88,19 @@ function bfRender() {
           </select>
         </label>
         <label class="nav-campo">
+          <span class="nav-label">En qué parte de la página</span>
+          <select onchange="bfSet('posicion', this.value)">
+            ${bfState.posiciones.map((o) => `<option value="${esc(o.value)}"${o.value === (c.posicion || 'interior') ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}
+          </select>
+          <span class="nav-help">Si la categoría tiene banner, arriba de todo la franja queda por encima del banner y se pierde.</span>
+        </label>
+        <label class="nav-campo">
+          <span class="nav-label">En el celular</span>
+          <select onchange="bfSet('mobile', this.value)">
+            ${bfState.mobiles.map((o) => `<option value="${esc(o.value)}"${o.value === (c.mobile || 'desliza') ? ' selected' : ''}>${esc(o.label)}</option>`).join('')}
+          </select>
+        </label>
+        <label class="nav-campo">
           <span class="nav-label">Color de fondo</span>
           <div class="nav-color">
             <input type="color" value="${esc(c.bg || '#f6f5f3')}" oninput="bfSet('bg', this.value)">
@@ -109,7 +124,13 @@ function bfRender() {
 
     <div class="nav-previa">
       <h4>Así se va a ver</h4>
-      <div class="bf-previa bf-previa--${esc(c.estilo || 'linea')}" id="bf-previa"></div>
+      <div class="np-barra" style="margin-bottom:10px">
+        <button class="btn btn-sm" data-on="${!bfState.verMobile}" onclick="bfVer(false)">Computadora</button>
+        <button class="btn btn-sm" data-on="${bfState.verMobile}" onclick="bfVer(true)">Celular</button>
+      </div>
+      <div class="bf-previa-caja ${bfState.verMobile ? 'bf-previa-caja--mobile' : ''}">
+        <div class="bf-previa" id="bf-previa"></div>
+      </div>
       <p class="np-nota" id="bf-alcance"></p>
     </div>`;
   bfPrevia();
@@ -132,7 +153,9 @@ function bfPrevia() {
 
   caja.style.setProperty('--bf-bg', c.bg || '#f6f5f3');
   caja.style.setProperty('--bf-color', c.color || '#121212');
-  caja.className = 'bf-previa bf-previa--' + (c.estilo === 'tarjetas' ? 'tarjetas' : 'linea');
+  // Las mismas clases que usa la tienda, para que la previa no invente nada.
+  caja.className = 'bf-previa bf-previa--' + (c.estilo === 'tarjetas' ? 'tarjetas' : 'linea')
+    + (bfState.verMobile ? ' bf-previa--m bf-previa--m-' + (c.mobile === 'grilla' ? 'grilla' : 'desliza') : '');
   caja.innerHTML = items.length
     ? items.map((it) => {
         const d = (bfState.iconos[it.icono || ''] || {}).d || '';
@@ -163,7 +186,7 @@ function bfSet(ruta, valor) {
   // Cambiar "dónde" o el estilo cambia qué campos y qué ayuda se muestran; el
   // resto sólo repinta la previa, para no rehacer el formulario en cada tecla
   // (que fue el bug que hacía que el botón Publicar no recibiera el clic).
-  if (ruta === 'donde' || ruta === 'estilo' || ruta === 'bg' || ruta === 'color') bfRender();
+  if (['donde', 'estilo', 'bg', 'color', 'posicion', 'mobile'].includes(ruta)) bfRender();
   else bfPrevia();
 }
 
@@ -183,6 +206,8 @@ function bfSugeridos() {
   bfSucio(true);
   bfRender();
 }
+
+function bfVer(mobile) { bfState.verMobile = mobile; bfRender(); }
 
 function bfSucio(v) {
   bfState.sucio = v;

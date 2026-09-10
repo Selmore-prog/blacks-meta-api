@@ -228,10 +228,24 @@ const CSS = `
     padding: 8px 13px;
 }
 
-/* En celular no entran cuatro mensajes en una linea: se deslizan de costado,
-   que es mejor que apilarlos y empujar la grilla media pantalla para abajo. */
+/* Cuando va DENTRO del contenido (antes del buscador) no es una banda de punta
+   a punta: es una tarjeta, con sus esquinas y su aire. */
+.bf-franja--interior {
+    border-radius: 10px;
+    border: 1px solid rgba(0,0,0,.07);
+    border-bottom: 1px solid rgba(0,0,0,.07);
+    margin: 0 0 18px;
+    overflow: hidden;
+}
+
+/* En celular no entran cuatro mensajes en una linea. Dos maneras, y la elige
+   el dueno desde el panel:
+     · desliza -> una sola linea que se corre de costado
+     · grilla  -> dos columnas, que con cuatro mensajes son dos filas de dos */
 @media (max-width: 767px) {
-    .bf-wrap {
+    .bf-item { font-size: 12px; }
+
+    .bf-m-desliza .bf-wrap {
         justify-content: flex-start;
         flex-wrap: nowrap;
         overflow-x: auto;
@@ -240,9 +254,25 @@ const CSS = `
         gap: 0 18px;
         padding: 9px 14px;
     }
-    .bf-wrap::-webkit-scrollbar { display: none; }
-    .bf-item { font-size: 12px; }
-    .bf-franja--linea .bf-item + .bf-item::before { margin-right: 14px; }
+    .bf-m-desliza .bf-wrap::-webkit-scrollbar { display: none; }
+    .bf-m-desliza.bf-franja--linea .bf-item + .bf-item::before { margin-right: 14px; }
+
+    .bf-m-grilla .bf-wrap {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 8px 12px;
+        padding: 11px 14px;
+        overflow: visible;
+    }
+    /* En grilla los mensajes arrancan todos a la izquierda de su columna: el
+       texto es de largo distinto y centrado quedaba desalineado entre filas. */
+    .bf-m-grilla .bf-item {
+        justify-content: flex-start;
+        white-space: normal;
+        line-height: 1.3;
+    }
+    /* El puntito separador no tiene sentido en grilla: separan las columnas. */
+    .bf-m-grilla.bf-franja--linea .bf-item + .bf-item::before { display: none; }
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -694,8 +724,15 @@ const JS = `
      * página está: si el hueco existe, es una categoría.
      */
     function pintarBeneficios(b) {
-        var host = document.querySelector('[data-bf-host]');
-        if (!host || !b || !b.items || !b.items.length) return;
+        if (!b || !b.items || !b.items.length) return;
+        /* Hay DOS huecos en category.tpl: uno arriba de todo y otro justo antes
+           del buscador. Se llena el que diga la config; el otro se queda vacio
+           y hidden, sin ocupar lugar. Si el elegido no existe (una plantilla
+           vieja, por ejemplo) se cae al que haya, para no quedarse sin franja. */
+        var quiero = b.posicion === 'arriba' ? 'arriba' : 'interior';
+        var host = document.querySelector('[data-bf-host="' + quiero + '"]')
+            || document.querySelector('[data-bf-host]');
+        if (!host) return;
         if (host.getAttribute('data-bf-listo')) return;
 
         // ¿Corresponde en ESTA categoría? El motor manda las rutas RAÍZ y acá se
@@ -712,7 +749,10 @@ const JS = `
         }
 
         host.setAttribute('data-bf-listo', '1');
-        host.className = 'bf-franja bf-franja--' + (b.estilo === 'tarjetas' ? 'tarjetas' : 'linea');
+        host.className = 'bf-franja'
+            + ' bf-franja--' + (b.estilo === 'tarjetas' ? 'tarjetas' : 'linea')
+            + ' bf-m-' + (b.mobile === 'grilla' ? 'grilla' : 'desliza')
+            + (quiero === 'interior' ? ' bf-franja--interior' : '');
         if (b.bg) host.style.setProperty('--bf-bg', b.bg);
         if (b.color) host.style.setProperty('--bf-color', b.color);
 

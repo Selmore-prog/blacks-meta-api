@@ -38,6 +38,23 @@ const DONDE = [
   { value: 'elegidas', label: 'Sólo en las que yo elija' },
 ];
 
+/* DÓNDE va dentro de la página. El default es "antes del buscador" y no
+   "arriba de todo": en una categoría CON banner —que son casi todas las
+   principales— la franja arriba queda por encima del banner, lejos del
+   contenido y prácticamente escondida. Antes del buscador cae justo donde el
+   ojo ya está leyendo. */
+const POSICIONES = [
+  { value: 'interior', label: 'Antes del buscador (recomendado)' },
+  { value: 'arriba', label: 'Arriba de todo, antes del banner' },
+];
+
+/* Cómo se acomoda en el celular. Con cuatro mensajes no entran en una línea:
+   o se deslizan de costado o se arman en dos filas de a dos. */
+const MOBILE = [
+  { value: 'desliza', label: 'En una línea, deslizando de costado' },
+  { value: 'grilla', label: 'En dos columnas, una debajo de la otra' },
+];
+
 const ESTILOS = [
   { value: 'linea', label: 'Una línea fina, separada por puntos' },
   { value: 'tarjetas', label: 'Tarjetas con ícono, una al lado de la otra' },
@@ -69,6 +86,11 @@ const CAMPOS = [
     help: 'Incluye también todo lo que cuelgue de cada una.',
   },
   { key: 'estilo', label: 'Cómo se ve', type: 'opciones', default: 'linea', options: ESTILOS },
+  {
+    key: 'posicion', label: 'En qué parte de la página', type: 'opciones', default: 'interior', options: POSICIONES,
+    help: 'Si la categoría tiene banner, arriba de todo la franja queda por encima del banner y se pierde.',
+  },
+  { key: 'mobile', label: 'En el celular', type: 'opciones', default: 'desliza', options: MOBILE },
   { key: 'bg', label: 'Color de fondo', type: 'color' },
   { key: 'color', label: 'Color del texto', type: 'color' },
   { key: 'enabled', label: 'Mostrar la franja', type: 'switch', default: true },
@@ -119,6 +141,8 @@ function validateConfig(input, { lenient = false } = {}) {
     donde,
     rutas,
     estilo: ESTILOS.some((o) => o.value === d.estilo) ? d.estilo : 'linea',
+    posicion: POSICIONES.some((o) => o.value === d.posicion) ? d.posicion : 'interior',
+    mobile: MOBILE.some((o) => o.value === d.mobile) ? d.mobile : 'desliza',
     bg: color(d.bg),
     color: color(d.color),
     enabled: d.enabled !== false,
@@ -130,12 +154,15 @@ function validateConfig(input, { lenient = false } = {}) {
 
 async function getConfig() {
   const raw = await getSetting(SETTING_KEY);
-  if (!raw) return { items: [], donde: 'minoristas', rutas: [], estilo: 'linea', bg: '', color: '', enabled: false };
+  const vacio = { items: [], donde: 'minoristas', rutas: [], estilo: 'linea', posicion: 'interior', mobile: 'desliza', bg: '', color: '', enabled: false };
+  if (!raw) return vacio;
   try {
-    return JSON.parse(raw);
+    // Los defaults se rellenan por si la config se guardó antes de que
+    // existieran estos campos.
+    return { ...vacio, ...JSON.parse(raw) };
   } catch (e) {
     console.error('[benefits] La config guardada no es JSON válido:', e.message);
-    return { items: [], donde: 'minoristas', rutas: [], estilo: 'linea', bg: '', color: '', enabled: false };
+    return vacio;
   }
 }
 
@@ -180,6 +207,8 @@ async function buildPayload(cfg) {
       icono_d: (ICONOS[x.icono] || {}).d || '',
     })),
     estilo: cfg.estilo,
+    posicion: cfg.posicion,
+    mobile: cfg.mobile,
     bg: cfg.bg,
     color: cfg.color,
     rutas: await rutasDe(cfg),
@@ -197,7 +226,7 @@ async function getBenefits({ force = false } = {}) {
 }
 
 function getCatalog() {
-  return { fields: CAMPOS, donde: DONDE, estilos: ESTILOS, sugerencias: SUGERENCIAS };
+  return { fields: CAMPOS, donde: DONDE, estilos: ESTILOS, posiciones: POSICIONES, mobiles: MOBILE, sugerencias: SUGERENCIAS };
 }
 
 module.exports = {
