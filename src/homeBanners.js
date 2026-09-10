@@ -34,6 +34,7 @@ const { eligibleSQL } = require('./productScore');
  * así que nada importante puede vivir en los costados. */
 const SUPERFICIES = {
   slider: { w: 1920, h: 724, label: 'Carrusel principal (arriba de todo)', safeCenter: 0.62 },
+  sliderMobile: { w: 1080, h: 1080, label: 'Carrusel principal (celular)', safeCenter: 1 },
   grid: { w: 1200, h: 1200, label: 'Banner de grilla / bento (cuerpo de la página)', safeCenter: 1 },
 };
 
@@ -251,6 +252,22 @@ async function recommendBanners() {
       formato: `${sup.w}x${sup.h} (${r.superficie === 'slider' ? 'wide banner' : 'square'})`,
       producto_de_referencia: r.producto ? r.producto.name : '',
     });
+
+    if (r.superficie === 'slider') {
+      const supMob = SUPERFICIES.sliderMobile;
+      const enInglesMob = 'This is the BACKGROUND PHOTOGRAPH of a mobile banner for an Argentine workwear and safety '
+        + 'clothing store. The headline, any discount figure and the button are typeset on top afterwards, '
+        + 'so the photograph itself must contain no text and no numbers. '
+        + `Scene: ${r.queMostrar} `
+        + 'Leave the lower third of the frame calm and uncluttered so the typography can sit there and stay readable.';
+      r.medidaMobile = `${supMob.w} x ${supMob.h} px`;
+      r.promptMobile = promptDeFoto({
+        tipo: 'foto',
+        prompt_ia: enInglesMob,
+        formato: `${supMob.w}x${supMob.h} (square)`,
+        producto_de_referencia: r.producto ? r.producto.name : '',
+      });
+    }
   });
 
   return {
