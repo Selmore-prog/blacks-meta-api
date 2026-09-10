@@ -5905,8 +5905,10 @@ async function syncCatalogFromHome(btn) {
  * BANNERS RECOMENDADOS DEL HOME.
  *
  * Cada tarjeta muestra el texto exacto que va impreso, el dato real que justifica el
- * banner, y un botón que lo renderiza a la medida REAL del theme (1920x724 el carrusel,
- * 1200x1200 la grilla) para descargarlo y subirlo al panel de diseño de Tiendanube.
+ * banner, y un botón que lo renderiza a la medida REAL del theme (1920x823 el carrusel
+ * en 21:9, 1080x1440 su versión de celular en 3:4, 1200x1200 la grilla) para descargarlo
+ * y subirlo al panel de diseño de Tiendanube. Esas proporciones las fija el theme por
+ * CSS y recorta lo que se salga, así que no son una sugerencia.
  * No se publica solo: ese panel no tiene API.
  */
 /* =========================================================================
@@ -5960,6 +5962,7 @@ function renderHomeBanners() {
         <span class="bn-cta">${esc(b.cta)} → ${esc(b.url)}</span>
       </div>
       <p class="bn-por">${esc(b.porque)}</p>
+      ${b.alineacionLabel ? `<p class="bn-por bn-align">${esc(b.alineacionLabel)}</p>` : ''}
       ${b.prompt ? `<details class="bn-prompt">
         <summary>Generar la imagen con IA</summary>
         <textarea readonly rows="5">${esc(b.prompt)}</textarea>

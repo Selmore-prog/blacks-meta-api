@@ -28,15 +28,38 @@ const { eligibleSQL } = require('./productScore');
  * el banner, lo renderiza como imagen lista para subir, y el dueño la sube a mano.
  */
 
-/* Medidas reales del theme, medidas sobre el sitio en producción (25-ago-2026):
- * el slider sirve 1920x724 (se ve a 1280x483, proporción 2.65) y los banners de
- * grilla/bento son cuadrados de 1200x1200. En mobile el slider recorta al centro,
- * así que nada importante puede vivir en los costados. */
+/* Medidas del theme. Revisadas el 10-sep-2026 midiendo la tienda en vivo, donde
+ * los cuatro banners del carrusel tenían CUATRO alturas distintas (476, 567, 475
+ * y 542 px a 1280 de ancho) porque cada slide tomaba la altura de su propia foto.
+ * Desde entonces el theme fija la proporción por CSS y recorta al centro
+ * (.section-slider .slide-container en style-critical.scss), así que estas
+ * medidas ya no son una sugerencia: lo que no entre en esta forma se recorta.
+ *
+ * `ratio` es el dato que de verdad importa y por eso está explícito: los modelos
+ * de imagen trabajan con razones, no con píxeles, y sólo aceptan un puñado de
+ * valores. Los tres de acá son de ese puñado, así que ninguna pieza necesita
+ * recorte posterior.
+ *
+ * En celular el carrusel recorta al centro, así que nada importante puede vivir
+ * en los costados: eso es lo que mide safeCenter. */
 const SUPERFICIES = {
-  slider: { w: 1920, h: 724, label: 'Carrusel principal (arriba de todo)', safeCenter: 0.62 },
-  sliderMobile: { w: 1080, h: 1080, label: 'Carrusel principal (celular)', safeCenter: 1 },
-  grid: { w: 1200, h: 1200, label: 'Banner de grilla / bento (cuerpo de la página)', safeCenter: 1 },
+  slider: { w: 1920, h: 823, ratio: '21:9', label: 'Carrusel principal (arriba de todo)', safeCenter: 0.62 },
+  sliderMobile: { w: 1080, h: 1440, ratio: '3:4', label: 'Carrusel principal (celular)', safeCenter: 1 },
+  grid: { w: 1200, h: 1200, ratio: '1:1', label: 'Banner de grilla / bento (cuerpo de la página)', safeCenter: 1 },
 };
+
+/* Las recomendaciones tienen DOS descripciones de la foto y no una:
+ *   - `queMostrar` está escrita para una PERSONA. Dice cosas como "NO una
+ *     prenda suelta: la idea que tiene que quedar es CANTIDAD" o "sacá de acá
+ *     el 10% OFF": criterio de marketing, en castellano y con mayúsculas de
+ *     énfasis. Es lo que se lee en la tarjeta del panel.
+ *   - `escena` está escrita para el GENERADOR: en inglés, describiendo lo que
+ *     tiene que verse y nada más.
+ * Hasta sep-2026 había una sola y se metía `queMostrar` crudo adentro de un
+ * prompt en inglés. Quedaba un prompt bilingüe con instrucciones dirigidas a
+ * otro lector ("sacá de acá el 10%"), que el modelo intenta interpretar como
+ * parte de la escena. */
+const ESTACION_EN = { verano: 'summer', otoño: 'autumn', invierno: 'winter', primavera: 'spring' };
 
 /** Temporada del hemisferio sur: define qué conviene empujar hoy. */
 function temporada(date = new Date()) {
@@ -160,6 +183,7 @@ async function recommendBanners() {
       producto: null,
       porque: `${ctx.pctMayorista}% de las consultas por WhatsApp de los últimos 60 días son mayoristas (${ctx.mayoristaLeads} contra ${ctx.minoristaLeads}) y ${ctx.catalogo.mayorista} de los ${ctx.catalogo.mayorista + ctx.catalogo.minorista} productos publicados son mayoristas. Hoy el desvío a mayorista aparece recién abajo del home.`,
       queMostrar: 'Una foto de varias prendas iguales (un lote, una pila de camisas o mamelucos del mismo color) o gente trabajando uniformada. NO una prenda suelta: la idea que tiene que quedar es CANTIDAD.',
+      escena: 'A bulk lot of identical workwear — a tall stack of folded shirts or a rack of coveralls, all the same colour — in a warehouse or workshop. The impression has to be quantity and supply, never one single garment.',
       queEvitar: 'No pongas precios acá. El mayorista se cotiza; un precio arruina la consulta porque el cliente decide solo en vez de escribir.',
     });
   }
@@ -180,6 +204,7 @@ async function recommendBanners() {
       producto: p,
       porque: `Hay ${ctx.enOferta.length} productos con precio promocional cargado en Tiendanube; el mayor descuento real es ${ctx.descuentoMaximo}%. El banner actual mezcla ese número con un "10% OFF en la segunda unidad" y una franja de envíos: tres promesas compitiendo en la misma imagen.`,
       queMostrar: `Un producto de ${ctx.liquida} rebajado, exhibido de forma atractiva y natural. La imagen debe servir como un fondo limpio para que resalten los textos de descuento que se agregarán por encima en la tienda. No renderices texto ni números de descuento.`,
+      escena: `A single ${ESTACION_EN[ctx.liquida] || ctx.liquida} workwear garment laid out or hanging on a plain, uncluttered surface, lit so the fabric reads clearly and the background stays calm and even.`,
       queEvitar: 'Sacá de acá el "10% OFF en la segunda unidad" y la franja de envíos: son otra promesa y otro banner. Si querés contar el 10%, que sea el segundo slide del carrusel.',
     });
   }
@@ -199,6 +224,7 @@ async function recommendBanners() {
       producto: estrella,
       porque: `${estrella.name} es el más vendido de los últimos 30 días entre los productos elegibles${estrella.sales_30d ? ` (${estrella.sales_30d} ventas)` : ''}${ctx.deTemporada[0] ? ` y es de temporada (${ctx.temporada})` : ''}.`,
       queMostrar: 'La foto del producto solo, grande y recortada del fondo, sobre fondo oscuro. Sin modelo cortado por el torso: si la foto de catálogo tiene a la persona cortada, usá la del producto suelto.',
+      escena: 'The single garment on its own, large in the frame, against a dark even background. No model, no cropped body, nothing else in shot.',
       queEvitar: 'No le pongas precio ni descuento: este banner es de deseo, no de oferta. El precio lo ve en la ficha.',
     });
   }
@@ -206,9 +232,9 @@ async function recommendBanners() {
   // 4-6. GRILLA / BENTO: categorías, no promesas. Acá el usuario ya está navegando; lo
   //      que necesita es orientarse rápido, no otro cartel de descuento.
   const bloques = [
-    { kicker: 'Calzado de seguridad', titular: 'Botines y zapatos', url: '/calzado', re: /bot[ií]n|zapato|calzado/i },
-    { kicker: 'Ropa de trabajo', titular: 'Pantalones y cargos', url: '/pantalones', re: /pantal[oó]n|cargo|bombacha/i },
-    { kicker: 'Abrigo', titular: 'Camperas y buzos', url: '/abrigo', re: /campera|buzo|polar|softshell/i },
+    { kicker: 'Calzado de seguridad', en: 'a safety boot or work shoe', titular: 'Botines y zapatos', url: '/calzado', re: /bot[ií]n|zapato|calzado/i },
+    { kicker: 'Ropa de trabajo', en: 'a pair of work trousers or cargo pants', titular: 'Pantalones y cargos', url: '/pantalones', re: /pantal[oó]n|cargo|bombacha/i },
+    { kicker: 'Abrigo', en: 'a work jacket or fleece', titular: 'Camperas y buzos', url: '/abrigo', re: /campera|buzo|polar|softshell/i },
   ];
   for (const [i, b] of bloques.entries()) {
     const p = ctx.masVendidos.find((x) => b.re.test(x.name)) || null;
@@ -224,6 +250,9 @@ async function recommendBanners() {
       producto: p,
       porque: 'En la grilla el visitante ya entró: lo que rinde es que encuentre su categoría en un vistazo. Un segundo cartel de descuento acá compite con el del carrusel y diluye los dos.',
       queMostrar: 'Una sola prenda representativa de la categoría, misma luz y mismo fondo en los tres banners de la grilla. Que los tres se vean claramente de la misma familia.',
+      // El fondo y la luz se describen IGUAL en los tres a propósito: es lo que
+      // hace que la grilla se lea como un set y no como tres fotos sueltas.
+      escena: `${b.en.charAt(0).toUpperCase()}${b.en.slice(1)}, on its own, centred on a plain mid-grey concrete surface, lit from one side with soft even daylight.`,
       queEvitar: 'Nada de porcentajes, precios ni "últimas unidades" acá. Sólo el nombre de la categoría y un "Ver todo".',
     });
   }
@@ -242,35 +271,58 @@ async function recommendBanners() {
        número dentro de la imagen — justo lo que no se quiere: el titular y el
        precio se tipografían encima después, y quemados en el JPG no se adaptan
        al celular ni los lee Google. */
-    const side = idx % 2 === 0 ? 'left' : 'right';
+    /* DÓNDE VA EL AIRE PARA EL TEXTO.
+       Antes el lado se alternaba con idx % 2, o sea por el número de la
+       recomendación y sin relación con nada. Ahora el theme deja elegir la
+       alineación banner por banner (settings.slider_align_1..8), así que se
+       decide UNA vez acá, se usa en el prompt y se le dice al dueño qué elegir
+       en el panel de diseño: la foto y el texto quedan del mismo lado en vez de
+       pelearse. Se alternan izquierda y derecha para que el carrusel no sea
+       cuatro veces la misma composición. */
+    const lado = idx % 2 === 0 ? 'left' : 'right';
+    r.alineacion = r.superficie === 'slider' ? lado : 'left';
+    r.alineacionLabel = r.superficie === 'slider'
+      ? `En el panel de diseño, poné "Alineación del banner ${r.posicion}" en ${lado === 'left' ? 'Izquierda' : 'Derecha'}.`
+      : '';
+
     const prodRef = r.producto ? ` Feature our specific product ("${r.producto.name}") realistically instead of generic clothing.` : '';
-    
+
+    /* El recorte se avisa SIEMPRE. El theme fija la proporción y usa
+       object-fit: cover, así que si la foto viene con otra forma se le come los
+       bordes — y lo primero que se pierde es justo lo que el modelo tiende a
+       poner ahí. Decirlo en el prompt sale gratis y evita rehacer la imagen. */
     const enIngles = 'This is the BACKGROUND PHOTOGRAPH of a banner for an Argentine workwear and safety '
       + 'clothing store. The headline, any discount figure and the button are typeset on top afterwards, '
       + 'so the photograph itself must contain no text and no numbers. '
-      + `Scene: ${r.queMostrar}${prodRef} `
-      + `Leave the ${r.superficie === 'slider' ? `${side} third` : 'lower third'} of the frame calm and `
-      + 'uncluttered so the typography can sit there and stay readable.';
-    r.medida = `${sup.w} x ${sup.h} px`;
+      + `Scene: ${r.escena || r.queMostrar}${prodRef} `
+      + `Leave the ${r.superficie === 'slider' ? `${lado} third` : 'lower third'} of the frame calm and `
+      + 'uncluttered so the typography can sit there and stay readable. '
+      + 'Keep the subject well inside the frame: the edges get cropped on smaller screens.';
+    r.medida = `${sup.w} x ${sup.h} px (${sup.ratio})`;
     r.prompt = promptDeFoto({
       tipo: 'foto',
       prompt_ia: enIngles,
-      formato: `${sup.w}x${sup.h} (${r.superficie === 'slider' ? 'wide banner' : 'square'})`,
+      ratio: sup.ratio,
       producto_de_referencia: r.producto ? r.producto.name : '',
     });
 
     if (r.superficie === 'slider') {
       const supMob = SUPERFICIES.sliderMobile;
-      const enInglesMob = 'This is the BACKGROUND PHOTOGRAPH of a mobile banner for an Argentine workwear and safety '
-        + 'clothing store. The headline, any discount figure and the button are typeset on top afterwards, '
-        + 'so the photograph itself must contain no text and no numbers. '
-        + `Scene: ${r.queMostrar}${prodRef} `
-        + 'Leave the lower third of the frame calm and uncluttered so the typography can sit there and stay readable.';
-      r.medidaMobile = `${supMob.w} x ${supMob.h} px`;
+      /* En vertical el texto va abajo sí o sí, sin importar la alineación que
+         tenga el banner en escritorio: al ancho de un teléfono no hay "tercio
+         izquierdo" que alcance para un titular. */
+      const enInglesMob = 'This is the BACKGROUND PHOTOGRAPH of a vertical mobile banner for an Argentine workwear '
+        + 'and safety clothing store. The headline, any discount figure and the button are typeset on top '
+        + 'afterwards, so the photograph itself must contain no text and no numbers. '
+        + `Scene: ${r.escena || r.queMostrar}${prodRef} `
+        + 'Frame it vertically, with the subject in the upper two thirds and the lower third calm and '
+        + 'uncluttered so the typography can sit there and stay readable. '
+        + 'Keep the subject centred and well inside the frame: the sides get cropped on narrow screens.';
+      r.medidaMobile = `${supMob.w} x ${supMob.h} px (${supMob.ratio})`;
       r.promptMobile = promptDeFoto({
         tipo: 'foto',
         prompt_ia: enInglesMob,
-        formato: `${supMob.w}x${supMob.h} (square)`,
+        ratio: supMob.ratio,
         producto_de_referencia: r.producto ? r.producto.name : '',
       });
     }

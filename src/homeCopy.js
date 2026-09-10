@@ -278,7 +278,12 @@ function limpiar(salida, tipoDef, permitidas, numeros) {
     tipo: String(v.tipo || '').toLowerCase() === 'video' ? 'video' : 'foto',
     producto_de_referencia: String(v.producto_de_referencia || '').slice(0, 120),
     // Se arma DESPUÉS de normalizar tipo y producto: los usa.
-    prompt_ia: promptDeFoto({ ...v, tipo: String(v.tipo || '').toLowerCase() }),
+    /* `data.ratio` es la forma que el bloque tiene elegida en el panel, y es la
+       que el theme le va a imponer a la foto por CSS. Sin esto la indicación
+       salía sin relación de aspecto y la imagen volvía cuadrada, para después
+       recortarse sola en la tarjeta. No todos los tipos de bloque tienen el
+       campo; los que no, siguen igual que antes. */
+    prompt_ia: promptDeFoto({ ...v, ratio: v.ratio || data.ratio, tipo: String(v.tipo || '').toLowerCase() }),
   }));
 
   return {
@@ -302,11 +307,39 @@ const PIEZAS_FOTO = [
     texto: 'Shot on a Canon EOS R6 with a 35mm f/1.8 lens.' },
   { falta: /daylight|natural light|golden hour|overcast|window light/i,
     texto: 'Natural directional daylight with soft falloff.' },
-  { falta: /texture|weave|stitching|pores|grain/i,
-    texto: 'True shallow depth of field, visible fabric weave and stitching, real skin texture with pores and imperfections, authentic wear and creases, slight film grain.' },
+  { falta: /texture|weave|stitching|grain/i,
+    texto: 'True shallow depth of field, visible fabric weave and stitching, authentic wear and creases, slight film grain.' },
+];
+
+/* PIEL Y POSTURA SÓLO SI EN LA ESCENA HAY ALGUIEN.
+   Iban siempre, así que un banner de producto suelto —la recomendación del
+   producto estrella dice literalmente "the single garment on its own, no
+   model"— se llevaba igual "real skin texture with pores" y "relaxed
+   asymmetric posture caught mid-task". El prompt le pedía al modelo la postura
+   de una persona que la propia escena prohibía, y una contradicción adentro
+   del prompt se paga en toda la imagen, no sólo en esa parte. */
+const PIEZAS_FOTO_CON_GENTE = [
+  { falta: /pores|skin texture/i, texto: 'Real skin texture with pores and imperfections.' },
   { falta: /candid|documentary|unposed|mid-task/i,
     texto: 'Relaxed asymmetric posture caught mid-task, documentary photography, unretouched colour.' },
 ];
+const PIEZAS_FOTO_SIN_GENTE = [
+  { falta: /still[- ]life|documentary|unretouched/i,
+    texto: 'Still-life product photography, unretouched colour, nothing else in shot.' },
+];
+/* "wearing" y "hands" entran a propósito: alcanza con una mano o un torso para
+   que la textura de piel deje de sobrar. */
+const HAY_GENTE = /worker|model\b|person|people|crew|\bman\b|\bwoman\b|hands?\b|someone|uniformed|wearing/i;
+
+/* Las NEGACIONES se borran antes de buscar. Si no, la escena del producto
+   suelto —que dice "No model, nothing else in shot"— daba positivo por la
+   palabra "model" que estaba justo para prohibirla, y terminaba llevándose la
+   textura de piel y la postura igual que si hubiera alguien. */
+const GENTE_NEGADA = /\b(?:no|without|not)\s+(?:\w+\s+){0,2}(?:workers?|models?|persons?|people|crews?|man|men|woman|women|hands?|someone|humans?)\b/gi;
+
+function hayGente(base) {
+  return HAY_GENTE.test(String(base).replace(GENTE_NEGADA, ' '));
+}
 
 const PIEZAS_VIDEO = [
   { falta: /continuous take|single shot|one shot|no cuts/i,
@@ -324,37 +357,138 @@ const PIEZAS_VIDEO = [
 ];
 
 /* Lo que NUNCA hay que dejar librado al modelo. La primera regla es la que más
-   importa para esta tienda: la prenda tiene que ser LA REAL. */
-const NEGATIVO_FOTO = 'No text, no letters, no watermarks, no logos, no invented brand marks, '
-  + 'no plastic or waxy skin, no oversaturated colours, no perfect symmetry, no studio catalogue pose, '
-  + 'no HDR glow, no rendered or 3D look, no stock-photo smile.';
+   importa para esta tienda: la prenda tiene que ser LA REAL.
 
-const NEGATIVO_VIDEO = 'Do not alter the garment: keep its exact colour, cut, pockets, seams and '
-  + 'hardware as shown in the reference photo. No invented logos, brand marks, prints or reflective '
-  + 'strips. No text or captions on screen. No cuts, no montage, no speed ramps, no camera orbit, '
-  + 'no drone shot. No plastic skin, no oversaturated colours, no studio catalogue pose, '
-  + 'no HDR glow, no 3D or rendered look, no morphing fabric.';
+   POR QUÉ ESTÁ PARTIDO EN CLÁUSULAS y no es un párrafo único, como era hasta
+   sep-2026: el párrafo se agregaba sólo si el prompt del modelo NO decía ya
+   algo del estilo "no text". El prompt de los banners (homeBanners.js) empieza
+   con "the photograph itself must contain no text and no numbers", así que
+   daba positivo en esa prueba y se saltaba el negativo ENTERO — los banners
+   se generaban sin ninguna de las otras prohibiciones (piel de plástico,
+   saturación, pose de catálogo, aspecto 3D). Ahora cada prohibición se evalúa
+   por su cuenta, igual que las piezas técnicas de acá arriba: la que ya está
+   dicha no se repite, y las demás se agregan igual. */
+const NEGATIVO_FOTO = [
+  { falta: /no text|no letters|without text|no typography/i, texto: 'No text, no letters, no numbers, no captions, no watermarks.' },
+  { falta: /no logo|brand mark|wordmark|no branding/i, texto: 'No logos and no invented brand marks of any kind.' },
+  { falta: /plastic skin|waxy|airbrush/i, texto: 'No plastic or waxy skin, no airbrushed retouching.' },
+  { falta: /saturat|hdr/i, texto: 'No oversaturated colours, no HDR glow.' },
+  { falta: /symmetry|catalogue pose|catalog pose|stock[- ]photo/i, texto: 'No perfect symmetry, no studio catalogue pose, no stock-photo smile.' },
+  { falta: /\b3d\b|rendered|cgi|illustration/i, texto: 'No rendered, CGI or 3D look, no illustration.' },
+];
+
+const NEGATIVO_VIDEO = [
+  { falta: /do not alter|keep its exact|unchanged garment/i, texto: 'Do not alter the garment: keep its exact colour, cut, pockets, seams and hardware.' },
+  { falta: /no logo|brand mark|wordmark|no branding/i, texto: 'No invented logos, brand marks, prints or reflective strips.' },
+  { falta: /no text|no caption|without text/i, texto: 'No text or captions on screen.' },
+  { falta: /no cuts|single continuous|one shot/i, texto: 'No cuts, no montage, no speed ramps.' },
+  { falta: /orbit|drone|aerial/i, texto: 'No camera orbit, no drone or aerial shot.' },
+  { falta: /plastic skin|waxy/i, texto: 'No plastic skin, no oversaturated colours, no studio catalogue pose.' },
+  { falta: /\b3d\b|rendered|cgi|morphing/i, texto: 'No HDR glow, no 3D or rendered look, no morphing fabric.' },
+];
+
+/* -------------------------------------------------------------------------
+ * RELACIÓN DE ASPECTO
+ *
+ * Hasta sep-2026 acá se pegaba tal cual lo que viniera en "formato", que casi
+ * siempre era una medida en píxeles: el prompt terminaba diciendo
+ * "Aspect ratio: 1920x724 (wide banner)". Dos problemas encadenados:
+ *
+ *   1. Los modelos de imagen no razonan en píxeles, quieren una razón (21:9).
+ *   2. Cuando el prompt se genera para COPIAR Y PEGAR en la app de Gemini —que
+ *      es como se usan los tres paneles que muestran estos textos— no existe el
+ *      generationConfig.imageConfig que en las llamadas por API corrige el
+ *      pedido (ver geminiGenerateContent en ai.js, que explica que el ratio
+ *      escrito dentro del prompt se ignora).
+ *
+ * Resultado medido en la tienda: los cuatro banners del carrusel volvieron con
+ * cuatro formas distintas (2.69, 2.26, 2.69 y 2.36) y el home saltaba al pasar
+ * de uno al otro. Acá el formato se traduce SIEMPRE a una de las razones que
+ * los modelos aceptan, eligiendo la más parecida cuando vino en píxeles.
+ * ----------------------------------------------------------------------- */
+const RATIOS_SOPORTADOS = [
+  ['1:1', 1], ['2:3', 2 / 3], ['3:2', 3 / 2], ['3:4', 3 / 4], ['4:3', 4 / 3],
+  ['4:5', 4 / 5], ['5:4', 5 / 4], ['9:16', 9 / 16], ['16:9', 16 / 9], ['21:9', 21 / 9],
+];
+
+/* La distancia se mide en logaritmo y no restando: entre 2.65 y sus candidatos,
+   restar hace parecer que 16:9 (1.78) está tan cerca como 21:9 (2.33), cuando
+   en proporción visual 21:9 es muchísimo más parecido. */
+function ratioMasCercano(valor) {
+  if (!Number.isFinite(valor) || valor <= 0) return null;
+  return RATIOS_SOPORTADOS.reduce((mejor, actual) => (
+    Math.abs(Math.log(actual[1] / valor)) < Math.abs(Math.log(mejor[1] / valor)) ? actual : mejor
+  ))[0];
+}
+
+/** Traduce "21:9", "3-2", "1920x823" o "1920 × 823 px" a una razón soportada.
+    El guion se acepta porque es como escribe la forma el catálogo de bloques
+    (homeBlocks.js: '3-2', '16-9', '9-16'). */
+function ratioSoportado(formato) {
+  const s = String(formato || '').trim();
+  if (!s) return null;
+  const razon = s.match(/(\d{1,2})\s*[:-]\s*(\d{1,2})/);
+  if (razon) return ratioMasCercano(Number(razon[1]) / Number(razon[2]));
+  const px = s.match(/(\d{3,5})\s*[x×]\s*(\d{3,5})/i);
+  if (px) return ratioMasCercano(Number(px[1]) / Number(px[2]));
+  return null;
+}
+
+/* Cortar a los 900 caracteres justos partía la última oración al medio y el
+   prompt terminaba en algo como "the worker is holding a" — una frase colgada
+   que el modelo trata como parte de la escena. Se corta en el último punto. */
+function recortarEnFrase(txt, max) {
+  if (txt.length <= max) return txt;
+  const corte = txt.slice(0, max);
+  const fin = Math.max(corte.lastIndexOf('. '), corte.lastIndexOf('! '), corte.lastIndexOf('? '));
+  if (fin > max * 0.5) return corte.slice(0, fin + 1).trim();
+  return corte.replace(/\s+\S*$/, '').trim();
+}
 
 /**
  * Arma el prompt final: lo que escribió el modelo + sólo las piezas técnicas
  * que le faltan + las prohibiciones + la referencia del producto real.
  */
 function promptDeFoto(v) {
-  const base = String(v.prompt_ia || v.que || '').trim();
+  const base = recortarEnFrase(String(v.prompt_ia || v.que || '').trim(), 900);
   if (!base) return '';
   const esVideo = String(v.tipo || '').toLowerCase() === 'video'
     || /\bvideo\b|\bclip\b|footage|seconds long/i.test(String(v.campo || '') + ' ' + base);
 
-  const partes = [base.slice(0, 900)];
-  const piezas = esVideo ? PIEZAS_VIDEO : PIEZAS_FOTO;
+  const partes = [base];
+  const piezas = esVideo
+    ? PIEZAS_VIDEO
+    : PIEZAS_FOTO.concat(hayGente(base) ? PIEZAS_FOTO_CON_GENTE : PIEZAS_FOTO_SIN_GENTE);
   piezas.forEach((p) => { if (!p.falta.test(base)) partes.push(p.texto); });
 
-  const negativo = esVideo ? NEGATIVO_VIDEO : NEGATIVO_FOTO;
-  if (!/no text|do not alter|without text/i.test(base)) partes.push(negativo);
+  // Las prohibiciones se evalúan de a una: ver el comentario de NEGATIVO_FOTO.
+  const negativos = esVideo ? NEGATIVO_VIDEO : NEGATIVO_FOTO;
+  negativos.forEach((n) => { if (!n.falta.test(base)) partes.push(n.texto); });
 
-  if (v.formato) partes.push(`Aspect ratio: ${String(v.formato).slice(0, 60)}.`);
+  /* El ratio va al FINAL y en su propia oración: es lo último que lee el modelo
+     y lo que más se pierde cuando queda enterrado en medio del párrafo. Se
+     agrega la orden de llenar el cuadro porque el vicio conocido de estos
+     modelos es dibujar la escena panorámica dentro de un cuadrado y rellenar
+     con barras negras (por eso existe trimLetterbox en imageUtils.js). */
+  const ratio = ratioSoportado(v.ratio || v.formato);
+  if (ratio) {
+    partes.push(`Output aspect ratio: ${ratio}.`
+      + ' Compose for this exact frame and fill it edge to edge:'
+      + ' no letterboxing, no black bars, no borders, no padding.');
+  }
+
+  /* LA PRENDA DE REFERENCIA.
+     Antes esto decía siempre "must match the attached reference photo". No hay
+     ninguna foto adjunta en ninguno de los tres paneles que muestran estos
+     prompts: los tres los dejan en un textarea para copiarlos y pegarlos a
+     mano. Pedirle al modelo que respete una foto que no recibió es una
+     instrucción imposible, y con una imposible adentro el resto del prompt se
+     cumple peor. Ahora se menciona el adjunto SÓLO si de verdad se adjunta. */
   if (v.producto_de_referencia) {
-    partes.push(`The garment must match the attached reference photo of "${String(v.producto_de_referencia).slice(0, 90)}" exactly.`);
+    const nombre = String(v.producto_de_referencia).slice(0, 90);
+    partes.push(v.referencia_adjunta
+      ? `The garment must match the attached reference photo of "${nombre}" exactly.`
+      : `The garment is a "${nombre}": real workwear cut, proportions and fabric, with no invented details, prints or trims.`);
   }
   return partes.join(' ');
 }
