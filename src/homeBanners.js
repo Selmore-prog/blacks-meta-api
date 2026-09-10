@@ -41,10 +41,10 @@ const SUPERFICIES = {
 /** Temporada del hemisferio sur: define qué conviene empujar hoy. */
 function temporada(date = new Date()) {
   const m = date.getMonth();
-  if (m === 11 || m <= 1) return { nombre: 'verano', empuja: /remera|chomba|bermuda|short|gorra|ojota/i };
-  if (m <= 4) return { nombre: 'otoño', empuja: /campera|buzo|pantal[oó]n|camisa/i };
-  if (m <= 7) return { nombre: 'invierno', empuja: /campera|polar|buzo|t[eé]rmic|softshell|abrigo/i };
-  return { nombre: 'primavera', empuja: /pantal[oó]n|camisa|chomba|remera|softshell/i };
+  if (m === 11 || m <= 1) return { nombre: 'verano', liquida: 'primavera', empuja: /remera|chomba|bermuda|short|gorra|ojota/i };
+  if (m <= 4) return { nombre: 'otoño', liquida: 'verano', empuja: /campera|buzo|pantal[oó]n|camisa/i };
+  if (m <= 7) return { nombre: 'invierno', liquida: 'otoño', empuja: /campera|polar|buzo|t[eé]rmic|softshell|abrigo/i };
+  return { nombre: 'primavera', liquida: 'invierno', empuja: /pantal[oó]n|camisa|chomba|remera|softshell/i };
 }
 
 /** Los números reales con los que se arma y se justifica cada recomendación. */
@@ -86,6 +86,7 @@ async function gatherContext() {
 
   return {
     temporada: est.nombre,
+    liquida: est.liquida,
     mayoristaLeads,
     minoristaLeads,
     pctMayorista: mayoristaLeads + minoristaLeads
@@ -169,7 +170,7 @@ async function recommendBanners() {
       superficie: 'slider',
       posicion: 2,
       objetivo: 'Empujar la rebaja con UNA sola promesa clara',
-      kicker: `Liquidación de ${ctx.temporada}`,
+      kicker: `Liquidación de ${ctx.liquida}`,
       titular: `Hasta ${ctx.descuentoMaximo}% OFF`,
       bajada: `${ctx.enOferta.length} productos con rebaja real`,
       cta: 'Ver ofertas',
