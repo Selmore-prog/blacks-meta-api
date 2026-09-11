@@ -589,6 +589,35 @@ async function geminiGenerateContent(model, body) {
 // un flag fijo dejaba las imágenes IA apagadas hasta el próximo deploy aunque la cuota
 // ya se hubiera recuperado (o el usuario hubiera activado facturación mientras tanto).
 let imageQuotaHitUntil = 0;
+/* =========================================================================
+ * COLA DE GENERACIÓN DE IMÁGENES (no más de N a la vez)
+ *
+ * Desde que CADA cuadro del carrusel se genera a partir de su propia foto, un carrusel de
+ * 5 cuadros dispara 5 generaciones EN PARALELO (los slides se renderizan con Promise.all).
+ * Antes eran una o dos, porque sólo se generaban 'hero' y 'contexto'.
+ *
+ * Cinco pedidos simultáneos al mismo modelo es la forma más rápida de comerse un 429, y
+ * un 429 acá no cuesta una imagen: dispara markImageQuotaHit(), que apaga la generación
+ * DIEZ MINUTOS para todo el sistema. O sea que la pieza siguiente también sale sin foto.
+ *
+ * Con la cola, los cuadros siguen resolviéndose solos y en orden, de a dos. Tarda un poco
+ * más y no cambia en nada el resultado.
+ * ========================================================================= */
+const MAX_IMAGENES_EN_VUELO = Number(process.env.AI_IMAGE_CONCURRENCY) || 2;
+let imagenesEnVuelo = 0;
+const colaDeImagenes = [];
+
+function tomarTurnoDeImagen() {
+  if (imagenesEnVuelo < MAX_IMAGENES_EN_VUELO) { imagenesEnVuelo += 1; return Promise.resolve(); }
+  return new Promise((resolve) => colaDeImagenes.push(resolve));
+}
+
+function soltarTurnoDeImagen() {
+  const siguiente = colaDeImagenes.shift();
+  if (siguiente) siguiente();
+  else imagenesEnVuelo = Math.max(0, imagenesEnVuelo - 1);
+}
+
 const IMAGE_QUOTA_COOLDOWN_MS = 10 * 60 * 1000; // 10 minutos
 
 function isImageQuotaCoolingDown() {
@@ -1746,24 +1775,37 @@ Devolvé SOLO un JSON array alineado al orden: [{"i":0,"shows":"...","is_detail"
   }
 }
 
+/**
+ * COMPOSICIÓN SEGÚN EL FORMATO: dónde tiene que dejar aire la imagen generada.
+ *
+ * Hasta acá el formato sólo viajaba como proporción: el modelo componía igual para un feed
+ * 4:5 que para una historia 9:16 y solía centrar el producto o llenarle el cuadro. Pero la
+ * pieza NO termina ahí — arriba y abajo el diseño imprime el titular, los chips y el CTA
+ * (safeTop/safeBottom en imageRenderer.js: 196 y 236 px en historia). Sin ese aire, el
+ * texto cae encima del producto y hay que descartar la imagen. Los números salen de las
+ * mismas constantes del render: si cambian las zonas seguras, hay que actualizarlos acá.
+ *
+ * Vive suelta (y no dentro de generateBackground, que es donde nació) porque
+ * generateProductScene la usa también. Durante meses la usaba SIN TENERLA A LA VISTA: el
+ * prompt interpolaba `${composicion}`, que era una const local de la otra función, y eso
+ * tira ReferenceError. O sea que generateProductScene fallaba en el 100% de los intentos y
+ * cada pieza caía en silencio a la foto de catálogo cruda — que es justamente el "parece
+ * recortado y pegado" que se venía persiguiendo por otro lado. Se descubrió el 11-sep-2026
+ * al generar un carrusel completo y ver cuatro `composicion is not defined` seguidos.
+ */
+function composicionParaFormato(format) {
+  return format === 'story'
+    ? `- COMPOSICIÓN VERTICAL 9:16: dejá el TERCIO SUPERIOR (unos 200 px de 1920) y la FRANJA INFERIOR (unos 240 px) con aire respirable — fondo, sombra o superficie, sin nada importante. Ahí va el texto de la pieza y la interfaz de Instagram. El producto vive en la MITAD CENTRAL del cuadro, generoso pero sin tocar los bordes de arriba ni de abajo.`
+    : `- COMPOSICIÓN VERTICAL 4:5: el producto ocupa la zona central-baja del cuadro y arriba queda una franja de aire (fondo o superficie) para el titular. No lo pegues al borde superior.`;
+}
+
 async function generateBackground({ theme, brief, occasion, format = 'feed', referenceImages = [], seed = null, artStyle = null } = {}) {
   if (!config.ai.useAiImages || !hasGemini() || isImageQuotaCoolingDown()) return null;
   if (await imageBudgetExceeded()) return null; // tope diario: sigue con plantilla (gratis)
 
   const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
 
-  /* COMPOSICIÓN SEGÚN EL FORMATO.
-     Hasta acá el formato sólo viajaba como proporción: el modelo componía igual
-     para un feed 4:5 que para una historia 9:16 y solía centrar el producto o
-     llenarle el cuadro. Pero la pieza NO termina ahí — arriba y abajo el diseño
-     imprime el titular, los chips y el CTA (safeTop/safeBottom en
-     imageRenderer.js: 196 y 236 px en historia). Sin dejar ese aire, el texto
-     cae encima del producto y hay que descartar la imagen.
-     Los números salen de las mismas constantes del render, así que si cambian
-     las zonas seguras hay que actualizarlos acá. */
-  const composicion = format === 'story'
-    ? `- COMPOSICIÓN VERTICAL 9:16: dejá el TERCIO SUPERIOR (unos 200 px de 1920) y la FRANJA INFERIOR (unos 240 px) con aire respirable — fondo, sombra o superficie, sin nada importante. Ahí va el texto de la pieza y la interfaz de Instagram. El producto vive en la MITAD CENTRAL del cuadro, generoso pero sin tocar los bordes de arriba ni de abajo.`
-    : `- COMPOSICIÓN VERTICAL 4:5: el producto ocupa la zona central-baja del cuadro y arriba queda una franja de aire (fondo o superficie) para el titular. No lo pegues al borde superior.`;
+  const composicion = composicionParaFormato(format);
   const brandStyle = await brandStyleForImages();
   const scene = sceneVariation(seed);
   const hasRefs = referenceImages.slice(0, 3).some((r) => r && r.data && r.mimeType);
@@ -2005,23 +2047,27 @@ async function generatePanoramaScene({
   // normal; una persona sin la prenda de la referencia, no).
   const reparto = combo
     ? [0, 1, 2].map((i) => `la persona ${i + 1} lleva el producto ${(i % lista.length) + 1} (${lista[i % lista.length].name || 'de la referencia'})`).join('; ')
-    : 'las tres llevan EL MISMO MODELO de prenda de la referencia (el color puede variar, ver COLORES más abajo)';
+    : 'las tres llevan EL MISMO MODELO de prenda de la referencia (cada una en la pose y el color de SU foto, ver más abajo)';
 
   /*
-   * LOS COLORES SALEN DE LAS FOTOS, NO DE LA IMAGINACIÓN. Las referencias de un mismo
-   * producto suelen ser varios colores del MISMO modelo (este catálogo publica el color
-   * como foto, no como producto aparte). Aprovecharlo es gratis y es justo lo que pidió el
-   * dueño —"que lo haga con el artículo y las fotos del artículo también"—: la tira pasa a
-   * mostrar el rango de colores real en vez de repetir tres veces la misma prenda.
+   * UNA FOTO DE TIENDANUBE POR PERSONA. Pedido del dueño (11-sep): "que cada imagen del
+   * carrusel, sea continuo o no, sea generativa basándose en cada una de las fotos de
+   * Tiendanube: generativo de una pose, generativo de otra y así".
    *
-   * Está escrito para que se apague solo: si todas las referencias son del mismo color, la
-   * instrucción dice explícitamente que vayan las tres de ese color. Así nunca se le está
-   * pidiendo al modelo que invente un color que la marca no vende.
+   * En la tira no hay tres generaciones (es UNA foto sola, si no se rompe la continuidad),
+   * pero sí hay tres personas: cada una se ata a una referencia distinta y de ahí saca su
+   * pose y su color. Así la variedad sale del catálogo real y no de lo que invente el
+   * modelo — y, de paso, la tira muestra el rango de colores que la marca de verdad vende
+   * (este catálogo publica el color como foto, no como producto aparte).
+   *
+   * Se apaga solo: con una sola referencia no se dice nada y las tres van iguales, que es
+   * lo correcto. Nunca se le pide un color que no esté en alguna foto.
    */
-  const colores = combo
+  const porFoto = combo || refs.length < 2
     ? ''
     : `
-- COLORES: si en las fotos de referencia aparece ESE MISMO modelo en VARIOS colores, ponele a cada persona uno de esos colores (uno por persona, empezando por el de la primera foto). Si en las referencias hay un solo color, las tres van de ese color. PROHIBIDO inventar un color que no esté en ninguna referencia.`;
+- CADA PERSONA SALE DE UNA FOTO DISTINTA: la persona 1 (la de la izquierda) reproduce la POSE y el COLOR de la referencia 1; la persona 2, los de la referencia 2${refs.length > 2 ? '; la persona 3, los de la referencia 3' : ' y la persona 3 vuelve a la referencia 1'}. Si dos referencias muestran el mismo color, esas dos personas van de ese color: no lo cambies para "dar variedad".
+- PROHIBIDO inventar un color, un cuello o un largo que no esté en ninguna de las fotos de referencia.`;
 
   /*
    * OJO CON EL ENCUADRE. La versión anterior pedía "cabeza cortada por el borde de arriba"
@@ -2044,7 +2090,7 @@ async function generatePanoramaScene({
 - Son personas DISTINTAS entre sí (distinta contextura, distinta pose, distinta orientación del cuerpo): están paradas naturalmente, no en posición de maniquí ni todas iguales.
 ${encuadre}
 - NINGUNA queda pegada al borde ni cortada por el borde izquierdo o derecho de la imagen: cada una entra ENTERA de costado a costado, con aire alrededor.
-- El fondo es el mismo espacio de trabajo de punta a punta, continuo por detrás de las tres: el mismo piso, la misma pared, las mismas luces.${colores}
+- El fondo es el mismo espacio de trabajo de punta a punta, continuo por detrás de las tres: el mismo piso, la misma pared, las mismas luces.${porFoto}
 - SON TRES, aunque el contexto de más arriba hable de otra cantidad de personas: la foto se corta en tres cuadros y cada cuadro tiene que tener la prenda puesta. Si el contexto pide dos modelos, poné tres igual y que uno repita la prenda de otro.`;
 
   // Cómo presentarle las referencias: "4 fotos del mismo" y "4 fotos de 2 productos
@@ -2084,7 +2130,7 @@ FIDELIDAD ABSOLUTA — PROHIBIDO MODIFICAR ${combo ? 'LOS PRODUCTOS' : 'EL PRODU
 - ${combo ? 'Cada producto' : 'El producto'} de la salida tiene que ser el de la referencia: mismo color, mismo cuello, mismas costuras, mismos apliques, misma etiqueta, mismas proporciones. PROHIBIDO agregarle, moverle o inventarle CUALQUIER detalle que no esté EXACTAMENTE en la foto de referencia (ej: NO le agregues un bordado, un logo o un bolsillo que la referencia no tiene). Si dudás de un detalle, dejalo TAL CUAL la referencia.
 ${combo
     ? `- Los productos que se ven puestos son EXACTAMENTE los ${lista.length} de las referencias. Prohibido mezclarlos entre sí (ponerle a uno el color o el cuello del otro) y prohibido sumar una prenda o un calzado que no esté en las referencias.`
-    : `- Las tres personas llevan EL MISMO MODELO de prenda de la referencia: mismo corte, mismo cuello, mismo largo, mismas costuras. Lo único que puede cambiar entre una y otra es el color, y sólo si ese color aparece en alguna de las fotos de referencia (ver COLORES más arriba). Prohibido que alguna lleve una prenda distinta de la de la referencia.`}
+    : `- Las tres personas llevan EL MISMO MODELO de prenda de la referencia: mismo corte, mismo cuello, mismo largo, mismas costuras. Lo único que puede cambiar entre una y otra es el color, y sólo si ese color aparece en alguna de las fotos de referencia. Prohibido que alguna lleve una prenda distinta de la de la referencia.`}
 - Hay EXACTAMENTE TRES personas en toda la imagen. Ni una más de fondo, ni una silueta desenfocada, ni un reflejo con una cuarta.
 
 ${noTextNoLogoRule(strict)}
@@ -2498,8 +2544,20 @@ async function generateProductScene({ productImageUrl, productImageUrls = [], pr
   // y deliberada del usuario desde el panel, no gasto automático del pipeline.
   if (await imageBudgetExceeded()) return null;
 
-  // Hasta 4 fotos del MISMO producto (distintos ángulos): más referencias = menos
-  // chance de que el modelo "reinvente" costuras, color o silueta.
+  /*
+   * LA PRIMERA REFERENCIA MANDA LA POSE; las otras son para la fidelidad.
+   *
+   * Pedido del dueño (11-sep): "que cada imagen del carrusel sea generativa basándose en
+   * cada una de las fotos de Tiendanube… generativo de una pose, generativo de otra".
+   * Antes acá entraban 4 fotos en bolsa y el modelo componía lo que quería: los slides de
+   * un mismo carrusel salían todos parecidos, porque nada ataba cada slide a SU foto.
+   *
+   * Ahora la de adelante —la que el director de arte le asignó a ESTE slide— es la que
+   * define pose, ángulo y color; las demás siguen entrando (bajan la chance de que
+   * reinvente costuras o etiquetas) pero con la instrucción explícita de no tocar la pose.
+   * Así, cuatro slides con cuatro fotos distintas dan cuatro escenas distintas, y la
+   * variedad no la inventa la IA: sale del catálogo real.
+   */
   const urls = [...new Set([productImageUrl, ...productImageUrls].filter(Boolean))].slice(0, 4);
   const refs = [];
   for (const u of urls) {
@@ -2514,13 +2572,24 @@ async function generateProductScene({ productImageUrl, productImageUrls = [], pr
   if (!refs.length) return null;
 
   const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
+  const composicion = composicionParaFormato(format);
   const brandStyle = await brandStyleForImages();
   const scene = sceneVariation(seed);
   // Tomas de DETALLE/macro: nada de escenografía (bandera, ambiente, composición de
   // marca) — sólo el detalle sobre estudio liso. Evita que el zoom "sol bordado" salga
   // con una bandera de fondo o el producto entero.
   const allowScenery = !shotSpec || ['hero', 'contexto'].includes(shotSpec.shotType);
-  const buildPrompt = (strict) => `Actuás como DIRECTOR DE ARTE SENIOR de una campaña publicitaria high-end. Tomá EXACTAMENTE el producto adjunto de la${refs.length > 1 ? 's' : ''} imagen${refs.length > 1 ? 'es' : ''} de referencia${refs.length > 1 ? ` (son ${refs.length} fotos DEL MISMO producto desde distintos ángulos: usalas todas para reproducirlo fiel)` : ''} (fidelidad absoluta de marca: mismo modelo, geometría, color, costuras, etiquetas — queda terminantemente prohibido rediseñarlo, inventarle detalles que no tiene, o alterar sus proporciones) y componé una ${allowScenery ? 'escena comercial de catálogo' : 'toma de producto de catálogo'} ${ratio} para BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
+  // Con una sola referencia no hay nada que aclarar; con varias, hay que decir cuál manda
+  // o el modelo promedia las cuatro y todos los slides salen iguales.
+  const anclaPose = refs.length > 1
+    ? `
+
+LA PRIMERA IMAGEN DE REFERENCIA MANDA LA TOMA (es la foto real de catálogo elegida para ESTE cuadro):
+- Reproducí la POSE, el ÁNGULO DE CÁMARA y el COLOR que se ven en la PRIMERA foto. Si ahí la prenda está puesta por una persona de frente, la escena es esa persona de frente; si está de espaldas o de perfil, así va; si es la prenda sola sobre un fondo, es la prenda sola, sin inventarle a alguien que la use.
+- Las otras ${refs.length - 1} fotos son del MISMO producto y están SÓLO para que copies bien los detalles (costuras, cuello, puños, etiquetas, terminaciones). PROHIBIDO cambiar la pose, el ángulo o el color por lo que veas en ellas.`
+    : '';
+
+  const buildPrompt = (strict) => `Actuás como DIRECTOR DE ARTE SENIOR de una campaña publicitaria high-end. Tomá EXACTAMENTE el producto adjunto de la${refs.length > 1 ? 's' : ''} imagen${refs.length > 1 ? 'es' : ''} de referencia${refs.length > 1 ? ` (son ${refs.length} fotos DEL MISMO producto; la PRIMERA es la que define la toma)` : ''} (fidelidad absoluta de marca: mismo modelo, geometría, color, costuras, etiquetas — queda terminantemente prohibido rediseñarlo, inventarle detalles que no tiene, o alterar sus proporciones) y componé una ${allowScenery ? 'escena comercial de catálogo' : 'toma de producto de catálogo'} ${ratio} para BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.${anclaPose}
 
 CONTEXTO DE LA PIEZA: ${theme || productName || 'indumentaria laboral y seguridad industrial'}.${briefBlock(brief, { allowScenery })}${allowScenery ? occasionGuidance(occasion) : ''}
 
@@ -2548,35 +2617,38 @@ ${artStyle === 'poster' ? posterArtDirection(format) : ''}
 ${noTextNoLogoRule(strict)}
 - PROHIBIDO además: manos/pies deformes, duplicar el producto, cambiarle color o forma, o aspecto de render 3D artificial.`;
 
+  await tomarTurnoDeImagen();
   let spent = 0;
-  for (let attempt = 0; attempt < 2; attempt++) {
-    try {
-      const data = await geminiGenerateContent(config.gemini.imageModel, {
-        contents: [{ role: 'user', parts: [{ text: buildPrompt(attempt > 0) }, ...refs.map((r) => ({ inlineData: r }))] }],
-        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
-        // Ratio REAL de la pieza: sin esto el modelo devuelve 1:1 con barras negras.
-        aspectRatio: format === 'story' ? '9:16' : '4:5',
-      });
-      const img = await inlineImageClean(data);
-      if (!img) continue;
-      spent += await logImageUsage('escena de producto');
-      // La marca propia del producto (etiqueta Pampero/Ombú real) NO es motivo de
-      // descarte: sólo logos/texto agregados FUERA del producto.
-      const check = await checkImageQuality(img, { productHasBranding: true });
-      if (!check.ok) {
-        console.warn(`[ai] generateProductScene: descartada por control de calidad (texto=${check.hasText} logo=${check.hasLogo} ${check.notes || ''}), reintentando más estricto...`);
-        learnFrom('image', 'global', `El modelo de imagen coló ${check.hasText ? 'texto' : 'un logo'} en una escena de producto (plata tirada): reforzar la regla anti-texto/anti-logo`, check.notes);
-        continue;
+  try {
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const data = await geminiGenerateContent(config.gemini.imageModel, {
+          contents: [{ role: 'user', parts: [{ text: buildPrompt(attempt > 0) }, ...refs.map((r) => ({ inlineData: r }))] }],
+          generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+          // Ratio REAL de la pieza: sin esto el modelo devuelve 1:1 con barras negras.
+          aspectRatio: format === 'story' ? '9:16' : '4:5',
+        });
+        const img = await inlineImageClean(data);
+        if (!img) continue;
+        spent += await logImageUsage('escena de producto');
+        // La marca propia del producto (etiqueta Pampero/Ombú real) NO es motivo de
+        // descarte: sólo logos/texto agregados FUERA del producto.
+        const check = await checkImageQuality(img, { productHasBranding: true });
+        if (!check.ok) {
+          console.warn(`[ai] generateProductScene: descartada por control de calidad (texto=${check.hasText} logo=${check.hasLogo} ${check.notes || ''}), reintentando más estricto...`);
+          learnFrom('image', 'global', `El modelo de imagen coló ${check.hasText ? 'texto' : 'un logo'} en una escena de producto (plata tirada): reforzar la regla anti-texto/anti-logo`, check.notes);
+          continue;
+        }
+        img.costUsd = spent;
+        return img;
+      } catch (err) {
+        if (err.status === 429) { markImageQuotaHit(); console.warn(`[ai] Cuota de imágenes agotada (429): pauso ${IMAGE_QUOTA_COOLDOWN_MS / 60000} min y sigo con la foto del producto mientras tanto.`); return null; }
+        console.warn(`[ai] generateProductScene falló (intento ${attempt + 1}/2): ${err.message}`);
       }
-      img.costUsd = spent;
-      return img;
-    } catch (err) {
-      if (err.status === 429) { markImageQuotaHit(); console.warn(`[ai] Cuota de imágenes agotada (429): pauso ${IMAGE_QUOTA_COOLDOWN_MS / 60000} min y sigo con la foto del producto mientras tanto.`); return null; }
-      console.warn(`[ai] generateProductScene falló (intento ${attempt + 1}/2): ${err.message}`);
     }
-  }
-  console.warn('[ai] generateProductScene: sin resultado limpio tras reintentar, uso la foto del producto.');
-  return null;
+    console.warn('[ai] generateProductScene: sin resultado limpio tras reintentar, uso la foto del producto.');
+    return null;
+  } finally { soltarTurnoDeImagen(); }
 }
 
 /**

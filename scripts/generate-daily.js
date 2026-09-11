@@ -633,8 +633,33 @@ function extractCoupon(text) {
  * Devuelve { url, costUsd, cleanImageUrl } (como renderPostBuffer).
  */
 async function renderCarouselShot(shot, i, ctx) {
-  const { refImgs, visualImageUrl, sceneTheme, format, logos, occasion, couponCode, overlayTitle, badgeText, imageBrief, pillar, slotId, product } = ctx;
+  const { refImgs, visualImageUrl, sceneTheme, format, logos, occasion, couponCode, overlayTitle, badgeText, imageBrief, pillar, slotId, product, artMode } = ctx;
   const refUrl = refImgs.length ? (refImgs[shot.photoIndex] || refImgs[i % refImgs.length]) : visualImageUrl;
+
+  /*
+   * CADA CUADRO ES UNA ESCENA GENERADA A PARTIR DE SU PROPIA FOTO DE TIENDANUBE.
+   *
+   * Pedido del dueño (11-sep): "que cada imagen del carrusel, sea continuo o no, sea
+   * generativa basándose en cada una de las fotos de Tiendanube: generativo de una pose,
+   * generativo de otra y así".
+   *
+   * Antes sólo se generaban los cuadros 'hero' y 'contexto'; 'detalle', 'flatlay' y el
+   * cierre iban con la foto de catálogo tal cual, a sangre. Eso dejaba el carrusel mitad
+   * campaña y mitad e-commerce, y los cuadros de foto cruda son los que se leen como
+   * "pegados". Ahora genera todos, y cada uno se ancla a la foto que el director de arte
+   * le asignó (shot.photoIndex): la pose sale del catálogo real, no de la imaginación.
+   *
+   * La excepción es 'variantes', que es un collage con UNA FOTO REAL POR COLOR: ahí las
+   * fotos reales son el contenido (mostrar los colores que hay), no el fondo.
+   *
+   * Con arte "sólo fotos reales" no se genera nada, que es justamente para lo que está.
+   * Cada cuadro cuesta ~US$0,04; el tope diario de gasto sigue cortando por lo sano y,
+   * cuando corta, el cuadro sale con la foto real (que es lo que hacía siempre).
+   */
+  const generarEscena = artMode !== 'foto' && artMode !== 'tipografica' && pillar !== 'repost' && Boolean(refUrl);
+  // Las demás fotos del producto viajan como referencia de detalle: bajan la chance de que
+  // el modelo reinvente costuras o etiquetas, y NO tocan la pose (ver generateProductScene).
+  const otrasFotos = refImgs.filter((u) => u !== refUrl).slice(0, 3);
 
   // BENTO de variantes de color: collage (grid) con foto real de cada color, sin IA.
   // `extraUrls` son fotos que NO están en las del producto (otros colores que en
@@ -670,8 +695,14 @@ async function renderCarouselShot(shot, i, ctx) {
       overlayTitle: head,
       ctaHeadline: head,
       ctaBenefits: config.brand.ctaBenefits,
-      productImageUrl: refUrl, coverImage: true,
+      productImageUrl: refUrl,
+      productImageUrls: otrasFotos,
+      coverImage: true,
       logos, showBrand: false, layoutSeed: Number(slotId) + i * 13,
+      useAiProductScene: generarEscena,
+      // El cierre es una toma en contexto: la prenda en uso, con aire abajo para el botón.
+      shotSpec: { shotType: 'contexto', focus: 'la prenda en uso, en una escena de trabajo real', background: 'contexto' },
+      bgTheme: sceneTheme, bgBrief: imageBrief, bgOccasion: occasion,
     });
   }
 
@@ -680,13 +711,26 @@ async function renderCarouselShot(shot, i, ctx) {
     return renderPostBuffer({
       format, template: 'fullbleed', overlayTitle: shot.overlay || null,
       price: product && product.price, promoPrice: product && product.promo_price,
-      productImageUrl: refUrl, coverImage: true,
+      productImageUrl: refUrl,
+      productImageUrls: otrasFotos,
+      coverImage: true,
       logos, showBrand: false, couponCode,
+      useAiProductScene: generarEscena,
+      shotSpec: { shotType: 'hero', focus: 'el producto entero, listo para el bloque de precio', background: 'sutil' },
+      bgTheme: sceneTheme, bgBrief: imageBrief, bgOccasion: occasion,
+      layoutSeed: Number(slotId) + i * 13,
     });
   }
 
-  // Hero/contexto → escena IA de estudio (full-bleed). Detalle/flatlay → FOTO REAL directa
-  // full-bleed (imposible que la IA invente algo en el producto). Overlay atado a la foto.
+  /*
+   * Hero, contexto, detalle y flatlay: los cuatro salen como escena generada a partir de SU
+   * foto. Cuando la generación SÍ sale, la escena va a sangre sola (es el fondo del
+   * lienzo), así que `coverImage` sólo decide cómo se encuadra la FOTO REAL en el caso en
+   * que no salga —tope de gasto, modo "sólo fotos reales"—. Ahí se conserva el criterio de
+   * siempre: los detalles y los flat-lay a sangre (son primeros planos, llenan bien el
+   * cuadro) y el resto contenido, porque una foto de estudio sobre fondo blanco estirada a
+   * sangre deja medio lienzo en blanco.
+   */
   const detailRealPhoto = ['detalle', 'flatlay'].includes(shot.shotType);
   const overlay = shot.overlay || (i === 0 ? overlayTitle : null);
   const slideBrief = [imageBrief, shot.focus].filter(Boolean).join(' — ').slice(0, 500);
@@ -696,9 +740,9 @@ async function renderCarouselShot(shot, i, ctx) {
     overlayTitle: overlay,
     badgeText: i === 0 ? slideBadge : null,
     productImageUrl: refUrl,
-    productImageUrls: refImgs.filter((u) => u !== refUrl).slice(0, 3),
+    productImageUrls: otrasFotos,
     logos, showBrand: i === 0, layoutSeed: Number(slotId) + i * 13,
-    useAiProductScene: !detailRealPhoto && Boolean(refUrl) && pillar !== 'repost',
+    useAiProductScene: generarEscena,
     coverImage: detailRealPhoto,
     shotSpec: { shotType: shot.shotType, focus: shot.focus, background: shot.background },
     bgTheme: sceneTheme, bgBrief: slideBrief, bgOccasion: occasion,
@@ -735,6 +779,49 @@ const KICKER_ESCENA = ['EL MODELO', 'POR QUÉ', 'Y ADEMÁS'];
 /** Titular corto para la portada cuando el director de arte no dejó overlay. */
 function tituloCorto(texto, palabras = 4) {
   return String(texto || '').replace(/\s+/g, ' ').trim().split(' ').slice(0, palabras).join(' ');
+}
+
+/**
+ * QUÉ TRES FOTOS LE MANDAMOS A LA TIRA.
+ *
+ * En la tira hay tres personas y cada una saca su pose y su color de UNA referencia
+ * distinta (ver generatePanoramaScene). Si le pasamos las cuatro primeras fotos del
+ * catálogo tal como vienen, lo más probable es que sean cuatro tomas del MISMO color —
+ * las fichas de Tiendanube arrancan siempre con el color principal— y la tira sale con
+ * tres personas vestidas igual, que es lo que se venía tratando de evitar.
+ *
+ * Entonces se eligen a mano, con lo que ya vio la visión al catalogar las fotos
+ * (describeProductPhotos): primero una por cada COLOR distinto, y después se completa con
+ * las que queden. Se descartan los primeros planos: un zoom de una costura no sirve para
+ * saber cómo le queda puesta a una persona.
+ *
+ * Sin descripciones (la visión no corrió o falló) devuelve las primeras, que es
+ * exactamente lo que hacía antes: nunca empeora, a lo sumo no mejora.
+ */
+function fotosParaLaTira(refImgs, photoDescriptions = [], cuantas = 3) {
+  const fotos = (refImgs || []).filter(Boolean);
+  if (fotos.length <= cuantas) return fotos;
+  const desc = Array.isArray(photoDescriptions) ? photoDescriptions : [];
+  if (!desc.length) return fotos.slice(0, cuantas);
+
+  const info = (i) => desc.find((d) => Number(d.index) === i) || {};
+  const enteras = fotos.map((_, i) => i).filter((i) => !info(i).isDetail);
+  const candidatas = enteras.length >= cuantas ? enteras : fotos.map((_, i) => i);
+
+  const elegidas = [];
+  const coloresVistos = new Set();
+  for (const i of candidatas) {
+    const c = (info(i).color || '').trim();
+    if (c && coloresVistos.has(c)) continue;
+    if (c) coloresVistos.add(c);
+    elegidas.push(i);
+    if (elegidas.length === cuantas) break;
+  }
+  for (const i of candidatas) {
+    if (elegidas.length === cuantas) break;
+    if (!elegidas.includes(i)) elegidas.push(i);
+  }
+  return elegidas.slice(0, cuantas).map((i) => fotos[i]);
 }
 
 /**
@@ -787,7 +874,8 @@ async function renderCarouselPanorama(plan, ctx, { artMode = null, sceneUrl = nu
 
   if (quiereEscena) {
     const { generatePanoramaScene, generatePanoramaBackdrop } = require('../src/ai');
-    const fotos = (refImgs || []).filter(Boolean).slice(0, 4);
+    // Tres fotos, una por persona, con colores distintos si el producto los tiene.
+    const fotos = fotosParaLaTira(refImgs, ctx.photoDescriptions, 3);
     if (fotos.length) {
       const esc = await generatePanoramaScene({
         products: [{ name: (product && product.name) || sceneTheme, imageUrls: fotos }],
@@ -1539,6 +1627,30 @@ async function generateForSlot(slot, overrides = {}) {
       ? shotPlan
       : slides.map((_, i) => ({ shotType: i === 0 ? 'hero' : 'detalle', focus: '', photoIndex: refImgs.length ? i % refImgs.length : 0, extraPhotos: [], background: 'sutil', overlay: null, badge: null }));
 
+    /*
+     * UNA FOTO DISTINTA POR CUADRO. Desde que cada cuadro es una escena GENERADA a partir
+     * de su propia foto (ver renderCarouselShot), la foto asignada dejó de ser un detalle
+     * interno: es lo que define la pose de ese cuadro. Dos cuadros con la misma foto son
+     * dos generaciones casi iguales — plata pagada dos veces por la misma imagen.
+     *
+     * El director de arte a veces repite índice (le pide dos detalles a la misma foto).
+     * Acá se reparte: el primero que pidió cada foto se la queda y a los repetidos se les
+     * da la primera libre. Si hay menos fotos que cuadros, se permite repetir al final —
+     * es preferible repetir una pose a quedarse sin cuadro.
+     */
+    if (refImgs.length > 1) {
+      const tomadas = new Set();
+      plan = plan.map((shot) => {
+        const idx = Number(shot.photoIndex) || 0;
+        if (!tomadas.has(idx) && idx < refImgs.length) { tomadas.add(idx); return shot; }
+        let libre = 0;
+        while (libre < refImgs.length && tomadas.has(libre)) libre += 1;
+        if (libre >= refImgs.length) return shot; // más cuadros que fotos: se repite
+        tomadas.add(libre);
+        return { ...shot, photoIndex: libre };
+      });
+    }
+
     // Feed evergreen: garantizamos un slide de CIERRE con CTA (sin precio). Si el cerebro
     // no lo puso, lo agregamos con una foto real no usada todavía (nunca repetir foto).
     const isFeedFmt = format !== 'story';
@@ -1572,7 +1684,7 @@ async function generateForSlot(slot, overrides = {}) {
     }));
 
     // Contexto compartido de la pieza: lo usa renderCarouselShot (y la regeneración de 1 slide).
-    const ctx = { refImgs, visualImageUrl, sceneTheme, format, logos, occasion, couponCode, overlayTitle, badgeText, imageBrief, pillar: slot.pillar, slotId: slot.id, product };
+    const ctx = { refImgs, visualImageUrl, sceneTheme, format, logos, occasion, couponCode, overlayTitle, badgeText, imageBrief, pillar: slot.pillar, slotId: slot.id, product, artMode, photoDescriptions };
 
     /*
      * ¿TIRA CONTINUA O CARRUSEL CLÁSICO?
@@ -2282,6 +2394,8 @@ async function regenerateSlide({ assetId, index, overlay, instructions }) {
     badgeText: asset.pillar === 'mayorista' ? 'MAYORISTA' : null,
     imageBrief: [asset.pillar_detail, asset.theme_title].filter(Boolean).join(' — ').slice(0, 300),
     pillar: asset.pillar, slotId: asset.calendar_id, product,
+    // Sin artMode: corregir un cuadro lo vuelve a generar, igual que antes hacía con los
+    // cuadros 'hero' y 'contexto'. La corrección suele ser justamente sobre la imagen.
   };
 
   meta[i] = shot;

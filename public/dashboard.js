@@ -2219,7 +2219,7 @@ function openRegen(item) {
         <option value="continuo">Continua — una sola pieza cortada en cuadros</option>
         <option value="clasico">Clásica — una imagen independiente por slide</option>
       </select>
-      <p class="hint" style="margin-top:6px;">La <b>continua</b> es UNA sola foto de campaña, generada con la prenda puesta, cortada en 3 cuadros: al deslizar, la imagen sigue. La prenda se ve en los tres. Cuesta ~US$0,04 el carrusel entero (una imagen para los tres cuadros) y necesita al menos una foto del producto; si esa foto no sale, la pieza se hace clásica antes que pegar recortes. Sólo aplica a los carruseles de feed.</p>
+      <p class="hint" style="margin-top:6px;">En las dos, cada cuadro es una foto de campaña generada a partir de una foto distinta del producto (una pose por cuadro). La <b>continua</b> es UNA sola foto ancha cortada en 3: al deslizar la imagen sigue, y la prenda se ve en los tres — cuesta ~US$0,04 el carrusel entero. La <b>clásica</b> genera una imagen por cuadro (~US$0,04 cada una), así que muestra más poses y ángulos distintos. Si una generación no sale, ese cuadro vuelve a la foto real del catálogo.</p>
     </div>
     <div class="field" id="regen-artbrief-wrap" style="display:none;">
       <label>Indicación para la imagen <span class="hint" style="font-weight:400;">(opcional)</span></label>
@@ -2249,8 +2249,8 @@ function openRegen(item) {
   const artHint = overlay.querySelector('#regen-art-hint');
   const ART_HINTS = {
     '': 'La decide el director creativo según el mensaje. Si la pieza no tiene un producto puntual (promo de toda la tienda, fecha comercial), va a elegir el afiche.',
-    generativa: 'La IA crea la FOTO de campaña (luz, composición, profundidad) y deja libre la zona donde va el texto; el titular, el descuento y el botón se estampan después con la tipografía de la marca. A la IA nunca se le pide escribir: lo escribe mal y no se puede corregir. Cuesta ~US$0,04 por imagen y tarda 1-2 min. Ojo: en un carrusel CONTINUO esto ya pasa solo, no hace falta elegirlo — la tira SIEMPRE es una foto generada con la prenda adentro.',
-    foto: 'Usa sólo fotos reales del catálogo de Tiendanube, sin gastar en IA. Si la pieza no tiene un producto asociado, va a quedar sin foto. En un carrusel continuo es la ÚNICA opción que vuelve a pegar las prendas recortadas sobre un fondo: elegila sólo si preferís eso antes que gastar. Gratis.',
+    generativa: 'La IA crea la FOTO de campaña (luz, composición, profundidad) y deja libre la zona donde va el texto; el titular, el descuento y el botón se estampan después con la tipografía de la marca. A la IA nunca se le pide escribir: lo escribe mal y no se puede corregir. Ojo: en los carruseles esto ya pasa solo, no hace falta elegirlo — cada cuadro se genera a partir de una foto distinta del producto.',
+    foto: 'Usa las fotos del catálogo de Tiendanube tal cual, sin generar nada y sin gastar. Es la única opción que deja las piezas con foto de e-commerce cruda (y, en un carrusel continuo, con las prendas recortadas sobre un fondo): elegila sólo si preferís eso antes que gastar. Gratis.',
     tipografica: 'Afiche de diseño: trama de marca, banda de acento y el número del descuento impreso gigante. Es la mejor opción para promos de toda la tienda y fechas comerciales. Gratis e instantáneo.',
   };
   const syncArt = () => {
