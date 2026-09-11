@@ -230,4 +230,77 @@ function trimLetterbox(buffer) {
   });
 }
 
-module.exports = { resizeImage, detectLogoVariant, measureInkBox, trimLetterbox };
+/**
+ * Saca el MARCO uniforme de los cuatro bordes de una imagen generada.
+ *
+ * Es el primo claro de trimLetterbox, que sólo se ocupa de las barras NEGRAS de arriba y
+ * abajo. El modelo de imagen también devuelve, de a ratos, la foto "montada" adentro de un
+ * margen liso —gris claro, blanco o beige— en cualquiera de los cuatro lados. Eso pasó
+ * inadvertido mientras las escenas generadas eran fondos que iban tapados por recortes;
+ * en la tira generativa, donde la foto ES la pieza, el margen entra al cuadro como una
+ * franja gris contra el borde y se ve como un error de maquetado (pasó en la primera
+ * tira real del 11/09).
+ *
+ * Criterio: una fila (o columna) es marco si TODOS sus píxeles son casi del mismo color
+ * entre sí — sin importar cuál — y ese color se parece al de la esquina. Se corta como
+ * mucho el 8% de cada lado: más que eso ya no es un marco, es parte de la foto (un cielo
+ * plano, una pared lisa) y recortarla sería peor.
+ *
+ * Devuelve el buffer recortado, o el original si no hay marco (o si algo falla).
+ */
+function trimFlatEdges(buffer) {
+  return new Promise((resolve) => {
+    const W = 96;
+    const id = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const inPath = path.join(os.tmpdir(), `fe-in-${id}`);
+    const outPath = path.join(os.tmpdir(), `fe-out-${id}.jpg`);
+    const clean = () => { try { fs.unlinkSync(inPath); } catch (_) {} };
+    try { fs.writeFileSync(inPath, buffer); } catch (_) { return resolve(buffer); }
+    execFile(
+      ffmpegPath,
+      ['-y', '-loglevel', 'error', '-i', inPath, '-vf', `scale=${W}:-2`, '-pix_fmt', 'rgb24', '-f', 'rawvideo', '-'],
+      { encoding: 'buffer', maxBuffer: 8 * 1024 * 1024 },
+      (err, stdout) => {
+        if (err || !stdout || !stdout.length) { clean(); return resolve(buffer); }
+        const H = Math.floor(stdout.length / (W * 3));
+        if (H < 24) { clean(); return resolve(buffer); }
+        const px = (x, y) => { const i = (y * W + x) * 3; return [stdout[i], stdout[i + 1], stdout[i + 2]]; };
+        const cerca = (a, b, tol) => Math.abs(a[0] - b[0]) <= tol && Math.abs(a[1] - b[1]) <= tol && Math.abs(a[2] - b[2]) <= tol;
+        // Color de referencia: el promedio de las cuatro esquinas. Si las esquinas no se
+        // parecen entre sí no hay marco que valga y se corta la evaluación de una.
+        const esquinas = [px(0, 0), px(W - 1, 0), px(0, H - 1), px(W - 1, H - 1)];
+        const ref = [0, 1, 2].map((c) => Math.round(esquinas.reduce((a, e) => a + e[c], 0) / 4));
+        if (!esquinas.every((e) => cerca(e, ref, 22))) { clean(); return resolve(buffer); }
+        const filaPlana = (y) => { for (let x = 0; x < W; x += 1) if (!cerca(px(x, y), ref, 18)) return false; return true; };
+        const colPlana = (x) => { for (let y = 0; y < H; y += 1) if (!cerca(px(x, y), ref, 18)) return false; return true; };
+        const maxY = Math.floor(H * 0.08);
+        const maxX = Math.floor(W * 0.08);
+        let top = 0; while (top < maxY && filaPlana(top)) top += 1;
+        let bottom = 0; while (bottom < maxY && filaPlana(H - 1 - bottom)) bottom += 1;
+        let left = 0; while (left < maxX && colPlana(left)) left += 1;
+        let right = 0; while (right < maxX && colPlana(W - 1 - right)) right += 1;
+        if (top + bottom + left + right === 0) { clean(); return resolve(buffer); }
+        // Un píxel de más de cada lado: el borde del marco suele venir difuminado.
+        const x0 = left ? (left + 1) / W : 0;
+        const y0 = top ? (top + 1) / H : 0;
+        const wF = 1 - x0 - (right ? (right + 1) / W : 0);
+        const hF = 1 - y0 - (bottom ? (bottom + 1) / H : 0);
+        if (wF < 0.8 || hF < 0.8) { clean(); return resolve(buffer); }
+        execFile(
+          ffmpegPath,
+          ['-y', '-loglevel', 'error', '-i', inPath,
+            '-vf', `crop=iw*${wF.toFixed(5)}:ih*${hF.toFixed(5)}:iw*${x0.toFixed(5)}:ih*${y0.toFixed(5)}`, '-q:v', '2', outPath],
+          (err2) => {
+            if (err2) { clean(); return resolve(buffer); }
+            let outBuf = buffer;
+            try { outBuf = fs.readFileSync(outPath); } catch (_) { /* queda el original */ }
+            clean(); try { fs.unlinkSync(outPath); } catch (_) {}
+            resolve(outBuf);
+          }
+        );
+      }
+    );
+  });
+}
+
+module.exports = { resizeImage, detectLogoVariant, measureInkBox, trimLetterbox, trimFlatEdges };

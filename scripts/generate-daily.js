@@ -718,6 +718,20 @@ const KICKER_POR_TOMA = {
   cta: 'LLEVATELA',
 };
 
+/*
+ * ANTETÍTULOS EN MODO ESCENA. Los de arriba nombran lo que se ve en ESE cuadro ("EL
+ * DETALLE", "LOS COLORES") porque en la tira de recortes cada cuadro tiene su propia foto.
+ * En la tira generativa no: la foto es una sola y hacia la derecha el espacio se vacía a
+ * propósito, para dejar lugar al texto. Ahí un "EL DETALLE" encima de un taller vacío
+ * promete algo que no está — se vio en la primera pieza real (un titular "COSTURAS
+ * REFORZADAS" con el antetítulo "EL DETALLE" sobre un plano sin prenda).
+ *
+ * Entonces en modo escena el antetítulo deja de describir la foto y pasa a ordenar la
+ * lectura: el titular sigue siendo la afirmación que era, pero ya no se lee como un
+ * epígrafe de algo que no se ve.
+ */
+const KICKER_ESCENA = ['EL MODELO', 'POR QUÉ', 'Y ADEMÁS'];
+
 /** Titular corto para la portada cuando el director de arte no dejó overlay. */
 function tituloCorto(texto, palabras = 4) {
   return String(texto || '').replace(/\s+/g, ' ').trim().split(' ').slice(0, palabras).join(' ');
@@ -735,6 +749,54 @@ async function renderCarouselPanorama(plan, ctx, { artMode = null } = {}) {
   const { refImgs, visualImageUrl, sceneTheme, logos, overlayTitle, badgeText, imageBrief, occasion, slotId, product } = ctx;
 
   /*
+   * ARTE GENERATIVA EN LA TIRA. Hay dos maneras, y se prueban en este orden:
+   *
+   *  1. ESCENA (lo que se pidió en sep-2026): UNA foto panorámica con la prenda REAL ya
+   *     adentro. Es la que resuelve el "parece copiado y pegado": la prenda y el ambiente
+   *     salen de la misma toma, con la misma luz, así que no hay recorte que delatar.
+   *     Necesita fotos del producto para pasar como referencia; sin producto no aplica.
+   *  2. AMBIENTE (lo de antes): sólo el fondo generado, y encima los recortes de catálogo.
+   *     Queda como plan B cuando la escena falla, la rechaza el control de calidad o no
+   *     hay producto del que partir. Sigue siendo mejor que el fondo diseñado en promos y
+   *     fechas comerciales, donde no hay una prenda que fotografiar.
+   *
+   * Las dos sólo corren si el dueño pidió arte generativa desde el panel: la tira con
+   * fondo diseñado es gratis y se ve bien, y encenderla de fábrica sería gastar todos los
+   * días en algo que muchas veces queda tapado.
+   *
+   * Va ANTES de armar los cuadros porque cambia cuántos entran: la escena llega en 21:9 y
+   * sólo cubre bien una tira de 3 cuadros (con 4, el recorte se come el 28% del alto).
+   */
+  let backdrop = null;
+  let scene = null;
+  let costUsd = 0;
+  if (artMode === 'generativa') {
+    const { generatePanoramaScene, generatePanoramaBackdrop } = require('../src/ai');
+    const fotos = (refImgs || []).filter(Boolean).slice(0, 4);
+    if (fotos.length) {
+      const esc = await generatePanoramaScene({
+        products: [{ name: (product && product.name) || sceneTheme, imageUrls: fotos }],
+        productName: (product && product.name) || null,
+        theme: sceneTheme, brief: imageBrief, occasion,
+        seed: Number(slotId) || 0,
+      }).catch(() => null);
+      if (esc) {
+        scene = `data:${esc.mimeType};base64,${esc.buffer.toString('base64')}`;
+        costUsd += esc.costUsd || 0;
+      }
+    }
+    if (!scene) {
+      const amb = await generatePanoramaBackdrop({
+        theme: sceneTheme, brief: imageBrief, occasion, seed: Number(slotId) || 0,
+      }).catch(() => null);
+      if (amb) {
+        backdrop = `data:${amb.mimeType};base64,${amb.buffer.toString('base64')}`;
+        costUsd += amb.costUsd || 0;
+      }
+    }
+  }
+
+  /*
    * Como mucho 4 cuadros: la tira se dibuja de una y 5 cuadros son 5400px de lienzo, que
    * en Render (512MB) es pedir problemas. Además, del cuarto slide en adelante casi nadie
    * desliza — es plata de diseño puesta donde no se ve.
@@ -743,10 +805,11 @@ async function renderCarouselPanorama(plan, ctx, { artMode = null } = {}) {
    * director de arte puede devolver 5 o 6 tomas y el cierre se agrega al final, así que
    * cortar por los primeros 4 a secas dejaba el carrusel sin llamado a la acción.
    */
+  const maxCuadros = scene ? 3 : 4;
   const cierre = plan.find((s) => s.shotType === 'cta') || plan.find((s) => s.shotType === 'price') || null;
   const usados = cierre
-    ? [...plan.filter((s) => s !== cierre).slice(0, 3), cierre]
-    : plan.slice(0, 4);
+    ? [...plan.filter((s) => s !== cierre).slice(0, maxCuadros - 1), cierre]
+    : plan.slice(0, maxCuadros);
 
   const panels = usados.map((shot, i) => {
     const esCierre = shot.shotType === 'cta';
@@ -765,32 +828,15 @@ async function renderCarouselPanorama(plan, ctx, { artMode = null } = {}) {
     }
     return {
       kind: i === 0 ? 'hero' : 'detalle',
-      kicker: KICKER_POR_TOMA[shot.shotType] || 'EL DETALLE',
+      kicker: scene
+        ? (KICKER_ESCENA[i] || KICKER_ESCENA[KICKER_ESCENA.length - 1])
+        : (KICKER_POR_TOMA[shot.shotType] || 'EL DETALLE'),
       headline: shot.overlay || (i === 0 ? tituloCorto(overlayTitle) : null),
       deck: shot.deck || null,
       badge: i === 0 ? (badgeText || shot.badge || null) : null,
       photoUrl: foto,
     };
   });
-
-  /*
-   * Fondo generativo: UNA sola foto ambiental para toda la tira. Va sólo cuando el dueño
-   * pide arte generativa desde el panel — no de oficio. La tira con fondo diseñado es
-   * gratis y se ve bien; encender la IA de fábrica sería gastar todos los días en algo que
-   * el 90% de las veces queda tapado por las prendas.
-   */
-  let backdrop = null;
-  let costUsd = 0;
-  if (artMode === 'generativa') {
-    const { generatePanoramaBackdrop } = require('../src/ai');
-    const amb = await generatePanoramaBackdrop({
-      theme: sceneTheme, brief: imageBrief, occasion, seed: Number(slotId) || 0,
-    }).catch(() => null);
-    if (amb) {
-      backdrop = `data:${amb.mimeType};base64,${amb.buffer.toString('base64')}`;
-      costUsd += amb.costUsd || 0;
-    }
-  }
 
   // Palabra corrida de fondo: la marca del producto si la hay, si no la primera palabra
   // del nombre. Es tipografía de tapa, no un dato: nunca inventa nada.
@@ -800,11 +846,12 @@ async function renderCarouselPanorama(plan, ctx, { artMode = null } = {}) {
   const res = await renderPanoramaSlides({
     panels,
     backdropUrl: backdrop,
+    sceneUrl: scene,
     runningWord: palabra,
     logos,
     seed: Number(slotId) || 0,
   });
-  return { ...res, costUsd: res.costUsd + costUsd, buffer: res.buffers[0] || null };
+  return { ...res, costUsd: res.costUsd + costUsd, buffer: res.buffers[0] || null, scene: Boolean(scene) };
 }
 
 /**
@@ -817,9 +864,41 @@ async function renderCarouselPanorama(plan, ctx, { artMode = null } = {}) {
  * labelCallout en src/carouselPanorama.js): sin eso, dos prendas y dos nombres sueltos
  * no dicen cuál es cuál.
  */
-async function renderComboPanorama(productos, ctx, { etiquetas = false, slides = [] } = {}) {
-  const { logos, overlayTitle, badgeText, slotId } = ctx;
-  const elegidos = productos.slice(0, 3); // + el cierre = 4 cuadros, el máximo de la tira
+async function renderComboPanorama(productos, ctx, { etiquetas = false, slides = [], artMode = null } = {}) {
+  const { logos, overlayTitle, badgeText, slotId, sceneTheme, imageBrief, occasion } = ctx;
+
+  /*
+   * Tira generativa del combo: UNA foto con las prendas elegidas puestas en la misma
+   * escena. Es lo que pide un "pack por 2": con recortes, dos prendas pegadas sobre el
+   * mismo fondo se leen como dos fotos de catálogo al lado; en una sola toma se leen como
+   * un conjunto. Se decide ANTES de armar los cuadros porque cambia cuántos entran: la
+   * escena viene en 21:9 y sólo cubre bien una tira de 3 (ver generatePanoramaScene).
+   *
+   * Con `etiquetas` no se genera: las flechas apuntan a la geometría del recorte y sobre
+   * una foto generada no tienen a qué agarrarse.
+   */
+  const quiereEscena = artMode === 'generativa' && !etiquetas;
+  // Con escena: 2 productos + cierre. Sin escena: 3 productos + cierre (el máximo).
+  const elegidos = productos.slice(0, quiereEscena ? 2 : 3);
+
+  let scene = null;
+  let costUsd = 0;
+  if (quiereEscena) {
+    const { generatePanoramaScene } = require('../src/ai');
+    const esc = await generatePanoramaScene({
+      products: elegidos.map((p) => ({
+        name: p.name,
+        imageUrl: p.image_url,
+        imageUrls: Array.isArray(p.images) ? p.images : [],
+      })),
+      theme: sceneTheme || elegidos.map((p) => p.name).join(' + '),
+      brief: imageBrief, occasion, seed: Number(slotId) || 0,
+    }).catch(() => null);
+    if (esc) {
+      scene = `data:${esc.mimeType};base64,${esc.buffer.toString('base64')}`;
+      costUsd += esc.costUsd || 0;
+    }
+  }
 
   // Los slides del copy vienen como {title, body}; puede no haber ninguno.
   const titulos = (Array.isArray(slides) ? slides : []).map((x) => (x && x.title) || x || '');
@@ -851,11 +930,12 @@ async function renderComboPanorama(productos, ctx, { etiquetas = false, slides =
   const res = await renderPanoramaSlides({
     panels,
     backdropUrl: null,
+    sceneUrl: scene,
     runningWord: marca,
     logos,
     seed: Number(slotId) || 0,
   });
-  return { ...res, costUsd: res.costUsd || 0, buffer: res.buffers[0] || null };
+  return { ...res, costUsd: (res.costUsd || 0) + costUsd, buffer: res.buffers[0] || null, scene: Boolean(scene) };
 }
 
 /**
@@ -920,13 +1000,21 @@ async function generateForSlot(slot, overrides = {}) {
   const pillarDetail = overrides.pillarDetail || slot.pillar_detail;
   const effectiveSlot = { ...slot, pillar_detail: pillarDetail };
   // Dirección de arte pedida a mano desde el panel (ver ART_MODES).
-  const artMode = normalizeArtMode(overrides.artMode);
+  const artMode = normalizeArtMode(overrides.artMode) || normalizeArtMode(slot.art_mode);
   const artBrief = String(overrides.artBrief || '').trim().slice(0, 400) || null;
   // Estructura del carrusel pedida a mano desde el panel: 'continuo' = la tira de una
   // pieza cortada en cuadros, 'clasico' = una imagen independiente por slide. Sin pedido,
   // lo decide la generación (por defecto continuo en los carruseles fotográficos de feed).
+  /*
+   * La forma del carrusel y el modo de arte pueden venir de dos lados: del modal de
+   * regenerar (overrides, para esta corrida) o fijados en el slot (el dueño ya decidió
+   * que ESA pieza es continua y generativa). Gana el override, porque es lo que acaba de
+   * pedir; si no hay, manda lo guardado en el slot.
+   */
   const carouselStyle = ['continuo', 'clasico'].includes(String(overrides.carouselStyle || '').toLowerCase())
-    ? String(overrides.carouselStyle).toLowerCase() : null;
+    ? String(overrides.carouselStyle).toLowerCase()
+    : (['continuo', 'clasico'].includes(String(slot.carousel_style || '').toLowerCase())
+      ? String(slot.carousel_style).toLowerCase() : null);
 
   /* PIEZA A PEDIDO: lo que el dueño eligió y escribió en el panel para ESTE slot.
      Manda sobre todo lo automático — si pidió estos dos productos y esta escena, la
@@ -1459,7 +1547,7 @@ async function generateForSlot(slot, overrides = {}) {
         // botín) en vez de cuatro tomas del mismo. Es la única forma de que el carrusel
         // muestre lo que el dueño eligió.
         tira = productosPedidos.length > 1
-          ? await renderComboPanorama(productosPedidos, ctx, { etiquetas: quiereEtiquetas, slides })
+          ? await renderComboPanorama(productosPedidos, ctx, { etiquetas: quiereEtiquetas, slides, artMode })
           : await renderCarouselPanorama(plan, ctx, { artMode });
       } catch (err) {
         const suave = err.code === 'PANORAMA_SIN_RECORTES';
@@ -1478,10 +1566,10 @@ async function generateForSlot(slot, overrides = {}) {
       // que quien la lea sepa que estos cuadros no son piezas sueltas: corregir uno exige
       // volver a dibujar la tira entera o se rompe la continuidad.
       slidesMetaJson = JSON.stringify(productosPedidos.length > 1
-        ? { mode: 'panorama', combo: true, stripUrl: tira.stripUrl || null, productIds: productosPedidos.map((x) => x.id), labels: quiereEtiquetas }
-        : { mode: 'panorama', stripUrl: tira.stripUrl || null, shots: plan.slice(0, tira.urls.length) });
+        ? { mode: 'panorama', combo: true, scene: Boolean(tira.scene), stripUrl: tira.stripUrl || null, productIds: productosPedidos.map((x) => x.id), labels: quiereEtiquetas }
+        : { mode: 'panorama', scene: Boolean(tira.scene), stripUrl: tira.stripUrl || null, shots: plan.slice(0, tira.urls.length) });
       carouselDesign = 'panorama';
-      console.log(`[generate-daily] Slot #${slot.id}: carrusel CONTINUO de ${tira.urls.length} cuadros (tira de ${tira.urls.length * 1080}px).`);
+      console.log(`[generate-daily] Slot #${slot.id}: carrusel CONTINUO de ${tira.urls.length} cuadros (tira de ${tira.urls.length * 1080}px)${tira.scene ? ' · escena generada con la prenda adentro (sin recortes)' : ''}.`);
     } else {
       // En paralelo (memoria acotada por el navegador compartido + semáforo de imageRenderer).
       const slideResults = await Promise.all(plan.map((shot, i) => renderCarouselShot(shot, i, ctx)));

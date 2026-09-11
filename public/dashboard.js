@@ -1659,6 +1659,9 @@ function readPlanForm(overlay) {
     // Pieza a pedido: cómo tiene que verse la imagen y si cada prenda lleva su nombre.
     visual_brief: overlay.querySelector('#plan-visual').value.trim(),
     show_labels: overlay.querySelector('#plan-labels').checked,
+    // Forma y arte fijadas al slot: '' = que las decida el sistema, como hasta ahora.
+    carousel_style: overlay.querySelector('#plan-carousel-style').value || null,
+    art_mode: overlay.querySelector('#plan-art-mode').value || null,
     status,
   };
 }
@@ -1681,6 +1684,205 @@ async function planProductSearch(overlay, q, onPick) {
       if (p) onPick(p);
     }));
   } catch (e) { out.innerHTML = `<p class="hint">${esc(e.message)}</p>`; }
+}
+
+/* =========================================================================
+ * PUBLICACIÓN A PARTIR DE UN TEXTO (sep-2026)
+ *
+ * Pedido del dueño: "estaría buenísimo que me den la publicación en base a un texto.
+ * Ejemplo: crear una publicación carrusel que se trate del pack por 2 de chombas".
+ *
+ * "Agregar slot" pide ocho campos antes de dejarte escribir qué querés. Acá se escribe la
+ * frase y la IA decide el resto —forma, pilar, arte, qué productos— contra el catálogo
+ * real. Lo que vuelve es una PROPUESTA que se mira y se toca antes de crear nada: el paso
+ * que importa es poder cambiar el producto que matcheó mal ANTES de gastar en la imagen.
+ * ========================================================================= */
+const EJEMPLOS_PIEZA = [
+  'Un carrusel continuo del pack x2 de chombas, que se vean los dos colores puestos',
+  'Una historia avisando que quedan pocos talles del botín de seguridad',
+  'Una sola imagen del pantalón cargo, bien de cerca, que se vea la tela',
+];
+
+const ESTRUCTURA_LABEL = {
+  imagen: 'Una sola imagen · feed 4:5',
+  carrusel_continuo: 'Carrusel CONTINUO · la imagen sigue al deslizar',
+  carrusel: 'Carrusel clásico · una imagen por slide',
+  historia: 'Historia · 9:16',
+};
+
+function openPieceFromText() {
+  const body = `
+    <p class="hint" style="margin-top:0;">Escribilo como se lo dirías a un diseñador. La IA elige la forma (imagen, carrusel, carrusel continuo o historia), busca los productos en el catálogo real y arma el slot. <b>No crea nada todavía</b>: primero te muestra la propuesta.</p>
+    <div class="field">
+      <label>¿Qué querés publicar?</label>
+      <textarea class="input" id="pft-texto" rows="4" placeholder="Ej: crear una publicación carrusel que se trate del pack por 2 de chombas y que muestre distintas fotos"></textarea>
+      <div class="chips-suggest" id="pft-ejemplos" style="margin-top:8px;">
+        ${EJEMPLOS_PIEZA.map((e) => `<span class="chip-suggest" data-s="${esc(e)}">${esc(e)}</span>`).join('')}
+      </div>
+    </div>
+    <div id="pft-out"></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end;">
+      <button class="btn-discard" id="pft-cancel">Cancelar</button>
+      <button class="btn-primary" id="pft-go">${icon('sparkles')} Armar la publicación</button>
+    </div>`;
+  const overlay = showInfoModal('Publicación con un texto', body);
+  const out = overlay.querySelector('#pft-out');
+  const ta = overlay.querySelector('#pft-texto');
+  overlay.querySelectorAll('#pft-ejemplos .chip-suggest').forEach((c) =>
+    c.addEventListener('click', () => { ta.value = c.dataset.s; ta.focus(); }));
+  overlay.querySelector('#pft-cancel').addEventListener('click', () => overlay.remove());
+
+  overlay.querySelector('#pft-go').addEventListener('click', async () => {
+    const texto = ta.value.trim();
+    if (texto.length < 8) { toast('Contame en una frase de qué querés que sea la publicación.', 'err'); return; }
+    const go = overlay.querySelector('#pft-go');
+    go.disabled = true; go.innerHTML = `${icon('refresh', 'spin')} Pensando…`;
+    hydrateIcons(go);
+    out.innerHTML = '';
+    try {
+      const r = await api('/api/ai/piece-from-text', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ texto }),
+      });
+      renderPieceProposal(overlay, out, r);
+    } catch (err) {
+      out.innerHTML = `<p class="hint">No pude armarla: ${esc(err.message)}</p>`;
+    } finally {
+      go.disabled = false; go.innerHTML = `${icon('sparkles')} Armar la publicación`; hydrateIcons(go);
+    }
+  });
+}
+
+/**
+ * La propuesta, editable en lo que importa: la fecha, la hora y QUÉ PRODUCTOS. El resto
+ * (brief, visual, forma) se puede seguir ajustando después en "Planificar slot", así que
+ * acá no se repite el formulario entero — sería volver al problema que esto resuelve.
+ */
+function renderPieceProposal(overlay, out, r) {
+  // Cada producto matcheado con sus alternativas, por si la búsqueda agarró el que no era.
+  let productos = (r.productos || []).map((p) => ({ ...p }));
+
+  const productoHtml = () => productos.map((p, i) => `
+    <div class="prod-row">
+      <img src="${esc(p.image_url || '')}" onerror="this.style.visibility='hidden'"/>
+      <div class="prod-info">
+        <div class="prod-name">${esc(p.name)}</div>
+        <div class="prod-sub">buscado como "${esc(p.buscado)}" · stock ${p.stock ?? '∞'}${(p.alternativas || []).length ? ' · ¿no es éste?' : ''}</div>
+        ${(p.alternativas || []).length ? `<select class="input pft-alt" data-i="${i}" style="margin-top:6px;">
+          <option value="">${esc(p.name)}</option>
+          ${p.alternativas.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}
+        </select>` : ''}
+      </div>
+      <button type="button" class="btn-ghost btn-sm pft-quitar" data-i="${i}" title="Sacar de la pieza">${icon('x')}</button>
+    </div>`).join('');
+
+  out.innerHTML = `<div class="plan-improve">
+    ${r.aviso ? `<p class="plan-aviso">${icon('alert')} ${esc(r.aviso)}</p>` : ''}
+    <div><b>Título:</b> ${esc(r.titulo)}</div>
+    <div><b>De qué habla:</b> ${esc(r.brief)}</div>
+    <div><b>Cómo se ve:</b> ${esc(r.visual)}</div>
+    <div class="plan-improve-tags">
+      <span>${esc(ESTRUCTURA_LABEL[r.estructura] || r.estructura)}</span>
+      <span>pilar ${esc(r.pilar)}</span>
+      <span>${r.arte === 'generativa' ? 'imagen generada con IA' : r.arte === 'tipografica' ? 'afiche de diseño' : 'fotos reales del catálogo'}</span>
+      ${r.etiquetas ? '<span>con nombres señalados</span>' : ''}
+    </div>
+    ${r.porque ? `<p class="hint" style="margin:8px 0 0;">${icon('info')} ${esc(r.porque)}</p>` : ''}
+    ${r.sugerencias && r.sugerencias.length ? `
+      <div style="margin-top:12px;">
+        <div class="hint" style="margin-bottom:6px;">Si además le decís esto, sale mejor (tocá para sumarlo a tu texto):</div>
+        <div class="chips-suggest" id="pft-sugg">${r.sugerencias.map((x) => `<span class="chip-suggest" data-s="${esc(x)}">${esc(x)}</span>`).join('')}</div>
+      </div>` : ''}
+    <div id="pft-prods" style="margin-top:12px;">
+      ${productos.length ? productoHtml() : '<p class="hint">Sin producto puntual: la pieza es de marca o de toda la tienda.</p>'}
+      ${(r.no_encontrados || []).length ? `<p class="hint">${icon('alert')} No encontré en el catálogo: ${esc(r.no_encontrados.join(', '))}. Podés agregarlos a mano después, o sincronizar Tiendanube.</p>` : ''}
+    </div>
+    <div class="plan-grid" style="margin-top:12px;">
+      <div class="field"><label>Fecha</label><input class="input" id="pft-fecha" value="${esc(r.fecha)}" /></div>
+      <div class="field"><label>Hora ARG</label><input class="input" id="pft-hora" value="${esc(r.hora)}" /></div>
+    </div>
+    <div class="plan-improve-btns">
+      <button type="button" class="btn-primary btn-sm" id="pft-crear">${icon('check')} Crear y generar ${costTag(genCostLabel())}</button>
+      <button type="button" class="btn-ghost btn-sm" id="pft-solo">Crear el slot, generar después</button>
+    </div>
+  </div>`;
+  hydrateIcons(out);
+
+  // Las sugerencias se suman al texto del pedido: hay que volver a pedir la propuesta.
+  out.querySelectorAll('#pft-sugg .chip-suggest').forEach((c) => c.addEventListener('click', () => {
+    const ta = overlay.querySelector('#pft-texto');
+    ta.value = `${ta.value.trim().replace(/[.\s]+$/, '')}. ${c.dataset.s}`;
+    toast('Sumado al texto — tocá "Armar la publicación" de nuevo', 'ok');
+    ta.focus();
+  }));
+
+  const rewire = () => {
+    out.querySelectorAll('.pft-alt').forEach((sel) => sel.addEventListener('change', () => {
+      const i = Number(sel.dataset.i);
+      const id = sel.value;
+      if (!id) return;
+      const alt = (productos[i].alternativas || []).find((a) => String(a.id) === String(id));
+      if (!alt) return;
+      // El elegido y el alternativo cambian de lugar: así se puede volver atrás.
+      const anterior = { ...productos[i] };
+      productos[i] = {
+        ...alt,
+        buscado: anterior.buscado,
+        alternativas: [{ id: anterior.id, name: anterior.name }, ...(anterior.alternativas || []).filter((a) => String(a.id) !== String(id))],
+      };
+      out.querySelector('#pft-prods').innerHTML = productoHtml();
+      hydrateIcons(out.querySelector('#pft-prods'));
+      rewire();
+    }));
+    out.querySelectorAll('.pft-quitar').forEach((b) => b.addEventListener('click', () => {
+      productos.splice(Number(b.dataset.i), 1);
+      out.querySelector('#pft-prods').innerHTML = productos.length ? productoHtml() : '<p class="hint">Sin producto: la pieza queda de marca.</p>';
+      hydrateIcons(out.querySelector('#pft-prods'));
+      rewire();
+    }));
+  };
+  rewire();
+
+  const crear = async (generar) => {
+    const btn = out.querySelector(generar ? '#pft-crear' : '#pft-solo');
+    btn.disabled = true;
+    btn.innerHTML = `${icon('refresh', 'spin')} Creando…`;
+    hydrateIcons(btn);
+    try {
+      const slot = await api('/api/calendar', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          scheduled_date: out.querySelector('#pft-fecha').value.trim(),
+          scheduled_time: out.querySelector('#pft-hora').value.trim(),
+          post_type: r.slot.post_type,
+          format: r.slot.format,
+          carousel: r.slot.carousel,
+          carousel_style: r.slot.carousel_style,
+          art_mode: r.arte,
+          pillar: r.pilar,
+          pillar_detail: r.brief,
+          theme_title: r.titulo,
+          visual_brief: r.visual,
+          show_labels: r.etiquetas,
+          automation_level: 'auto',
+          product_ids: productos.map((p) => p.id),
+        }),
+      });
+      overlay.remove();
+      if (!generar) { toast('Slot creado — generalo cuando quieras', 'ok'); loadCalendar(); return; }
+      await api(`/api/generate/${slot.slot.id}`, { method: 'POST' });
+      toast('Generando en segundo plano… seguí usando el panel', 'ok');
+      markGenerating(slot.slot.id);
+      loadCalendar();
+    } catch (err) {
+      toast(err.message, 'err');
+      btn.disabled = false;
+      btn.innerHTML = generar ? `${icon('check')} Crear y generar` : 'Crear el slot, generar después';
+      hydrateIcons(btn);
+    }
+  };
+  out.querySelector('#pft-crear').addEventListener('click', () => crear(true));
+  out.querySelector('#pft-solo').addEventListener('click', () => crear(false));
 }
 
 function openPlanSlot(item = null) {
@@ -1717,7 +1919,19 @@ function openPlanSlot(item = null) {
         { v: 'pending', t: 'Pendiente' }, { v: 'skipped', t: 'Pausado/descanso' },
       ], item?.status === 'skipped' ? 'skipped' : 'pending')}
       <label class="check-row"><input type="checkbox" id="plan-carousel" ${item?.carousel ? 'checked' : ''} /> Carrusel</label>
+      ${planSelect('plan-carousel-style', 'Estructura del carrusel', [
+        { v: '', t: 'Automática — continua si las fotos dan' },
+        { v: 'continuo', t: 'Continua — una sola tira cortada en cuadros' },
+        { v: 'clasico', t: 'Clásica — una imagen por slide' },
+      ], item?.carousel_style || '')}
+      ${planSelect('plan-art-mode', 'Cómo se resuelve la imagen', [
+        { v: '', t: 'Automática — la decide el director creativo' },
+        { v: 'generativa', t: 'Generativa — foto de campaña con el producto adentro' },
+        { v: 'foto', t: 'Sólo fotos reales del catálogo' },
+        { v: 'tipografica', t: 'Afiche de diseño, sin foto' },
+      ], item?.art_mode || '')}
     </div>
+    <p class="hint" style="margin:-4px 0 12px;">En la tira <b>continua</b> la imagen sigue de un cuadro al siguiente: al deslizar se completa. Con arte <b>generativa</b>, además, la tira entera es UNA foto de campaña con la prenda ya adentro — ni recortes ni fotos pegadas (~US$0,04 la pieza).</p>
     <div class="field"><label>Título interno</label><input class="input" id="plan-theme" value="${esc(item?.theme_title || '')}" placeholder="Ej: Oferta aguinaldo" /></div>
     <div class="field" id="plan-product-field">
       <label>Productos de la pieza (opcional, hasta 4)</label>
@@ -1816,25 +2030,46 @@ function openPlanSlot(item = null) {
         <div><b>De qué habla:</b> ${esc(r.brief)}</div>
         <div><b>Cómo se ve:</b> ${esc(r.visual)}</div>
         <div class="plan-improve-tags">
-          ${r.carrusel ? '<span>carrusel</span>' : '<span>una sola imagen</span>'}
+          <span>${esc(ESTRUCTURA_LABEL[r.estructura] || r.estructura)}</span>
           ${r.etiquetas ? '<span>con nombres señalados</span>' : ''}
-          <span>${r.formato === 'story' ? 'historia 9:16' : 'feed 4:5'}</span>
         </div>
+        ${r.porque ? `<p class="hint" style="margin:8px 0 0;">${icon('info')} ${esc(r.porque)}</p>` : ''}
+        ${r.sugerencias && r.sugerencias.length ? `
+          <div style="margin-top:10px;">
+            <div class="hint" style="margin-bottom:6px;">Si además aclarás esto, sale mejor (tocá para sumarlo a tu texto):</div>
+            <div class="chips-suggest" id="plan-improve-sugg">${r.sugerencias.map((x) => `<span class="chip-suggest" data-s="${esc(x)}">${esc(x)}</span>`).join('')}</div>
+          </div>` : ''}
         <div class="plan-improve-btns">
           <button type="button" class="btn-primary btn-sm" id="plan-improve-use">${icon('check')} Usar esto</button>
           <button type="button" class="btn-ghost btn-sm" id="plan-improve-drop">Dejar lo mío</button>
         </div>
       </div>`;
       hydrateIcons(out);
+      // Las sugerencias se suman al pedido escrito: hay que volver a pedir la mejora.
+      out.querySelectorAll('#plan-improve-sugg .chip-suggest').forEach((c) => c.addEventListener('click', () => {
+        const ta = overlay.querySelector('#plan-visual');
+        ta.value = `${ta.value.trim().replace(/[.\s]+$/, '')}. ${c.dataset.s}`;
+        toast('Sumado al texto — tocá "Mejorar con IA" de nuevo', 'ok');
+        ta.focus();
+      }));
       out.querySelector('#plan-improve-use').addEventListener('click', () => {
         overlay.querySelector('#plan-visual').value = r.visual;
         const detalle = overlay.querySelector('#plan-detail');
         if (!detalle.value.trim()) detalle.value = r.brief;
         const titulo = overlay.querySelector('#plan-theme');
         if (!titulo.value.trim()) titulo.value = r.titulo;
-        overlay.querySelector('#plan-carousel').checked = r.carrusel;
         overlay.querySelector('#plan-labels').checked = r.etiquetas;
-        overlay.querySelector('#plan-format').value = r.formato;
+        /*
+         * La estructura recomendada se aplica ENTERA (lienzo, tipo de posteo, carrusel y
+         * si la tira es continua). Antes se aplicaba sólo "carrusel + formato" y quedaba
+         * el slot a medias: la IA decía "carrusel continuo" y el slot seguía siendo una
+         * historia, así que la recomendación no cambiaba nada de lo que salía.
+         */
+        const slot = r.slot || {};
+        overlay.querySelector('#plan-post-type').value = slot.post_type || 'feed';
+        overlay.querySelector('#plan-format').value = slot.format || r.formato;
+        overlay.querySelector('#plan-carousel').checked = Boolean(slot.carousel);
+        overlay.querySelector('#plan-carousel-style').value = slot.carousel_style || '';
         out.innerHTML = '<p class="hint">Listo: quedó aplicado. Podés seguir editándolo a mano.</p>';
       });
       out.querySelector('#plan-improve-drop').addEventListener('click', () => { out.innerHTML = ''; });
@@ -2014,7 +2249,7 @@ function openRegen(item) {
   const artHint = overlay.querySelector('#regen-art-hint');
   const ART_HINTS = {
     '': 'La decide el director creativo según el mensaje. Si la pieza no tiene un producto puntual (promo de toda la tienda, fecha comercial), va a elegir el afiche.',
-    generativa: 'La IA crea la FOTO de campaña (luz, composición, profundidad) y deja libre la zona donde va el texto; el titular, el descuento y el botón se estampan después con la tipografía de la marca. A la IA nunca se le pide escribir: lo escribe mal y no se puede corregir. Cuesta ~US$0,04 por imagen y tarda 1-2 min. En un carrusel continuo genera UNA sola foto panorámica de ambiente para toda la tira (las prendas siguen siendo las fotos reales, encima): sale más barato que el carrusel clásico, que paga una escena por slide.',
+    generativa: 'La IA crea la FOTO de campaña (luz, composición, profundidad) y deja libre la zona donde va el texto; el titular, el descuento y el botón se estampan después con la tipografía de la marca. A la IA nunca se le pide escribir: lo escribe mal y no se puede corregir. Cuesta ~US$0,04 por imagen y tarda 1-2 min. En un carrusel CONTINUO genera UNA sola foto panorámica con la prenda YA ADENTRO de la escena — nada de recortes pegados encima — y la tira sale de 3 cuadros: una sola imagen paga para todo el carrusel, más barato que el clásico, que paga una escena por slide.',
     foto: 'Usa sólo fotos reales del catálogo de Tiendanube. Si la pieza no tiene un producto asociado, va a quedar sin foto. Gratis.',
     tipografica: 'Afiche de diseño: trama de marca, banda de acento y el número del descuento impreso gigante. Es la mejor opción para promos de toda la tienda y fechas comerciales. Gratis e instantáneo.',
   };

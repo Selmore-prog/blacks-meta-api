@@ -21,6 +21,7 @@ const panorama = require('../src/carouselPanorama');
  *   node scripts/render-lab.js --out /tmp/piezas    -> dónde escribir
  *   node scripts/render-lab.js --tira               -> carrusel continuo (la tira + cuadros)
  *   node scripts/render-lab.js --tira --seed 3      -> otro ritmo de composición
+ *   node scripts/render-lab.js --tira --escena      -> tira GENERATIVA (la única que gasta: ~US$0,04)
  *   node scripts/render-lab.js --producto camisa    -> con qué producto real probar
  *
  * Las piezas quedan en <out>/<template>-<formato>.jpg.
@@ -66,7 +67,7 @@ async function brandLogos() {
  *   tira-1..N.jpg      -> los cuadros tal como los va a ver Instagram
  * Sin subir nada ni llamar a ninguna IA. `--seed N` cambia el ritmo de composición.
  */
-async function renderTira({ product, images, logos, seed }) {
+async function renderTira({ product, images, logos, seed, escena = false }) {
   const nombre = String(product.name || '').trim();
   const specs = ['Cintura elastizada', 'Refuerzo en rodilla', 'Bolsillos cargo con fuelle'];
   const crudos = [
@@ -75,7 +76,9 @@ async function renderTira({ product, images, logos, seed }) {
     { kind: 'detalle', kicker: 'LA TELA', headline: specs[0], deck: 'Se mueve con vos, no te pelea.', photoUrl: images[2] || images[0] },
     { kind: 'cta', headline: 'Conseguila en la web', benefits: ['6 cuotas sin interés', 'Envío gratis a todo el país'], ctaLabel: 'Comprá online', photoUrl: images[3] || images[1] || images[0] },
   ];
-  const panels = await Promise.all(crudos.map(async (p) => {
+  // En modo escena la tira es de 3 cuadros (la foto llega en 21:9 y con 4 se recorta feo).
+  const usados = escena ? [crudos[0], crudos[1], crudos[3]] : crudos;
+  const panels = await Promise.all(usados.map(async (p) => {
     const cut = await cutoutFromUrl(p.photoUrl).catch(() => null);
     return cut
       ? { ...p, cutout: { url: `data:image/png;base64,${cut.buffer.toString('base64')}`, box: cut.box, aspect: cut.width / cut.height } }
@@ -83,8 +86,29 @@ async function renderTira({ product, images, logos, seed }) {
   }));
   console.log(`[lab] Tira: ${panels.length} cuadros · recortes OK: ${panels.filter((p) => p.cutout).length}`);
 
+  /*
+   * MODO ESCENA (--escena): la única rama del laboratorio que llama a la IA y gasta.
+   * Genera la foto panorámica con la prenda adentro y la usa de base; los recortes no se
+   * dibujan. Es lo que hay que mirar para juzgar si la tira dejó de parecer pegoteada.
+   */
+  let sceneUrl = null;
+  if (escena) {
+    const { generatePanoramaScene } = require('../src/ai');
+    console.log('[lab] Generando la escena panorámica (esto sí gasta, ~US$0,04)…');
+    const img = await generatePanoramaScene({
+      products: [{ name: nombre, imageUrls: images.slice(0, 4) }],
+      productName: nombre,
+      theme: `${nombre}${product.category ? ` (${product.category})` : ''}`,
+      seed,
+    });
+    if (!img) throw new Error('La escena no salió (mirá el warning de arriba). Probá de nuevo o sin --escena.');
+    sceneUrl = `data:${img.mimeType};base64,${img.buffer.toString('base64')}`;
+    fs.writeFileSync(path.join(OUT, 'tira-escena-cruda.jpg'), img.buffer);
+    console.log(`[lab] Escena lista (US$${(img.costUsd || 0).toFixed(3)}) → ${OUT}/tira-escena-cruda.jpg`);
+  }
+
   const { n, w: W, h: H, panelW } = panorama.panoramaDims(panels.length);
-  const html = panorama.buildPanoramaHtml({ panels, runningWord: nombre.split(' ')[0] || 'BLACKS', seed }, {});
+  const html = panorama.buildPanoramaHtml({ panels, sceneUrl, runningWord: nombre.split(' ')[0] || 'BLACKS', seed }, {});
   const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage'] });
   const page = await browser.newPage();
   await page.setViewport({ width: W, height: H });
@@ -117,7 +141,11 @@ async function main() {
   // Carrusel continuo: es una tira ancha, no una plantilla — tiene su propia rama.
   if (args.includes('--tira')) {
     const seedIdx = args.indexOf('--seed');
-    await renderTira({ product, images, logos, seed: seedIdx >= 0 ? Number(args[seedIdx + 1]) || 0 : 0 });
+    await renderTira({
+      product, images, logos,
+      seed: seedIdx >= 0 ? Number(args[seedIdx + 1]) || 0 : 0,
+      escena: args.includes('--escena'),
+    });
     await pool.end();
     return;
   }

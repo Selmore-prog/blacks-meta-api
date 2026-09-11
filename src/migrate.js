@@ -343,6 +343,14 @@ ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS forced_product_id BIGINT R
 ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS forced_product_ids JSONB;
 ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS visual_brief TEXT;
 ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS show_labels BOOLEAN DEFAULT false;
+-- Forma y arte que el dueño le fijó al slot (sep-2026). Hasta ahora las dos vivían sólo
+-- como opciones del modal de "Regenerar": se aplicaban a esa corrida y se perdían, así que
+-- una pieza creada como carrusel continuo con arte generativa volvía a decidirse sola en
+-- la siguiente regeneración. Guardadas en el slot, la decisión queda tomada de una vez.
+--   carousel_style: 'continuo' (la tira) | 'clasico' (una imagen por slide) | NULL (automático)
+--   art_mode:       'generativa' | 'foto' | 'tipografica' | NULL (lo decide el director creativo)
+ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS carousel_style TEXT;
+ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS art_mode TEXT;
 -- Receta de cada slide del carrusel (para regenerar UNO solo con correcciones):
 -- [{kind, shotType, photoIndex, extraPhotos, background, focus, overlay, badge}]
 ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS slides_meta JSONB;

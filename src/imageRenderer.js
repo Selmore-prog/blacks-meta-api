@@ -2083,12 +2083,20 @@ async function renderPanoramaSlides(options) {
   const { n, w: W, h: H, panelW } = panorama.panoramaDims(panels.length);
 
   /*
+   * MODO ESCENA: la tira ya viene fotografiada entera, con la prenda adentro
+   * (generatePanoramaScene en src/ai.js). No hay nada que recortar ni que pegar —
+   * justamente ése es el punto: lo que se veía "pegado" era el recorte— así que todo el
+   * trabajo de cutout de abajo se saltea y sólo se estampa la tipografía encima.
+   */
+  const modoEscena = Boolean(options.sceneUrl);
+
+  /*
    * RECORTE DE CADA PRENDA. Es lo que permite que una prenda quede partida por la costura
    * sin que se lea como un rectángulo cortado: al no haber fondo, no hay borde que delate
    * el pegote. Best-effort y gratis (ffmpeg local): la foto que no se puede recortar cae a
    * tarjeta con marco, que también es un objeto puesto sobre la tira.
    */
-  const conRecorte = await Promise.all(panels.map(async (panel) => {
+  const conRecorte = modoEscena ? panels.map((p) => ({ ...p, cutout: null })) : await Promise.all(panels.map(async (panel) => {
     const src = panel.photoUrl && !String(panel.photoUrl).startsWith('data:') ? panel.photoUrl : null;
     if (!src) return { ...panel, cutout: null };
     const cut = await cutoutFromUrl(src).catch(() => null);
@@ -2103,7 +2111,7 @@ async function renderPanoramaSlides(options) {
     };
   }));
   const conCutout = conRecorte.filter((p) => p.cutout).length;
-  if (conCutout < n) console.warn(`[render] Tira continua: ${n - conCutout}/${n} fotos no se pudieron recortar (van como tarjeta).`);
+  if (!modoEscena && conCutout < n) console.warn(`[render] Tira continua: ${n - conCutout}/${n} fotos no se pudieron recortar (van como tarjeta).`);
   /*
    * Sin recortes suficientes la tira no vale la pena: queda una fila de tarjetas
    * rectangulares sobre fondo oscuro, que es exactamente el "cortado y pegado" que este
@@ -2111,7 +2119,7 @@ async function renderPanoramaSlides(options) {
    * que se avisa con un error reconocible y el llamador cae solo.
    */
   const minimo = Math.max(2, Number(options.minCutouts) || 2);
-  if (conCutout < minimo) {
+  if (!modoEscena && conCutout < minimo) {
     const err = new Error(`Sólo ${conCutout} de ${n} fotos se pudieron recortar: la tira continua quedaría de tarjetas pegadas.`);
     err.code = 'PANORAMA_SIN_RECORTES';
     throw err;
@@ -2124,6 +2132,7 @@ async function renderPanoramaSlides(options) {
     {
       panels: conRecorte,
       backdropUrl: options.backdropUrl || null,
+      sceneUrl: options.sceneUrl || null,
       runningWord: options.runningWord || null,
       seed: options.seed || 0,
     },

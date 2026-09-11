@@ -415,6 +415,11 @@ app.post('/api/calendar/seed', wrap(async (req, res) => {
   res.json({ ok: true, inserted: inserted.length });
 }));
 
+/* Forma del carrusel y modo de arte guardados EN EL SLOT (no sólo en la regeneración de
+   turno): cualquier valor que no sea uno de los conocidos vuelve a "automático" (null). */
+const carouselStyleParam = (v) => (['continuo', 'clasico'].includes(v) ? v : null);
+const artModeParam = (v) => (['generativa', 'foto', 'tipografica'].includes(v) ? v : null);
+
 app.post('/api/calendar', wrap(async (req, res) => {
   const body = req.body || {};
   const scheduledDate = textOrNull(body.scheduled_date);
@@ -441,8 +446,8 @@ app.post('/api/calendar', wrap(async (req, res) => {
     `INSERT INTO content_calendar
        (scheduled_date, platform, post_type, format, pillar, pillar_detail, automation_level,
         interaction_hint, scheduled_time, theme_title, carousel, status, origin, forced_product_id,
-        forced_product_ids, visual_brief, show_labels)
-     VALUES ($1, 'instagram', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'manual', $12, $13, $14, $15)
+        forced_product_ids, visual_brief, show_labels, carousel_style, art_mode)
+     VALUES ($1, 'instagram', $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, 'manual', $12, $13, $14, $15, $16, $17)
      RETURNING *`,
     [
       scheduledDate,
@@ -460,6 +465,8 @@ app.post('/api/calendar', wrap(async (req, res) => {
       JSON.stringify(productIds),
       textOrNull(body.visual_brief),
       Boolean(boolOrNull(body.show_labels)),
+      carouselStyleParam(body.carousel_style),
+      artModeParam(body.art_mode),
     ]
   );
   res.json({ ok: true, slot: rows[0] });
@@ -492,6 +499,9 @@ app.patch('/api/calendar/:calendarId', wrap(async (req, res) => {
       : JSON.stringify(idListParam(body.product_ids, body.product_id)),
     visual_brief: body.visual_brief === undefined ? undefined : (textOrNull(body.visual_brief) || null),
     show_labels: body.show_labels === undefined ? undefined : Boolean(boolOrNull(body.show_labels)),
+    // Forma y arte fijados al slot: '' o null los vuelve a "automático".
+    carousel_style: body.carousel_style === undefined ? undefined : carouselStyleParam(body.carousel_style),
+    art_mode: body.art_mode === undefined ? undefined : artModeParam(body.art_mode),
   };
 
   assertDate(values.scheduled_date);
@@ -625,6 +635,103 @@ app.post('/api/ai/improve-brief', wrap(async (req, res) => {
     carousel: Boolean(b.carousel),
   });
   res.json(out);
+}));
+
+
+/* PIEZA A PARTIR DE UN TEXTO. Una frase entra, un slot listo sale — sin escribir nada.
+ *
+ * Devuelve una PROPUESTA, no crea nada: el panel la muestra (con los productos que
+ * encontró en el catálogo y la forma que eligió) y recién si el dueño la acepta se crea el
+ * slot con POST /api/calendar y se genera. Así un producto mal matcheado se corrige antes
+ * de gastar en la imagen, no después.
+ *
+ * Es texto: no gasta en imágenes. Ver planPieceFromText en src/ai.js. */
+app.post('/api/ai/piece-from-text', wrap(async (req, res) => {
+  const { planPieceFromText } = require('./ai');
+  const texto = String((req.body || {}).texto || '').trim().slice(0, 1200);
+  if (texto.length < 8) return res.status(400).json({ error: 'Contame en una frase de qué querés que sea la publicación.' });
+
+  const { companyFactsContext, getCompanyFacts } = require('./companyInfo');
+  const companyFacts = await getCompanyFacts().then(companyFactsContext).catch(() => '');
+  const plan = await planPieceFromText({ texto, companyFacts });
+
+  /*
+   * LOS PRODUCTOS LOS ELIGE EL CATÁLOGO, NO LA IA. La IA sólo dijo qué buscar ("chomba");
+   * acá se busca de verdad y se prioriza lo que sirve para una pieza: con foto, publicado
+   * y con stock, y de ésos el que más vendió. Un término que no matchea nada se informa
+   * como tal en vez de inventar un producto.
+   */
+  /*
+   * De los candidatos que devuelve el término, gana el que más se parece a lo que el dueño
+   * ESCRIBIÓ, no el que más vendió. Buscando "chomba" para el pedido "el pack por 2 de
+   * chombas", el orden por ventas traía "CHOMBA PAMPERO DAMA" y dejaba afuera el "Pack X2
+   * Chomba Micropique" — que es literalmente lo que había pedido. Contar cuántas palabras
+   * del pedido aparecen en el nombre lo resuelve sin IA y sin sorpresas; las ventas quedan
+   * de desempate, que es para lo que sirven.
+   */
+  // Palabras que hablan de la PIEZA, no del producto: si no se sacan, "carrusel" y "foto"
+  // suman puntos parejo a todos los candidatos y el puntaje deja de distinguir.
+  const RUIDO = new Set(['carrusel', 'continuo', 'continua', 'historia', 'imagen', 'imagenes', 'foto', 'fotos',
+    'publicacion', 'posteo', 'post', 'slide', 'slides', 'cuadro', 'cuadros', 'crear', 'hacer', 'quiero',
+    'que', 'con', 'los', 'las', 'del', 'para', 'una', 'uno', 'sea', 'vea', 'vean', 'sobre', 'trate', 'muestre']);
+  const normalizar = (t) => String(t || '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+  // Raíz de 5 letras: así "chombas" encuentra "Chomba" y "colores" encuentra "color".
+  // Sin esto, el plural del pedido no matchea el singular del catálogo y el puntaje da 0
+  // justo en la palabra que importa (pasó con "pack x2 de chombas").
+  const raiz = (w) => (w.length > 5 ? w.slice(0, 5) : w);
+  const palabrasPedido = [...new Set(normalizar(texto).split(/[^a-z0-9]+/).filter((w) => w.length >= 3 && !RUIDO.has(w)))];
+  const parecido = (nombre) => {
+    const n = normalizar(nombre);
+    return palabrasPedido.reduce((acc, w) => acc + (n.includes(raiz(w)) ? 1 : 0), 0);
+  };
+
+  const productos = [];
+  const vistos = new Set();
+  const noEncontrados = [];
+  for (const termino of plan.buscar) {
+    const { rows } = await pool.query(
+      `SELECT id, name, brand, category, price, stock, image_url, COALESCE(sales_30d, 0) AS sales_30d
+         FROM products_cache
+        WHERE published IS NOT FALSE AND image_url IS NOT NULL AND name ILIKE $1
+        ORDER BY (stock > 0) DESC, COALESCE(sales_30d, 0) DESC, synced_at DESC
+        LIMIT 12`,
+      [`%${termino}%`]
+    );
+    const ordenados = rows
+      .map((r, i) => ({ r, score: parecido(r.name), orden: i }))
+      .sort((a, b) => (b.score - a.score) || (a.orden - b.orden))
+      .map((x) => x.r);
+    const elegido = ordenados.find((r) => !vistos.has(Number(r.id)));
+    if (!elegido) { noEncontrados.push(termino); continue; }
+    vistos.add(Number(elegido.id));
+    productos.push({
+      ...elegido,
+      buscado: termino,
+      alternativas: ordenados.filter((r) => Number(r.id) !== Number(elegido.id)).slice(0, 5),
+    });
+  }
+
+  /*
+   * CUÁNDO. El modelo no sabe qué días están ocupados, así que la fecha la propone el
+   * calendario: el primer día desde mañana que no tenga ya una pieza de feed. Mañana y no
+   * hoy porque una pieza recién creada hay que mirarla y aprobarla antes de que salga.
+   */
+  const { rows: ocupados } = await pool.query(
+    `SELECT to_char(scheduled_date, 'YYYY-MM-DD') AS d FROM content_calendar
+      WHERE scheduled_date >= current_date AND status <> 'skipped'`
+  );
+  const tomados = new Set(ocupados.map((r) => r.d));
+  const dia = new Date();
+  dia.setDate(dia.getDate() + 1);
+  for (let i = 0; i < 30 && tomados.has(dia.toISOString().slice(0, 10)); i += 1) dia.setDate(dia.getDate() + 1);
+
+  res.json({
+    ...plan,
+    productos,
+    no_encontrados: noEncontrados,
+    fecha: dia.toISOString().slice(0, 10),
+    hora: plan.slot.post_type === 'story' ? '12:00' : '18:00',
+  });
 }));
 
 app.get('/api/settings/image-model', wrap(async (req, res) => {

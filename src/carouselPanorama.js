@@ -232,6 +232,33 @@ function photoCard(url, { cx, inkH, bottom, aspect = FOTO_RETRATO, z = 3 }) {
 }
 
 /**
+ * TIRA GENERATIVA: la foto ES la pieza, no el fondo.
+ *
+ * Diferencia con `groundLayer` (que también recibe una imagen): ahí la foto es AMBIENTE y
+ * se la manda al fondo a propósito —brillo al 62%, una cortina oscura encima— porque lo
+ * que importa son los recortes que van arriba. Acá no hay nada arriba: la prenda ya está
+ * fotografiada DENTRO de la escena, con la luz de la escena. Bajarla como si fuera fondo
+ * sería apagar justamente lo que se quiere mostrar.
+ *
+ * Entonces la imagen va casi limpia (un punto de contraste, nada más) y la legibilidad del
+ * texto se resuelve donde hace falta y sólo ahí:
+ *   · una cortina que baja desde el riel hasta el pie, que es donde viven los titulares;
+ *   · una cortina corta arriba, para el logo y la cápsula del descuento;
+ *   · las dos con el MISMO perfil a lo largo de toda la tira, así ningún corte muestra un
+ *     degradado distinto del de al lado (eso delataría que son cuatro imágenes).
+ *
+ * @param railY fracción de alto donde corre el riel: la cortina de abajo arranca ahí.
+ */
+function sceneLayer(W, H, sceneUrl, { railY = 0.702 } = {}) {
+  return `<img src="${esc(sceneUrl)}" style="position:absolute; left:0; top:0; width:${W}px; height:${H}px;
+      object-fit:cover; z-index:0; filter:brightness(1.1) contrast(1.05) saturate(.98);"/>
+    <div data-deco style="position:absolute; left:0; top:0; width:${W}px; height:${r1(H * 0.2)}px; z-index:1;
+      background:linear-gradient(to bottom, rgba(8,8,10,.55) 0%, rgba(8,8,10,.22) 50%, rgba(8,8,10,0) 100%);"></div>
+    <div data-deco style="position:absolute; left:0; top:${r1(H * (railY - 0.12))}px; width:${W}px; height:${r1(H * (1.12 - railY))}px; z-index:1;
+      background:linear-gradient(to bottom, rgba(8,8,10,0) 0%, rgba(8,8,10,.52) 26%, rgba(8,8,10,.88) 62%, rgba(8,8,10,.97) 100%);"></div>`;
+}
+
+/**
  * Fondo continuo. Si hay foto ambiental generada (una sola, ancha, para TODA la tira) va
  * ésa; si no, un campo diseñado con pozos de luz desplazados.
  *
@@ -505,6 +532,14 @@ function buildPanoramaHtml(opts, helpers = {}) {
   const { nombre: ritmo, filas } = rhythmFor(n, seed);
   const flip = seed % 2 === 1;
   const railY = 0.702;
+  /*
+   * MODO ESCENA: la tira es UNA fotografía generada con la prenda ya adentro (ver
+   * generatePanoramaScene en src/ai.js). No hay recortes que colocar, así que todo el
+   * aparato de ritmos, cruces y pozos de luz —que existe para que un PNG pegado no se
+   * lea como calcomanía— no corre. Lo que sí queda es la tipografía: el riel, la palabra
+   * corrida y los titulares son los que siguen cosiendo un cuadro con el siguiente.
+   */
+  const modoEscena = Boolean(opts.sceneUrl);
 
   const headHtml = helpers.headHtml || ((w, h) => `<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"/>
     <link href="https://fonts.googleapis.com/css2?family=Anton&family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
@@ -571,13 +606,13 @@ function buildPanoramaHtml(opts, helpers = {}) {
     g.cruza = true;
   }
 
-  const etiquetas = panels.map((panel, i) => (
+  const etiquetas = modoEscena ? '' : panels.map((panel, i) => (
     (panel.label && geoms[i].tieneFoto && panel.kind !== 'cta')
       ? labelCallout(geoms[i], panel.label, { indice: i, panelW, H })
       : ''
   )).join('');
 
-  const medias = panels.map((panel, i) => {
+  const medias = modoEscena ? '' : panels.map((panel, i) => {
     const g = geoms[i];
     if (!g.tieneFoto) return '';
     const cx = g.cx * panelW;
@@ -616,14 +651,14 @@ function buildPanoramaHtml(opts, helpers = {}) {
 
   return `${headHtml(W, H)}
   <body style="width:${W}px; height:${H}px; position:relative; background:${INK_BG}; overflow:hidden;">
-    ${groundLayer(W, H, opts.backdropUrl, n)}
-    ${runningWord(W, H, opts.runningWord, { top: flip ? 0.115 : 0.085 })}
-    ${warmSweep(W, H, { flip })}
+    ${modoEscena ? sceneLayer(W, H, opts.sceneUrl, { railY }) : groundLayer(W, H, opts.backdropUrl, n)}
+    ${modoEscena ? '' : runningWord(W, H, opts.runningWord, { top: flip ? 0.115 : 0.085 })}
+    ${modoEscena ? '' : warmSweep(W, H, { flip })}
     ${medias}
     ${railLayer(W, H, n, { y: railY })}
     ${etiquetas}
     ${cuadros}
-    ${grainLayer(opts.backdropUrl ? 0.14 : 0.2)}
+    ${grainLayer(modoEscena ? 0.09 : (opts.backdropUrl ? 0.14 : 0.2))}
     <!-- ritmo: ${ritmo} -->
   </body></html>`;
 }

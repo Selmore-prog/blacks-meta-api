@@ -1,5 +1,5 @@
 const config = require('./config');
-const { resizeImage, trimLetterbox } = require('./imageUtils');
+const { resizeImage, trimLetterbox, trimFlatEdges } = require('./imageUtils');
 const { stripEmoji, fixSpelling } = require('./textUtils');
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
@@ -923,6 +923,48 @@ async function checkImageQuality(img, { productHasBranding = false } = {}) {
 }
 
 /**
+ * ¿La panorámica vino de verdad como UNA foto, o como un collage?
+ *
+ * El error que más caro sale en la tira generativa: el modelo de imagen, ante un pedido
+ * que menciona varios encuadres, devuelve varias fotos pegadas con bordes verticales
+ * duros. Renderizado, eso se ve como cuatro posteos distintos con una línea negra en el
+ * medio — peor que los recortes que la tira venía a reemplazar, y ya pagado.
+ *
+ * Se pregunta explícitamente por las líneas verticales de separación porque es la forma
+ * en que el collage se delata: "¿es la misma escena?" da falsos OK (un modelo de visión
+ * ve "taller" a los dos lados del corte y dice que sí). Best-effort: ante cualquier duda
+ * del verificador se asume que está bien, para no tirar una imagen paga por un problema
+ * del chequeo.
+ */
+async function checkPanoramaContinuity(img) {
+  if (!img || !hasGemini()) return { ok: true };
+  try {
+    const data = await geminiGenerateContent(config.gemini.visionModel, {
+      contents: [{
+        role: 'user',
+        parts: [
+          { text: `Mirá esta imagen panorámica y respondé SOLO un JSON: {"paneles": bool, "cuantos": number, "notes": "breve, en español"}.
+- "paneles": true si la imagen está DIVIDIDA en dos o más partes — es decir, si hay alguna línea vertical, borde, marco, franja o corte abrupto que separe zonas de la imagen, o si se ven fotos distintas pegadas una al lado de la otra (distinto lugar, distinta luz, distinta escala del mismo sujeto).
+- "paneles": false si es UNA sola fotografía continua: el piso, la pared y la luz siguen de un lado al otro sin ningún corte, aunque a la derecha haya menos cosas o esté más oscuro.
+- "cuantos": cuántas partes separadas ves (1 si es una sola foto).
+No cuentan como división: una columna, un poste o una puerta que forman parte de la escena, ni un cambio suave de luz.` },
+          { inlineData: { data: img.buffer.toString('base64'), mimeType: img.mimeType } },
+        ],
+      }],
+      generationConfig: { temperature: 0, maxOutputTokens: 150, thinkingConfig: { thinkingBudget: 0 } },
+    });
+    const raw = textFromResponse(data).replace(/```json|```/g, '').trim();
+    const match = raw.match(/\{[\s\S]*\}/);
+    const obj = JSON.parse(match ? match[0] : raw);
+    const partido = Boolean(obj.paneles) || Number(obj.cuantos) > 1;
+    return { ok: !partido, partes: Number(obj.cuantos) || 1, notes: obj.notes || '' };
+  } catch (err) {
+    console.warn(`[ai] chequeo de continuidad de la tira falló (sigo, asumo OK): ${err.message}`);
+    return { ok: true };
+  }
+}
+
+/**
  * QA VISUAL POST-RENDER (el "Director de Arte" que da la aprobación final).
  * A diferencia de checkImageQuality (que revisa la imagen IA cruda), esto mira la
  * PIEZA TERMINADA — plantilla renderizada con títulos, precio y logo estampados — y
@@ -1202,6 +1244,19 @@ async function generateJson({ system, prompt, schema, maxTokens = 4000, temperat
  * Es una llamada de TEXTO (gratis) y se dispara con un botón, no de oficio: la idea es
  * que el dueño vea la mejora y decida si la usa.
  * ========================================================================= */
+/*
+ * ESTRUCTURAS POSIBLES DE UNA PIEZA. Son las cuatro formas que el motor sabe construir,
+ * y la diferencia entre ellas no es de gusto: cambian qué se puede contar.
+ *   imagen            · una sola imagen de feed (4:5). Un mensaje, uno solo.
+ *   carrusel_continuo · la tira: una pieza ancha cortada en cuadros, la imagen sigue al
+ *                       deslizar. Es la que da motivo para pasar al siguiente.
+ *   carrusel          · N imágenes independientes. Sirve cuando cada cuadro es un tema
+ *                       aparte (tres productos distintos, tres consejos sueltos).
+ *   historia          · 9:16 efímero. Para urgencia, encuestas, "último día".
+ * `reel` no está: el video no se arma desde acá (ver videoAi.js), se pide aparte.
+ */
+const ESTRUCTURAS = ['imagen', 'carrusel_continuo', 'carrusel', 'historia'];
+
 const BRIEF_SCHEMA = {
   type: 'object',
   properties: {
@@ -1211,10 +1266,23 @@ const BRIEF_SCHEMA = {
     carrusel: { type: 'boolean' },
     etiquetas: { type: 'boolean' },
     formato: { type: 'string', enum: ['feed', 'story'] },
+    estructura: { type: 'string', enum: ESTRUCTURAS },
+    porque: { type: 'string' },
+    sugerencias: { type: 'array', items: { type: 'string' } },
     aviso: { type: 'string' },
   },
-  required: ['titulo', 'brief', 'visual', 'carrusel', 'etiquetas', 'formato'],
+  required: ['titulo', 'brief', 'visual', 'carrusel', 'etiquetas', 'formato', 'estructura', 'porque'],
 };
+
+/* Qué pide cada estructura del slot: el panel aplica esto tal cual. */
+function estructuraASlot(estructura) {
+  switch (estructura) {
+    case 'historia': return { post_type: 'story', format: 'story', carousel: false, carousel_style: null };
+    case 'carrusel': return { post_type: 'feed', format: 'feed', carousel: true, carousel_style: 'clasico' };
+    case 'carrusel_continuo': return { post_type: 'feed', format: 'feed', carousel: true, carousel_style: 'continuo' };
+    default: return { post_type: 'feed', format: 'feed', carousel: false, carousel_style: null };
+  }
+}
 
 async function improvePieceBrief({ texto = '', productos = [], pillar = 'producto', format = 'feed', postType = 'feed', carousel = false } = {}) {
   const pedido = String(texto || '').trim();
@@ -1252,18 +1320,229 @@ Devolvé un JSON con:
    que conviene mostrar uno por cuadro. Si no, false.
 · "etiquetas": true si el pedido menciona señalar, indicar o etiquetar el nombre de cada producto.
 · "formato": "feed" (4:5) o "story" (9:16), el que corresponda al pedido.
+· "estructura": QUÉ FORMA le conviene a esta pieza. Una de estas cuatro, y tiene que ser
+   coherente con "carrusel" y "formato":
+     - "imagen": una sola imagen de feed. Un mensaje solo (una promo, un producto, un aviso).
+     - "carrusel_continuo": la tira — una pieza ancha cortada en cuadros donde la imagen
+       SIGUE al deslizar. Es la POR DEFECTO cuando se habla de carrusel o de varias fotos:
+       si hay UN tema o UN producto —aunque se lo muestre desde varios ángulos— va continuo,
+       porque es lo que le da al que mira un motivo para pasar al cuadro siguiente.
+     - "carrusel": varias imágenes INDEPENDIENTES. Reservala para cuando cada cuadro es un
+       tema APARTE (productos de rubros distintos, consejos sueltos): ahí la continuidad no
+       aporta y estorba. Si dudás entre ésta y la continua, elegí la continua.
+     - "historia": 9:16 efímero. Urgencia, encuestas, "último día", detrás de escena.
+   Si el dueño ya dijo qué quiere ("hacelo carrusel continuo"), respetalo sin discutir.
+· "porque": UNA frase corta explicando por qué esa estructura y no otra. En criollo, como
+   se lo explicarías al dueño. Ej: "Continuo porque es un solo producto contado en tres
+   pasos: al deslizar la foto sigue y da ganas de pasar."
+· "sugerencias": 2 a 4 cosas CONCRETAS que el dueño todavía no dijo y que, si las dijera,
+   harían mejor la pieza. Se le PEGAN TAL CUAL al final de su pedido, así que escribilas
+   como una orden corta (máx. 12 palabras), NUNCA como pregunta y NUNCA empezando con
+   "¿Querés…". Bien: "mostrar el pack armado, los dos colores juntos" · "que se vea puesta,
+   no doblada" · "cerrar con el precio del pack". Nada de pedir datos que no existen
+   (precios, descuentos, materiales que no estén en las fichas).
 · "aviso": una frase SÓLO si hay algo del pedido que el sistema no puede hacer (por ejemplo
    pedir un producto que no está en la lista). Si está todo bien, dejalo vacío.`;
 
-  const out = await generateJson({ system, prompt, schema: BRIEF_SCHEMA, maxTokens: 900, temperature: 0.5 });
+  const out = await generateJson({ system, prompt, schema: BRIEF_SCHEMA, maxTokens: 1200, temperature: 0.5 });
   const limpio = (v, max) => sanitizeText(String(v || '')).slice(0, max);
+  /*
+   * La estructura manda sobre formato/carrusel: son la misma decisión mirada de dos
+   * formas y el modelo a veces devuelve "estructura: historia" con "formato: feed". Si no
+   * se normaliza acá, el panel aplica un slot incoherente (historia 4:5) y la pieza sale
+   * con el lienzo equivocado.
+   */
+  const corregido = corregirFormaDePieza({
+    estructura: ESTRUCTURAS.includes(out.estructura) ? out.estructura : (out.carrusel ? 'carrusel_continuo' : (out.formato === 'story' ? 'historia' : 'imagen')),
+    arte: 'tipografica', // acá el arte no se decide: se deja como está y no se corrige
+    pedido, productos: productos.length,
+  });
+  const estructura = corregido.estructura;
+  const slot = estructuraASlot(estructura);
   return {
     titulo: limpio(out.titulo, 70),
     brief: limpio(out.brief, 400),
     visual: limpio(out.visual, 600),
-    carrusel: Boolean(out.carrusel),
+    estructura,
+    slot,
+    porque: [limpio(out.porque, 220), ...corregido.notas].filter(Boolean).join(' ') || null,
+    sugerencias: (Array.isArray(out.sugerencias) ? out.sugerencias : [])
+      .map((x) => limpio(x, 90)).filter(Boolean).slice(0, 4),
+    carrusel: slot.carousel,
     etiquetas: Boolean(out.etiquetas),
-    formato: out.formato === 'story' ? 'story' : 'feed',
+    formato: slot.format,
+    aviso: limpio(out.aviso, 220) || null,
+  };
+}
+
+
+
+/*
+ * LA IA PROPONE, EL CÓDIGO VERIFICA (mismo criterio que pieceBrief.js).
+ *
+ * Dos decisiones que el modelo erra de forma sistemática, comprobado pidiéndole la misma
+ * pieza varias veces:
+ *
+ *  1. Ante "un carrusel del pack de chombas con varias fotos" elige carrusel CLÁSICO,
+ *     porque lee "varias fotos" como "varias piezas". Pero varias fotos DEL MISMO producto
+ *     es exactamente el caso de la tira continua: el clásico sólo se gana su lugar cuando
+ *     los cuadros son temas que no tienen nada que ver entre sí. Con un solo producto en
+ *     juego, el clásico da cuatro posteos pegados y ningún motivo para deslizar.
+ *  2. Con un producto concreto sobre la mesa elige "foto" (catálogo) aunque generativa sea
+ *     mejor: la foto de catálogo sobre fondo blanco, pegada en la pieza, es justo el
+ *     "recortado y pegado" del que se viene escapando. La foto real se respeta cuando el
+ *     dueño la pide con todas las letras.
+ *
+ * Las dos correcciones se aplican sólo cuando el pedido NO dijo lo contrario: si el dueño
+ * escribió "carrusel clásico" o "usá las fotos reales", manda él.
+ */
+const PIDE_CLASICO_RE = /\b(carrusel\s+cl[aá]sico|im[aá]genes?\s+(independientes|sueltas|separadas)|una\s+imagen\s+por\s+slide)\b/i;
+const PIDE_FOTO_REAL_RE = /\b(fotos?\s+(reales?|de\s+cat[aá]logo|del\s+cat[aá]logo)|sin\s+ia|sin\s+inteligencia\s+artificial|no\s+generes?\s+(la\s+)?imagen|tal\s+cual\s+(la|est[aá])\s+foto)\b/i;
+
+function corregirFormaDePieza({ estructura, arte, pedido = '', productos = 0 }) {
+  let est = estructura;
+  let art = arte;
+  const notas = [];
+  if (est === 'carrusel' && productos <= 1 && !PIDE_CLASICO_RE.test(pedido)) {
+    est = 'carrusel_continuo';
+    notas.push('Lo paso a carrusel CONTINUO: es un solo tema contado en varios cuadros, y así la imagen sigue al deslizar en vez de quedar cuatro posteos pegados.');
+  }
+  if (art === 'foto' && productos >= 1 && !PIDE_FOTO_REAL_RE.test(pedido)) {
+    art = 'generativa';
+    notas.push('La imagen va generada con el producto real adentro de la escena: la foto de catálogo pegada sobre el fondo se ve recortada.');
+  }
+  return { estructura: est, arte: art, notas };
+}
+
+/* =========================================================================
+ * PIEZA A PARTIR DE UN TEXTO (sep-2026)
+ *
+ * Pedido del dueño: "me gustaría que me den la publicación en base a un texto. Ejemplo,
+ * crear una publicación carrusel que se trate del pack por dos de chombas y que muestre
+ * distintas fotos de la remera".
+ *
+ * Hasta ahora crear una pieza a mano era llenar un formulario de ocho campos —fecha, hora,
+ * formato, lienzo, pilar, automatización, estado, productos— y recién ahí escribir qué se
+ * quería. Todos esos campos son deducibles de la frase: si el pedido dice "carrusel", el
+ * slot es carrusel; si nombra "chombas", el producto está en el catálogo y se puede buscar.
+ *
+ * Esto convierte la frase en el slot completo. Dos aclaraciones de diseño:
+ *
+ *  · NO elige productos: propone QUÉ BUSCAR. La búsqueda contra products_cache la hace el
+ *    servidor y el resultado se le muestra al dueño para que confirme. Un modelo de
+ *    lenguaje "eligiendo" un producto del catálogo es exactamente cómo se inventan
+ *    productos que no existen, que es el error que este sistema ya aprendió a no cometer.
+ *  · NO inventa fecha ni hora: las propone el servidor mirando el calendario real (el
+ *    primer hueco libre), porque el modelo no sabe qué días ya están ocupados.
+ * ========================================================================= */
+const FROM_TEXT_SCHEMA = {
+  type: 'object',
+  properties: {
+    titulo: { type: 'string' },
+    brief: { type: 'string' },
+    visual: { type: 'string' },
+    estructura: { type: 'string', enum: ESTRUCTURAS },
+    porque: { type: 'string' },
+    pilar: { type: 'string', enum: ['producto', 'promo', 'educativo', 'marca', 'mayorista', 'ugc', 'engagement'] },
+    arte: { type: 'string', enum: ['generativa', 'foto', 'tipografica'] },
+    etiquetas: { type: 'boolean' },
+    buscar_productos: { type: 'array', items: { type: 'string' } },
+    sugerencias: { type: 'array', items: { type: 'string' } },
+    aviso: { type: 'string' },
+  },
+  required: ['titulo', 'brief', 'visual', 'estructura', 'porque', 'pilar', 'arte', 'buscar_productos'],
+};
+
+async function planPieceFromText({ texto = '', companyFacts = '' } = {}) {
+  const pedido = String(texto || '').trim();
+  if (pedido.length < 8) throw new Error('Contame en una frase de qué querés que sea la publicación.');
+
+  const system = 'Sos director de contenidos de BLACKS, marca argentina de indumentaria de trabajo y calzado de '
+    + 'seguridad. Convertís un pedido escrito a las apuradas en una pieza lista para producir. Escribís en '
+    + 'castellano rioplatense, claro y concreto. NUNCA inventás datos: ni precios, ni descuentos, ni porcentajes, '
+    + 'ni materiales, ni productos. Si el dueño no dijo un número, no hay número.';
+
+  const prompt = `PEDIDO TAL CUAL LO ESCRIBIÓ EL DUEÑO:
+"""${pedido}"""
+${companyFacts ? `\nDATOS REALES DE LA EMPRESA (única fuente de verdad, no agregues nada que no esté acá):\n${companyFacts}\n` : ''}
+Devolvé un JSON con la pieza ya definida:
+
+· "titulo": título interno corto (máx. 6 palabras) para reconocerla en el calendario.
+· "brief": DE QUÉ habla la pieza, en 1-2 frases. Es lo que va a desarrollar el texto del
+   posteo. Sólo lo que se desprende del pedido. Si no mencionó promoción ni precio, no
+   inventes ninguno.
+· "visual": CÓMO tiene que verse la imagen, en 2-4 frases, específico y visual: qué se ve
+   en primer plano, cómo se acomodan las prendas, encuadre, luz y fondo. Respetá literal lo
+   que el dueño ya pidió. Nunca pidas que la IA escriba texto dentro de la imagen: los
+   textos los estampa después el sistema de diseño. Y no le pongas prohibiciones que el
+   dueño no pidió (si no dijo nada de modelos, no escribas "sin modelos": las prendas
+   puestas venden más que las prendas dobladas).
+· "estructura": la forma de la pieza. Una de estas cuatro:
+    - "imagen": una sola imagen de feed. Un mensaje solo.
+    - "carrusel_continuo": la tira — una pieza ancha cortada en cuadros donde la imagen
+      SIGUE al deslizar. Es la opción POR DEFECTO cuando el pedido habla de carrusel,
+      de deslizar o de "varias fotos": si hay UN tema o UN producto —aunque se lo quiera
+      mostrar desde varios ángulos o en varios pasos— va continuo, porque es lo que le da
+      al que mira un motivo para pasar al siguiente cuadro.
+    - "carrusel": varias imágenes INDEPENDIENTES. Reservala para cuando cada cuadro es un
+      tema que no tiene NADA que ver con el de al lado (tres productos de rubros distintos,
+      consejos sueltos). Si dudás entre ésta y la continua, elegí la continua.
+    - "historia": 9:16 efímero. Urgencia, encuestas, "último día", detrás de escena.
+   Si el pedido dice explícitamente qué quiere ("hacelo carrusel continuo", "que sea una
+   historia"), respetalo sin discutir.
+· "porque": UNA frase corta, en criollo, explicando por qué esa estructura y no otra.
+· "pilar": producto | promo | educativo | marca | mayorista | ugc | engagement.
+· "arte": cómo se resuelve la imagen.
+    - "generativa": se genera una foto de campaña con el producto REAL adentro de la
+      escena (luz de ambiente, modelo, sombras). Es la opción POR DEFECTO cuando el pedido
+      nombra un producto concreto: las fotos de catálogo sobre fondo blanco, pegadas en la
+      pieza, se ven recortadas y pegoteadas, y esto es justamente lo que lo evita.
+    - "foto": sólo fotos reales del catálogo, sin generar nada. Elegila sólo si el pedido
+      lo pide ("con las fotos reales", "sin IA") o si lo que importa es ver el producto
+      tal cual está fotografiado (una ficha técnica, una comparativa de colores).
+    - "tipografica": afiche de diseño sin foto. Es la mejor para promos de toda la tienda
+      y fechas comerciales, donde no hay UN producto para fotografiar.
+· "etiquetas": true sólo si el pedido pide señalar/indicar/etiquetar el nombre de cada prenda.
+· "buscar_productos": qué productos hay que buscar en el catálogo, como TÉRMINOS DE
+   BÚSQUEDA cortos, en el orden en que deberían aparecer en la pieza. Usá las palabras del
+   pedido, no inventes nombres completos: si dijo "pack por 2 de chombas", poné "chomba";
+   si dijo "la remera negra", poné "remera". Máximo 4. Si el pedido no habla de ningún
+   producto puntual (una promo de toda la tienda, un mensaje de marca), devolvé la lista vacía.
+· "sugerencias": 2 a 4 cosas CONCRETAS que el dueño no dijo y que, si las dijera, harían
+   mejor la pieza. Se le PEGAN TAL CUAL al final de su pedido, así que escribilas como una
+   orden corta (máx. 12 palabras), NUNCA como pregunta y NUNCA empezando con "¿Querés…".
+   Bien: "mostrar los dos colores puestos, uno al lado del otro" · "cerrar con el precio
+   del pack" · "que se vea la textura de la tela de cerca". Mal: "¿Sumamos un llamado a la
+   acción?". Nada de pedir datos que no existen (precios o descuentos que el dueño no dio).
+· "aviso": una frase SÓLO si hay algo del pedido que el sistema no puede hacer (por
+   ejemplo, pedir un video: los videos se generan aparte, no desde acá). Si está todo bien,
+   dejalo vacío.`;
+
+  const out = await generateJson({ system, prompt, schema: FROM_TEXT_SCHEMA, maxTokens: 1400, temperature: 0.5 });
+  const limpio = (v, max) => sanitizeText(String(v || '')).slice(0, max);
+  const buscar = (Array.isArray(out.buscar_productos) ? out.buscar_productos : [])
+    .map((x) => limpio(x, 40)).filter(Boolean).slice(0, 4);
+  const corregido = corregirFormaDePieza({
+    estructura: ESTRUCTURAS.includes(out.estructura) ? out.estructura : 'imagen',
+    arte: ['generativa', 'foto', 'tipografica'].includes(out.arte) ? out.arte : 'foto',
+    pedido, productos: buscar.length,
+  });
+  const estructura = corregido.estructura;
+  const slot = estructuraASlot(estructura);
+  const PILARES = ['producto', 'promo', 'educativo', 'marca', 'mayorista', 'ugc', 'engagement'];
+  return {
+    titulo: limpio(out.titulo, 70),
+    brief: limpio(out.brief, 400),
+    visual: limpio(out.visual, 600),
+    estructura,
+    slot,
+    porque: [limpio(out.porque, 220), ...corregido.notas].filter(Boolean).join(' ') || null,
+    pilar: PILARES.includes(out.pilar) ? out.pilar : 'producto',
+    arte: corregido.arte,
+    etiquetas: Boolean(out.etiquetas),
+    buscar,
+    sugerencias: (Array.isArray(out.sugerencias) ? out.sugerencias : [])
+      .map((x) => limpio(x, 90)).filter(Boolean).slice(0, 4),
     aviso: limpio(out.aviso, 220) || null,
   };
 }
@@ -1591,6 +1870,190 @@ ${noTextNoLogoRule(strict)}
     }
   }
   console.warn('[ai] generatePanoramaBackdrop: sin resultado limpio, la tira sale con el fondo diseñado (gratis).');
+  return null;
+}
+
+/**
+ * TIRA GENERATIVA: UNA sola fotografía panorámica con la prenda REAL ya integrada.
+ *
+ * Por qué existe (pedido del dueño, sep-2026, mirando la pieza de la remera del 12/09):
+ * "pone fotos como si fueran cortadas, recortadas y puestas ahí, pegadas ahí… me gustaría
+ * que sea con imagen generativa y que parezca más fluido y mejor editado".
+ *
+ * La tira de `generatePanoramaBackdrop` genera sólo el AMBIENTE y después el renderer
+ * pega encima los recortes de las fotos de catálogo. Por más pozo de luz, sombra de piso
+ * y desvanecido que se le ponga (ver productLight/cutoutInk en carouselPanorama.js), el
+ * recorte sigue siendo una foto de estudio con SU luz sobre una escena con OTRA luz: la
+ * dirección de la sombra no coincide, la temperatura de color tampoco, y el ojo lee
+ * "calcomanía" aunque no sepa explicar por qué.
+ *
+ * Acá la prenda y el ambiente salen de la MISMA generación: una sola toma 21:9 donde el
+ * producto está fotografiado dentro de la escena, con la luz de esa escena. No hay nada
+ * que pegar encima, así que no hay nada que se lea como pegado. El precio es el riesgo de
+ * fidelidad — por eso van hasta 4 fotos de referencia del producto y las reglas duras de
+ * `generateProductScene`, y por eso la tira de recortes SIGUE EXISTIENDO como plan B: si
+ * la generación falla o el control de calidad la rechaza, se vuelve al camino gratis.
+ *
+ * La tira generativa es SIEMPRE de 3 cuadros (ver abajo): no es una preferencia de diseño
+ * sino la forma del 21:9, que es lo más ancho que entrega el modelo.
+ */
+async function generatePanoramaScene({
+  productImageUrls = [], products = [], productName, theme, brief, occasion, seed = null,
+} = {}) {
+  if (!config.ai.useAiImages || !hasGemini() || isImageQuotaCoolingDown()) return null;
+  if (await imageBudgetExceeded()) return null;
+
+  /*
+   * Dos formas de pedir la tira, una sola generación:
+   *   · UN producto (la pieza del calendario): hasta 4 fotos del mismo, distintos ángulos.
+   *     Más referencias = menos chance de que el modelo le reinvente el cuello o el color.
+   *   · VARIOS productos (el "pack por 2", remera + jean): una foto de cada uno. El reparto
+   *     es 4 referencias en total, que es lo que el modelo sostiene sin empezar a mezclarlos.
+   */
+  const lista = (Array.isArray(products) ? products : []).filter((p) => p && (p.imageUrl || (p.imageUrls || []).length));
+  const combo = lista.length > 1;
+  const porProducto = combo ? Math.max(1, Math.floor(4 / lista.length)) : 4;
+  const urls = combo
+    ? lista.flatMap((p) => [...new Set([p.imageUrl, ...(p.imageUrls || [])].filter(Boolean))].slice(0, porProducto)).slice(0, 4)
+    : [...new Set([...(lista[0] ? [lista[0].imageUrl, ...(lista[0].imageUrls || [])] : []), ...productImageUrls].filter(Boolean))].slice(0, 4);
+  if (!urls.length) return null;
+
+  const refs = [];
+  for (const u of urls) {
+    try {
+      const r = await fetch(u);
+      if (!r.ok) continue;
+      let buf = Buffer.from(await r.arrayBuffer());
+      buf = await resizeImage(buf, 1024).catch(() => buf);
+      refs.push({ data: buf.toString('base64'), mimeType: 'image/jpeg' });
+    } catch (_) { /* seguimos con las que se pudieron bajar */ }
+  }
+  if (!refs.length) return null;
+
+  /*
+   * SIEMPRE 3 CUADROS. El modelo entrega 21:9 (2,33:1) y una tira de 3 cuadros es
+   * 3240x1350 = 2,4:1, así que entra casi exacta. Con 4 cuadros la tira es 3,2:1 y el
+   * `object-fit:cover` se come el 28% del alto: en la primera prueba real eso dejó al
+   * modelo con la cabeza contra el borde y sin piso. Antes que recortar una foto que se
+   * acaba de pagar, se hace la tira de 3 — que además es donde llega la gente.
+   */
+  const n = 3;
+
+  const brandStyle = await brandStyleForImages();
+  /*
+   * La variación de escena trae una luz distinta por seed (ver SCENE_POOL) y una de las
+   * opciones es "amanecer frío… luz azulada". En una foto de fondo eso no molesta, pero en
+   * la tira generativa la foto ES la pieza: la primera tira real salió entera azulada,
+   * irreconocible contra el negro y naranja de la marca — y encima peleaba con la regla
+   * anti-azul de más abajo, así que el prompt se contradecía solo. Acá esa luz se cambia
+   * por la nocturna de taller, que es cálida y mantiene la base oscura que la tira necesita.
+   */
+  const scene = sceneVariation(seed);
+  if (/azulad|fr[ií]o/i.test(scene.luz)) {
+    scene.luz = 'noche de taller: lámparas halógenas colgantes que arman islas de luz cálida sobre fondo en penumbra';
+  }
+
+  /*
+   * QUÉ VE CADA CUADRO. Ojo con cómo se escribe esto: la primera versión hablaba de
+   * "TIEMPOS" con cambios de plano (general → medio → detalle macro) y el modelo lo
+   * entendió como un PEDIDO DE COLLAGE — devolvió cuatro fotos distintas pegadas con
+   * bordes verticales duros, que es peor todavía que los recortes. Un modelo de imagen no
+   * sabe "moverse" dentro de una escena: si se le nombran varios planos, dibuja varias
+   * fotos.
+   *
+   * Lo que sí entiende es UNA cámara, UN lugar y dónde está parado el sujeto. Por eso acá
+   * se describe una sola toma fija y ultra ancha, y el "avance" del carrusel lo da el
+   * propio espacio, que se va vaciando y oscureciendo hacia la derecha.
+   */
+  const zonas = combo
+    ? `- ${lista.length === 2 ? 'Las dos personas' : 'Las personas'} (una por producto: ${lista.map((p, i) => `${i + 1}. ${p.name || 'referencia'}`).join('; ')}) están de pie en el MISMO lugar, en el MISMO plano y a la MISMA distancia de cámara, separadas entre sí: una en el tercio izquierdo y la otra en el tercio del medio.
+- CADA UNA TIENE QUE VERSE GRANDE: del cuello a la mitad del muslo, con la CABEZA CORTADA por el borde de arriba (encuadre de lookbook: no se ven las caras), ocupando de arriba a abajo por lo menos el 80% del alto de la imagen. Las prendas tienen que ocupar buena parte del cuadro: son lo que se vende.
+- El tercio DERECHO es el mismo espacio siguiendo de largo, más vacío y con la luz cayendo: ahí va el cierre escrito.`
+    : `- La persona con la prenda puesta está de pie en el TERCIO IZQUIERDO del cuadro: su cuerpo ocupa desde el 5% hasta el 30% del ancho, y de arriba a abajo por lo menos el 85% del alto de la imagen.
+- ES UN PLANO CERCANO, NO UN PLANO GENERAL: se la ve del cuello a la mitad del muslo, grande y cerca, con la CABEZA CORTADA por el borde de arriba del cuadro (encuadre de lookbook: no se ve la cara). Una figura chiquita y entera perdida en un galpón no muestra la prenda, y la prenda es lo que se vende.
+- En el tercio DEL MEDIO, más atrás y a media luz, hay algo del mismo espacio que sostiene la mirada (un banco de trabajo encendido, una máquina, una puerta con luz entrando): acompaña, no compite.
+- El tercio DERECHO es el mismo espacio siguiendo de largo, más vacío y más oscuro. No aparece nadie más ni ningún objeto protagonista nuevo.`;
+
+  // Cómo presentarle las referencias: "4 fotos del mismo" y "4 fotos de 2 productos
+  // distintos" se leen igual si no se aclara, y ahí el modelo funde dos prendas en una.
+  const refNota = combo
+    ? ` (son ${refs.length} fotos de ${lista.length} productos DISTINTOS: ${lista.map((p, i) => `${i + 1}. ${p.name || 'sin nombre'}`).join(', ')})`
+    : (refs.length > 1 ? ` (son ${refs.length} fotos DEL MISMO producto desde distintos ángulos: usalas todas para reproducirlo fiel)` : '');
+
+  const buildPrompt = (strict) => `Actuás como DIRECTOR DE ARTE y FOTÓGRAFO de una campaña publicitaria high-end. Tomá EXACTAMENTE ${combo ? 'los productos' : 'el producto'} de la${refs.length > 1 ? 's' : ''} imagen${refs.length > 1 ? 'es' : ''} de referencia${refNota} y fotografiá UNA SOLA FOTOGRAFÍA PANORÁMICA (formato 21:9, muy apaisada) para BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
+
+LO MÁS IMPORTANTE DE TODO — ES UNA FOTO SOLA, NO VARIAS:
+Esto es UNA ÚNICA toma, sacada por UNA cámara fija, en UN solo lugar, en UN solo instante, como una panorámica de cine. PROHIBIDO ABSOLUTAMENTE: dividir la imagen en paneles, viñetas, secciones, tiras o recuadros; poner líneas verticales, marcos, bordes o franjas que separen partes del cuadro; hacer un díptico, un tríptico o un collage; cambiar de plano, de lugar, de hora o de luz de un lado al otro de la imagen; repetir al mismo sujeto en distintos tamaños. Si la imagen tuviera CUALQUIER línea vertical de separación, está mal hecha.
+
+PARA QUÉ ES (no cambia lo anterior, pero explica la forma): después se va a cortar en ${n} cuadros verticales para un carrusel de Instagram, y la persona desliza de uno al siguiente. Por eso tiene que ser una foto continua de verdad: al deslizar, la imagen tiene que seguir exactamente donde estaba.
+
+CONTEXTO DE LA PIEZA: ${theme || productName || 'indumentaria de trabajo argentina'}.${briefBlock(brief)}${occasionGuidance(occasion)}
+
+CÓMO SE REPARTE LO QUE SE VE (mismo lugar de punta a punta):
+${zonas}
+- El cuadro se corta a 1/3 y a 2/3 del ancho: no pongas una cara, una mano ni un pie justo ahí. Que en esos puntos haya fondo, piso o pared.
+- El PRIMER TERCIO es el que se ve en el feed de Instagram: tiene que funcionar solo como foto de campaña.
+
+DIRECCIÓN DE FOTOGRAFÍA:
+- Fotografía editorial hiperrealista, calidad de campaña impresa. Óptica de 35mm, una sola profundidad de campo coherente en todo el ancho.
+${scene.describe()}
+- ${combo ? 'Las prendas están' : 'La prenda está'} DENTRO de la escena: la misma luz que el ambiente, sombra propia apoyada en el piso, contacto real con lo que toca. Nada flotando ni con aspecto de recorte pegado sobre un fondo.
+- LA LUZ VA SOBRE LA PRENDA. El ambiente puede ser oscuro; ${combo ? 'las personas y sus prendas' : 'la persona y su prenda'}, NO. Una luz principal clara y direccional ${combo ? 'sobre ellas' : 'sobre ella'} —de costado y un poco de frente— que deje ver el color real, la caída y la textura del tejido, con un contraluz suave que ${combo ? 'las' : 'la'} despegue del fondo. Si la prenda es oscura, más razón todavía: tiene que leerse contra el fondo, no fundirse con él.
+- Base oscura (negro/gris carbón) con UN acento naranja quemado (#C1440C) que aparezca de forma orgánica —una luz, una herramienta, una señalización—, nunca como filtro sobre toda la escena.
+- TEMPERATURA DE COLOR CÁLIDA O NEUTRA. PROHIBIDO el tinte azul o celeste sobre toda la escena (el típico "industrial frío" o "hora azul"): la marca es negro y naranja quemado, y una escena azulada la deja irreconocible. Las sombras van a negro/marrón, no a azul.
+- Color grading sobrio tipo Kodak Portra 400, grano fílmico sutil, imperfecciones creíbles (polvo en el aire, desgaste, rayones) en el AMBIENTE, nunca en el producto.
+${brandStyle ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
+- La FRANJA DE ABAJO (el último 22% del alto) tiene que ser oscura y tranquila en TODO el ancho: ahí se apoyan los titulares. Nada importante ahí abajo — pero ojo, esa franja es angosta: no oscurezcas el tercio inferior entero ni le cortes las piernas a la figura.
+
+${photoRealismRules()}
+
+FIDELIDAD ABSOLUTA — PROHIBIDO MODIFICAR ${combo ? 'LOS PRODUCTOS' : 'EL PRODUCTO'} (lo más importante después de la continuidad):
+- ${combo ? 'Cada producto' : 'El producto'} de la salida tiene que ser el de la referencia: mismo color, mismo cuello, mismas costuras, mismos apliques, misma etiqueta, mismas proporciones. PROHIBIDO agregarle, moverle o inventarle CUALQUIER detalle que no esté EXACTAMENTE en la foto de referencia (ej: NO le agregues un bordado, un logo o un bolsillo que la referencia no tiene). Si dudás de un detalle, dejalo TAL CUAL la referencia.
+${combo
+    ? `- Los productos de la escena son EXACTAMENTE ${lista.length}, los de las referencias. Prohibido mezclarlos entre sí (ponerle a uno el color o el cuello del otro) y prohibido sumar una prenda o un calzado que no esté en las referencias.`
+    : `- UN SOLO producto y UNA SOLA persona en toda la escena: la de la referencia. Prohibido sumar una segunda prenda, un calzado distinto o una segunda persona, ni de fondo ni desenfocada.`}
+
+${noTextNoLogoRule(strict)}
+- LA FOTO LLEGA HASTA EL BORDE: sin marco, sin passepartout, sin margen de color, sin bordes redondeados, sin barras arriba, abajo ni a los costados. La imagen sangra los cuatro lados.
+- PROHIBIDO además: aspecto de render 3D, manos deformes, simetría artificial, viñeteado exagerado, cualquier primer plano macro que ocupe un tercio entero del cuadro, y la figura chiquita y lejana perdida en un espacio enorme.`;
+
+  let spent = 0;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const data = await geminiGenerateContent(config.gemini.imageModel, {
+        contents: [{ role: 'user', parts: [{ text: buildPrompt(attempt > 0) }, ...refs.map((r) => ({ inlineData: r }))] }],
+        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+        aspectRatio: '21:9',
+      });
+      const img = await inlineImageClean(data);
+      if (!img) continue;
+      // El marco liso que a veces viene pegado a los bordes: en la tira la foto es la
+      // pieza y ese margen entra al cuadro como una franja gris (ver trimFlatEdges).
+      const recortada = await trimFlatEdges(img.buffer).catch(() => img.buffer);
+      if (recortada !== img.buffer) { img.buffer = recortada; img.mimeType = 'image/jpeg'; }
+      spent += await logImageUsage('tira generativa');
+      // La etiqueta real del producto (Pampero/Ombú) no descalifica: sólo texto/logo AGREGADO.
+      const check = await checkImageQuality(img, { productHasBranding: true });
+      if (!check.ok) {
+        console.warn(`[ai] generatePanoramaScene: descartada por control de calidad (texto=${check.hasText} logo=${check.hasLogo} ${check.notes || ''}), reintento más estricto...`);
+        continue;
+      }
+      // El collage es el error caro acá: una tira partida en viñetas se ve PEOR que los
+      // recortes, que es de lo que se venía escapando. Se mira antes de aceptarla.
+      const cont = await checkPanoramaContinuity(img);
+      if (!cont.ok) {
+        console.warn(`[ai] generatePanoramaScene: la salida vino partida en paneles (${cont.notes || 'sin detalle'}), reintento...`);
+        learnFrom('image', 'global', 'El modelo de imagen devolvió la tira panorámica como un collage de paneles en vez de una sola foto continua', cont.notes);
+        continue;
+      }
+      img.costUsd = spent;
+      return img;
+    } catch (err) {
+      if (err.status === 429) { markImageQuotaHit(); console.warn('[ai] Cuota de imágenes agotada (429): la tira sale con los recortes sobre fondo diseñado.'); return null; }
+      console.warn(`[ai] generatePanoramaScene falló (intento ${attempt + 1}/2): ${err.message}`);
+    }
+  }
+  console.warn('[ai] generatePanoramaScene: sin resultado limpio, la tira cae al modo recorte (gratis).');
   return null;
 }
 
@@ -2965,6 +3428,9 @@ module.exports = {
   generateCopy,
   generateCopyVariants,
   improvePieceBrief,
+  planPieceFromText,
+  estructuraASlot,
+  ESTRUCTURAS,
   generateJson,
   parseCorrection,
   parseSlideCorrection,
@@ -2973,6 +3439,7 @@ module.exports = {
   generateBackground,
   generateProductScene,
   generatePanoramaBackdrop,
+  generatePanoramaScene,
   planCarouselShots,
   planHeroShot,
   describeProductPhotos,

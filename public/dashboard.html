@@ -62,6 +62,8 @@
             <button class="vt" id="vt-profile" onclick="setCalView('profile')"><span data-ic="user"></span> Perfil</button>
           </div>
           <button class="btn-primary" id="btn-generate-today" onclick="generateAllPending()"><span data-ic="bolt"></span> Generar hoy</button>
+          <!-- Pieza a partir de una frase: el camino corto al slot (ver openPieceFromText). -->
+          <button class="btn-ghost" onclick="openPieceFromText()" title="Escribí en una frase qué querés publicar y la IA arma la pieza entera"><span data-ic="sparkles"></span> Publicación con un texto</button>
           <button class="btn-ghost" onclick="openPlanSlot()"><span data-ic="plus"></span> Agregar slot</button>
           <button class="btn-ghost" id="btn-month-plan" onclick="generateMonthPlan()"><span data-ic="calendar"></span> Plan del mes (IA)</button>
           <button class="btn-ghost hidden" id="btn-stale-drafts" onclick="updateStaleDrafts()"><span data-ic="wand"></span> Actualizar borradores</button>
