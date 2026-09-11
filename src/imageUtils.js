@@ -303,4 +303,121 @@ function trimFlatEdges(buffer) {
   });
 }
 
-module.exports = { resizeImage, detectLogoVariant, measureInkBox, trimLetterbox, trimFlatEdges };
+/**
+ * BARRAS DE CINE (letterbox) que el modelo de imagen agrega por su cuenta.
+ *
+ * Por qué no alcanza con `trimFlatEdges`: ése está pensado para un MARCO fino de galería
+ * y por eso tiene tres candados que acá juegan en contra — corta como mucho el 8% de cada
+ * lado, exige que el recorte deje el 80% de la imagen, y arranca comparando las cuatro
+ * esquinas entre sí. Una tira panorámica del 11-sep vino con barras negras del 14% arriba
+ * y abajo, y con un degradado claro en la esquina superior izquierda: los tres candados
+ * saltaron y las barras quedaron dentro de la pieza.
+ *
+ * Acá se mira SÓLO el alto y el ancho por separado, fila por fila, con dos criterios que
+ * aguantan esa suciedad:
+ *   · la fila se compara consigo misma (contra su propia mediana), no contra las esquinas,
+ *     así un degradado en un extremo no invalida la fila entera;
+ *   · alcanza con que el 92% de los píxeles de la fila sean del mismo tono oscuro, que es
+ *     lo que hace una barra de verdad; una fila de foto real nunca da eso.
+ *
+ * Corta hasta el 25% de cada lado. Es mucho a propósito: una barra sin cortar entra a la
+ * pieza como una franja negra a lo ancho de todos los cuadros, que es un defecto visible;
+ * el precio de recortar de más es perder un poco de encuadre, que no se nota.
+ *
+ * Best-effort: ante cualquier duda devuelve el buffer original.
+ */
+function trimBars(buffer, { maxFrac = 0.25 } = {}) {
+  return new Promise((resolve) => {
+    const W = 96;
+    const id = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const inPath = path.join(os.tmpdir(), `bar-in-${id}`);
+    const outPath = path.join(os.tmpdir(), `bar-out-${id}.jpg`);
+    const clean = () => { try { fs.unlinkSync(inPath); } catch (_) {} };
+    try { fs.writeFileSync(inPath, buffer); } catch (_) { return resolve(buffer); }
+    execFile(
+      ffmpegPath,
+      ['-y', '-loglevel', 'error', '-i', inPath, '-vf', `scale=${W}:-2`, '-pix_fmt', 'rgb24', '-f', 'rawvideo', '-'],
+      { encoding: 'buffer', maxBuffer: 8 * 1024 * 1024 },
+      (err, stdout) => {
+        if (err || !stdout || !stdout.length) { clean(); return resolve(buffer); }
+        const H = Math.floor(stdout.length / (W * 3));
+        if (H < 24) { clean(); return resolve(buffer); }
+        const lum = (x, y) => {
+          const i = (y * W + x) * 3;
+          return (stdout[i] * 299 + stdout[i + 1] * 587 + stdout[i + 2] * 114) / 1000;
+        };
+        const mediana = (v) => { const o = [...v].sort((a, b) => a - b); return o[Math.floor(o.length / 2)]; };
+        /** ¿Es una barra? Oscura y pareja: el 92% de la línea dentro de ±10 de su mediana. */
+        const esBarra = (valores) => {
+          const m = mediana(valores);
+          if (m > 62) return false; // una barra de cine es oscura; una foto clara no lo es
+          const dentro = valores.filter((v) => Math.abs(v - m) <= 10).length;
+          return dentro / valores.length >= 0.92;
+        };
+        const fila = (y) => Array.from({ length: W }, (_, x) => lum(x, y));
+        const col = (x) => Array.from({ length: H }, (_, y) => lum(x, y));
+
+        const maxY = Math.floor(H * maxFrac);
+        const maxX = Math.floor(W * maxFrac);
+        let top = 0; while (top < maxY && esBarra(fila(top))) top += 1;
+        let bottom = 0; while (bottom < maxY && esBarra(fila(H - 1 - bottom))) bottom += 1;
+        let left = 0; while (left < maxX && esBarra(col(left))) left += 1;
+        let right = 0; while (right < maxX && esBarra(col(W - 1 - right))) right += 1;
+
+        /*
+         * Una barra de 1-2 líneas a esta escala (≈2% del alto) es un borde de compresión,
+         * no una barra: recortarla no arregla nada y mueve el encuadre. Se ignora.
+         */
+        const MIN = Math.max(2, Math.round(H * 0.03));
+        if (top < MIN) top = 0;
+        if (bottom < MIN) bottom = 0;
+        if (left < Math.max(2, Math.round(W * 0.03))) left = 0;
+        if (right < Math.max(2, Math.round(W * 0.03))) right = 0;
+        if (!top && !bottom && !left && !right) { clean(); return resolve(buffer); }
+
+        // Una línea de más de cada lado: el borde de la barra suele venir difuminado.
+        const x0 = left ? (left + 1) / W : 0;
+        const y0 = top ? (top + 1) / H : 0;
+        const wF = 1 - x0 - (right ? (right + 1) / W : 0);
+        const hF = 1 - y0 - (bottom ? (bottom + 1) / H : 0);
+        if (wF < 0.45 || hF < 0.45) { clean(); return resolve(buffer); }
+        execFile(
+          ffmpegPath,
+          ['-y', '-loglevel', 'error', '-i', inPath,
+            '-vf', `crop=iw*${wF.toFixed(5)}:ih*${hF.toFixed(5)}:iw*${x0.toFixed(5)}:ih*${y0.toFixed(5)}`, '-q:v', '2', outPath],
+          (err2) => {
+            if (err2) { clean(); return resolve(buffer); }
+            let outBuf = buffer;
+            try { outBuf = fs.readFileSync(outPath); } catch (_) { /* queda el original */ }
+            clean(); try { fs.unlinkSync(outPath); } catch (_) {}
+            resolve(outBuf);
+          }
+        );
+      }
+    );
+  });
+}
+
+/**
+ * Ancho y alto reales de una imagen, leídos de la salida de ffmpeg (en el paquete no viene
+ * ffprobe). Devuelve { w, h, aspect } o null. Hace falta cuando la proporción de la imagen
+ * cambia el maquetado y no alcanza con object-fit — ver la tira generativa, donde una foto
+ * más apaisada que la tira tiene que apoyarse arriba en vez de recortarse por los costados.
+ */
+function imageSize(buffer) {
+  return new Promise((resolve) => {
+    const id = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
+    const inPath = path.join(os.tmpdir(), `sz-${id}`);
+    const clean = () => { try { fs.unlinkSync(inPath); } catch (_) {} };
+    try { fs.writeFileSync(inPath, buffer); } catch (_) { return resolve(null); }
+    execFile(ffmpegPath, ['-hide_banner', '-i', inPath], (_err, _out, stderr) => {
+      clean();
+      const m = String(stderr || '').match(/,\s(\d{2,5})x(\d{2,5})[,\s]/);
+      if (!m) return resolve(null);
+      const w = Number(m[1]); const h = Number(m[2]);
+      resolve(w > 0 && h > 0 ? { w, h, aspect: w / h } : null);
+    });
+  });
+}
+
+module.exports = { resizeImage, detectLogoVariant, measureInkBox, trimLetterbox, trimFlatEdges, trimBars, imageSize };

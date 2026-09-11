@@ -1,5 +1,5 @@
 const config = require('./config');
-const { resizeImage, trimLetterbox, trimFlatEdges } = require('./imageUtils');
+const { resizeImage, trimLetterbox, trimFlatEdges, trimBars, imageSize } = require('./imageUtils');
 const { stripEmoji, fixSpelling } = require('./textUtils');
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
@@ -943,11 +943,22 @@ async function checkPanoramaContinuity(img) {
       contents: [{
         role: 'user',
         parts: [
-          { text: `Mirá esta imagen panorámica y respondé SOLO un JSON: {"paneles": bool, "cuantos": number, "notes": "breve, en español"}.
-- "paneles": true si la imagen está DIVIDIDA en dos o más partes — es decir, si hay alguna línea vertical, borde, marco, franja o corte abrupto que separe zonas de la imagen, o si se ven fotos distintas pegadas una al lado de la otra (distinto lugar, distinta luz, distinta escala del mismo sujeto).
-- "paneles": false si es UNA sola fotografía continua: el piso, la pared y la luz siguen de un lado al otro sin ningún corte, aunque a la derecha haya menos cosas o esté más oscuro.
-- "cuantos": cuántas partes separadas ves (1 si es una sola foto).
-No cuentan como división: una columna, un poste o una puerta que forman parte de la escena, ni un cambio suave de luz.` },
+          { text: `Mirá esta imagen panorámica y respondé SOLO un JSON: {"paneles": bool, "donde": "dónde está el corte, o vacío", "sinCabeza": bool, "notes": "breve, en español"}.
+
+La foto que estás mirando es, a propósito, una escena ancha con VARIAS PERSONAS paradas a lo largo del cuadro, en el mismo lugar. Eso es lo esperado, no un defecto.
+
+- "paneles": true SÓLO si podés señalar una LÍNEA O BORDE VERTICAL que parta la imagen: un marco, una franja de color, o un corte donde el piso / la pared / el techo NO siguen de un lado al otro (a la izquierda un lugar, a la derecha otro). En ese caso, "donde" dice aproximadamente en qué parte del ancho está ese corte.
+- "paneles": false si el piso, la pared y la luz SIGUEN DE LARGO de punta a punta sin ningún corte. Dejá "donde" vacío.
+
+NO son divisiones, y NO alcanzan para poner true:
+· que haya dos, tres o más personas separadas entre sí, en poses distintas o mirando para lados distintos — eso es una foto de grupo;
+· que un lado del cuadro esté más oscuro, más vacío o con menos objetos que el otro;
+· una columna, un poste, una viga o una puerta que son parte de la escena;
+· un cambio suave de luz a lo ancho.
+
+Si dudás, respondé false: sólo poné true cuando puedas decir DÓNDE está el corte.
+
+- "sinCabeza": true si ALGUNA de las personas de la foto aparece sin cabeza, decapitada, cortada por el cuello, con la cara borrada o deformada, o si es un maniquí / un torso sin persona. Una persona cuya cabeza queda fuera del cuadro por el encuadre TAMBIÉN cuenta como true. Si todas tienen cabeza y cara normales, false.` },
           { inlineData: { data: img.buffer.toString('base64'), mimeType: img.mimeType } },
         ],
       }],
@@ -956,8 +967,20 @@ No cuentan como división: una columna, un poste o una puerta que forman parte d
     const raw = textFromResponse(data).replace(/```json|```/g, '').trim();
     const match = raw.match(/\{[\s\S]*\}/);
     const obj = JSON.parse(match ? match[0] : raw);
-    const partido = Boolean(obj.paneles) || Number(obj.cuantos) > 1;
-    return { ok: !partido, partes: Number(obj.cuantos) || 1, notes: obj.notes || '' };
+    /*
+     * Sólo cuenta como collage si el verificador puede DECIR DÓNDE está el corte. Sin esa
+     * condición daba falsos positivos caros: con tres personas paradas en fila —que es la
+     * composición que se pide— contestaba "tres paneles, aunque el fondo parece ser el
+     * mismo lugar" y mandaba a la basura una foto ya paga. El "aunque" es la pista de que
+     * no vio ningún corte: vio gente.
+     */
+    const partido = Boolean(obj.paneles) && String(obj.donde || '').trim().length > 0;
+    const decapitada = Boolean(obj.sinCabeza);
+    return {
+      ok: !partido && !decapitada,
+      motivo: partido ? `la tira vino partida en paneles (${String(obj.donde).slice(0, 60)})` : (decapitada ? 'hay una persona sin cabeza o sin cara' : null),
+      notes: obj.notes || '',
+    };
   } catch (err) {
     console.warn(`[ai] chequeo de continuidad de la tira falló (sigo, asumo OK): ${err.message}`);
     return { ok: true };
@@ -1954,25 +1977,75 @@ async function generatePanoramaScene({
   }
 
   /*
-   * QUÉ VE CADA CUADRO. Ojo con cómo se escribe esto: la primera versión hablaba de
-   * "TIEMPOS" con cambios de plano (general → medio → detalle macro) y el modelo lo
-   * entendió como un PEDIDO DE COLLAGE — devolvió cuatro fotos distintas pegadas con
-   * bordes verticales duros, que es peor todavía que los recortes. Un modelo de imagen no
-   * sabe "moverse" dentro de una escena: si se le nombran varios planos, dibuja varias
-   * fotos.
+   * QUÉ VE CADA CUADRO. Dos lecciones caras, en orden:
    *
-   * Lo que sí entiende es UNA cámara, UN lugar y dónde está parado el sujeto. Por eso acá
-   * se describe una sola toma fija y ultra ancha, y el "avance" del carrusel lo da el
-   * propio espacio, que se va vaciando y oscureciendo hacia la derecha.
+   * 1. NUNCA nombrar varios planos ni "tiempos". La primera versión pedía general → medio
+   *    → detalle macro y el modelo lo leyó como un pedido de COLLAGE: devolvió cuatro
+   *    fotos pegadas con bordes verticales duros, peor todavía que los recortes. Un modelo
+   *    de imagen no sabe "moverse" dentro de una escena; si se le nombran varios planos,
+   *    dibuja varias fotos.
+   *
+   * 2. La continuidad tiene que ser DE LA PRENDA, no sólo del lugar. La segunda versión
+   *    resolvió el punto 1 poniendo UNA persona en el tercio izquierdo y dejando el resto
+   *    del galpón vacío. Salió una foto linda y continua… donde el producto aparecía sólo
+   *    en el primer cuadro: el que deslizaba veía dos cuadros de taller vacío. Textual del
+   *    dueño (11-sep): "la continuidad la hace con el fondo nada más, no con el artículo".
+   *
+   * La forma que cumple las dos: UNA sola toma de una CUADRILLA — tres personas paradas en
+   * el mismo lugar, una por tercio, todas con la prenda puesta. Es una foto sola (no hay
+   * cambio de plano) y el producto está de punta a punta de la tira. Además es creíble:
+   * en ropa de trabajo, que un equipo esté vestido igual es lo normal, no un truco.
    */
-  const zonas = combo
-    ? `- ${lista.length === 2 ? 'Las dos personas' : 'Las personas'} (una por producto: ${lista.map((p, i) => `${i + 1}. ${p.name || 'referencia'}`).join('; ')}) están de pie en el MISMO lugar, en el MISMO plano y a la MISMA distancia de cámara, separadas entre sí: una en el tercio izquierdo y la otra en el tercio del medio.
-- CADA UNA TIENE QUE VERSE GRANDE: del cuello a la mitad del muslo, con la CABEZA CORTADA por el borde de arriba (encuadre de lookbook: no se ven las caras), ocupando de arriba a abajo por lo menos el 80% del alto de la imagen. Las prendas tienen que ocupar buena parte del cuadro: son lo que se vende.
-- El tercio DERECHO es el mismo espacio siguiendo de largo, más vacío y con la luz cayendo: ahí va el cierre escrito.`
-    : `- La persona con la prenda puesta está de pie en el TERCIO IZQUIERDO del cuadro: su cuerpo ocupa desde el 5% hasta el 30% del ancho, y de arriba a abajo por lo menos el 85% del alto de la imagen.
-- ES UN PLANO CERCANO, NO UN PLANO GENERAL: se la ve del cuello a la mitad del muslo, grande y cerca, con la CABEZA CORTADA por el borde de arriba del cuadro (encuadre de lookbook: no se ve la cara). Una figura chiquita y entera perdida en un galpón no muestra la prenda, y la prenda es lo que se vende.
-- En el tercio DEL MEDIO, más atrás y a media luz, hay algo del mismo espacio que sostiene la mirada (un banco de trabajo encendido, una máquina, una puerta con luz entrando): acompaña, no compite.
-- El tercio DERECHO es el mismo espacio siguiendo de largo, más vacío y más oscuro. No aparece nadie más ni ningún objeto protagonista nuevo.`;
+  const CALZADO_RE = /(bot[ií]n|borcegu[ií]|zapato|zapatilla|calzado|bota)\b/i;
+  const nombresDeProducto = (lista.length ? lista.map((p) => p.name) : [productName]).filter(Boolean).join(' ');
+  const esCalzado = CALZADO_RE.test(nombresDeProducto);
+
+  // Quién lleva qué. Con un producto, las tres personas llevan el mismo; con varios, se
+  // reparten en orden y el que sobra se repite (una cuadrilla con dos camisas iguales es
+  // normal; una persona sin la prenda de la referencia, no).
+  const reparto = combo
+    ? [0, 1, 2].map((i) => `la persona ${i + 1} lleva el producto ${(i % lista.length) + 1} (${lista[i % lista.length].name || 'de la referencia'})`).join('; ')
+    : 'las tres llevan EL MISMO MODELO de prenda de la referencia (el color puede variar, ver COLORES más abajo)';
+
+  /*
+   * LOS COLORES SALEN DE LAS FOTOS, NO DE LA IMAGINACIÓN. Las referencias de un mismo
+   * producto suelen ser varios colores del MISMO modelo (este catálogo publica el color
+   * como foto, no como producto aparte). Aprovecharlo es gratis y es justo lo que pidió el
+   * dueño —"que lo haga con el artículo y las fotos del artículo también"—: la tira pasa a
+   * mostrar el rango de colores real en vez de repetir tres veces la misma prenda.
+   *
+   * Está escrito para que se apague solo: si todas las referencias son del mismo color, la
+   * instrucción dice explícitamente que vayan las tres de ese color. Así nunca se le está
+   * pidiendo al modelo que invente un color que la marca no vende.
+   */
+  const colores = combo
+    ? ''
+    : `
+- COLORES: si en las fotos de referencia aparece ESE MISMO modelo en VARIOS colores, ponele a cada persona uno de esos colores (uno por persona, empezando por el de la primera foto). Si en las referencias hay un solo color, las tres van de ese color. PROHIBIDO inventar un color que no esté en ninguna referencia.`;
+
+  /*
+   * OJO CON EL ENCUADRE. La versión anterior pedía "cabeza cortada por el borde de arriba"
+   * para evitar caras raras. Salió peor: en la tira de las chombas del 11-sep el modelo lo
+   * tomó al pie de la letra y devolvió a UNA de las tres personas SIN CABEZA —un torso con
+   * la remera flotando— mientras las otras dos tenían cara. Una persona decapitada en el
+   * cuadro que se ve en el feed es un defecto que no se puede publicar.
+   *
+   * Así que se pide la persona ENTERA con la cabeza dentro del cuadro, y las caras raras
+   * se atacan por donde corresponde: con la prohibición explícita de abajo y con el
+   * chequeo de checkPanoramaContinuity, que rechaza la foto si ve un cuerpo sin cabeza.
+   */
+  const encuadre = esCalzado
+    ? `- ENCUADRE: cámara baja, a la altura de la rodilla. De las tres personas se ve de la cintura para abajo, y el CALZADO se ve grande, completo y apoyado en el piso, con su sombra de contacto. Es lo que se vende: tiene que ser lo más nítido y lo mejor iluminado del cuadro.`
+    : `- ENCUADRE: de las tres personas se ve de la CABEZA a la mitad del muslo, y cada cuerpo ocupa de arriba a abajo por lo menos el 80% del alto de la imagen. La prenda tiene que ocupar buena parte del cuadro: es lo que se vende.
+- LAS TRES TIENEN CABEZA Y CARA, completas y dentro del cuadro, con expresión natural y tranquila. PROHIBIDO que alguna quede sin cabeza, decapitada, cortada por el cuello, con la cara borrada, o que sea un maniquí o un torso sin persona: es el peor error posible en esta pieza.`;
+
+  const zonas = `- Hay TRES personas de pie en el mismo lugar, repartidas a lo ancho: una centrada en el TERCIO IZQUIERDO (alrededor del 17% del ancho), otra en el TERCIO DEL MEDIO (alrededor del 50%) y otra en el TERCIO DERECHO (alrededor del 83%). Todas con la prenda puesta: ${reparto}.
+- LAS TRES ESTÁN EN EL MISMO PLANO, a la MISMA distancia de cámara y del MISMO tamaño en el cuadro. No hay una adelante y otra atrás, ni una más chica que la otra. Es una sola toma de una cuadrilla parada en fila, no un montaje.
+- Son personas DISTINTAS entre sí (distinta contextura, distinta pose, distinta orientación del cuerpo): están paradas naturalmente, no en posición de maniquí ni todas iguales.
+${encuadre}
+- NINGUNA queda pegada al borde ni cortada por el borde izquierdo o derecho de la imagen: cada una entra ENTERA de costado a costado, con aire alrededor.
+- El fondo es el mismo espacio de trabajo de punta a punta, continuo por detrás de las tres: el mismo piso, la misma pared, las mismas luces.${colores}
+- SON TRES, aunque el contexto de más arriba hable de otra cantidad de personas: la foto se corta en tres cuadros y cada cuadro tiene que tener la prenda puesta. Si el contexto pide dos modelos, poné tres igual y que uno repita la prenda de otro.`;
 
   // Cómo presentarle las referencias: "4 fotos del mismo" y "4 fotos de 2 productos
   // distintos" se leen igual si no se aclara, y ahí el modelo funde dos prendas en una.
@@ -1991,14 +2064,14 @@ CONTEXTO DE LA PIEZA: ${theme || productName || 'indumentaria de trabajo argenti
 
 CÓMO SE REPARTE LO QUE SE VE (mismo lugar de punta a punta):
 ${zonas}
-- El cuadro se corta a 1/3 y a 2/3 del ancho: no pongas una cara, una mano ni un pie justo ahí. Que en esos puntos haya fondo, piso o pared.
-- El PRIMER TERCIO es el que se ve en el feed de Instagram: tiene que funcionar solo como foto de campaña.
+- El cuadro se corta a 1/3 y a 2/3 del ancho, o sea JUSTO ENTRE una persona y la siguiente: en esos dos puntos tiene que haber fondo (piso, pared, un banco de trabajo), nunca un cuerpo partido al medio.
+- El PRIMER TERCIO es el que se ve en el feed de Instagram: tiene que funcionar solo como foto de campaña, con su persona entera y bien iluminada.
 
 DIRECCIÓN DE FOTOGRAFÍA:
 - Fotografía editorial hiperrealista, calidad de campaña impresa. Óptica de 35mm, una sola profundidad de campo coherente en todo el ancho.
 ${scene.describe()}
-- ${combo ? 'Las prendas están' : 'La prenda está'} DENTRO de la escena: la misma luz que el ambiente, sombra propia apoyada en el piso, contacto real con lo que toca. Nada flotando ni con aspecto de recorte pegado sobre un fondo.
-- LA LUZ VA SOBRE LA PRENDA. El ambiente puede ser oscuro; ${combo ? 'las personas y sus prendas' : 'la persona y su prenda'}, NO. Una luz principal clara y direccional ${combo ? 'sobre ellas' : 'sobre ella'} —de costado y un poco de frente— que deje ver el color real, la caída y la textura del tejido, con un contraluz suave que ${combo ? 'las' : 'la'} despegue del fondo. Si la prenda es oscura, más razón todavía: tiene que leerse contra el fondo, no fundirse con él.
+- Las prendas están DENTRO de la escena: la misma luz que el ambiente, sombra propia apoyada en el piso, contacto real con lo que tocan. Nada flotando ni con aspecto de recorte pegado sobre un fondo.
+- LA LUZ VA SOBRE LAS PRENDAS. El ambiente puede ser oscuro; las personas y lo que llevan puesto, NO. Una luz principal clara y direccional sobre las tres —de costado y un poco de frente, la MISMA para las tres— que deje ver el color real, la caída y la textura del tejido, con un contraluz suave que las despegue del fondo. Si la prenda es oscura, más razón todavía: tiene que leerse contra el fondo, no fundirse con él.
 - Base oscura (negro/gris carbón) con UN acento naranja quemado (#C1440C) que aparezca de forma orgánica —una luz, una herramienta, una señalización—, nunca como filtro sobre toda la escena.
 - TEMPERATURA DE COLOR CÁLIDA O NEUTRA. PROHIBIDO el tinte azul o celeste sobre toda la escena (el típico "industrial frío" o "hora azul"): la marca es negro y naranja quemado, y una escena azulada la deja irreconocible. Las sombras van a negro/marrón, no a azul.
 - Color grading sobrio tipo Kodak Portra 400, grano fílmico sutil, imperfecciones creíbles (polvo en el aire, desgaste, rayones) en el AMBIENTE, nunca en el producto.
@@ -2010,15 +2083,22 @@ ${photoRealismRules()}
 FIDELIDAD ABSOLUTA — PROHIBIDO MODIFICAR ${combo ? 'LOS PRODUCTOS' : 'EL PRODUCTO'} (lo más importante después de la continuidad):
 - ${combo ? 'Cada producto' : 'El producto'} de la salida tiene que ser el de la referencia: mismo color, mismo cuello, mismas costuras, mismos apliques, misma etiqueta, mismas proporciones. PROHIBIDO agregarle, moverle o inventarle CUALQUIER detalle que no esté EXACTAMENTE en la foto de referencia (ej: NO le agregues un bordado, un logo o un bolsillo que la referencia no tiene). Si dudás de un detalle, dejalo TAL CUAL la referencia.
 ${combo
-    ? `- Los productos de la escena son EXACTAMENTE ${lista.length}, los de las referencias. Prohibido mezclarlos entre sí (ponerle a uno el color o el cuello del otro) y prohibido sumar una prenda o un calzado que no esté en las referencias.`
-    : `- UN SOLO producto y UNA SOLA persona en toda la escena: la de la referencia. Prohibido sumar una segunda prenda, un calzado distinto o una segunda persona, ni de fondo ni desenfocada.`}
+    ? `- Los productos que se ven puestos son EXACTAMENTE los ${lista.length} de las referencias. Prohibido mezclarlos entre sí (ponerle a uno el color o el cuello del otro) y prohibido sumar una prenda o un calzado que no esté en las referencias.`
+    : `- Las tres personas llevan EL MISMO MODELO de prenda de la referencia: mismo corte, mismo cuello, mismo largo, mismas costuras. Lo único que puede cambiar entre una y otra es el color, y sólo si ese color aparece en alguna de las fotos de referencia (ver COLORES más arriba). Prohibido que alguna lleve una prenda distinta de la de la referencia.`}
+- Hay EXACTAMENTE TRES personas en toda la imagen. Ni una más de fondo, ni una silueta desenfocada, ni un reflejo con una cuarta.
 
 ${noTextNoLogoRule(strict)}
 - LA FOTO LLEGA HASTA EL BORDE: sin marco, sin passepartout, sin margen de color, sin bordes redondeados, sin barras arriba, abajo ni a los costados. La imagen sangra los cuatro lados.
-- PROHIBIDO además: aspecto de render 3D, manos deformes, simetría artificial, viñeteado exagerado, cualquier primer plano macro que ocupe un tercio entero del cuadro, y la figura chiquita y lejana perdida en un espacio enorme.`;
+- PROHIBIDO además: personas sin cabeza, sin cara o con la cara deformada; maniquíes y torsos sin persona; manos deformes; aspecto de render 3D; simetría artificial; viñeteado exagerado; cualquier primer plano macro que ocupe un tercio entero del cuadro; la figura chiquita y lejana perdida en un espacio enorme; y dejar un tercio del cuadro con el ambiente solo, sin ninguna persona con la prenda puesta.`;
 
+  /*
+   * TRES intentos, no dos. Cada rechazo (collage, texto colado) descarta una tira que ya
+   * se pagó y manda la pieza al carrusel clásico; el intento extra cuesta US$0,04 y es más
+   * barato que publicar una pieza peor. El 11-sep la pieza de las chombas falló dos veces
+   * seguidas y salió con recortes pegados, que es justo lo que no tiene que pasar nunca.
+   */
   let spent = 0;
-  for (let attempt = 0; attempt < 2; attempt += 1) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
       const data = await geminiGenerateContent(config.gemini.imageModel, {
         contents: [{ role: 'user', parts: [{ text: buildPrompt(attempt > 0) }, ...refs.map((r) => ({ inlineData: r }))] }],
@@ -2027,10 +2107,18 @@ ${noTextNoLogoRule(strict)}
       });
       const img = await inlineImageClean(data);
       if (!img) continue;
-      // El marco liso que a veces viene pegado a los bordes: en la tira la foto es la
-      // pieza y ese margen entra al cuadro como una franja gris (ver trimFlatEdges).
-      const recortada = await trimFlatEdges(img.buffer).catch(() => img.buffer);
-      if (recortada !== img.buffer) { img.buffer = recortada; img.mimeType = 'image/jpeg'; }
+      /*
+       * Lo que el modelo le agrega a la foto por afuera y hay que sacarle antes de nada,
+       * porque en la tira la foto ES la pieza y cualquier margen entra al cuadro como una
+       * franja a lo ancho de todos los cuadros:
+       *   · barras de cine arriba y abajo (trimBars) — las puso en la prueba del 11-sep,
+       *     del 14% cada una;
+       *   · un marco fino tipo galería (trimFlatEdges).
+       * En ese orden: sacadas las barras, el marco fino queda expuesto y recién ahí se ve.
+       */
+      let limpio = await trimBars(img.buffer).catch(() => img.buffer);
+      limpio = await trimFlatEdges(limpio).catch(() => limpio);
+      if (limpio !== img.buffer) { img.buffer = limpio; img.mimeType = 'image/jpeg'; }
       spent += await logImageUsage('tira generativa');
       // La etiqueta real del producto (Pampero/Ombú) no descalifica: sólo texto/logo AGREGADO.
       const check = await checkImageQuality(img, { productHasBranding: true });
@@ -2042,15 +2130,19 @@ ${noTextNoLogoRule(strict)}
       // recortes, que es de lo que se venía escapando. Se mira antes de aceptarla.
       const cont = await checkPanoramaContinuity(img);
       if (!cont.ok) {
-        console.warn(`[ai] generatePanoramaScene: la salida vino partida en paneles (${cont.notes || 'sin detalle'}), reintento...`);
-        learnFrom('image', 'global', 'El modelo de imagen devolvió la tira panorámica como un collage de paneles en vez de una sola foto continua', cont.notes);
+        console.warn(`[ai] generatePanoramaScene: descartada — ${cont.motivo} (${cont.notes || 'sin detalle'}), reintento...`);
+        learnFrom('image', 'global', `Tira panorámica rechazada: ${cont.motivo}`, cont.notes);
         continue;
       }
       img.costUsd = spent;
+      // La proporción REAL (después de sacarle barras y marco) la necesita el maquetado:
+      // una foto más apaisada que la tira se apoya arriba en vez de recortarse de costado.
+      const medida = await imageSize(img.buffer).catch(() => null);
+      img.aspect = medida ? medida.aspect : null;
       return img;
     } catch (err) {
       if (err.status === 429) { markImageQuotaHit(); console.warn('[ai] Cuota de imágenes agotada (429): la tira sale con los recortes sobre fondo diseñado.'); return null; }
-      console.warn(`[ai] generatePanoramaScene falló (intento ${attempt + 1}/2): ${err.message}`);
+      console.warn(`[ai] generatePanoramaScene falló (intento ${attempt + 1}/3): ${err.message}`);
     }
   }
   console.warn('[ai] generatePanoramaScene: sin resultado limpio, la tira cae al modo recorte (gratis).');
@@ -3456,6 +3548,7 @@ module.exports = {
   currentImagePriceUsd,
   imageSpendTodayUsd,
   reviewRenderedPiece,
+  checkPanoramaContinuity,
   lintCopy,
   VOICE_CORE,
 };

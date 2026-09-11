@@ -741,36 +741,51 @@ function tituloCorto(texto, palabras = 4) {
  * Renderiza el carrusel COMO UNA TIRA: una sola pieza ancha que se corta en los N cuadros.
  * Ver src/carouselPanorama.js para el porqué del diseño.
  *
- * Devuelve { urls, stripUrl, costUsd, buffer, clippedText } o lanza. Si las fotos no se
- * pueden recortar, el error trae code 'PANORAMA_SIN_RECORTES' y el llamador cae al
- * carrusel clásico (una imagen por slide).
+ * Devuelve { urls, stripUrl, sceneUrl, costUsd, buffer, clippedText } o lanza. Los dos
+ * motivos de caída al carrusel clásico vienen con código propio, y en los dos casos el
+ * llamador sigue sin ruido:
+ *   · 'PANORAMA_SIN_ESCENA'   — no se pudo generar la foto de la tira (lo normal desde
+ *                               sep-2026, porque la tira ES una foto generada);
+ *   · 'PANORAMA_SIN_RECORTES' — modo "sólo fotos reales" y las fotos no se dejan recortar.
  */
-async function renderCarouselPanorama(plan, ctx, { artMode = null } = {}) {
+async function renderCarouselPanorama(plan, ctx, { artMode = null, sceneUrl = null, sceneAspectIn = null } = {}) {
   const { refImgs, visualImageUrl, sceneTheme, logos, overlayTitle, badgeText, imageBrief, occasion, slotId, product } = ctx;
 
   /*
-   * ARTE GENERATIVA EN LA TIRA. Hay dos maneras, y se prueban en este orden:
+   * LA TIRA ES UNA FOTO GENERADA, NO UN COLLAGE DE RECORTES.
    *
-   *  1. ESCENA (lo que se pidió en sep-2026): UNA foto panorámica con la prenda REAL ya
-   *     adentro. Es la que resuelve el "parece copiado y pegado": la prenda y el ambiente
-   *     salen de la misma toma, con la misma luz, así que no hay recorte que delatar.
-   *     Necesita fotos del producto para pasar como referencia; sin producto no aplica.
-   *  2. AMBIENTE (lo de antes): sólo el fondo generado, y encima los recortes de catálogo.
-   *     Queda como plan B cuando la escena falla, la rechaza el control de calidad o no
-   *     hay producto del que partir. Sigue siendo mejor que el fondo diseñado en promos y
-   *     fechas comerciales, donde no hay una prenda que fotografiar.
+   * Hasta sep-2026 la tira pegaba los recortes del catálogo sobre un fondo (diseñado o
+   * generado) y la escena generativa era un extra que había que pedir a mano. El dueño lo
+   * resumió mirando dos piezas seguidas: "las piezas tienen el error de que parecen cosas
+   * recortadas y pegadas ahí, habría que solucionar para que nunca pase eso". Por más
+   * sombra de piso y pozo de luz que se le ponga, un recorte de estudio sobre una escena
+   * con otra luz se lee como calcomanía.
    *
-   * Las dos sólo corren si el dueño pidió arte generativa desde el panel: la tira con
-   * fondo diseñado es gratis y se ve bien, y encenderla de fábrica sería gastar todos los
-   * días en algo que muchas veces queda tapado.
+   * Así que ahora la escena es EL modo de la tira, no una opción:
+   *   · se intenta SIEMPRE que haya fotos del producto, sin que haya que pedir nada;
+   *   · si no sale (cuota, tope de gasto, la rechaza el control de calidad), la tira NO se
+   *     dibuja con recortes: se lanza `PANORAMA_SIN_ESCENA` y la pieza sale como carrusel
+   *     clásico, que usa las fotos reales a sangre y nunca parece pegado.
+   *
+   * Las dos excepciones son elecciones explícitas del dueño en el panel: "sólo fotos
+   * reales" (artMode 'foto', gratis, ahí sí vale la tira de recortes) y "afiche de diseño"
+   * (artMode 'tipografica', que no lleva foto).
+   *
+   * Cuesta ~US$0,04 por carrusel entero, una sola generación para los tres cuadros. El
+   * carrusel clásico con arte generativa paga UNA POR SLIDE, así que esto sale más barato
+   * que la alternativa que ya se usaba.
    *
    * Va ANTES de armar los cuadros porque cambia cuántos entran: la escena llega en 21:9 y
    * sólo cubre bien una tira de 3 cuadros (con 4, el recorte se come el 28% del alto).
    */
   let backdrop = null;
-  let scene = null;
+  let scene = sceneUrl || null;          // escena ya guardada (redibujar sale $0)
+  let sceneAspect = sceneAspectIn || null;
   let costUsd = 0;
-  if (artMode === 'generativa') {
+  const soloFotoReal = artMode === 'foto';
+  const quiereEscena = !scene && !soloFotoReal && artMode !== 'tipografica';
+
+  if (quiereEscena) {
     const { generatePanoramaScene, generatePanoramaBackdrop } = require('../src/ai');
     const fotos = (refImgs || []).filter(Boolean).slice(0, 4);
     if (fotos.length) {
@@ -782,10 +797,16 @@ async function renderCarouselPanorama(plan, ctx, { artMode = null } = {}) {
       }).catch(() => null);
       if (esc) {
         scene = `data:${esc.mimeType};base64,${esc.buffer.toString('base64')}`;
+        sceneAspect = esc.aspect || null;
         costUsd += esc.costUsd || 0;
       }
     }
-    if (!scene) {
+    /*
+     * Sin producto del que sacar referencias no hay escena posible (promos de toda la
+     * tienda, fechas comerciales). Ahí el fondo generado + recortes sigue siendo lo mejor
+     * disponible, pero sólo si el dueño pidió arte generativa: no se gasta de oficio.
+     */
+    if (!scene && !fotos.length && artMode === 'generativa') {
       const amb = await generatePanoramaBackdrop({
         theme: sceneTheme, brief: imageBrief, occasion, seed: Number(slotId) || 0,
       }).catch(() => null);
@@ -793,6 +814,11 @@ async function renderCarouselPanorama(plan, ctx, { artMode = null } = {}) {
         backdrop = `data:${amb.mimeType};base64,${amb.buffer.toString('base64')}`;
         costUsd += amb.costUsd || 0;
       }
+    }
+    if (!scene && !backdrop) {
+      const err = new Error('No se pudo generar la foto de la tira: la hago carrusel clásico antes que pegar recortes.');
+      err.code = 'PANORAMA_SIN_ESCENA';
+      throw err;
     }
   }
 
@@ -847,11 +873,19 @@ async function renderCarouselPanorama(plan, ctx, { artMode = null } = {}) {
     panels,
     backdropUrl: backdrop,
     sceneUrl: scene,
+    sceneAspect,
     runningWord: palabra,
     logos,
     seed: Number(slotId) || 0,
   });
-  return { ...res, costUsd: res.costUsd + costUsd, buffer: res.buffers[0] || null, scene: Boolean(scene) };
+  return {
+    ...res,
+    costUsd: res.costUsd + costUsd,
+    buffer: res.buffers[0] || null,
+    scene: Boolean(scene),
+    sceneUrl: res.sceneStoredUrl || null,
+    sceneAspect,
+  };
 }
 
 /**
@@ -860,11 +894,12 @@ async function renderCarouselPanorama(plan, ctx, { artMode = null } = {}) {
  * continuo — la de siempre muestra CUATRO TOMAS DE UN MISMO producto, y para
  * "remera + jean" eso no sirve: hay que ver las dos prendas.
  *
- * Con `etiquetas`, cada prenda lleva su nombre señalado con una flecha (ver
- * labelCallout en src/carouselPanorama.js): sin eso, dos prendas y dos nombres sueltos
- * no dicen cuál es cuál.
+ * Con `etiquetas`, cada prenda lleva su nombre a la vista: sin eso, dos prendas y dos
+ * nombres sueltos no dicen cuál es cuál. Sobre la foto generada va como cápsula anclada al
+ * cuadro (labelChip) y sobre la tira de recortes, con flecha a la prenda (labelCallout);
+ * las dos viven en src/carouselPanorama.js.
  */
-async function renderComboPanorama(productos, ctx, { etiquetas = false, slides = [], artMode = null } = {}) {
+async function renderComboPanorama(productos, ctx, { etiquetas = false, slides = [], artMode = null, sceneUrl = null, sceneAspectIn = null } = {}) {
   const { logos, overlayTitle, badgeText, slotId, sceneTheme, imageBrief, occasion } = ctx;
 
   /*
@@ -874,14 +909,18 @@ async function renderComboPanorama(productos, ctx, { etiquetas = false, slides =
    * un conjunto. Se decide ANTES de armar los cuadros porque cambia cuántos entran: la
    * escena viene en 21:9 y sólo cubre bien una tira de 3 (ver generatePanoramaScene).
    *
-   * Con `etiquetas` no se genera: las flechas apuntan a la geometría del recorte y sobre
-   * una foto generada no tienen a qué agarrarse.
+   * Igual que en la tira de un producto: la escena es el modo por defecto y si no sale, la
+   * pieza cae al carrusel clásico en vez de pegar recortes. `etiquetas` ya NO la
+   * desactiva: sobre la foto generada el nombre va como cápsula anclada al cuadro (ver
+   * labelChip en carouselPanorama.js) en vez de una flecha que apunte al recorte.
    */
-  const quiereEscena = artMode === 'generativa' && !etiquetas;
+  const soloFotoReal = artMode === 'foto';
+  let scene = sceneUrl || null;
+  let sceneAspect = sceneAspectIn || null;
+  const quiereEscena = !scene && !soloFotoReal && artMode !== 'tipografica';
   // Con escena: 2 productos + cierre. Sin escena: 3 productos + cierre (el máximo).
-  const elegidos = productos.slice(0, quiereEscena ? 2 : 3);
+  const elegidos = productos.slice(0, (scene || quiereEscena) ? 2 : 3);
 
-  let scene = null;
   let costUsd = 0;
   if (quiereEscena) {
     const { generatePanoramaScene } = require('../src/ai');
@@ -896,7 +935,13 @@ async function renderComboPanorama(productos, ctx, { etiquetas = false, slides =
     }).catch(() => null);
     if (esc) {
       scene = `data:${esc.mimeType};base64,${esc.buffer.toString('base64')}`;
+      sceneAspect = esc.aspect || null;
       costUsd += esc.costUsd || 0;
+    }
+    if (!scene) {
+      const err = new Error('No se pudo generar la foto de la tira combinada: la hago carrusel clásico antes que pegar recortes.');
+      err.code = 'PANORAMA_SIN_ESCENA';
+      throw err;
     }
   }
 
@@ -931,11 +976,19 @@ async function renderComboPanorama(productos, ctx, { etiquetas = false, slides =
     panels,
     backdropUrl: null,
     sceneUrl: scene,
+    sceneAspect,
     runningWord: marca,
     logos,
     seed: Number(slotId) || 0,
   });
-  return { ...res, costUsd: (res.costUsd || 0) + costUsd, buffer: res.buffers[0] || null, scene: Boolean(scene) };
+  return {
+    ...res,
+    costUsd: (res.costUsd || 0) + costUsd,
+    buffer: res.buffers[0] || null,
+    scene: Boolean(scene),
+    sceneUrl: res.sceneStoredUrl || null,
+    sceneAspect,
+  };
 }
 
 /**
@@ -1524,21 +1577,26 @@ async function generateForSlot(slot, overrides = {}) {
     /*
      * ¿TIRA CONTINUA O CARRUSEL CLÁSICO?
      *
-     * La tira (src/carouselPanorama.js) es una sola pieza ancha cortada en cuadros: el
-     * fondo, la tipografía y una de las prendas siguen de un cuadro al otro. Es lo que le
-     * da al que mira un motivo para deslizar, en vez de cuatro posteos pegados.
+     * La tira (src/carouselPanorama.js) es una sola pieza ancha cortada en cuadros: la
+     * foto y la tipografía siguen de un cuadro al otro. Es lo que le da al que mira un
+     * motivo para deslizar, en vez de tres posteos pegados.
      *
-     * Es el modo por defecto del carrusel FOTOGRÁFICO de feed porque es lo que se pidió y
-     * porque, de yapa, no gasta nada en imágenes IA. No aplica cuando:
+     * Es el modo por defecto del carrusel de feed. No aplica cuando:
      *   - es historia (ahí no hay deslizamiento horizontal continuo),
      *   - el dueño pidió otra cosa a mano (carouselStyle / arte tipográfica),
-     *   - no hay al menos 3 fotos reales distintas para poblar los cuadros.
-     * Y si las fotos no se pueden recortar, renderCarouselPanorama avisa y se cae solo al
-     * clásico: una tira de tarjetas rectangulares sería peor que la pieza de siempre.
+     *   - no hay NINGUNA foto del producto de la cual partir.
+     *
+     * Desde sep-2026 la tira se dibuja sobre una foto GENERADA con la prenda adentro, así
+     * que ya no hace falta juntar 3 fotos distintas de estudio para poblar los cuadros:
+     * con una sola alcanza como referencia. Y si esa foto no sale, renderCarouselPanorama
+     * lanza PANORAMA_SIN_ESCENA y la pieza cae al carrusel clásico — nunca a una tira de
+     * recortes pegados, que es el defecto que se vino a sacar de raíz.
      */
     const fotosDistintas = new Set(plan.map((s) => s.photoIndex)).size;
+    const puedeEscena = artMode !== 'foto' && artMode !== 'tipografica' && refImgs.length >= 1;
     const quiereContinuo = carouselStyle === 'continuo'
-      || (carouselStyle !== 'clasico' && isFeedFmt && artMode !== 'tipografica' && fotosDistintas >= 3 && refImgs.length >= 3);
+      || (carouselStyle !== 'clasico' && isFeedFmt && artMode !== 'tipografica'
+        && (puedeEscena || (fotosDistintas >= 3 && refImgs.length >= 3)));
 
     let tira = null;
     if (quiereContinuo) {
@@ -1550,7 +1608,7 @@ async function generateForSlot(slot, overrides = {}) {
           ? await renderComboPanorama(productosPedidos, ctx, { etiquetas: quiereEtiquetas, slides, artMode })
           : await renderCarouselPanorama(plan, ctx, { artMode });
       } catch (err) {
-        const suave = err.code === 'PANORAMA_SIN_RECORTES';
+        const suave = err.code === 'PANORAMA_SIN_RECORTES' || err.code === 'PANORAMA_SIN_ESCENA';
         console[suave ? 'log' : 'warn'](`[generate-daily] Slot #${slot.id}: ${err.message} Sigo con el carrusel clásico.`);
       }
     }
@@ -1566,8 +1624,8 @@ async function generateForSlot(slot, overrides = {}) {
       // que quien la lea sepa que estos cuadros no son piezas sueltas: corregir uno exige
       // volver a dibujar la tira entera o se rompe la continuidad.
       slidesMetaJson = JSON.stringify(productosPedidos.length > 1
-        ? { mode: 'panorama', combo: true, scene: Boolean(tira.scene), stripUrl: tira.stripUrl || null, productIds: productosPedidos.map((x) => x.id), labels: quiereEtiquetas }
-        : { mode: 'panorama', scene: Boolean(tira.scene), stripUrl: tira.stripUrl || null, shots: plan.slice(0, tira.urls.length) });
+        ? { mode: 'panorama', combo: true, scene: Boolean(tira.scene), sceneUrl: tira.sceneUrl || null, sceneAspect: tira.sceneAspect || null, stripUrl: tira.stripUrl || null, productIds: productosPedidos.map((x) => x.id), labels: quiereEtiquetas }
+        : { mode: 'panorama', scene: Boolean(tira.scene), sceneUrl: tira.sceneUrl || null, sceneAspect: tira.sceneAspect || null, stripUrl: tira.stripUrl || null, shots: plan.slice(0, tira.urls.length) });
       carouselDesign = 'panorama';
       console.log(`[generate-daily] Slot #${slot.id}: carrusel CONTINUO de ${tira.urls.length} cuadros (tira de ${tira.urls.length * 1080}px)${tira.scene ? ' · escena generada con la prenda adentro (sin recortes)' : ''}.`);
     } else {
@@ -2235,7 +2293,13 @@ async function regenerateSlide({ assetId, index, overlay, instructions }) {
   if (esTira && metaRaw.combo && Array.isArray(metaRaw.productIds) && metaRaw.productIds.length > 1) {
     const productos = await pickForcedProducts(metaRaw.productIds.map(Number));
     if (productos.length > 1) {
-      const tira = await renderComboPanorama(productos, ctx, { etiquetas: Boolean(metaRaw.labels), slides: [] });
+      const tira = await renderComboPanorama(productos, ctx, {
+        etiquetas: Boolean(metaRaw.labels), slides: [],
+        // La foto de la tira ya está paga y aprobada: se reusa tal cual (US$0) y así,
+        // además, la corrección de un texto no devuelve una escena distinta.
+        sceneUrl: metaRaw.sceneUrl || null, sceneAspectIn: metaRaw.sceneAspect || null,
+        artMode: metaRaw.sceneUrl ? null : 'foto',
+      });
       await pool.query(
         `UPDATE generated_assets SET slides = $2, image_path = $3, slides_meta = $4, updated_at = now() WHERE id = $1`,
         [assetId, JSON.stringify(tira.urls), tira.urls[0],
@@ -2251,11 +2315,16 @@ async function regenerateSlide({ assetId, index, overlay, instructions }) {
   }
 
   if (esTira) {
-    const tira = await renderCarouselPanorama(meta, ctx, { artMode: null });
+    const tira = await renderCarouselPanorama(meta, ctx, {
+      // Ídem: con la escena guardada se redibuja gratis; sin ella (piezas viejas, hechas
+      // con recortes) se respeta cómo estaba hecha en vez de cobrarle una generación.
+      sceneUrl: metaRaw.sceneUrl || null, sceneAspectIn: metaRaw.sceneAspect || null,
+      artMode: metaRaw.sceneUrl ? null : 'foto',
+    });
     const nuevos = tira.urls;
     await pool.query(
       `UPDATE generated_assets SET slides = $2, image_path = $3, slides_meta = $4, updated_at = now() WHERE id = $1`,
-      [assetId, JSON.stringify(nuevos), nuevos[0], JSON.stringify({ mode: 'panorama', stripUrl: tira.stripUrl || null, shots: meta.slice(0, nuevos.length) })]
+      [assetId, JSON.stringify(nuevos), nuevos[0], JSON.stringify({ ...metaRaw, mode: 'panorama', stripUrl: tira.stripUrl || null, sceneUrl: tira.sceneUrl || metaRaw.sceneUrl || null, shots: meta.slice(0, nuevos.length) })]
     );
     notes.push('Como es un carrusel continuo, se volvió a dibujar la tira entera para que los cuadros sigan enganchando.');
     return { slides: nuevos, image_path: nuevos[0], note: notes.join(' ').trim() };

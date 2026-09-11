@@ -92,6 +92,7 @@ async function renderTira({ product, images, logos, seed, escena = false }) {
    * dibujan. Es lo que hay que mirar para juzgar si la tira dejó de parecer pegoteada.
    */
   let sceneUrl = null;
+  let sceneAspect = null;
   if (escena) {
     const { generatePanoramaScene } = require('../src/ai');
     console.log('[lab] Generando la escena panorámica (esto sí gasta, ~US$0,04)…');
@@ -103,12 +104,15 @@ async function renderTira({ product, images, logos, seed, escena = false }) {
     });
     if (!img) throw new Error('La escena no salió (mirá el warning de arriba). Probá de nuevo o sin --escena.');
     sceneUrl = `data:${img.mimeType};base64,${img.buffer.toString('base64')}`;
+    // La proporción real importa para el maquetado (ver sceneLayer): sin esto, el
+    // laboratorio mostraría una tira distinta de la que sale en producción.
+    sceneAspect = img.aspect || null;
     fs.writeFileSync(path.join(OUT, 'tira-escena-cruda.jpg'), img.buffer);
     console.log(`[lab] Escena lista (US$${(img.costUsd || 0).toFixed(3)}) → ${OUT}/tira-escena-cruda.jpg`);
   }
 
   const { n, w: W, h: H, panelW } = panorama.panoramaDims(panels.length);
-  const html = panorama.buildPanoramaHtml({ panels, sceneUrl, runningWord: nombre.split(' ')[0] || 'BLACKS', seed }, {});
+  const html = panorama.buildPanoramaHtml({ panels, sceneUrl, sceneAspect, runningWord: nombre.split(' ')[0] || 'BLACKS', seed }, {});
   const browser = await puppeteer.launch({ args: ['--no-sandbox', '--disable-dev-shm-usage'] });
   const page = await browser.newPage();
   await page.setViewport({ width: W, height: H });

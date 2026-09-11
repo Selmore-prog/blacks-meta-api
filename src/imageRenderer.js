@@ -2133,6 +2133,7 @@ async function renderPanoramaSlides(options) {
       panels: conRecorte,
       backdropUrl: options.backdropUrl || null,
       sceneUrl: options.sceneUrl || null,
+      sceneAspect: options.sceneAspect || null,
       runningWord: options.runningWord || null,
       seed: options.seed || 0,
     },
@@ -2177,7 +2178,27 @@ async function renderPanoramaSlides(options) {
     ? await uploadAsset({ buffer: stripBuffer, filename: `tira-${stamp}-completa.jpg`, contentType: 'image/jpeg' }).catch(() => null)
     : null;
 
-  return { urls, buffers, stripUrl, costUsd: 0, clippedText };
+  /*
+   * La FOTO generada se guarda aparte, además de los cuadros. No es para publicarla: es
+   * para poder volver a dibujar la tira (cambiar un titular, corregir el copy) SIN pagar
+   * otra generación. Sin esto, tocar una coma del texto de un carrusel continuo obligaba
+   * a generar la escena de nuevo — US$0,04 y, peor, una foto distinta de la aprobada.
+   */
+  let sceneStoredUrl = null;
+  if (modoEscena && String(options.sceneUrl).startsWith('data:')) {
+    const m = /^data:([^;]+);base64,(.*)$/s.exec(String(options.sceneUrl));
+    if (m) {
+      sceneStoredUrl = await uploadAsset({
+        buffer: Buffer.from(m[2], 'base64'),
+        filename: `tira-${stamp}-escena.jpg`,
+        contentType: m[1] || 'image/jpeg',
+      }).catch(() => null);
+    }
+  } else if (modoEscena) {
+    sceneStoredUrl = options.sceneUrl; // ya era una URL: se reusó una escena guardada
+  }
+
+  return { urls, buffers, stripUrl, sceneStoredUrl, costUsd: 0, clippedText };
 }
 
 function measureClippedText(page, canvasWidth) {

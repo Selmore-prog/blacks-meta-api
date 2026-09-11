@@ -247,15 +247,60 @@ function photoCard(url, { cx, inkH, bottom, aspect = FOTO_RETRATO, z = 3 }) {
  *   · las dos con el MISMO perfil a lo largo de toda la tira, así ningún corte muestra un
  *     degradado distinto del de al lado (eso delataría que son cuatro imágenes).
  *
- * @param railY fracción de alto donde corre el riel: la cortina de abajo arranca ahí.
+ * CÓMO SE APOYA LA FOTO (esto es lo que evita que se corten las personas de los extremos).
+ * La tira de 3 cuadros es 2,4:1 y el modelo entrega 21:9 (2,33:1), así que normalmente
+ * entra casi exacta con `cover`. Pero a veces devuelve la foto con barras de cine y, una
+ * vez recortadas (trimBars), lo que queda es mucho más apaisado —3,4:1 en la prueba del
+ * 11-sep—. Con `cover`, esa foto pierde el 15% de cada costado: justo donde están paradas
+ * la primera y la última persona, que salían cortadas al medio.
+ *
+ * Por eso, cuando la foto es MÁS APAISADA que la tira, no se recorta de los costados: se
+ * la apoya arriba a todo el ancho y lo que falta abajo lo tapa la cortina de los titulares,
+ * que ahí ya es casi negra. Se pierde el piso de la escena (que nadie mira) en vez de las
+ * personas de las puntas (que son la pieza).
+ *
+ * @param aspect proporción real (ancho/alto) de la foto. Sin ella se asume que entra justa.
+ * @param railY  fracción de alto donde corre el riel: la cortina de abajo arranca ahí.
  */
-function sceneLayer(W, H, sceneUrl, { railY = 0.702 } = {}) {
-  return `<img src="${esc(sceneUrl)}" style="position:absolute; left:0; top:0; width:${W}px; height:${H}px;
-      object-fit:cover; z-index:0; filter:brightness(1.1) contrast(1.05) saturate(.98);"/>
+function sceneLayer(W, H, sceneUrl, { railY = 0.702, aspect = null } = {}) {
+  const tira = W / H;
+  const a = Number(aspect);
+  // Apoyada arriba sólo si es más apaisada Y le queda cuerpo: por debajo del 62% del alto
+  // la franja negra de abajo sería más grande que la foto y conviene recortar de costado.
+  const altoSiAncho = Number.isFinite(a) && a > 0 ? W / a : H;
+  const apoyadaArriba = Number.isFinite(a) && a > tira * 1.02 && altoSiAncho >= H * 0.62;
+  const imgH = apoyadaArriba ? altoSiAncho : H;
+
+  const foto = apoyadaArriba
+    ? `<img src="${esc(sceneUrl)}" style="position:absolute; left:0; top:0; width:${W}px; height:${r1(imgH)}px;
+        object-fit:cover; object-position:center top; z-index:0; filter:brightness(1.1) contrast(1.05) saturate(.98);"/>
+      <div style="position:absolute; left:0; top:${r1(imgH)}px; width:${W}px; height:${r1(H - imgH)}px; z-index:0; background:${INK_BG};"></div>`
+    : `<img src="${esc(sceneUrl)}" style="position:absolute; left:0; top:0; width:${W}px; height:${H}px;
+        object-fit:cover; z-index:0; filter:brightness(1.1) contrast(1.05) saturate(.98);"/>`;
+
+  /*
+   * Dos cortinas, cada una con UN trabajo, y por eso separadas:
+   *
+   *  · la de los TITULARES arranca siempre en el riel y es la que garantiza que el texto
+   *    blanco se lea. Sus paradas están calibradas contra piezas reales, así que no se
+   *    tocan: mezclarla con el cierre de la foto (primer intento) le bajó el negro justo
+   *    a la altura del titular y el texto quedaba peleando con la imagen.
+   *  · la de CIERRE existe sólo cuando la foto termina antes del pie del lienzo (modo
+   *    apoyada arriba): disuelve el borde inferior de la imagen contra el negro, para que
+   *    no se lea como una línea recta cruzando los tres cuadros.
+   */
+  const cortinaTitulares = `<div data-deco style="position:absolute; left:0; top:${r1(H * (railY - 0.12))}px; width:${W}px; height:${r1(H * (1.12 - railY))}px; z-index:1;
+      background:linear-gradient(to bottom, rgba(8,8,10,0) 0%, rgba(8,8,10,.52) 26%, rgba(8,8,10,.88) 62%, rgba(8,8,10,.97) 100%);"></div>`;
+  const cortinaCierre = apoyadaArriba
+    ? `<div data-deco style="position:absolute; left:0; top:${r1(imgH - H * 0.1)}px; width:${W}px; height:${r1(H * 0.1)}px; z-index:1;
+        background:linear-gradient(to bottom, rgba(8,8,10,0) 0%, ${INK_BG} 100%);"></div>`
+    : '';
+
+  return `${foto}
     <div data-deco style="position:absolute; left:0; top:0; width:${W}px; height:${r1(H * 0.2)}px; z-index:1;
       background:linear-gradient(to bottom, rgba(8,8,10,.55) 0%, rgba(8,8,10,.22) 50%, rgba(8,8,10,0) 100%);"></div>
-    <div data-deco style="position:absolute; left:0; top:${r1(H * (railY - 0.12))}px; width:${W}px; height:${r1(H * (1.12 - railY))}px; z-index:1;
-      background:linear-gradient(to bottom, rgba(8,8,10,0) 0%, rgba(8,8,10,.52) 26%, rgba(8,8,10,.88) 62%, rgba(8,8,10,.97) 100%);"></div>`;
+    ${cortinaCierre}
+    ${cortinaTitulares}`;
 }
 
 /**
@@ -341,6 +386,28 @@ function runningWord(W, H, word, { top = 0.075 } = {}) {
   return `<div data-deco style="position:absolute; left:${-Math.round(PANEL.w * 0.16)}px; top:${r1(H * top)}px;
     z-index:2; white-space:nowrap; font-family:'Anton',sans-serif; font-size:${size}px;
     line-height:1; letter-spacing:${Math.round(H * 0.004)}px; color:rgba(255,255,255,.05);">${texto}</div>`;
+}
+
+/**
+ * ETIQUETA EN MODO ESCENA. En la tira de recortes el nombre del producto va con una raya y
+ * una flecha que nacen en la silueta recortada (labelCallout): se puede, porque el código
+ * sabe exactamente dónde está la prenda. Sobre una foto generada no lo sabe —no hay
+ * recorte— y una flecha apuntando a cualquier lado es peor que ninguna.
+ *
+ * Acá la etiqueta se ancla al CUADRO: una cápsula justo arriba del riel, alineada con el
+ * titular que va abajo. Sigue diciendo cuál es cuál (que es para lo que existe) y no
+ * promete una precisión que no tiene. Gracias a esto, pedir "señalá el nombre de cada
+ * producto" ya no obliga a usar recortes.
+ */
+function labelChip(texto, { indice, panelW, H, railY }) {
+  const nombre = String(texto || '').trim();
+  if (!nombre) return '';
+  const corto = nombre.length > 26 ? `${nombre.slice(0, 25)}…` : nombre;
+  const y = Math.round(railY * H) - 78;
+  return `<div style="position:absolute; left:${indice * panelW + 78}px; top:${y}px; z-index:8;
+      font-family:'Inter',sans-serif; font-weight:800; font-size:29px; letter-spacing:.4px;
+      text-transform:uppercase; color:#fff; background:rgba(10,10,10,.86); border:2px solid ${ACCENT};
+      border-radius:100px; padding:13px 26px; white-space:nowrap; display:inline-block;">${esc(corto)}</div>`;
 }
 
 /**
@@ -606,11 +673,11 @@ function buildPanoramaHtml(opts, helpers = {}) {
     g.cruza = true;
   }
 
-  const etiquetas = modoEscena ? '' : panels.map((panel, i) => (
-    (panel.label && geoms[i].tieneFoto && panel.kind !== 'cta')
-      ? labelCallout(geoms[i], panel.label, { indice: i, panelW, H })
-      : ''
-  )).join('');
+  const etiquetas = panels.map((panel, i) => {
+    if (!panel.label || panel.kind === 'cta') return '';
+    if (modoEscena) return labelChip(panel.label, { indice: i, panelW, H, railY });
+    return geoms[i].tieneFoto ? labelCallout(geoms[i], panel.label, { indice: i, panelW, H }) : '';
+  }).join('');
 
   const medias = modoEscena ? '' : panels.map((panel, i) => {
     const g = geoms[i];
@@ -651,7 +718,7 @@ function buildPanoramaHtml(opts, helpers = {}) {
 
   return `${headHtml(W, H)}
   <body style="width:${W}px; height:${H}px; position:relative; background:${INK_BG}; overflow:hidden;">
-    ${modoEscena ? sceneLayer(W, H, opts.sceneUrl, { railY }) : groundLayer(W, H, opts.backdropUrl, n)}
+    ${modoEscena ? sceneLayer(W, H, opts.sceneUrl, { railY, aspect: opts.sceneAspect }) : groundLayer(W, H, opts.backdropUrl, n)}
     ${modoEscena ? '' : runningWord(W, H, opts.runningWord, { top: flip ? 0.115 : 0.085 })}
     ${modoEscena ? '' : warmSweep(W, H, { flip })}
     ${medias}
