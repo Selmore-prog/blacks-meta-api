@@ -659,8 +659,30 @@ button .cost-tag { margin-left: 8px; }
 .ig-sticker { position: absolute; top: 45%; left: 50%; transform: translate(-50%,-50%) rotate(-4deg); z-index: 4;
   background: #fff; color: #111; font-weight: 800; padding: 9px 18px; border-radius: 10px; font-size: 15px; box-shadow: 0 6px 20px rgba(0,0,0,.4); }
 .preview-note { padding: 11px 14px; font-size: 12px; color: var(--muted); background: var(--panel); border-top: 1px solid var(--line); line-height: 1.5; }
-.slide-fix-bar { padding: 10px 14px; display: flex; justify-content: center; background: var(--panel); border-top: 1px solid var(--line); }
-.slide-fix-bar .slide-fix-btn { width: 100%; justify-content: center; }
+.slide-fix-bar { padding: 10px 14px; display: flex; gap: 8px; justify-content: center; background: var(--panel); border-top: 1px solid var(--line); }
+.slide-fix-bar .slide-fix-btn, .slide-fix-bar .piece-fix-btn { flex: 1 1 auto; justify-content: center; }
+.slide-fix-bar .ver-hist-btn { flex: 0 0 auto; justify-content: center; }
+
+/* Resumen de "qué se va a cambiar" en el modal de corrección: se lee ANTES de apretar,
+   que es el punto — corregir un texto no tiene por qué cambiar la foto sin avisar. */
+.fix-summary { margin: 4px 0 14px; padding: 10px 12px; border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2, rgba(255,255,255,.03)); }
+.fix-summary-title { font-size: 11px; letter-spacing: .08em; text-transform: uppercase; opacity: .65; margin-bottom: 6px; }
+.fix-summary ul { margin: 0; padding-left: 18px; }
+.fix-summary li { font-size: 13px; line-height: 1.5; margin: 2px 0; }
+
+/* Historial de versiones de una pieza. */
+.ver-list { display: flex; flex-direction: column; gap: 8px; max-height: 60vh; overflow-y: auto; }
+.ver-row { display: flex; align-items: center; gap: 10px; padding: 8px; border: 1px solid var(--line); border-radius: 10px; }
+.ver-thumbs { display: flex; gap: 4px; flex: 0 0 auto; }
+.ver-thumbs img { width: 40px; height: 50px; object-fit: cover; border-radius: 5px; border: 1px solid var(--line); }
+.ver-meta { flex: 1 1 auto; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.ver-meta b { font-size: 13px; }
+.ver-meta .hint { font-size: 11px; margin: 0; }
+.ver-row .ver-restore { flex: 0 0 auto; }
+@media (max-width: 560px) {
+  .ver-row { flex-wrap: wrap; }
+  .ver-row .ver-restore { width: 100%; justify-content: center; }
+}
 
 /* Carrusel continuo: la tira entera, que es lo único que deja ver si engancha o no. */
 .strip-view { padding: 12px 14px 14px; background: var(--panel); border-top: 1px solid var(--line); }

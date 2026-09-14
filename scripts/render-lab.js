@@ -168,7 +168,9 @@ async function main() {
     deck: 'Tres cosas que mirar antes de comprar tu próxima prenda de trabajo.',
     stepNumber: '03',
     specs: ['Cintura elastizada', 'Refuerzo en rodilla', 'Bolsillos cargo', 'Tela ripstop'],
-    showBrand: true,
+    // Mismo criterio que producción (renderPostBuffer): el laboratorio no sirve para
+    // mirar un diseño si muestra un logo que la pieza real ya no lleva.
+    showBrand: require('../src/config').brand.logoOnPieces,
     productImageUrl: images[0] || product.image_url,
     productImageUrls: images,
     overlayTitle: product.name,

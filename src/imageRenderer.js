@@ -1992,19 +1992,23 @@ async function renderPostBuffer(options) {
     }
   }
 
-  /* ¿VA EL LOGO EN ESTA PIEZA?
+  /* ¿VA EL LOGO EN ESTA PIEZA? NO.
      `showBrand` se leía en ocho plantillas y NO SE DEFINÍA EN NINGÚN LADO:
      como `cornerBrand` sólo lo saltea con `=== false`, el logo terminaba
      impreso en TODAS las piezas. Sumado a la barra de dominio, cada imagen
      llevaba dos marcas — y el propio criterio del archivo de plantillas dice
      "como MUCHO dos elementos de marca por pieza; el logo va chico o no va".
 
-     Criterio nuevo: la barra con el dominio ya dice de quién es la pieza. El
-     logo se reserva para cuando aporta algo — piezas de marca, o cuando quien
-     llama lo pide explícitamente. Se puede forzar con showBrand: true/false.  */
-  const showBrand = options.showBrand !== undefined
-    ? options.showBrand
-    : (options.pillar === 'marca' || options.template === 'mayorista');
+     Sep-2026, pedido del dueño: fuera en todas. La barra con el dominio ya dice
+     de quién es la pieza, y el logo esquinado le comía la esquina a la foto.
+
+     El interruptor de marca MANDA sobre lo que pida cada plantilla: si quedara
+     como default y cualquier llamador pudiera pisarlo con showBrand:true, el
+     logo volvería por la ventana en las piezas viejas (sus recetas guardadas lo
+     traen en true). Para devolverlo: BRAND_LOGO_ON_PIECES=1, sin tocar código.  */
+  const showBrand = Boolean(config.brand.logoOnPieces)
+    && options.showBrand !== false
+    && (options.showBrand === true || options.pillar === 'marca' || options.template === 'mayorista');
 
   const html = buildHtml({ ...options, showBrand, format, bgImageUrl, productImageUrl, cutoutUrl, cutoutBox });
 
@@ -2125,7 +2129,9 @@ async function renderPanoramaSlides(options) {
     throw err;
   }
 
-  const logoHtml = options.logos
+  // Mismo criterio que las piezas sueltas: sin logo estampado (la tira lo ponía en el
+  // primer cuadro). Ver config.brand.logoOnPieces.
+  const logoHtml = options.logos && config.brand.logoOnPieces
     ? brandMarkHtml(options.logos, { dark: false, heightPx: 62, maxWidthPx: 240 })
     : null;
   const html = panorama.buildPanoramaHtml(

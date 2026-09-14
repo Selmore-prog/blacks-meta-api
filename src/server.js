@@ -2111,8 +2111,31 @@ app.post('/api/assets/:assetId/regenerate-slide', wrap(async (req, res) => {
     index,
     overlay: typeof body.overlay === 'string' ? body.overlay : undefined,
     instructions: typeof body.instructions === 'string' ? body.instructions : undefined,
+    // 'misma' | 'nueva' | 'real' — qué hacer con la FOTO de ese cuadro. Explícito desde
+    // el panel: corregir un texto no tiene por qué devolver otra foto.
+    photo: ['misma', 'nueva', 'real'].includes(body.photo) ? body.photo : undefined,
   });
   res.json({ ok: true, ...result });
+}));
+
+/* ============ HISTORIAL DE IMÁGENES DE UNA PIEZA ============
+ * Cada corrección guarda el estado anterior (ver src/assetVersions.js). Estos dos
+ * endpoints son el "volver atrás" del panel: listar qué versiones hay y restaurar una.
+ * No regeneran ni pagan nada — las imágenes viejas siguen publicadas en Storage. */
+app.get('/api/assets/:assetId/versions', wrap(async (req, res) => {
+  const id = intParam(req.params.assetId);
+  if (!id) return res.status(400).json({ error: 'assetId inválido' });
+  const versions = await require('./assetVersions').listVersions(id);
+  res.json({ ok: true, versions });
+}));
+
+app.post('/api/assets/:assetId/restore-version', wrap(async (req, res) => {
+  const id = intParam(req.params.assetId);
+  if (!id) return res.status(400).json({ error: 'assetId inválido' });
+  // Sin versionId se vuelve a la última guardada (el "deshacer" de un clic).
+  const versionId = req.body && req.body.versionId ? intParam(req.body.versionId) : null;
+  const restored = await require('./assetVersions').restoreVersion(id, versionId);
+  res.json({ ok: true, ...restored });
 }));
 
 // "Corregir la historia": para piezas SIMPLES (no carrusel). El usuario describe qué

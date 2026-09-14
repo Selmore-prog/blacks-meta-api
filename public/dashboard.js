@@ -1155,10 +1155,17 @@ function openPreview(item) {
     if (item.asset_id) {
       const box = overlay.querySelector('.preview-box');
       box.insertAdjacentHTML('beforeend',
-        `<div class="slide-fix-bar"><button class="btn-ghost btn-sm slide-fix-btn">${icon('wand')} Corregir esta imagen</button></div>`);
+        `<div class="slide-fix-bar">
+          <button class="btn-ghost btn-sm slide-fix-btn">${icon('wand')} Corregir esta imagen</button>
+          <button class="btn-ghost btn-sm ver-hist-btn">${icon('refresh')} Volver atrás</button>
+        </div>`);
       box.querySelector('.slide-fix-btn').addEventListener('click', (e) => {
         e.stopPropagation();
         openSlideFix(item, currentSlide, car);
+      });
+      box.querySelector('.ver-hist-btn').addEventListener('click', (e) => {
+        e.stopPropagation();
+        openVersionHistory(item, overlay);
       });
     }
   }
@@ -1189,10 +1196,17 @@ function openPreview(item) {
   if (item.asset_id && (!slides || slides.length <= 1) && img && !isReel) {
     const box = overlay.querySelector('.preview-box');
     box.insertAdjacentHTML('beforeend',
-      `<div class="slide-fix-bar"><button class="btn-ghost btn-sm piece-fix-btn">${icon('wand')} Corregir la historia</button></div>`);
+      `<div class="slide-fix-bar">
+        <button class="btn-ghost btn-sm piece-fix-btn">${icon('wand')} Corregir la historia</button>
+        <button class="btn-ghost btn-sm ver-hist-btn">${icon('refresh')} Volver atrás</button>
+      </div>`);
     box.querySelector('.piece-fix-btn').addEventListener('click', (e) => {
       e.stopPropagation();
       openPieceCorrect(item, overlay);
+    });
+    box.querySelector('.ver-hist-btn').addEventListener('click', (e) => {
+      e.stopPropagation();
+      openVersionHistory(item, overlay);
     });
   }
 }
@@ -1276,35 +1290,93 @@ function openSlideFix(item, index, carEl) {
   const esTira = receta.mode === 'panorama';
   const meta = receta.shots;
   const currentOverlay = (meta && meta[index] && meta[index].overlay) ? String(meta[index].overlay) : '';
+  /*
+   * ¿SE PUEDE MANTENER LA FOTO? Sólo si la escena de ese cuadro quedó guardada
+   * (`sceneUrl`). En las piezas anteriores a sep-2026 no está: ahí la primera corrección
+   * necesariamente genera una foto nueva, y conviene decirlo ANTES y no después —
+   * cambiar un titular y que vuelva otra foto fue justamente lo que se vino a arreglar.
+   * En la tira continua la escena es UNA sola para los tres cuadros y ya se reusa sola.
+   */
+  const tieneEscena = Boolean(meta && meta[index] && meta[index].sceneUrl) || esTira;
   const body = `
     <p class="hint" style="margin-top:0;">${esTira
     ? `Este es un <b>carrusel continuo</b>: los cuadros son recortes de una sola pieza. Vas a corregir el <b>cuadro ${index + 1}</b> y el sistema vuelve a dibujar la tira entera para que siga enganchando (los textos de los otros cuadros no se tocan).`
-    : `Regenerás <b>sólo el slide ${index + 1}</b> (los demás quedan igual). Pedí en castellano lo que quieras de este slide: la IA cambia el texto, la foto o el tipo de toma según lo que digas.`}</p>
+    : `Corregís <b>sólo el cuadro ${index + 1}</b> (los demás quedan igual). Elegí abajo si la foto se mantiene o se rehace.`}</p>
     <div class="field"><label>Texto en la imagen (dejalo vacío para no poner texto)</label>
       <input class="input" id="sf-overlay" placeholder="Ej: Etiqueta argentina" /></div>
-    <div class="field"><label>¿Qué querés que cambie en este slide?</label>
-      <textarea class="input" id="sf-inst" placeholder="Ej: mostrá todos los colores disponibles · que diga Conseguilos en la web · mostrá más de cerca el bolsillo"></textarea></div>
+    <div class="field"><label>¿Qué querés que cambie en este cuadro? <span class="hint" style="font-weight:400;">(opcional)</span></label>
+      <textarea class="input" id="sf-inst" placeholder="Ej: mostrá todos los colores disponibles · mostrá más de cerca el bolsillo"></textarea></div>
+    ${esTira ? '' : `
+    <div class="field">
+      <label>La foto de este cuadro</label>
+      <select class="input" id="sf-photo">
+        <option value="misma"${tieneEscena ? '' : ' disabled'}>Dejar la misma foto — sólo cambia el texto (gratis)</option>
+        <option value="nueva"${tieneEscena ? '' : ' selected'}>Generar otra foto con IA (tiene costo)</option>
+        <option value="real">Usar la foto real del producto, sin IA (gratis)</option>
+      </select>
+      ${tieneEscena ? '' : '<p class="hint" style="margin-top:6px; color:var(--warn, #C1440C);">«Dejar la misma foto» no está disponible en este cuadro: la pieza se hizo antes de que se guardara la foto de cada cuadro. Después de esta corrección sí se va a poder.</p>'}
+    </div>`}
+    <div class="fix-summary" id="sf-summary"></div>
     <div style="display:flex; gap:8px; justify-content:flex-end;">
       <button class="btn-discard" id="sf-cancel">Cancelar</button>
-      <button class="btn-primary" id="sf-go">${icon('wand')} Regenerar slide ${index + 1}</button>
+      <button class="btn-primary" id="sf-go">${icon('wand')} Aplicar al cuadro ${index + 1}</button>
     </div>`;
-  const ov = showInfoModal(`Corregir slide ${index + 1}`, body);
+  const ov = showInfoModal(`Corregir cuadro ${index + 1}`, body);
   // Por propiedad y no como atributo: el texto puede traer comillas.
   ov.querySelector('#sf-overlay').value = currentOverlay;
   ov.querySelector('#sf-cancel').addEventListener('click', () => ov.remove());
+
+  /*
+   * QUÉ SE VA A CAMBIAR, escrito antes de apretar el botón. Pedido explícito del dueño:
+   * "estaría bueno también cuando se corrige la imagen que se aclare qué se va a
+   * cambiar". Se arma con lo que hay en el formulario, no con lo que supone el sistema.
+   */
+  const selPhoto = ov.querySelector('#sf-photo');
+  const summary = ov.querySelector('#sf-summary');
+  const syncSummary = () => {
+    const overlayText = ov.querySelector('#sf-overlay').value;
+    const instructions = ov.querySelector('#sf-inst').value.trim();
+    const modo = esTira ? 'misma' : (selPhoto ? selPhoto.value : 'nueva');
+    const cambios = [];
+    if (overlayText !== currentOverlay) {
+      cambios.push(overlayText.trim()
+        ? `el texto de la imagen pasa a decir <b>«${esc(overlayText.trim())}»</b>`
+        : 'se saca el texto de la imagen');
+    }
+    if (instructions) cambios.push(`se aplica lo que escribiste: <b>«${esc(instructions)}»</b>`);
+    const foto = modo === 'misma'
+      ? '<b>La foto no se toca</b> — se vuelve a dibujar el texto sobre la misma imagen. Sin costo.'
+      : modo === 'real'
+        ? '<b>La foto cambia</b>: vuelve la foto real del producto (la de la tienda), sin IA. Sin costo.'
+        : `<b>La foto cambia</b>: se genera otra con IA${appCfg && appCfg.imageCostUsd ? ` (~US$ ${Number(appCfg.imageCostUsd).toFixed(2).replace('.', ',')})` : ''}. La de ahora queda guardada y se puede recuperar con «Volver atrás».`;
+    summary.innerHTML = `<div class="fix-summary-title">Se va a cambiar</div>
+      <ul>${cambios.length ? cambios.map((c) => `<li>${c}</li>`).join('') : '<li>Nada del texto (sólo lo que digas de la foto).</li>'}
+      <li>${foto}</li>
+      ${esTira ? '<li>Al ser un carrusel continuo se redibuja la tira entera para que los cuadros sigan enganchando.</li>' : '<li>Los otros cuadros del carrusel no se tocan.</li>'}</ul>`;
+  };
+  ov.querySelector('#sf-overlay').addEventListener('input', syncSummary);
+  ov.querySelector('#sf-inst').addEventListener('input', syncSummary);
+  if (selPhoto) selPhoto.addEventListener('change', syncSummary);
+  syncSummary();
+
   ov.querySelector('#sf-go').addEventListener('click', async () => {
     const go = ov.querySelector('#sf-go');
     const overlayText = ov.querySelector('#sf-overlay').value;
     const instructions = ov.querySelector('#sf-inst').value.trim();
-    if (!instructions && overlayText === currentOverlay) {
-      toast('Escribí qué querés que cambie (o editá el texto de la imagen)', 'err'); return;
+    const modoFoto = selPhoto ? selPhoto.value : undefined;
+    if (!instructions && overlayText === currentOverlay && (!modoFoto || modoFoto === 'misma')) {
+      toast('Editá el texto, escribí qué cambiar, o pedí otra foto', 'err'); return;
     }
-    go.disabled = true; go.innerHTML = `${icon('refresh', 'spin')} Regenerando…`;
+    go.disabled = true; go.innerHTML = `${icon('refresh', 'spin')} Corrigiendo…`;
     try {
       const r = await api(`/api/assets/${item.asset_id}/regenerate-slide`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         // `overlay` sólo viaja si el dueño tocó el campo (si no, manda la corrección escrita).
-        body: JSON.stringify({ index, instructions, ...(overlayText === currentOverlay ? {} : { overlay: overlayText }) }),
+        body: JSON.stringify({
+          index, instructions,
+          ...(modoFoto ? { photo: modoFoto } : {}),
+          ...(overlayText === currentOverlay ? {} : { overlay: overlayText }),
+        }),
       });
       // Reemplazá la imagen del slide en vivo (con cache-bust) sin recargar todo.
       if (carEl && r.slides) {
@@ -1317,12 +1389,71 @@ function openSlideFix(item, index, carEl) {
       ov.remove();
       // La nota dice QUÉ se cambió (y si algo no se pudo, por qué): ej. cuántos colores
       // hay realmente en Tiendanube.
-      toast(r.note || 'Slide regenerado', 'ok');
+      toast(r.note || 'Cuadro corregido', 'ok');
       reloadKeepScroll();
     } catch (e) {
       toast(e.message, 'err');
-      go.disabled = false; go.innerHTML = `${icon('wand')} Regenerar slide ${index + 1}`;
+      go.disabled = false; go.innerHTML = `${icon('wand')} Aplicar al cuadro ${index + 1}`;
     }
+  });
+}
+
+/**
+ * VOLVER A LA VERSIÓN ANTERIOR de una pieza.
+ *
+ * Cada corrección guarda el estado anterior (asset_versions). Restaurar no regenera ni
+ * paga nada: las imágenes viejas siguen publicadas en Storage, sólo se vuelve a apuntar
+ * la pieza a sus URLs. Por eso se puede ir y venir comparando.
+ */
+async function openVersionHistory(item, previewOverlay) {
+  let versions = [];
+  try {
+    const r = await api(`/api/assets/${item.asset_id}/versions`);
+    versions = r.versions || [];
+  } catch (e) { toast(e.message, 'err'); return; }
+
+  if (!versions.length) {
+    showInfoModal('Versiones anteriores', `<p class="hint" style="margin-top:0;">Esta pieza todavía no tiene versiones guardadas: se guarda una cada vez que corregís una imagen o un texto. La próxima corrección ya vas a poder deshacerla desde acá.</p>`);
+    return;
+  }
+
+  const fecha = (s) => { const d = new Date(s); return Number.isNaN(d.getTime()) ? '' : d.toLocaleString('es-AR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' }); };
+  const filas = versions.map((v) => {
+    const thumbs = (Array.isArray(v.slides) && v.slides.length ? v.slides : [v.image_path]).filter(Boolean);
+    return `<div class="ver-row" data-id="${v.id}">
+      <div class="ver-thumbs">${thumbs.slice(0, 5).map((u) => `<img src="${esc(u)}" alt=""/>`).join('')}</div>
+      <div class="ver-meta"><b>${esc(v.label || 'Versión anterior')}</b><span class="hint">Guardada el ${fecha(v.created_at)}</span></div>
+      <button class="btn-ghost btn-sm ver-restore">${icon('refresh')} Volver a esta</button>
+    </div>`;
+  }).join('');
+
+  const ov = showInfoModal('Versiones anteriores de esta pieza', `
+    <p class="hint" style="margin-top:0;">Así estaba la pieza antes de cada corrección. Volver a una es <b>gratis y al instante</b> (no se regenera nada), y la versión de ahora también queda guardada, así que podés ir y venir.</p>
+    <div class="ver-list">${filas}</div>`);
+
+  ov.querySelectorAll('.ver-restore').forEach((btn) => {
+    btn.addEventListener('click', async () => {
+      const versionId = btn.closest('.ver-row').dataset.id;
+      btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Volviendo…`;
+      try {
+        const r = await api(`/api/assets/${item.asset_id}/restore-version`, {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ versionId }),
+        });
+        // Refrescá lo que se está mirando (cache-bust) sin recargar toda la página.
+        if (previewOverlay) {
+          const imgs = previewOverlay.querySelectorAll('.carousel img, .ig-media img, .ig-story > img');
+          const nuevas = Array.isArray(r.slides) && r.slides.length ? r.slides : [r.image_path];
+          imgs.forEach((el, n) => { if (nuevas[n]) el.src = `${nuevas[n]}?t=${Date.now()}`; });
+        }
+        ov.remove();
+        toast('Listo: la pieza volvió a la versión anterior', 'ok');
+        reloadKeepScroll();
+      } catch (e) {
+        toast(e.message, 'err');
+        btn.disabled = false; btn.innerHTML = `${icon('refresh')} Volver a esta`;
+      }
+    });
   });
 }
 

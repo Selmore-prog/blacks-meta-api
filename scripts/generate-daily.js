@@ -627,14 +627,53 @@ function extractCoupon(text) {
 }
 
 /**
+ * Sube la FOTO LIMPIA que usó una pieza (la escena generada con IA, antes de estamparle
+ * el texto encima) y devuelve su URL permanente.
+ *
+ * Es lo que permite que corregir un titular NO vuelva a generar la foto. Sin esto, cada
+ * corrección de texto pagaba una escena nueva y —mucho peor— devolvía una foto DISTINTA
+ * de la que el dueño había aprobado: el caso que rompió el carrusel de las chombas el
+ * 14-sep-2026. Si la foto limpia ya es una URL (foto real de catálogo) se devuelve tal
+ * cual; si no es ninguna de las dos, null.
+ */
+async function persistScene(cleanImageUrl, tag) {
+  if (!cleanImageUrl) return null;
+  const src = String(cleanImageUrl);
+  if (!src.startsWith('data:')) return src; // ya es una URL (foto real del catálogo)
+  const m = src.match(/^data:([^;]+);base64,(.*)$/s);
+  if (!m) return null;
+  return uploadAsset({
+    buffer: Buffer.from(m[2], 'base64'),
+    filename: `scene-${tag}-${Date.now()}-${Math.floor(Math.random() * 1000)}.jpg`,
+    contentType: m[1] || 'image/jpeg',
+  }).catch((err) => {
+    console.warn(`[generate-daily] No pude guardar la escena limpia (sigo): ${err.message}`);
+    return null;
+  });
+}
+
+/**
  * Renderiza UNA toma del carrusel según su tipo. Es reutilizable: lo usa la generación
  * completa (generateForSlot) y la regeneración de un solo slide (endpoint del panel).
  * `ctx` trae todo lo compartido de la pieza (fotos reales, tema, logos, formato, etc.).
  * Devuelve { url, costUsd, cleanImageUrl } (como renderPostBuffer).
+ *
+ * `shot.sceneUrl` (si está) es la foto ya generada y aprobada de ESE cuadro: se reusa tal
+ * cual y sólo se vuelve a estampar la tipografía. Cambiar un texto sale $0 y la foto es
+ * exactamente la misma. Para pedir una foto NUEVA hay que vaciar `shot.sceneUrl`.
  */
 async function renderCarouselShot(shot, i, ctx) {
   const { refImgs, visualImageUrl, sceneTheme, format, logos, occasion, couponCode, overlayTitle, badgeText, imageBrief, pillar, slotId, product, artMode } = ctx;
   const refUrl = refImgs.length ? (refImgs[shot.photoIndex] || refImgs[i % refImgs.length]) : visualImageUrl;
+
+  /*
+   * ESCENA YA APROBADA: se reusa en vez de generar. Entra como FONDO a sangre, que es
+   * exactamente como entró la primera vez (renderPostBuffer pone la escena IA en
+   * `bgImageUrl` y anula `productImageUrl`); pasarla como producto la metería dentro de
+   * una tarjeta y la pieza cambiaría de diseño al corregir una coma.
+   */
+  const escenaGuardada = shot.sceneUrl && shot.shotType !== 'variantes' ? String(shot.sceneUrl) : null;
+  const reusar = escenaGuardada ? { bgImageUrl: escenaGuardada, productImageUrl: null, useAiProductScene: false } : null;
 
   /*
    * CADA CUADRO ES UNA ESCENA GENERADA A PARTIR DE SU PROPIA FOTO DE TIENDANUBE.
@@ -656,7 +695,7 @@ async function renderCarouselShot(shot, i, ctx) {
    * Cada cuadro cuesta ~US$0,04; el tope diario de gasto sigue cortando por lo sano y,
    * cuando corta, el cuadro sale con la foto real (que es lo que hacía siempre).
    */
-  const generarEscena = artMode !== 'foto' && artMode !== 'tipografica' && pillar !== 'repost' && Boolean(refUrl);
+  const generarEscena = !escenaGuardada && artMode !== 'foto' && artMode !== 'tipografica' && pillar !== 'repost' && Boolean(refUrl);
   // Las demás fotos del producto viajan como referencia de detalle: bajan la chance de que
   // el modelo reinvente costuras o etiquetas, y NO tocan la pose (ver generateProductScene).
   const otrasFotos = refImgs.filter((u) => u !== refUrl).slice(0, 3);
@@ -703,6 +742,7 @@ async function renderCarouselShot(shot, i, ctx) {
       // El cierre es una toma en contexto: la prenda en uso, con aire abajo para el botón.
       shotSpec: { shotType: 'contexto', focus: 'la prenda en uso, en una escena de trabajo real', background: 'contexto' },
       bgTheme: sceneTheme, bgBrief: imageBrief, bgOccasion: occasion,
+      ...(reusar || {}),
     });
   }
 
@@ -719,6 +759,7 @@ async function renderCarouselShot(shot, i, ctx) {
       shotSpec: { shotType: 'hero', focus: 'el producto entero, listo para el bloque de precio', background: 'sutil' },
       bgTheme: sceneTheme, bgBrief: imageBrief, bgOccasion: occasion,
       layoutSeed: Number(slotId) + i * 13,
+      ...(reusar || {}),
     });
   }
 
@@ -746,6 +787,7 @@ async function renderCarouselShot(shot, i, ctx) {
     coverImage: detailRealPhoto,
     shotSpec: { shotType: shot.shotType, focus: shot.focus, background: shot.background },
     bgTheme: sceneTheme, bgBrief: slideBrief, bgOccasion: occasion,
+    ...(reusar || {}),
   });
 }
 
@@ -1751,7 +1793,43 @@ async function generateForSlot(slot, overrides = {}) {
 
       imagePath = urls[0];
       slidesJson = JSON.stringify(urls);
-      slidesMetaJson = JSON.stringify(plan); // receta de cada slide, para regenerar UNO solo
+      /*
+       * La receta de cada cuadro se guarda CON SU FOTO LIMPIA (`sceneUrl`): la escena IA
+       * ya pagada, antes de estamparle la tipografía. Así, corregir el texto de un cuadro
+       * vuelve a dibujarlo sobre la MISMA foto, gratis. Antes sólo se guardaba el plan y
+       * cualquier corrección —aunque fuera una coma— generaba una escena nueva y distinta.
+       */
+      let sinEscena = 0;
+      // Mismas condiciones que renderCarouselShot para intentar generar: si la pieza NO
+      // iba a generar nada (arte "sólo fotos reales", afiche, repost), que salga con foto
+      // real es lo pedido, no una falla que haya que avisar.
+      const seEsperabaEscena = artMode !== 'foto' && artMode !== 'tipografica' && slot.pillar !== 'repost' && refImgs.length > 0;
+      const planConEscena = await Promise.all(plan.map(async (shot, i) => {
+        const clean = slideResults[i] ? slideResults[i].cleanImageUrl : null;
+        // Sólo la escena GENERADA se guarda: si el cuadro salió con la foto cruda de
+        // catálogo, guardarla como "escena aprobada" congelaría justamente el resultado
+        // pobre que se quiere evitar (y la próxima corrección nunca intentaría generar).
+        const esGenerada = clean && String(clean).startsWith('data:');
+        // 'variantes' es un collage de fotos reales a propósito: no cuenta como falla.
+        if (seEsperabaEscena && !esGenerada && shot.shotType !== 'variantes') sinEscena += 1;
+        const sceneUrl = esGenerada ? await persistScene(clean, `slot${slot.id}-c${i + 1}`) : null;
+        return sceneUrl ? { ...shot, sceneUrl } : shot;
+      }));
+      slidesMetaJson = JSON.stringify(planConEscena); // receta de cada slide, para regenerar UNO solo
+
+      /*
+       * CUADROS QUE SE QUEDARON SIN ESCENA. Cuando la generación está en pausa (cuota,
+       * tope de gasto) el cuadro cae a la foto cruda de catálogo y la pieza salía igual,
+       * sin decir nada: el dueño veía un carrusel mitad campaña mitad e-commerce y no
+       * tenía forma de saber por qué. Ahora queda anotado y el panel marca la pieza.
+       */
+      if (sinEscena) {
+        const { imageGenerationBlockedReason } = require('../src/ai');
+        const motivo = imageGenerationBlockedReason();
+        const note = `${sinEscena} de ${plan.length} cuadros salieron con la foto de catálogo en vez de escena generada${motivo ? ` (${motivo})` : ''}. Corregí esos cuadros con "Generar otra foto con IA" cuando se libere.`;
+        console.warn(`[generate-daily] Slot #${slot.id}: ${note}`);
+        copy.qa_notes = copy.qa_notes ? `${copy.qa_notes} · ${note}` : note;
+      }
     }
   } else {
     // Reels: NO se gasta en imagen IA automática. La imagen es sólo la base/portada;
@@ -2294,8 +2372,15 @@ if (require.main === module) {
  * opcionales: `overlay` (texto exacto a poner) e `instructions` (indicación libre que
  * ajusta la imagen). Reconstruye el contexto desde el asset + producto + slot guardados.
  * Devuelve { slides, image_path } actualizado. El panel llama a esto por slide.
+ *
+ * `photo` dice QUÉ pasa con la foto de ese cuadro, y es explícito a propósito:
+ *   'misma'  → se reusa la escena ya aprobada y sólo se vuelve a estampar el texto ($0).
+ *   'nueva'  → se genera otra foto con IA (~US$0,04); la anterior queda en el historial.
+ *   'real'   → se vuelve a la foto de catálogo tal cual, sin IA.
+ * Sin `photo`, se mantiene la foto si hay una escena guardada y se genera si no la hay:
+ * antes CUALQUIER corrección regeneraba, y cambiar un titular devolvía otra foto.
  */
-async function regenerateSlide({ assetId, index, overlay, instructions }) {
+async function regenerateSlide({ assetId, index, overlay, instructions, photo }) {
   const { rows } = await pool.query(
     `SELECT a.*, c.pillar, c.pillar_detail, c.theme_title, c.scheduled_date, c.format AS slot_format
      FROM generated_assets a JOIN content_calendar c ON c.id = a.calendar_id WHERE a.id = $1`, [assetId]
@@ -2324,6 +2409,9 @@ async function regenerateSlide({ assetId, index, overlay, instructions }) {
   const shot = meta[i] ? { ...meta[i] } : defaultShot(i);
 
   shot.photoIndex = Number.isInteger(shot.photoIndex) ? shot.photoIndex : i;
+  // Cómo estaba la toma ANTES de la corrección: se compara contra esto para saber si la
+  // foto guardada sigue sirviendo (ver "qué pasa con la foto de este cuadro", más abajo).
+  const shotOriginal = { ...shot };
 
   const product = asset.product_id
     ? (await pool.query('SELECT * FROM products_cache WHERE id = $1', [asset.product_id])).rows[0]
@@ -2380,6 +2468,34 @@ async function regenerateSlide({ assetId, index, overlay, instructions }) {
   // propósito sí saca el texto.
   if (typeof overlay === 'string') { shot.overlay = overlay.trim() || null; shot.overlayByUser = true; }
 
+  /* ============ QUÉ PASA CON LA FOTO DE ESTE CUADRO ============
+   * El bug que originó todo esto: el dueño editó el titular de un cuadro y le volvió una
+   * FOTO DISTINTA (y encima peor, porque la generación estaba en pausa por cuota y el
+   * cuadro cayó a la foto cruda de catálogo). Ahora la foto sólo cambia si se pide.
+   *
+   * La escena guardada deja de valer si la corrección cambió QUÉ se fotografía: otro tipo
+   * de toma u otra foto de referencia describen una imagen distinta, así que reusar la
+   * vieja mostraría lo de antes con el texto nuevo. En ese caso se regenera y se avisa. */
+  const escenaPrevia = shot.sceneUrl || null;
+  const cambioDeToma = escenaPrevia
+    && (shot.shotType !== shotOriginal.shotType || shot.photoIndex !== shotOriginal.photoIndex);
+  const modoFoto = ['misma', 'nueva', 'real'].includes(photo) ? photo : (escenaPrevia && !cambioDeToma ? 'misma' : 'nueva');
+
+  if (modoFoto === 'misma' && escenaPrevia && cambioDeToma) {
+    // Pidió mantener la foto pero también pidió otra toma: no se puede cumplir con las
+    // dos. Manda lo que escribió (la toma nueva) y se dice por qué.
+    notes.push(`Pediste otra toma para este cuadro, así que la foto no se puede mantener: se generó una nueva.`);
+  }
+  const mantenerFoto = modoFoto === 'misma' && escenaPrevia && !cambioDeToma;
+  if (mantenerFoto) {
+    shot.sceneUrl = escenaPrevia;              // se reusa tal cual: $0 y misma foto
+  } else {
+    delete shot.sceneUrl;                      // se vuelve a decidir la imagen más abajo
+    if (modoFoto === 'misma' && !escenaPrevia) {
+      notes.push('Esta pieza es anterior al guardado de fotos, así que no tenía la foto original guardada: se generó una nueva y desde ahora sí queda guardada para las próximas correcciones.');
+    }
+  }
+
   const format = asset.slot_format === 'story' || asset.format === 'story' ? 'story' : 'feed';
   const logos = await getLogos().catch(() => ({ onLight: null, onDark: null }));
   const occasion = await getCommercialContextForDate(asset.scheduled_date, { daysAhead: 0 }).catch(() => null);
@@ -2394,8 +2510,10 @@ async function regenerateSlide({ assetId, index, overlay, instructions }) {
     badgeText: asset.pillar === 'mayorista' ? 'MAYORISTA' : null,
     imageBrief: [asset.pillar_detail, asset.theme_title].filter(Boolean).join(' — ').slice(0, 300),
     pillar: asset.pillar, slotId: asset.calendar_id, product,
-    // Sin artMode: corregir un cuadro lo vuelve a generar, igual que antes hacía con los
-    // cuadros 'hero' y 'contexto'. La corrección suele ser justamente sobre la imagen.
+    // 'real' es el único modo que apaga la generación: el dueño pidió explícitamente la
+    // foto de catálogo. En 'misma' no hace falta apagar nada — la escena guardada ya
+    // cortocircuita la generación dentro de renderCarouselShot.
+    artMode: modoFoto === 'real' ? 'foto' : null,
   };
 
   meta[i] = shot;
@@ -2414,6 +2532,7 @@ async function regenerateSlide({ assetId, index, overlay, instructions }) {
         sceneUrl: metaRaw.sceneUrl || null, sceneAspectIn: metaRaw.sceneAspect || null,
         artMode: metaRaw.sceneUrl ? null : 'foto',
       });
+      await require('../src/assetVersions').snapshotAsset(assetId, `Corrección del cuadro ${i + 1}`);
       await pool.query(
         `UPDATE generated_assets SET slides = $2, image_path = $3, slides_meta = $4, updated_at = now() WHERE id = $1`,
         [assetId, JSON.stringify(tira.urls), tira.urls[0],
@@ -2436,6 +2555,7 @@ async function regenerateSlide({ assetId, index, overlay, instructions }) {
       artMode: metaRaw.sceneUrl ? null : 'foto',
     });
     const nuevos = tira.urls;
+    await require('../src/assetVersions').snapshotAsset(assetId, `Corrección del cuadro ${i + 1}`);
     await pool.query(
       `UPDATE generated_assets SET slides = $2, image_path = $3, slides_meta = $4, updated_at = now() WHERE id = $1`,
       [assetId, JSON.stringify(nuevos), nuevos[0], JSON.stringify({ ...metaRaw, mode: 'panorama', stripUrl: tira.stripUrl || null, sceneUrl: tira.sceneUrl || metaRaw.sceneUrl || null, shots: meta.slice(0, nuevos.length) })]
@@ -2444,14 +2564,54 @@ async function regenerateSlide({ assetId, index, overlay, instructions }) {
     return { slides: nuevos, image_path: nuevos[0], note: notes.join(' ').trim() };
   }
 
-  const { url } = await renderCarouselShot(shot, i, ctx);
+  const { url, cleanImageUrl } = await renderCarouselShot(shot, i, ctx);
+
+  /* ============ ¿LA IA PUDO GENERAR LA FOTO QUE SE PIDIÓ? ============
+   * Cuando la generación está en pausa (429 de cuota, tope de gasto del día) el render
+   * cae SIN AVISAR a la foto cruda de catálogo. En la generación diaria eso está bien
+   * —mejor una pieza con foto real que ninguna pieza—, pero en una corrección a mano es
+   * otra cosa: el dueño está mirando, pidió una foto y se le pisa la que tenía por una
+   * peor. Fue exactamente lo que pasó el 14-sep-2026 con las chombas.
+   *
+   * Acá, si se pidió generar y no se generó, NO se pisa nada: se corta con el motivo y
+   * el cuadro queda como estaba. */
+  const seGenero = cleanImageUrl && String(cleanImageUrl).startsWith('data:');
+  if (modoFoto === 'nueva' && !seGenero && shot.shotType !== 'variantes') {
+    const { imageGenerationBlockedReason } = require('../src/ai');
+    const motivo = imageGenerationBlockedReason();
+    // El consejo tiene que coincidir con el motivo: decir "probá en unos minutos" cuando
+    // la cuenta se quedó sin crédito manda al dueño a reintentar para siempre.
+    const consejo = /crédito|credito/i.test(motivo || '')
+      ? 'Cargá saldo y volvé a intentar, o elegí "Usar la foto real del producto" si la querés así.'
+      : 'Probá de nuevo en unos minutos, o elegí "Usar la foto real del producto" si la querés así.';
+    const err = new Error(
+      `No pude generar una foto nueva para este cuadro${motivo ? ` (${motivo})` : ''}. `
+      + `Dejé el cuadro como estaba en vez de reemplazarlo por la foto de catálogo. ${consejo}`
+    );
+    err.code = 'SIN_ESCENA';
+    throw err;
+  }
+
+  // La versión que estaba queda guardada ANTES de pisarla: el botón "Volver a la versión
+  // anterior" del panel la recupera con un clic, sin regenerar ni pagar nada.
+  await require('../src/assetVersions').snapshotAsset(assetId, `Corrección del cuadro ${i + 1}`);
+
+  // La foto limpia recién generada se guarda: la próxima corrección de texto la reusa.
+  if (seGenero) {
+    const guardada = await persistScene(cleanImageUrl, `asset${assetId}-c${i + 1}`);
+    if (guardada) shot.sceneUrl = guardada;
+  }
+  meta[i] = shot;
   urls[i] = url;
 
   await pool.query(
     `UPDATE generated_assets SET slides = $2, image_path = $3, slides_meta = $4, updated_at = now() WHERE id = $1`,
     [assetId, JSON.stringify(urls), urls[0], JSON.stringify(meta)]
   );
-  return { slides: urls, image_path: urls[0], note: notes.join(' ').trim() || 'Slide regenerado.' };
+  const queCambio = mantenerFoto
+    ? `Listo: cambió el texto del cuadro ${i + 1} y la foto quedó igual (sin costo).`
+    : `Listo: el cuadro ${i + 1} se rehízo con ${modoFoto === 'real' ? 'la foto real del producto' : 'una foto nueva'}.`;
+  return { slides: urls, image_path: urls[0], note: [queCambio, ...notes].join(' ').trim() };
 }
 
 /* ============ COLORES REALES DE UN MODELO ============ */
@@ -2695,6 +2855,8 @@ async function correctPiece({ assetId, instruction, artMode: artModeIn, artBrief
   };
   // La ortografía de marca también se propaga al caption de IG (texto secundario).
   const newCaption = fixSpelling(asset.caption || '');
+  // Estado anterior al historial: "Volver a la versión anterior" lo recupera sin costo.
+  await require('../src/assetVersions').snapshotAsset(assetId, artMode ? 'Cambio de imagen' : 'Corrección de textos');
   await pool.query(
     `UPDATE generated_assets SET image_path = $2, caption = $3, slides_meta = $4, est_cost_usd = COALESCE(est_cost_usd, 0) + $5, updated_at = now() WHERE id = $1`,
     [assetId, render.url, newCaption, JSON.stringify(newMeta), render.costUsd || 0]

@@ -36,7 +36,7 @@ module.exports = {
 
   groq: {
     apiKey: required('GROQ_API_KEY'),
-    model: required('GROQ_MODEL', 'llama-3.3-70b-versatile'),
+    model: required('GROQ_MODEL', 'openai/gpt-oss-120b'),
   },
 
   gemini: {
@@ -168,6 +168,15 @@ module.exports = {
       white: '#FFFFFF',
       darkOrange: '#C1440C',
     },
+    /*
+     * ¿VA EL LOGO ESTAMPADO EN LAS PIEZAS? No (pedido del dueño, 14-sep-2026):
+     * "dejar de poner el logo todo el tiempo en las fotos… la página ya se trata de
+     * Blacks Indumentaria, lo sacaría". El logo arriba a la izquierda competía con la
+     * foto, y la barra con el dominio abajo ya dice de quién es la pieza — una sola
+     * marca por imagen, que además es el criterio del propio archivo de plantillas.
+     * Se vuelve a encender con BRAND_LOGO_ON_PIECES=1 sin tocar código.
+     */
+    logoOnPieces: bool('BRAND_LOGO_ON_PIECES', false),
     knownBrands: ['Pampero', 'Ombu', 'Ombú', 'Grafa 70', 'Grafa70', 'Gurre', 'Rueda'],
   },
 };

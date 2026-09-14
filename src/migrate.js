@@ -166,6 +166,22 @@ CREATE TABLE IF NOT EXISTS qa_lessons (
   UNIQUE (source, scope, lesson)
 );
 
+-- HISTORIAL DE IMÁGENES DE UNA PIEZA (sep-2026). Cada corrección de un slide o de una
+-- pieza simple guarda acá el estado ANTERIOR (las URLs y la receta) antes de pisarlo.
+-- Existe por un caso real: el dueño quiso cambiar SÓLO el texto de un cuadro, la escena
+-- se volvió a generar y la foto que le gustaba desapareció del panel. Los archivos
+-- viejos siguen vivos en Supabase Storage (cada render sube un nombre nuevo), así que
+-- alcanza con guardar las URLs: volver atrás es gratis y no regenera nada.
+CREATE TABLE IF NOT EXISTS asset_versions (
+  id              SERIAL PRIMARY KEY,
+  asset_id        INTEGER NOT NULL REFERENCES generated_assets(id) ON DELETE CASCADE,
+  image_path      TEXT,                           -- portada de esa versión
+  slides          JSONB,                          -- URLs de los cuadros (null si no es carrusel)
+  slides_meta     JSONB,                          -- receta de esa versión (para volver a corregir desde ahí)
+  label           TEXT,                           -- qué la reemplazó: 'Corrección del cuadro 3'
+  created_at      TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
 -- Estudio creativo: imágenes/videos generados aparte de las piezas del calendario,
 -- con uno o varios productos (combo). path = URL pública en Supabase Storage.
 CREATE TABLE IF NOT EXISTS studio_assets (
@@ -294,6 +310,7 @@ CREATE INDEX IF NOT EXISTS idx_calendar_date ON content_calendar (scheduled_date
 CREATE INDEX IF NOT EXISTS idx_publish_queue_status ON publish_queue (status, next_attempt_at);
 CREATE INDEX IF NOT EXISTS idx_commercial_dates_date ON commercial_dates (event_date);
 CREATE INDEX IF NOT EXISTS idx_assets_calendar ON generated_assets (calendar_id);
+CREATE INDEX IF NOT EXISTS idx_asset_versions_asset ON asset_versions (asset_id, id DESC);
 CREATE INDEX IF NOT EXISTS idx_insights_meta_post_id ON post_insights (meta_post_id);
 CREATE INDEX IF NOT EXISTS idx_products_stock ON products_cache (stock);
 CREATE INDEX IF NOT EXISTS idx_ad_set_members_in_set ON ad_set_members (in_set, score DESC);
