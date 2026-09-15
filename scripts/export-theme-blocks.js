@@ -113,6 +113,10 @@ ${JS}
         }
         // Videos y acordeones del HTML recién inyectado.
         if (window.blacksBlocksInit) window.blacksBlocksInit(document);
+        // Y las estrellas de reseñas, si el bloque trajo fichas de producto: la
+        // app de reseñas no se entera sola de lo que aparece después de su
+        // primer barrido (ver snipplets/nuby-stars-refresh.tpl en el theme).
+        if (window.blacksRefrescarEstrellas) window.blacksRefrescarEstrellas();
     }
 
     function deCache() {

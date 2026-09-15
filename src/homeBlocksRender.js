@@ -397,6 +397,15 @@ function videoBloque(b) {
     + '</div>';
 }
 
+function marcaReviews(p) {
+  const id = Number(p && p.id);
+  if (!Number.isInteger(id) || id <= 0) return { card: '', nombre: '' };
+  return {
+    card: ` data-store="product-item-${id}"`,
+    nombre: ` data-store="product-item-name-${id}"`,
+  };
+}
+
 function fichaProducto(p, { mostrarPrecio, grande = false }) {
   const precio = mostrarPrecio && p.price != null
     ? '<div class="hb-p-precio">'
@@ -419,9 +428,19 @@ function fichaProducto(p, { mostrarPrecio, grande = false }) {
     ? imagen({ src: p.image_hover, alt: '', ratio: '1-1', sizes, clase: 'bf-foto2' })
     : '';
 
-  return `<a class="hb-p${grande ? ' hb-p--grande' : ''}" href="${esc(p.url)}">`
+  /* MARCAS PARA LAS ESTRELLAS DE RESEÑAS (app Nuby).
+     La app busca `[data-store^="product-item-"]`, saca el id con
+     `^product-item-(\d+)$` y después mete las estrellas después del
+     `[data-store="product-item-name-<id>"]`. Son los mismos dos atributos que
+     llevan los rieles y las ofertas flash del theme; el detalle de por qué
+     hacen falta las dos marcas está en snipplets/nuby-stars-refresh.tpl.
+     Sin id no se escribe nada: un id inventado la haría pedir estadísticas de
+     un producto que no existe. */
+  const marca = marcaReviews(p);
+
+  return `<a class="hb-p${grande ? ' hb-p--grande' : ''}" href="${esc(p.url)}"${marca.card}>`
     + `<div class="hb-p-foto">${foto}${foto2}${badge}</div>`
-    + `<div class="hb-p-body"><h3 class="hb-p-nombre">${esc(p.name)}</h3>${precio}</div>`
+    + `<div class="hb-p-body"><h3 class="hb-p-nombre"${marca.nombre}>${esc(p.name)}</h3>${precio}</div>`
     + '</a>';
 }
 
@@ -435,9 +454,9 @@ function productos(b, ctx) {
   if (layout === 'destacado' && lista.length) {
     const [primero, ...resto] = lista;
     const heroe = d.image
-      ? `<a class="hb-p hb-p--grande" href="${esc(primero.url)}">`
+      ? `<a class="hb-p hb-p--grande" href="${esc(primero.url)}"${marcaReviews(primero).card}>`
         + `<div class="hb-p-foto">${imagen({ src: d.image, srcMobile: d.image_mobile, alt: d.image_alt || primero.name, ratio: '4-3', sizes: '(min-width: 768px) 55vw, 100vw' })}</div>`
-        + `<div class="hb-p-body"><h3 class="hb-p-nombre">${esc(primero.name)}</h3>${mostrarPrecio && primero.price != null ? `<div class="hb-p-precio"><span class="hb-p-final">${money(primero.promo_price || primero.price)}</span></div>` : ''}</div>`
+        + `<div class="hb-p-body"><h3 class="hb-p-nombre"${marcaReviews(primero).nombre}>${esc(primero.name)}</h3>${mostrarPrecio && primero.price != null ? `<div class="hb-p-precio"><span class="hb-p-final">${money(primero.promo_price || primero.price)}</span></div>` : ''}</div>`
         + '</a>'
       : fichaProducto(primero, { mostrarPrecio, grande: true });
     cuerpo = `<div class="hb-prods hb-prods--destacado">${heroe}`
