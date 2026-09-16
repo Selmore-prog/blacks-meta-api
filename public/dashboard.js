@@ -1197,7 +1197,7 @@ function openPreview(item) {
     const box = overlay.querySelector('.preview-box');
     box.insertAdjacentHTML('beforeend',
       `<div class="slide-fix-bar">
-        <button class="btn-ghost btn-sm piece-fix-btn">${icon('wand')} Corregir la historia</button>
+        <button class="btn-ghost btn-sm piece-fix-btn">${icon('wand')} Ajustar imagen</button>
         <button class="btn-ghost btn-sm ver-hist-btn">${icon('refresh')} Volver atrás</button>
       </div>`);
     box.querySelector('.piece-fix-btn').addEventListener('click', (e) => {
@@ -1235,7 +1235,7 @@ function openPieceCorrect(item, previewOverlay) {
       <button class="btn-discard" id="pc-cancel">Cancelar</button>
       <button class="btn-primary" id="pc-go">${icon('wand')} Corregir</button>
     </div>`;
-  const ov = showInfoModal('Corregir la historia', body);
+  const ov = showInfoModal('Ajustar pieza', body);
   ov.querySelector('#pc-cancel').addEventListener('click', () => ov.remove());
   const pcArt = ov.querySelector('#pc-art');
   const pcHint = ov.querySelector('#pc-art-hint');
@@ -1578,14 +1578,14 @@ function renderCard(item) {
         <button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Con otro tema</button>${planBtn}`;
   } else if (status === 'draft') {
     actions = `<button class="btn-approve" data-act="approve" data-id="${aid}">${icon('check')} Aprobar</button>
-      <button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Editar</button>
+      <button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Abrir editor</button>
       ${regenBtn}${genVideoBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${downloadBtn}
       <button class="btn-discard btn-sm" data-act="discard" data-id="${aid}">${icon('trash')} Descartar</button>${planBtn}`;
   } else if (status === 'approved') {
     actions = (isSemi
       ? `<button class="btn-manual" data-act="publish" data-id="${aid}">${icon('info')} Cómo publicarla</button>`
       : `<button class="btn-publish" data-act="publish" data-id="${aid}">${icon('send')} Publicar ahora</button>`) +
-      `<button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Editar</button>${regenBtn}${genVideoBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${downloadBtn}${planBtn}`;
+      `<button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Abrir editor</button>${regenBtn}${genVideoBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${downloadBtn}${planBtn}`;
   } else if (status === 'published') {
     actions = `<span class="badge status-published" ${item.meta_post_id ? `title="ID de Instagram: ${esc(item.meta_post_id)}"` : ''}>${icon('check')} Publicada</span>
       ${downloadBtn}
@@ -3405,6 +3405,8 @@ function studioParams() {
     productIds: studioSel.map((p) => p.id),
     theme: document.getElementById('st-theme').value.trim() || undefined,
     format: document.getElementById('st-format').value,
+    goal: document.getElementById('st-goal').value,
+    style: document.getElementById('st-style').value,
   };
 }
 
@@ -3490,38 +3492,68 @@ function studioUpload() {
   input.click();
 }
 
+let studioRows = [];
+let studioFilterKind = 'all';
+
+function studioBriefFromPrompt(prompt, fallback = '') {
+  const text = String(prompt || '');
+  const match = text.match(/CONTEXTO\/IDEA DE LA ESCENA:\s*([^\n]+)/i);
+  return match ? match[1].replace(/\.$/, '').trim() : fallback;
+}
+
+function renderStudioGallery() {
+  const g = document.getElementById('st-gallery');
+  if (!g) return;
+  const rows = studioFilterKind === 'all' ? studioRows : studioRows.filter((r) => r.kind === studioFilterKind);
+  if (!rows.length) {
+    g.innerHTML = `<p class="empty">${studioRows.length ? 'No hay piezas de este tipo.' : 'Todavía no hay nada en la biblioteca.'}</p>`;
+    return;
+  }
+  g.innerHTML = `<div class="st-grid">${rows.map((r) => `
+    <div class="st-item">
+      ${r.kind === 'video'
+        ? `<video src="${esc(r.path)}" muted loop playsinline onmouseover="this.play()" onmouseout="this.pause()"></video><span class="st-kind">${icon('play')}</span>`
+        : `<img src="${esc(r.path)}" loading="lazy"/>`}
+      <div class="st-meta">
+        <div class="st-name" title="${esc(r.product_names || '')}">${esc((r.product_names || 'Sin producto').slice(0, 40))}</div>
+        <div class="st-actions">
+          <button class="btn-ghost btn-sm" data-dl="${esc(r.path)}" data-k="${r.kind}" title="Descargar">${icon('download')}</button>
+          ${r.prompt ? `<button class="btn-ghost btn-sm" data-pr="${r.id}" title="Ver prompt">${icon('eye')}</button>` : ''}
+          <button class="btn-ghost btn-sm st-reuse" data-reuse="${r.id}" title="Usar como punto de partida">${icon('refresh')} Reusar</button>
+          <button class="btn-ghost btn-sm" data-del="${r.id}" title="Borrar">${icon('trash')}</button>
+        </div>
+      </div>
+    </div>`).join('')}</div>`;
+  g.querySelectorAll('[data-dl]').forEach((b) => b.addEventListener('click', () =>
+    saveFile(b.dataset.dl, `blacks-estudio-${Date.now()}.${b.dataset.k === 'video' ? 'mp4' : 'jpg'}`)));
+  g.querySelectorAll('[data-pr]').forEach((b) => b.addEventListener('click', () => {
+    const r = studioRows.find((x) => String(x.id) === String(b.dataset.pr));
+    showInfoModal('Prompt usado', `<textarea class="input" readonly style="min-height:240px">${esc(r.prompt)}</textarea>`);
+  }));
+  g.querySelectorAll('[data-reuse]').forEach((b) => b.addEventListener('click', () => {
+    const r = studioRows.find((x) => String(x.id) === String(b.dataset.reuse));
+    const idea = studioBriefFromPrompt(r && r.prompt, r && r.product_names ? `Nueva versión de ${r.product_names}` : '');
+    document.getElementById('st-theme').value = idea;
+    const format = (r && r.format) === 'feed' ? 'feed' : 'story';
+    document.getElementById('st-format').value = format;
+    document.querySelectorAll('#st-format-picker [data-format]').forEach((x) => x.classList.toggle('active', x.dataset.format === format));
+    document.querySelector('.studio-brief').scrollIntoView({ behavior: 'smooth', block: 'start' });
+    toast('Brief recuperado. Elegí el producto y ajustalo antes de generar.', 'ok');
+  }));
+  g.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', async () => {
+    const ok = await confirmModal('Borrar de la biblioteca', 'Se borra el registro de la biblioteca (el archivo puede seguir en el storage).', 'Borrar');
+    if (!ok) return;
+    try { await api(`/api/studio/assets/${b.dataset.del}`, { method: 'DELETE' }); loadStudioGallery(); }
+    catch (e) { toast(e.message, 'err'); }
+  }));
+}
+
 async function loadStudioGallery() {
   const g = document.getElementById('st-gallery');
   if (!g) return;
   try {
-    const rows = await api('/api/studio/assets');
-    if (!rows.length) { g.innerHTML = '<p class="empty">Todavía no hay nada en la biblioteca.</p>'; return; }
-    g.innerHTML = `<div class="st-grid">${rows.map((r) => `
-      <div class="st-item">
-        ${r.kind === 'video'
-          ? `<video src="${esc(r.path)}" muted loop playsinline onmouseover="this.play()" onmouseout="this.pause()"></video><span class="st-kind">${icon('play')}</span>`
-          : `<img src="${esc(r.path)}" loading="lazy"/>`}
-        <div class="st-meta">
-          <div class="st-name" title="${esc(r.product_names || '')}">${esc((r.product_names || 'Sin producto').slice(0, 40))}</div>
-          <div class="st-actions">
-            <button class="btn-ghost btn-sm" data-dl="${esc(r.path)}" data-k="${r.kind}" title="Descargar">${icon('download')}</button>
-            ${r.prompt ? `<button class="btn-ghost btn-sm" data-pr="${r.id}" title="Ver prompt">${icon('eye')}</button>` : ''}
-            <button class="btn-ghost btn-sm" data-del="${r.id}" title="Borrar">${icon('trash')}</button>
-          </div>
-        </div>
-      </div>`).join('')}</div>`;
-    g.querySelectorAll('[data-dl]').forEach((b) => b.addEventListener('click', () =>
-      saveFile(b.dataset.dl, `blacks-estudio-${Date.now()}.${b.dataset.k === 'video' ? 'mp4' : 'jpg'}`)));
-    g.querySelectorAll('[data-pr]').forEach((b) => b.addEventListener('click', () => {
-      const r = rows.find((x) => String(x.id) === String(b.dataset.pr));
-      showInfoModal('Prompt usado', `<textarea class="input" readonly style="min-height:240px">${esc(r.prompt)}</textarea>`);
-    }));
-    g.querySelectorAll('[data-del]').forEach((b) => b.addEventListener('click', async () => {
-      const ok = await confirmModal('Borrar de la biblioteca', 'Se borra el registro de la biblioteca (el archivo puede seguir en el storage).', 'Borrar');
-      if (!ok) return;
-      try { await api(`/api/studio/assets/${b.dataset.del}`, { method: 'DELETE' }); loadStudioGallery(); }
-      catch (e) { toast(e.message, 'err'); }
-    }));
+    studioRows = await api('/api/studio/assets');
+    renderStudioGallery();
   } catch (e) { g.innerHTML = `<p class="empty">Error: ${esc(e.message)}</p>`; }
 }
 
@@ -3542,6 +3574,19 @@ function loadStudio() {
       openVideoGenerate(null, { name: studioSel.map((p) => p.name).join(' + ') });
     });
     document.getElementById('st-upload').addEventListener('click', studioUpload);
+    document.querySelectorAll('#st-prompt-chips [data-prompt]').forEach((b) => b.addEventListener('click', () => {
+      document.getElementById('st-theme').value = b.dataset.prompt;
+      document.getElementById('st-theme').focus();
+    }));
+    document.querySelectorAll('#st-format-picker [data-format]').forEach((b) => b.addEventListener('click', () => {
+      document.getElementById('st-format').value = b.dataset.format;
+      document.querySelectorAll('#st-format-picker [data-format]').forEach((x) => x.classList.toggle('active', x === b));
+    }));
+    document.querySelectorAll('#st-filter [data-kind]').forEach((b) => b.addEventListener('click', () => {
+      studioFilterKind = b.dataset.kind;
+      document.querySelectorAll('#st-filter [data-kind]').forEach((x) => x.classList.toggle('active', x === b));
+      renderStudioGallery();
+    }));
     renderStudioSel();
   }
   loadStudioGallery();
@@ -3549,19 +3594,59 @@ function loadStudio() {
 
 /* ============ edición ============ */
 let editingId = null;
+let editingItem = null;
+
+function editContinuityHtml(item) {
+  const ordered = calItems.slice().sort((a, b) => String(a.scheduled_date).localeCompare(String(b.scheduled_date)) || Number(a.id) - Number(b.id));
+  const idx = ordered.findIndex((x) => String(x.id) === String(item.id));
+  const prev = ordered.slice(0, Math.max(0, idx)).reverse().find((x) => x.caption);
+  const next = ordered.slice(idx + 1).find((x) => x.pillar_detail || x.theme_title || x.caption);
+  const row = (label, value) => value ? `<div class="continuity-item"><b>${label}</b><span>${esc(value)}</span></div>` : '';
+  return `<h4>${icon('route')} Continuidad editorial</h4>
+    ${row('Viene de', prev && prev.caption)}
+    ${row('Esta pieza', item.pillar_detail || item.theme_title || item.caption)}
+    ${row('Prepara', next && (next.pillar_detail || next.theme_title || next.caption))}
+    <p class="hint" style="padding:0;margin:8px 0 0;font-size:10.5px;">Las alternativas usan este contexto y evitan los arranques recientes.</p>`;
+}
+
+function updateEditCount() {
+  const text = document.getElementById('edit-caption').value || '';
+  const el = document.getElementById('edit-caption-count');
+  if (el) el.textContent = `${text.length} caracteres`;
+}
+
 function openEdit(assetId) {
   editingId = assetId;
   const it = calItems.find((x) => String(x.asset_id) === String(assetId));
+  editingItem = it || null;
   document.getElementById('edit-caption').value = (it && it.caption) || '';
   document.getElementById('edit-hashtags').value = (it && it.hashtags) || '';
   document.getElementById('edit-cta').value = (it && it.cta) || '';
+  document.getElementById('edit-angle').value = 'mix';
+  document.getElementById('edit-copy-note').value = '';
+  document.getElementById('edit-variants').innerHTML = '';
+  document.getElementById('edit-piece-preview').innerHTML = it ? renderPreview(it) : '';
+  document.getElementById('edit-piece-meta').innerHTML = it
+    ? `<span class="badge type">${typeLabel(it)}</span><span class="badge pillar">${esc(it.pillar)}</span>${it.objective ? `<span class="badge objective">${esc(it.objective)}</span>` : ''}` : '';
+  document.getElementById('edit-continuity').innerHTML = it ? editContinuityHtml(it) : '';
+  const visualBtn = document.getElementById('edit-visual-btn');
+  const regenBtn = document.getElementById('edit-regen-btn');
+  const historyBtn = document.getElementById('edit-history-btn');
+  visualBtn.onclick = () => { const current = editingItem; closeEdit(); if (current) openPieceCorrect(current, null); };
+  regenBtn.onclick = () => { const current = editingItem; closeEdit(); if (current) openRegen(current); };
+  historyBtn.onclick = () => { const current = editingItem; closeEdit(); if (current) openVersionHistory(current, null); };
+  historyBtn.disabled = !it || !it.image_path;
+  updateEditCount();
+  document.getElementById('edit-caption').oninput = updateEditCount;
   document.getElementById('edit-modal').classList.remove('hidden');
+  hydrateIcons(document.getElementById('edit-modal'));
 }
 function closeEdit() {
   document.getElementById('edit-modal').classList.add('hidden');
   const box = document.getElementById('edit-variants');
   if (box) box.innerHTML = '';
   editingId = null;
+  editingItem = null;
 }
 
 /**
@@ -3576,7 +3661,13 @@ async function loadCopyVariants(btn) {
   btn.innerHTML = `${icon('refresh', 'spin')} Escribiendo 3 versiones…`;
   box.innerHTML = '';
   try {
-    const d = await api(`/api/assets/${editingId}/copy-variants`, { method: 'POST' });
+    const d = await api(`/api/assets/${editingId}/copy-variants`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        direction: document.getElementById('edit-angle').value,
+        instruction: document.getElementById('edit-copy-note').value.trim(),
+      }),
+    });
     box.innerHTML = `<label>Otras versiones — tocá una para usarla</label>` + d.variants.map((v, i) => `
       <div class="cv-card" data-i="${i}">
         <div class="cv-head"><b>${esc(v.angle || `Versión ${i + 1}`)}</b>
@@ -3590,6 +3681,7 @@ async function loadCopyVariants(btn) {
       document.getElementById('edit-caption').value = v.caption;
       if (v.hashtags) document.getElementById('edit-hashtags').value = v.hashtags;
       if (v.cta) document.getElementById('edit-cta').value = v.cta;
+      updateEditCount();
       box.querySelectorAll('.cv-card').forEach((x) => x.classList.toggle('sel', x === c));
       toast('Cargada en el formulario — dale a Guardar si te convence', 'ok');
     }));

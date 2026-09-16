@@ -2195,10 +2195,11 @@ app.post('/api/assets/:assetId/copy-variants', wrap(async (req, res) => {
   const { generateCopyVariants } = require('./ai');
   const { companyFactsContext, getCompanyFacts } = require('./companyInfo');
   const { lessonsContext } = require('./learning');
+  const { recentOpeners } = require('./artDirection');
   const id = intParam(req.params.assetId);
   if (!id) return res.status(400).json({ error: 'assetId inválido' });
   const { rows } = await pool.query(
-    `SELECT a.caption, c.pillar, c.objective, c.format, c.post_type,
+    `SELECT a.caption, c.pillar, c.objective, c.format, c.post_type, c.scheduled_date,
             p.name, p.description, p.price, p.promo_price
      FROM generated_assets a JOIN content_calendar c ON c.id = a.calendar_id
      LEFT JOIN products_cache p ON p.id = a.product_id WHERE a.id = $1`,
@@ -2206,9 +2207,20 @@ app.post('/api/assets/:assetId/copy-variants', wrap(async (req, res) => {
   );
   const r = rows[0];
   if (!r) return res.status(404).json({ error: 'No existe el asset' });
-  const [companyFacts, lessons] = await Promise.all([
+  const direction = ['mix', 'beneficio', 'situacion', 'objecion', 'prueba', 'comunidad', 'b2b'].includes(req.body?.direction)
+    ? req.body.direction : 'mix';
+  const instruction = typeof req.body?.instruction === 'string' ? req.body.instruction.trim().slice(0, 240) : '';
+  const [companyFacts, lessons, openers, recentRows] = await Promise.all([
     getCompanyFacts().then(companyFactsContext).catch(() => ''),
     lessonsContext({ pillar: r.pillar }).catch(() => ''),
+    recentOpeners(30),
+    pool.query(
+      `SELECT c.scheduled_date, c.pillar, c.pillar_detail, a.caption
+         FROM generated_assets a JOIN content_calendar c ON c.id = a.calendar_id
+        WHERE a.id <> $1 AND a.status <> 'discarded' AND a.caption IS NOT NULL
+          AND c.scheduled_date <= $2
+        ORDER BY c.scheduled_date DESC, a.id DESC LIMIT 10`, [id, r.scheduled_date]
+    ).then((x) => x.rows).catch(() => []),
   ]);
   const variants = await generateCopyVariants({
     caption: r.caption,
@@ -2219,6 +2231,10 @@ app.post('/api/assets/:assetId/copy-variants', wrap(async (req, res) => {
     postType: r.post_type || 'feed',
     companyFacts,
     lessons,
+    direction,
+    instruction,
+    usedOpeners: openers,
+    recentPieces: recentRows.map((x) => `${String(x.scheduled_date).slice(0, 10)} · ${x.pillar}: ${String(x.caption || x.pillar_detail || '').slice(0, 220)}`),
   });
   if (!variants.length) return res.status(502).json({ error: 'No pude generar variantes ahora. Probá de nuevo en un minuto.' });
   res.json({ variants });
@@ -2534,8 +2550,18 @@ app.post('/api/studio/image', wrap(async (req, res) => {
   const products = await studioProducts(body.productIds);
   if (!products.length) return res.status(400).json({ error: 'Elegí al menos un producto.' });
   const format = body.format === 'story' ? 'story' : 'feed';
+  const goal = ['venta', 'catalogo', 'marca', 'educativo', 'mayorista'].includes(body.goal) ? body.goal : 'venta';
+  const style = ['auto', 'hero', 'uso', 'tecnico', 'bodegon', 'industrial'].includes(body.style) ? body.style : 'auto';
+  // Memoria visual del Estudio: alcanza con conservar las líneas que describen la
+  // escena/dirección. Mandar los prompts enteros sería caro y no agrega información.
+  const recentScenes = await pool.query(
+    `SELECT prompt FROM studio_assets WHERE kind = 'image' AND prompt IS NOT NULL ORDER BY id DESC LIMIT 6`
+  ).then(({ rows }) => rows.flatMap((r) => {
+    const lines = String(r.prompt || '').split('\n').map((x) => x.trim());
+    return lines.filter((x) => /^(CONTEXTO\/IDEA|LENGUAJE VISUAL|DIRECCIÓN DE VARIACIÓN)/i.test(x)).slice(0, 2);
+  }).slice(0, 8)).catch(() => []);
 
-  const img = await generateStudioScene({ products, theme: textOrNull(body.theme), format });
+  const img = await generateStudioScene({ products, theme: textOrNull(body.theme), format, goal, style, recentScenes });
   if (!img) return res.status(502).json({ error: 'No se pudo generar la imagen (cuota de IA agotada o Gemini no disponible). Probá de nuevo en unos minutos.' });
 
   const url = await uploadAsset({
@@ -2556,11 +2582,13 @@ app.post('/api/studio/video-prompt', wrap(async (req, res) => {
   const body = req.body || {};
   const products = await studioProducts(body.productIds);
   if (!products.length) return res.status(400).json({ error: 'Elegí al menos un producto.' });
+  const goalPillar = { venta: 'producto', catalogo: 'producto', marca: 'marca', educativo: 'educativo', mayorista: 'mayorista' };
   res.json(buildStudioVideoPromptSet({
     products,
     theme: textOrNull(body.theme),
     format: body.format === 'feed' ? 'feed' : 'story',
     duration: Math.min(Math.max(Number(body.duration) || 8, 5), 15),
+    pillar: goalPillar[body.goal] || 'producto',
   }));
 }));
 

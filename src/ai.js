@@ -1686,10 +1686,49 @@ const VARIANT_ANGLES = [
   'DIRECTO Y CORTO: al grano, la frase más simple posible que igual dice algo específico. El más corto de los tres.',
 ];
 
-async function generateCopyVariants({ caption = '', product = null, pillar = 'producto', objective = 'venta', format = 'feed', postType = 'feed', companyFacts = '', lessons = '', imageContext = '' } = {}) {
+const VARIANT_DIRECTIONS = {
+  beneficio: [
+    'BENEFICIO FUNCIONAL: un problema concreto del trabajo y cómo esta pieza ayuda, sin promesas no verificadas.',
+    'BENEFICIO COTIDIANO: la diferencia que se siente durante una jornada real, con lenguaje simple.',
+    'BENEFICIO EN UNA FRASE: versión corta, específica y sin adjetivos vacíos.',
+  ],
+  situacion: [
+    'ANTES DE EMPEZAR: abrí con una escena reconocible al preparar la jornada.',
+    'EN PLENO TRABAJO: una situación concreta donde el producto o tema cobra sentido.',
+    'FIN DE JORNADA: mostrale al lector el resultado o alivio, sin inventar prestaciones.',
+  ],
+  objecion: [
+    'DUDA REAL: empezá por una pregunta o fricción que el cliente tendría antes de elegir.',
+    'ELECCIÓN PRÁCTICA: explicá qué mirar para decidir, usando sólo datos respaldados.',
+    'RESPUESTA DIRECTA: resolvé la objeción con el caption más corto posible.',
+  ],
+  prueba: [
+    'DETALLE VISIBLE: apoyate en un material, terminación o rasgo que figure en la ficha y pueda verse.',
+    'DATO CONCRETO: usá un precio, condición o característica real como gancho, si existe.',
+    'MICRODEMOSTRACIÓN: narrá qué detalle mirar en la imagen sin exagerar ni inventar.',
+  ],
+  comunidad: [
+    'PREGUNTA DE OFICIO: una pregunta fácil de contestar desde la experiencia de trabajo.',
+    'ELECCIÓN ENTRE DOS: planteá dos situaciones u opciones concretas para conversar.',
+    'HISTORIA COMPARTIDA: una observación reconocible que invite a contar una experiencia.',
+  ],
+  b2b: [
+    'PROBLEMA DEL EQUIPO: orden, reposición, presentación o compra para varias personas.',
+    'DECISIÓN DEL RESPONSABLE: hablale a quien compra para una empresa, sin tono minorista.',
+    'PRÓXIMO PASO: versión ejecutiva, concreta y orientada a pedir presupuesto.',
+  ],
+};
+
+async function generateCopyVariants({ caption = '', product = null, pillar = 'producto', objective = 'venta', format = 'feed', postType = 'feed', companyFacts = '', lessons = '', imageContext = '', direction = 'mix', instruction = '', recentPieces = [], usedOpeners = [] } = {}) {
   const productBlock = product
     ? `PRODUCTO DE LA PIEZA: ${product.name}${product.description ? `\nFicha real (única fuente de características): ${String(product.description).replace(/\s+/g, ' ').slice(0, 600)}` : ''}${productPriceText(product) ? `\n${productPriceText(product)}` : ''}`
     : 'La pieza NO muestra un producto puntual: es institucional/de marca.';
+
+  const angles = VARIANT_DIRECTIONS[direction] || VARIANT_ANGLES;
+  const recentBlock = recentPieces.length
+    ? `\nCONTINUIDAD EDITORIAL — ESTO SALIÓ RECIENTEMENTE:\n${recentPieces.slice(0, 8).map((x) => `- ${x}`).join('\n')}\nLa nueva pieza tiene que sentirse como el capítulo siguiente de la misma marca, pero aportar una idea nueva. No repitas el tema, la estructura ni la conclusión de estos captions.` : '';
+  const openerBlock = usedOpeners.length
+    ? `\nARRANQUES RECIENTES PROHIBIDOS: ${usedOpeners.slice(0, 14).map((x) => `"${x}"`).join(', ')}. No uses esos comienzos ni variaciones mínimas.` : '';
 
   const prompt = `Tenés una pieza de Instagram YA DISEÑADA (la imagen no se toca) y su caption actual. Escribí TRES captions alternativos para esa MISMA imagen, cada uno con un ángulo distinto.
 
@@ -1702,11 +1741,13 @@ CONTEXTO: pilar ${pillar} · objetivo ${objective} · ${format === 'story' ? 'HI
 ${imageContext ? `LO QUE MUESTRA LA IMAGEN (no contradigas esto): ${imageContext}` : ''}
 ${companyFacts || ''}
 ${lessons || ''}
+${recentBlock}${openerBlock}
+${instruction ? `\nPEDIDO DEL EDITOR (obligatorio, salvo que contradiga un dato real): ${instruction}` : ''}
 
 LOS TRES ÁNGULOS (uno por variante, en este orden):
-1. ${VARIANT_ANGLES[0]}
-2. ${VARIANT_ANGLES[1]}
-3. ${VARIANT_ANGLES[2]}
+1. ${angles[0]}
+2. ${angles[1]}
+3. ${angles[2]}
 
 REGLAS:
 - Los tres tienen que ser REALMENTE distintos entre sí y distintos del actual: si dos dicen lo mismo con otras palabras, está mal.
@@ -2731,7 +2772,7 @@ ${noTextNoLogoRule(strict)}
  * forma creíble. Devuelve { buffer, mimeType, costUsd } o null (best-effort).
  * products: [{ name, imageUrl }]
  */
-async function generateStudioScene({ products = [], theme, format = 'feed' } = {}) {
+async function generateStudioScene({ products = [], theme, format = 'feed', goal = 'venta', style = 'auto', recentScenes = [] } = {}) {
   if (!hasGemini() || isImageQuotaCoolingDown() || !products.length) return null;
 
   const refs = [];
@@ -2752,6 +2793,24 @@ async function generateStudioScene({ products = [], theme, format = 'feed' } = {
   const brandStyle = await brandStyleForImages();
   const scene = sceneVariation(); // estudio: escena distinta en cada generación
   const names = products.map((p, i) => `${i + 1}. ${p.name}`).join('\n');
+  const goalGuide = {
+    venta: 'OBJETIVO COMERCIAL: detener el scroll y hacer que el producto resulte deseable y fácil de reconocer. Dejá una zona limpia para un CTA posterior.',
+    catalogo: 'OBJETIVO CATÁLOGO: mostrar con máxima claridad silueta, color, material y terminaciones. La escena acompaña; nunca oculta información del producto.',
+    marca: 'OBJETIVO MARCA: construir una atmósfera BLACKS sobria, argentina, industrial y premium. La imagen puede ser más narrativa, pero el producto sigue reconocible.',
+    educativo: 'OBJETIVO EDUCATIVO: componer una imagen que ayude a explicar un uso, detalle o criterio de elección. Priorizá lectura visual y espacio para anotaciones posteriores.',
+    mayorista: 'OBJETIVO MAYORISTA: transmitir escala, orden, consistencia y capacidad de equipar un equipo. Evitá el tono de moda individual o lujo aspiracional.',
+  }[goal] || '';
+  const styleGuide = {
+    auto: `LENGUAJE VISUAL: elegí una puesta diferente a la salida más obvia. Usá esta dirección de variación: ${scene.describe()}`,
+    hero: 'LENGUAJE VISUAL HERO: producto grande y completo, fondo oscuro arquitectónico, pedestal sutil, luz lateral dura y recorte limpio. Composición simple de alto impacto.',
+    uso: 'LENGUAJE VISUAL EN USO: escena laboral argentina creíble y contemporánea. El producto se usa correctamente, sin pose de moda, con acción natural y entorno específico.',
+    tecnico: 'LENGUAJE VISUAL TÉCNICO: encuadre cercano o macro editorial que revele materiales, costuras y terminaciones reales. Fondo controlado, luz rasante y lectura precisa.',
+    bodegon: 'LENGUAJE VISUAL BODEGÓN: composición cenital o tres cuartos sobre una mesa de trabajo. Objetos ordenados, jerarquía clara y aire editorial; ningún producto queda tapado.',
+    industrial: 'LENGUAJE VISUAL CAMPAÑA: fotografía cinematográfica en arquitectura industrial real, profundidad, atmósfera y contraluz naranja sutil. Sobria, física y nada futurista.',
+  }[style] || scene.describe();
+  const varietyGuide = recentScenes.length
+    ? `\nESCENAS RECIENTES DEL ESTUDIO (NO repitas su puesta, encuadre ni atmósfera; la nueva tiene que distinguirse a simple vista):\n${recentScenes.map((x) => `- ${x}`).join('\n')}`
+    : '';
 
   const buildPrompt = (strict) => `Actuás como DIRECTOR DE ARTE SENIOR y FOTÓGRAFO COMERCIAL DE ALTA GAMA. Componé UNA fotografía publicitaria ${ratio} para BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
 
@@ -2762,9 +2821,12 @@ ${isCombo
     ? `CONFIGURACIÓN DE COMBO/CONJUNTO COMERCIAL: Los ${products.length} productos deben presentarse integrados y coordinados como un equipo de trabajo de alta gama. Puedes elegir una de estas dos puestas en escena: (A) Modelo/Trabajador en acción creíble vistiendo el conjunto completo (prendas puestas con caída real de tejido grafa/trucker pesado y botines calzados, rostro de espaldas o en sombra parcial para no distraer del producto); o (B) Bodegón arquitectónico / Flat-lay sobre superficie industrial (mesa de trabajo de acero cepillado, hormigón pulido o madera tratada) donde cada prenda y calzado tiene su propio espacio focal, iluminación dramática y textura nítida. Ningún producto debe quedar tapado por otro.`
     : `El producto es EL héroe y punto focal absoluto: nítido, con micro-texturas de tela/cuero ultradetalladas, ocupando la posición de máximo impacto visual.`}
 ${theme ? `\nCONTEXTO/IDEA DE LA ESCENA: ${theme}.` : ''}
+${goalGuide}
+${varietyGuide}
 
 DIRECCIÓN DE FOTOGRAFÍA Y ÓPTICA COMERCIAL:
-${scene.describe()}
+${styleGuide}
+${brandStyle ? `- IDENTIDAD VISUAL APRENDIDA DE BLACKS (aplicala sin copiar una pieza literal): ${brandStyle}` : ''}
 - Utilería mínima y realista del escenario elegido, SIN robar protagonismo a los productos.
 - Lente Hasselblad 85mm prime lens f/1.8, enfoque selectivo milimétrico en las texturas del tejido y cuero, profundidad de campo con bokeh arquitectónico en el fondo.
 - Color grading premium: Kodak Portra 400, base sobria con acentos naranja quemado (#C1440C) sutiles.

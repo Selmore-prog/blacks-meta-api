@@ -81,41 +81,61 @@
 
     <!-- ===== Estudio creativo ===== -->
     <section id="view-studio" class="view hidden">
-      <div class="toolbar">
-        <div>
-          <h2>Estudio creativo</h2>
-          <div class="sub">Imágenes y videos de tus productos, aparte del calendario: elegí un producto o armá un combo.</div>
-        </div>
+      <div class="studio-hero">
+        <div><span class="studio-kicker">BLACKS CREATIVE STUDIO</span><h2>De una idea a una campaña</h2>
+          <div class="sub">Armá fotos de producto, escenas de uso y videos verticales sin perder la identidad de la marca.</div></div>
+        <div class="studio-flow" aria-label="Flujo del estudio"><span class="active">01 Brief</span><i></i><span>02 Arte</span><i></i><span>03 Biblioteca</span></div>
       </div>
 
-      <div class="panel" style="margin-bottom:18px;">
-        <h3>1 · Elegí producto(s)</h3>
-        <p class="hint">Uno solo = pieza de producto. Dos o más (hasta 4) = combo/conjunto: la escena los integra juntos.</p>
-        <input class="input" id="st-search" placeholder="Buscar producto por nombre… (ej: campera, botín, cargo)" autocomplete="off" />
-        <div id="st-results"></div>
-        <div id="st-selected" class="st-selected"></div>
-        <div class="grid-2" style="margin-top:14px;">
-          <div class="field"><label>Idea / contexto de la escena (opcional)</label>
-            <input class="input" id="st-theme" placeholder="Ej: equipo completo para obra en invierno, primer día de trabajo" /></div>
-          <div class="field"><label>Formato</label>
-            <select class="input" id="st-format">
-              <option value="story">Vertical 9:16 (historia / reel)</option>
-              <option value="feed">Vertical 4:5 (feed)</option>
+      <div class="studio-builder">
+        <div class="studio-brief panel">
+          <div class="studio-step-head"><span>01</span><div><h3>Productos</h3><p>Uno para una pieza hero. Hasta cuatro para un conjunto.</p></div></div>
+          <input class="input" id="st-search" placeholder="Buscar campera, botín, cargo…" autocomplete="off" />
+          <div id="st-results"></div><div id="st-selected" class="st-selected"></div>
+          <div class="studio-divider"></div>
+          <div class="studio-step-head"><span>02</span><div><h3>Dirección creativa</h3><p>Definí la intención; el prompt técnico lo resuelve el sistema.</p></div></div>
+          <div class="grid-2">
+            <div class="field"><label>Objetivo de la pieza</label><select class="input" id="st-goal">
+              <option value="venta">Venta directa</option><option value="catalogo">Mostrar producto</option><option value="marca">Construir marca</option>
+              <option value="educativo">Explicar / educar</option><option value="mayorista">Venta mayorista</option>
             </select></div>
+            <div class="field"><label>Lenguaje visual</label><select class="input" id="st-style">
+              <option value="auto">Automático — escena variable</option><option value="hero">Hero de producto — limpio e impactante</option>
+              <option value="uso">En uso — contexto laboral real</option><option value="tecnico">Técnico — materiales y detalles</option>
+              <option value="bodegon">Bodegón — composición editorial</option><option value="industrial">Campaña industrial — cinematográfica</option>
+            </select></div>
+          </div>
+          <div class="field"><label>Idea o contexto <span class="optional">opcional</span></label>
+            <textarea class="input" id="st-theme" rows="3" placeholder="Ej: cuadrilla preparando una obra al amanecer; sensación de equipo y resistencia"></textarea>
+            <div class="studio-prompts" id="st-prompt-chips">
+              <button type="button" data-prompt="Producto protagonista, fondo de estudio oscuro y luz lateral naranja">Hero oscuro</button>
+              <button type="button" data-prompt="Jornada de trabajo real al amanecer, polvo en el aire y luz natural">Obra real</button>
+              <button type="button" data-prompt="Detalle macro de costuras, material y terminaciones, estética de ficha técnica">Detalle técnico</button>
+              <button type="button" data-prompt="Bodegón editorial sobre mesa de trabajo, composición ordenada y premium">Bodegón</button>
+            </div>
+          </div>
+          <div class="field"><label>Formato de salida</label>
+            <div class="format-picker" id="st-format-picker">
+              <button type="button" data-format="feed"><span class="ratio r45"></span><b>Feed 4:5</b><small>1080 × 1350</small></button>
+              <button type="button" class="active" data-format="story"><span class="ratio r916"></span><b>Story / Reel</b><small>1080 × 1920</small></button>
+            </div>
+            <select class="input hidden" id="st-format" aria-hidden="true"><option value="story" selected>Vertical 9:16</option><option value="feed">Vertical 4:5</option></select>
+          </div>
+          <div class="studio-actions">
+            <button class="btn-primary" id="st-gen-img"><span data-ic="image"></span> Generar imagen con IA</button>
+            <button class="btn-video" id="st-gen-video"><span data-ic="film"></span> Generar video</button>
+            <button class="btn-ghost" id="st-video"><span data-ic="copy"></span> Llevar prompt</button>
+            <button class="btn-ghost" id="st-upload"><span data-ic="upload"></span> Subir</button>
+          </div>
+          <p class="studio-safe">La foto se genera sin texto ni logos agregados. El producto conserva color, forma y terminaciones de las referencias.</p>
         </div>
-        <div style="display:flex; gap:8px; flex-wrap:wrap;">
-          <button class="btn-primary" id="st-gen-img"><span data-ic="image"></span> Generar imagen con IA</button>
-          <button class="btn-video" id="st-gen-video"><span data-ic="film"></span> Generar video con IA</button>
-          <button class="btn-ghost" id="st-video"><span data-ic="copy"></span> Prompt de video a mano</button>
-          <button class="btn-ghost" id="st-upload"><span data-ic="upload"></span> Subir resultado</button>
-        </div>
-        <p class="hint" style="margin:10px 0 0;">El video se genera acá mismo con Veo (tarda 1-4 min y te muestra el costo antes). Si preferís hacerlo vos en Gemini/Veo, "Prompt de video a mano" te da el texto detallado y después subís el resultado.</p>
-      </div>
 
-      <div class="panel">
-        <h3>Biblioteca</h3>
-        <p class="hint">Todo lo generado o subido en el estudio, listo para descargar y usar donde quieras.</p>
-        <div id="st-gallery"><p class="empty">Todavía no hay nada en la biblioteca.</p></div>
+        <aside class="studio-library panel">
+          <div class="studio-lib-head"><div><span class="studio-kicker">03 ARCHIVO</span><h3>Biblioteca</h3></div>
+            <div class="studio-filter" id="st-filter"><button class="active" data-kind="all">Todo</button><button data-kind="image">Fotos</button><button data-kind="video">Videos</button></div></div>
+          <p class="hint">Descargá, recuperá el prompt o retomá una pieza como punto de partida.</p>
+          <div id="st-gallery"><p class="empty">Todavía no hay nada en la biblioteca.</p></div>
+        </aside>
       </div>
     </section>
 
@@ -541,19 +561,41 @@
   <div id="edit-modal" class="modal-overlay hidden">
     <div class="modal">
       <div class="modal-header">
-        <h2>Editar copy</h2>
+        <div><span class="studio-kicker">MESA DE EDICIÓN</span><h2>Trabajar la pieza</h2></div>
         <button class="btn-close" onclick="closeEdit()">&times;</button>
       </div>
       <div class="modal-body">
-        <div class="field"><label>Caption</label><textarea class="input" id="edit-caption"></textarea></div>
-        <div class="field"><label>Hashtags</label><input class="input" id="edit-hashtags" /></div>
-        <div class="field"><label>CTA</label><input class="input" id="edit-cta" /></div>
-        <!-- Variantes: 3 ángulos distintos para la MISMA imagen (texto = gratis). -->
-        <div class="field" id="edit-variants"></div>
-        <div style="display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap;">
-          <button class="btn-ghost" id="edit-variants-btn" onclick="loadCopyVariants(this)" title="Escribe 3 versiones del texto para esta misma imagen. No cuesta nada.">Probar otras 3 versiones</button>
-          <button class="btn-discard" onclick="closeEdit()">Cancelar</button>
-          <button class="btn-primary" onclick="saveEdit()">Guardar</button>
+        <aside class="edit-piece-rail">
+          <div id="edit-piece-preview"></div><div id="edit-piece-meta"></div>
+          <div class="edit-tools">
+            <button class="btn-ghost btn-sm" id="edit-visual-btn"><span data-ic="image"></span> Ajustar imagen</button>
+            <button class="btn-ghost btn-sm" id="edit-regen-btn"><span data-ic="wand"></span> Nuevo concepto</button>
+            <button class="btn-ghost btn-sm" id="edit-history-btn"><span data-ic="refresh"></span> Versiones</button>
+          </div>
+          <div class="continuity-card" id="edit-continuity"></div>
+        </aside>
+        <div class="edit-copy-pane">
+          <div class="edit-section-head"><div><b>Copy</b><span>La imagen no cambia al editar o probar variantes.</span></div><span class="edit-free">sin costo de imagen</span></div>
+          <div class="field"><label>Caption <span class="char-count" id="edit-caption-count"></span></label><textarea class="input" id="edit-caption"></textarea></div>
+          <div class="grid-2 edit-mini-fields">
+            <div class="field"><label>CTA</label><input class="input" id="edit-cta" /></div>
+            <div class="field"><label>Hashtags</label><input class="input" id="edit-hashtags" /></div>
+          </div>
+          <div class="copy-lab">
+            <div class="edit-section-head"><div><b>Laboratorio de enfoques</b><span>Opciones conectadas con lo anterior, sin repetir arranques.</span></div></div>
+            <div class="grid-2 edit-mini-fields">
+              <div class="field"><label>Qué querés explorar</label><select class="input" id="edit-angle">
+                <option value="mix">Tres enfoques distintos</option><option value="beneficio">Beneficio concreto</option><option value="situacion">Situación de uso</option>
+                <option value="objecion">Objeción del cliente</option><option value="prueba">Prueba / detalle real</option>
+                <option value="comunidad">Conversación / comunidad</option><option value="b2b">Decisión mayorista</option>
+              </select></div>
+              <div class="field"><label>Indicación <span class="optional">opcional</span></label><input class="input" id="edit-copy-note" placeholder="Ej: más sobrio, sin hablar de precio" /></div>
+            </div>
+            <button class="btn-ghost" id="edit-variants-btn" onclick="loadCopyVariants(this)"><span data-ic="sparkles"></span> Generar 3 alternativas</button>
+          </div>
+          <div class="field" id="edit-variants"></div>
+          <div class="edit-footer"><button class="btn-discard" onclick="closeEdit()">Cancelar</button>
+            <button class="btn-primary" onclick="saveEdit()"><span data-ic="save"></span> Guardar cambios</button></div>
         </div>
       </div>
     </div>
