@@ -70,6 +70,11 @@ document.addEventListener('click', (e) => {
   const t = e.target.closest ? e.target.closest('.tip') : null;
   document.querySelectorAll('.tip.tip-open').forEach((x) => { if (x !== t) x.classList.remove('tip-open'); });
   if (t) { t.classList.toggle('tip-open'); e.stopPropagation(); }
+  // Los menús del calendario usan <details>: cerrarlos al tocar afuera evita que
+  // queden varias capas abiertas sobre las tarjetas o los filtros.
+  document.querySelectorAll('details.action-menu[open], details.piece-menu[open], details.filter-more[open]').forEach((d) => {
+    if (!d.contains(e.target)) d.removeAttribute('open');
+  });
 });
 
 function hydrateIcons(root = document) {
@@ -552,10 +557,10 @@ function needsAttention(it) {
 }
 
 const FOCUS_DEFS = {
-  revisar: { label: 'Para aprobar', match: (it) => statusOf(it) === 'draft' },
-  alerta: { label: 'Con alerta', match: needsAttention },
-  'sin-generar': { label: 'Sin generar', match: (it) => statusOf(it) === 'sin-generar' },
-  esperando: { label: 'Aprobadas esperando su horario', match: (it) => statusOf(it) === 'approved' },
+  revisar: { label: 'Para aprobar', hint: 'requieren revisión', icon: 'eye', match: (it) => statusOf(it) === 'draft' },
+  alerta: { label: 'Con alerta', hint: 'necesitan atención', icon: 'alert', match: needsAttention },
+  'sin-generar': { label: 'Sin generar', hint: 'todavía pendientes', icon: 'bolt', match: (it) => statusOf(it) === 'sin-generar' },
+  esperando: { label: 'Programadas', hint: 'aprobadas y listas', icon: 'clock', match: (it) => statusOf(it) === 'approved' },
 };
 
 function focusCounts() {
@@ -575,12 +580,69 @@ function renderFocusBar() {
     if (!n) return '';
     const on = filters.focus === key;
     return `<button class="focus-chip ${key} ${on ? 'on' : ''}" data-focus="${key}">
-      <b>${n}</b> ${esc(FOCUS_DEFS[key].label)}</button>`;
+      <span class="focus-ic">${icon(FOCUS_DEFS[key].icon)}</span><b>${n}</b><span class="focus-copy">${esc(FOCUS_DEFS[key].label)}<small>${esc(FOCUS_DEFS[key].hint)}</small></span></button>`;
   }).join('');
   host.querySelectorAll('[data-focus]').forEach((b) => b.addEventListener('click', () => {
     filters.focus = filters.focus === b.dataset.focus ? 'all' : b.dataset.focus;
     renderCalView();
   }));
+}
+
+/**
+ * Pulso editorial de los próximos siete días. No llama a IA ni agrega reglas al
+ * calendario: convierte el plan existente en una lectura rápida para detectar una
+ * semana demasiado cargada de un solo pilar o de un único formato antes de generar.
+ */
+function renderCalendarIntelligence() {
+  const host = document.getElementById('calendar-intelligence');
+  if (!host) return;
+  const today = todayKey();
+  const end = new Date(`${today}T00:00:00`);
+  end.setDate(end.getDate() + 7);
+  const endKey = end.toLocaleDateString('sv-SE');
+  const week = calItems.filter((it) => {
+    const d = String(it.scheduled_date).slice(0, 10);
+    return d >= today && d < endKey && statusOf(it) !== 'repost';
+  });
+  if (!week.length) { host.innerHTML = ''; return; }
+
+  const countBy = (keyFn) => week.reduce((acc, it) => {
+    const key = keyFn(it) || 'otro'; acc[key] = (acc[key] || 0) + 1; return acc;
+  }, {});
+  const pillars = countBy((it) => it.pillar);
+  const formats = countBy((it) => it.post_type);
+  const dominant = Object.entries(pillars).sort((a, b) => b[1] - a[1])[0];
+  const dominantPct = Math.round((dominant[1] / week.length) * 100);
+  const drafts = week.filter((it) => statusOf(it) === 'draft').length;
+  const approved = week.filter((it) => statusOf(it) === 'approved').length;
+  const pending = week.filter((it) => statusOf(it) === 'sin-generar').length;
+  const fmtLabel = { feed: 'Feed', story: 'Historias', reel: 'Reels' };
+  const formatsHtml = Object.entries(formats).map(([k, n]) => `<span>${fmtLabel[k] || esc(k)} <b>${n}</b></span>`).join('');
+
+  let tone = 'ok'; let title = 'Buen ritmo editorial'; let insight = 'La semana combina pilares y formatos sin una repetición dominante.';
+  if (dominantPct >= 60 && week.length >= 4) {
+    tone = 'warn'; title = `Mucho contenido de ${dominant[0]}`;
+    insight = `${dominantPct}% de la semana usa el mismo pilar. Convertí una pieza en educación, comunidad o marca para que el feed respire.`;
+  } else if (Object.keys(formats).length === 1 && week.length >= 4) {
+    tone = 'warn'; title = `Toda la semana está en ${fmtLabel[Object.keys(formats)[0]] || Object.keys(formats)[0]}`;
+    insight = 'Sumá otro formato para cambiar el ritmo: una historia interactiva o un Reel corto alcanza.';
+  } else if (week.length < 3) {
+    tone = 'neutral'; title = 'Semana liviana'; insight = 'Hay espacio para sumar una pieza sin saturar la grilla.';
+  }
+
+  host.innerHTML = `<div class="calendar-pulse ${tone}">
+    <div class="pulse-main"><span class="pulse-orb">${icon(tone === 'warn' ? 'alert' : 'sparkles')}</span>
+      <div><span class="studio-kicker">PRÓXIMOS 7 DÍAS</span><h3>${esc(title)}</h3><p>${esc(insight)}</p></div></div>
+    <div class="pulse-stats">
+      <div><b>${week.length}</b><span>piezas</span></div>
+      <div><b>${Object.keys(pillars).length}</b><span>pilares</span></div>
+      <div><b>${drafts + approved}</b><span>listas</span></div>
+    </div>
+    <div class="pulse-formats">${formatsHtml}</div>
+    ${pending ? `<button class="pulse-link" data-pulse-focus="sin-generar">Ver ${pending} sin generar ${icon('route')}</button>` : ''}
+  </div>`;
+  const link = host.querySelector('[data-pulse-focus]');
+  if (link) link.addEventListener('click', () => { filters.focus = 'sin-generar'; renderCalView(); });
 }
 
 function getFiltered() {
@@ -601,31 +663,45 @@ function getFiltered() {
 
 function renderFilters() {
   const pillars = [...new Set(calItems.map((i) => i.pillar))].sort();
-  const sel = (id, label, opts, val) => `<select class="filter" id="${id}" onchange="onFilter('${id}', this.value)">
-    <option value="all">${label}: todos</option>
-    ${opts.map((o) => `<option value="${o.v}" ${o.v === val ? 'selected' : ''}>${o.t}</option>`).join('')}</select>`;
+  const sel = (id, label, opts, val) => `<label class="filter-field"><span>${label}</span><select class="filter" id="${id}" onchange="onFilter('${id}', this.value)">
+    <option value="all">Todos</option>
+    ${opts.map((o) => `<option value="${o.v}" ${o.v === val ? 'selected' : ''}>${o.t}</option>`).join('')}</select></label>`;
   const bar = document.getElementById('filters');
-  const backSel = `<select class="filter" id="f-back" title="Piezas de días anteriores: no se borran, sólo se ocultan por defecto" onchange="onCalBack(this.value)">
+  const backSel = `<label class="filter-field"><span>Período</span><select class="filter" id="f-back" title="Piezas de días anteriores: no se borran, sólo se ocultan por defecto" onchange="onCalBack(this.value)">
     <option value="0" ${calBackDays === 0 ? 'selected' : ''}>Desde hoy</option>
     <option value="3" ${calBackDays === 3 ? 'selected' : ''}>+ 3 días atrás</option>
     <option value="7" ${calBackDays === 7 ? 'selected' : ''}>+ 7 días atrás</option>
     <option value="14" ${calBackDays === 14 ? 'selected' : ''}>+ 14 días atrás</option>
     <option value="30" ${calBackDays === 30 ? 'selected' : ''}>+ 30 días atrás</option>
-  </select>`;
-  bar.innerHTML =
-    `<span style="display:inline-flex;align-items:center;gap:6px;color:var(--muted);font-size:12px;font-weight:700;">${icon('filter')} Filtros</span>` +
-    backSel +
-    sel('f-status', 'Estado', [
+  </select></label>`;
+  const statusSel = sel('f-status', 'Estado', [
       { v: 'sin-generar', t: 'Sin generar' }, { v: 'draft', t: 'Borrador' },
       { v: 'approved', t: 'Aprobado' }, { v: 'published', t: 'Publicado' }, { v: 'repost', t: 'Descanso' },
-    ], filters.status) +
-    sel('f-format', 'Formato', [{ v: 'feed', t: 'Feed' }, { v: 'story', t: 'Historia' }, { v: 'reel', t: 'Reel' }], filters.format) +
-    sel('f-pillar', 'Pilar', pillars.map((p) => ({ v: p, t: p })), filters.pillar) +
-    sel('f-auto', 'Tipo', [{ v: 'auto', t: 'Automática' }, { v: 'semi', t: 'Semi' }], filters.auto) +
-    sel('f-comercial', 'Venta', [{ v: 'minorista', t: 'Minorista' }, { v: 'mayorista', t: 'Mayorista' }], filters.comercial) +
-    `<input class="filter-search" id="f-q" placeholder="Buscar en el texto…" value="${esc(filters.q)}" oninput="onFilter('f-q', this.value)" />` +
-    `<button class="filter-sel" id="f-selall" onclick="selectAllVisible()" title="Marcar todas las piezas que se ven, para aprobarlas o descartarlas juntas">Seleccionar todo</button>` +
-    `<span class="filter-count" id="f-count"></span>`;
+    ], filters.status);
+  const formatSel = sel('f-format', 'Formato', [{ v: 'feed', t: 'Feed' }, { v: 'story', t: 'Historia' }, { v: 'reel', t: 'Reel' }], filters.format);
+  const hasAdvanced = filters.pillar !== 'all' || filters.auto !== 'all' || filters.comercial !== 'all' || calBackDays !== 0;
+  const hasAny = filters.status !== 'all' || filters.format !== 'all' || hasAdvanced || Boolean(filters.q) || filters.focus !== 'all';
+  bar.innerHTML = `<div class="filter-primary">
+      <div class="filter-search-wrap">${icon('search')}<input class="filter-search" id="f-q" placeholder="Buscar pieza, tema o copy…" value="${esc(filters.q)}" oninput="onFilter('f-q', this.value)" /></div>
+      ${statusSel}${formatSel}
+      <details class="filter-more" ${hasAdvanced ? 'open' : ''}><summary>${icon('filter')} Más filtros${hasAdvanced ? '<i></i>' : ''}</summary>
+        <div class="filter-more-pop">${backSel}
+          ${sel('f-pillar', 'Pilar', pillars.map((p) => ({ v: p, t: p })), filters.pillar)}
+          ${sel('f-auto', 'Publicación', [{ v: 'auto', t: 'Automática' }, { v: 'semi', t: 'Semi / manual' }], filters.auto)}
+          ${sel('f-comercial', 'Audiencia', [{ v: 'minorista', t: 'Minorista' }, { v: 'mayorista', t: 'Mayorista' }], filters.comercial)}
+        </div></details>
+      ${hasAny ? `<button class="filter-clear" onclick="clearCalendarFilters()">Limpiar</button>` : ''}
+    </div>
+    <div class="filter-secondary">
+      <button class="filter-sel" id="f-selall" onclick="selectAllVisible()" title="Marcar todas las piezas que se ven, para aprobarlas o descartarlas juntas">${icon('check')} Seleccionar visibles</button>
+      <div class="filter-meta"><span class="filter-count" id="f-count"></span></div>
+    </div>`;
+}
+
+function clearCalendarFilters() {
+  Object.assign(filters, { status: 'all', format: 'all', pillar: 'all', auto: 'all', comercial: 'all', q: '', focus: 'all' });
+  if (calBackDays !== 0) { setCalBack(0); loadCalendar(); return; }
+  renderFilters(); renderCalView();
 }
 
 function onCalBack(val) {
@@ -652,8 +728,9 @@ async function loadCalendar() {
       if (generatingIds.size) startGeneratingPoll();
     } catch (_) {}
     document.getElementById('next-plan').innerHTML =
-      `${icon('bot')} Los borradores se generan solos a las <b>07:00 ARG</b>. Lo que apruebes sale <b>en su horario</b>; las <b>Semi</b> las subís vos con su sticker. Para que algo no salga: <b>Descartar</b> la pieza o pausar el slot desde <b>Planificar</b>.`;
+      `<span>${icon('bot')} <b>Automatización activa</b></span><span>Genera borradores a las 07:00 · publica lo aprobado en horario · las piezas Semi quedan para subir a mano.</span>`;
     renderFilters();
+    renderCalendarIntelligence();
     renderCalView();
     refreshStaleDraftsButton();
   } catch (e) {
@@ -730,6 +807,7 @@ function renderCalView() {
   if (countEl) countEl.textContent = `${items.length} de ${calItems.length} piezas`;
   montarDensidad();
   renderFocusBar();
+  renderCalendarIntelligence();
   if (calView === 'list') renderCalList(items);
   else if (calView === 'grid') renderCalGrid(items);
   else renderProfileGrid();
@@ -1561,6 +1639,9 @@ function renderCard(item) {
     ? `<button class="btn-ghost btn-sm" data-act="editvideo" data-id="${aid}">${icon('film')} Subtítulos${item.edit_status === 'done' ? ' ✓' : ''}</button>` : '';
   const planBtn = status !== 'published'
     ? `<button class="btn-ghost btn-sm" data-act="planslot" data-id="${item.id}">${icon('calendar')} Planificar</button>` : '';
+  const moreMenu = (content) => content ? `<details class="piece-menu">
+    <summary class="btn-ghost btn-sm">••• <span>Más</span></summary>
+    <div class="piece-menu-pop">${content}</div></details>` : '';
 
   let actions = '';
   if (generatingIds.has(String(item.id))) {
@@ -1573,23 +1654,24 @@ function renderCard(item) {
     // lo hacés en Gemini/Veo con el prompt y lo subís).
     actions = item.post_type === 'reel'
       ? `<button class="btn-primary" data-act="generate" data-id="${item.id}">${icon('bolt')} Generar copy (sin video) ${costTag('Gratis')}</button>
-        <button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Con otro tema</button>${planBtn}`
+        ${moreMenu(`<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Cambiar tema</button>${planBtn}`)}`
       : `<button class="btn-primary" data-act="generate" data-id="${item.id}">${icon('bolt')} Generar pieza ${costTag(genCostLabel())}</button>
-        <button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Con otro tema</button>${planBtn}`;
+        ${moreMenu(`<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Cambiar tema</button>${planBtn}`)}`;
   } else if (status === 'draft') {
     actions = `<button class="btn-approve" data-act="approve" data-id="${aid}">${icon('check')} Aprobar</button>
       <button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Abrir editor</button>
-      ${regenBtn}${genVideoBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${downloadBtn}
-      <button class="btn-discard btn-sm" data-act="discard" data-id="${aid}">${icon('trash')} Descartar</button>${planBtn}`;
+      ${genVideoBtn}${moreMenu(`${regenBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${downloadBtn}
+        <button class="btn-discard btn-sm" data-act="discard" data-id="${aid}">${icon('trash')} Descartar</button>${planBtn}`)}`;
   } else if (status === 'approved') {
     actions = (isSemi
       ? `<button class="btn-manual" data-act="publish" data-id="${aid}">${icon('info')} Cómo publicarla</button>`
       : `<button class="btn-publish" data-act="publish" data-id="${aid}">${icon('send')} Publicar ahora</button>`) +
-      `<button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Abrir editor</button>${regenBtn}${genVideoBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${downloadBtn}${planBtn}`;
+      `<button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Abrir editor</button>${genVideoBtn}
+       ${moreMenu(`${regenBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${downloadBtn}${planBtn}`)}`;
   } else if (status === 'published') {
     actions = `<span class="badge status-published" ${item.meta_post_id ? `title="ID de Instagram: ${esc(item.meta_post_id)}"` : ''}>${icon('check')} Publicada</span>
       ${downloadBtn}
-      <button class="btn-ghost btn-sm" data-act="republish" data-id="${aid}" title="Por si la borraste de Instagram o querés volver a publicarla">${icon('refresh')} Republicar</button>`;
+      ${moreMenu(`<button class="btn-ghost btn-sm" data-act="republish" data-id="${aid}" title="Por si la borraste de Instagram o querés volver a publicarla">${icon('refresh')} Republicar</button>`)}`;
   } else if (status === 'discarded') {
     actions = `<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('refresh')} Regenerar</button>${planBtn}`;
   }

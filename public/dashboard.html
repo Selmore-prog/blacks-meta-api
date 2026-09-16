@@ -50,27 +50,40 @@
 
     <!-- ===== Calendario ===== -->
     <section id="view-calendar" class="view">
-      <div class="toolbar">
-        <div>
+      <div class="calendar-hero">
+        <div class="calendar-title">
+          <span class="studio-kicker">SOCIAL COMMAND CENTER</span>
           <h2>Calendario de contenido</h2>
-          <div class="sub">Próximas piezas · horarios de Argentina (GMT-3)</div>
+          <div class="sub">Creá, revisá y publicá sin perder el ritmo de la semana.</div>
         </div>
-        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+        <div class="calendar-workbar">
           <div class="view-toggle">
             <button class="vt active" id="vt-list" onclick="setCalView('list')"><span data-ic="list"></span> Lista</button>
             <button class="vt" id="vt-grid" onclick="setCalView('grid')"><span data-ic="grid"></span> Calendario</button>
             <button class="vt" id="vt-profile" onclick="setCalView('profile')"><span data-ic="user"></span> Perfil</button>
           </div>
-          <button class="btn-primary" id="btn-generate-today" onclick="generateAllPending()"><span data-ic="bolt"></span> Generar hoy</button>
-          <!-- Pieza a partir de una frase: el camino corto al slot (ver openPieceFromText). -->
-          <button class="btn-ghost" onclick="openPieceFromText()" title="Escribí en una frase qué querés publicar y la IA arma la pieza entera"><span data-ic="sparkles"></span> Publicación con un texto</button>
-          <button class="btn-ghost" onclick="openPlanSlot()"><span data-ic="plus"></span> Agregar slot</button>
-          <button class="btn-ghost" id="btn-month-plan" onclick="generateMonthPlan()"><span data-ic="calendar"></span> Plan del mes (IA)</button>
-          <button class="btn-ghost hidden" id="btn-stale-drafts" onclick="updateStaleDrafts()"><span data-ic="wand"></span> Actualizar borradores</button>
-          <button class="btn-ghost" onclick="loadCalendar()" title="Refrescar"><span data-ic="refresh"></span></button>
+          <div class="calendar-primary-actions">
+            <button class="btn-primary" id="btn-generate-today" onclick="generateAllPending()"><span data-ic="bolt"></span> Generar hoy</button>
+            <details class="action-menu" id="calendar-create-menu">
+              <summary class="btn-ghost"><span data-ic="plus"></span> Nueva <span class="chev">⌄</span></summary>
+              <div class="action-menu-pop right">
+                <button onclick="openPieceFromText(); this.closest('details').removeAttribute('open')"><span data-ic="sparkles"></span><span><b>Desde una idea</b><small>Escribí una frase y la IA arma todo</small></span></button>
+                <button onclick="openPlanSlot(); this.closest('details').removeAttribute('open')"><span data-ic="calendar"></span><span><b>Planificar una pieza</b><small>Elegí fecha, formato y producto</small></span></button>
+                <button id="btn-month-plan" onclick="generateMonthPlan(); this.closest('details').removeAttribute('open')"><span data-ic="grid"></span><span><b>Plan del mes con IA</b><small>Generá una grilla editorial completa</small></span></button>
+              </div>
+            </details>
+            <details class="action-menu action-menu-small">
+              <summary class="btn-ghost icon-only" title="Más opciones">•••</summary>
+              <div class="action-menu-pop right">
+                <button onclick="loadCalendar(); this.closest('details').removeAttribute('open')"><span data-ic="refresh"></span><span><b>Actualizar calendario</b><small>Traer el estado más reciente</small></span></button>
+                <button class="hidden" id="btn-stale-drafts" onclick="updateStaleDrafts(); this.closest('details').removeAttribute('open')"><span data-ic="wand"></span><span><b>Actualizar borradores</b><small>Rehacer piezas creadas con el motor anterior</small></span></button>
+              </div>
+            </details>
+          </div>
         </div>
       </div>
       <div class="next-plan" id="next-plan"></div>
+      <div id="calendar-intelligence"></div>
       <!-- Bandeja de revisión: los 4 números que importan por día. Tocás uno y filtra. -->
       <div class="focus-bar" id="focus-bar"></div>
       <div class="filters" id="filters"></div>
