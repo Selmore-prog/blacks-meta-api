@@ -2149,13 +2149,23 @@ async function generateForSlot(slot, overrides = {}) {
           console.warn(`[generate-daily] QA visual rechazó el render del slot #${slot.id} (plantilla ${template}): ${check.issues.join(' · ')}. Re-renderizo con plantilla segura...`);
 
           // La escena IA ya generada (data URI) se reusa tal cual; nunca se paga dos veces.
+          // Excepción: si ESA escena es la que apagó la prenda, el curado vuelve a la foto
+          // real de Tiendanube que ya está en renderOpts. Así no maquillamos el problema
+          // con otro marco: garantizamos color y detalle fieles sin una nueva generación.
           const aiScene = render.cleanImageUrl && String(render.cleanImageUrl).startsWith('data:') ? render.cleanImageUrl : null;
+          // Si el problema es la exposición, el fallback no vuelve a oscurecer la foto:
+          // usa el aviso de revista claro, con la imagen enmarcada sobre papel. Para las
+          // roturas puramente geométricas conservamos la composición clásica probada.
+          const darknessIssue = check.issues.some((issue) => /oscur|subexpuest|penumbra|apag|no se (?:distingue|reconoce)|pierde (?:el )?(?:color|detalle|textura|silueta)/i.test(issue));
+          const safeVariant = darknessIssue ? 'marco' : 'clasico';
           const healed = await renderPostBuffer({
             ...renderOpts,
             template: 'fullbleed', // la plantilla más robusta: se adapta con y sin foto
-            variant: 'clasico',    // y su composición más probada (el curado no experimenta)
+            variant: safeVariant,
             layoutSeed: Number(slot.id) + 31, // otro layout, por si el problema era de posición
-            ...(aiScene ? { bgImageUrl: aiScene } : {}),
+            ...(darknessIssue
+              ? { bgImageUrl: null, coverImage: false }
+              : (aiScene ? { bgImageUrl: aiScene } : {})),
             useAiProductScene: false, useAiDiagram: false, useAiBackground: false, // cero gasto nuevo
           });
           pieceCostUsd += healed.costUsd || 0;
@@ -2165,7 +2175,7 @@ async function generateForSlot(slot, overrides = {}) {
           );
           const keepHealed = recheck.ok || recheck.issues.length <= check.issues.length;
           if (keepHealed) {
-            render = healed; finalTemplate = 'fullbleed'; finalVariant = 'clasico'; finalSeed = Number(slot.id) + 31;
+            render = healed; finalTemplate = 'fullbleed'; finalVariant = safeVariant; finalSeed = Number(slot.id) + 31;
             designTag = artDirection.encodeDesign(finalTemplate, finalVariant);
           }
           if (!recheck.ok) {
@@ -2180,7 +2190,7 @@ async function generateForSlot(slot, overrides = {}) {
             const { recordLesson } = require('../src/learning');
             recordLesson({ source: 'render', scope: slot.pillar, lesson: `La plantilla '${template}' salió rota (${String(check.issues[0] || 'defecto visual').replace(/\d+/g, 'N')}) — revisar esa combinación de plantilla/contenido`, detail: worst });
           } else {
-            console.log(`[generate-daily] QA visual: pieza del slot #${slot.id} auto-corregida con plantilla fullbleed.`);
+            console.log(`[generate-daily] QA visual: pieza del slot #${slot.id} auto-corregida con plantilla fullbleed/${safeVariant}.`);
           }
         }
       } catch (err) {

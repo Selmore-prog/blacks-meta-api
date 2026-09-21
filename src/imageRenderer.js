@@ -116,14 +116,14 @@ const TEMPLATE_INFO = {
   // sobre esta lista y, sin descripción, una plantilla es una opción vacía que nunca
   // se elige (fue exactamente lo que pasó al agregarlas: la IA siguió eligiendo
   // 'fullbleed' y las nuevas no se usaron ni una vez).
-  recorte: 'La prenda RECORTADA sobre fondo oscuro con el titular gigante pasando POR DETRÁS del producto. Moderna y con mucho impacto. La mejor opción por defecto para mostrar UN producto: elegila salvo que la pieza pida otra cosa.',
+  recorte: 'La prenda RECORTADA sobre fondo claro editorial con el titular gigante pasando POR DETRÁS del producto. Moderna, limpia y con mucho aire. Buena opción para mostrar UN producto sin oscurecerlo.',
   ficha: 'La prenda recortada con líneas finas que salen de puntos reales del producto hacia cada característica (cintura, rodilla, bolsillos, tela). Para explicar de qué está hecha una prenda con datos concretos de la ficha.',
-  editorial: 'Tarjeta didáctica OSCURA con kicker, titular grande, bajada y puntos numerados, más la prenda entrando por el costado. Para enseñar/explicar. Preferila SIEMPRE por sobre "educativo", que sale con fondo blanco casi vacío.',
-  fullbleed: 'Foto del producto a pantalla completa con el texto encima. Impactante, la foto es la protagonista.',
+  editorial: 'Tarjeta didáctica CLARA con kicker, titular grande, bajada y puntos numerados, más la prenda entrando por el costado. Para enseñar/explicar con jerarquía y aire.',
+  fullbleed: 'Foto del producto a pantalla completa, bien expuesta, con overlay suave y poco texto. La prenda mantiene color y detalle.',
   minimal: 'Mucho aire, producto flotando sobre fondo claro, titular sobrio. Elegante y prolijo; bueno para marca/producto premium.',
-  promo: 'Oscura y vendedora, con % OFF / precio gigante. Para ofertas y promos con descuento real.',
+  promo: 'Clara y directa, con % OFF / precio grande y una sola banda de acento. Para ofertas con descuento real.',
   educativo: 'Tarjeta tipográfica: kicker + titular + texto explicativo y foto chica de apoyo. Para enseñar/dar un consejo.',
-  mayorista: 'Corporativa oscura con CTA "Pedí tu presupuesto". Para empresas / venta mayorista.',
+  mayorista: 'Corporativa clara y ordenada con CTA "Pedí tu presupuesto". Para empresas / venta mayorista.',
   grid: 'Collage bento de 3-4 fotos reales (ángulos o variantes de color). Necesita varias fotos.',
   overlap: 'Dos fotos superpuestas con profundidad, editorial y moderno. Necesita 2+ fotos.',
   specsheet: 'Ficha técnica: specs reales pinneados sobre la foto. Para destacar características/materiales concretos.',
@@ -592,8 +592,10 @@ function heroPhotoHtml({ bgImageUrl, productImageUrl, box, shadow = 'rgba(0,0,0,
 
 /** Degradé de legibilidad sobre una foto full-bleed (arriba/abajo oscuro, centro despejado). */
 function scrimHtml({ dark = true, extra = '' } = {}) {
-  const a = dark ? '.6' : '.75';
-  const b = dark ? '.85' : '.9';
+  // El scrim anterior llegaba a 85% de negro y apagaba justamente lo que se vende.
+  // Se conserva contraste en los bordes, pero el centro y la prenda quedan luminosos.
+  const a = dark ? '.30' : '.62';
+  const b = dark ? '.58' : '.78';
   const base = dark ? '0,0,0' : '255,255,255';
   return `<div style="position:absolute; inset:0; z-index:2; background:
     linear-gradient(to bottom, rgba(${base},${a}) 0%, rgba(${base},.12) 26%, rgba(${base},.12) 56%, rgba(${base},${b}) 100%)${extra ? `, ${extra}` : ''};"></div>`;
@@ -1243,7 +1245,7 @@ function buildMinimalHtml(opts) {
   </body></html>`;
 }
 
-/** PROMO: oscura, cibernética y agresiva con cortes de luz neón/naranja y % OFF gigante en cápsula flotante. */
+/** PROMO: clara, directa y editorial; precio grande sin neón, destellos ni penumbra. */
 function buildPromoHtml(opts) {
   const g = sharedGeometry(opts.format);
   const accent = opts.accent || config.brand.colors.darkOrange;
@@ -1262,38 +1264,33 @@ function buildPromoHtml(opts) {
   });
   const { hasPromo, off, now } = priceParts(opts.price, opts.promoPrice);
   const transfer = String(config.brand.transferNote || '').toUpperCase();
+  const promoInk = '#141416';
 
   const priceBlock = opts.price ? `
     ${hasPromo ? `<div style="display:flex; align-items:center; gap:16px; margin-bottom:12px;">
-      <span style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 52 : 46}px; color:rgba(255,255,255,.6); text-decoration:line-through;">$${formatPrice(opts.price)}</span>
-      <span style="background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); color:#fff; font-family:'Anton',sans-serif; font-size:${g.isStory ? 54 : 46}px; padding:6px 24px; border-radius:14px; box-shadow:0 12px 30px rgba(232,93,27,.5); border:1px solid rgba(255,255,255,.3); transform:rotate(-2deg);">-${off}% OFF</span>
+      <span style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 52 : 46}px; color:#85858B; text-decoration:line-through;">$${formatPrice(opts.price)}</span>
+      <span style="background:#E85D1B; color:#fff; font-family:'Anton',sans-serif; font-size:${g.isStory ? 50 : 43}px; padding:6px 22px; border-radius:6px;">-${off}% OFF</span>
     </div>` : ''}
-    <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 132 : 112}px; color:#fff; line-height:.86; letter-spacing:-2px; text-shadow:0 6px 35px rgba(0,0,0,.8);">$${formatPrice(now)}</div>
-    ${transfer ? `<div style="font-size:${g.isStory ? 22 : 19}px; font-weight:600; letter-spacing:.6px; color:rgba(255,255,255,.92); margin-top:18px; max-width:${g.w - g.padX * 2}px; display:flex; align-items:center; gap:10px;">${boltSvg('#FF8B4D', g.isStory ? 26 : 23)}<span>${esc(transfer)}</span></div>` : ''}`
-    : (opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 88 : 74}px; line-height:.94; text-transform:uppercase; color:#fff; text-shadow:0 4px 26px rgba(0,0,0,.8);">${esc(opts.overlayTitle)}</div>` : '');
+    <div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 132 : 112}px; color:${promoInk}; line-height:.86; letter-spacing:-2px;">$${formatPrice(now)}</div>
+    ${transfer ? `<div style="font-size:${g.isStory ? 22 : 19}px; font-weight:600; letter-spacing:.6px; color:#3F3F46; margin-top:18px; max-width:${g.w - g.padX * 2}px; display:flex; align-items:center; gap:10px;">${boltSvg('#E85D1B', g.isStory ? 26 : 23)}<span>${esc(transfer)}</span></div>` : ''}`
+    : (opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 88 : 74}px; line-height:.94; text-transform:uppercase; color:${promoInk};">${esc(opts.overlayTitle)}</div>` : '');
 
   return `${headHtml(g.w, g.h)}</head><body>
-    <div style="position:relative; width:${g.w}px; height:${g.h}px; background:#08080a; color:#fff; overflow:hidden;">
-      <!-- Destellos de luz diagonal naranja / ciber comercial -->
-      <div style="position:absolute; top:-250px; right:-250px; width:750px; height:750px; background:radial-gradient(circle, rgba(232,93,27,.34) 0%, rgba(0,0,0,0) 65%); pointer-events:none; z-index:0;"></div>
-      <div style="position:absolute; bottom:-150px; left:-150px; width:600px; height:600px; background:radial-gradient(circle, rgba(232,93,27,.18) 0%, rgba(0,0,0,0) 65%); pointer-events:none; z-index:0;"></div>
-      <!-- Watermark agresivo OFERTA -->
-      <div data-deco="1" style="position:absolute; top:42%; left:-5%; width:110%; text-align:center; font-family:'Anton',sans-serif; font-size:${g.isStory ? 280 : 230}px; color:rgba(255,255,255,.025); letter-spacing:18px; transform:rotate(-14deg); pointer-events:none; z-index:0;">OFERTA</div>
+    <div style="position:relative; width:${g.w}px; height:${g.h}px; background:linear-gradient(155deg,#fff 0%,#f4f2ed 62%,#e9e5dd 100%); color:${promoInk}; overflow:hidden;">
+      <div data-deco="1" style="position:absolute; top:42%; left:-5%; width:110%; text-align:center; font-family:'Anton',sans-serif; font-size:${g.isStory ? 280 : 230}px; color:rgba(20,20,22,.035); letter-spacing:18px; transform:rotate(-10deg); pointer-events:none; z-index:0;">OFERTA</div>
       ${hero.html}
       ${hero.fullBleed
-        ? scrimHtml({ dark: true, extra: 'radial-gradient(90% 60% at 78% 12%, rgba(232,93,27,.35) 0%, rgba(232,93,27,0) 55%)' })
-        : `<div style="position:absolute; inset:0; z-index:1; background:
-        radial-gradient(90% 60% at 78% 18%, rgba(232,93,27,.35) 0%, rgba(232,93,27,0) 60%),
-        radial-gradient(120% 80% at 20% 100%, rgba(232,93,27,.16) 0%, rgba(0,0,0,0) 55%); pointer-events:none;"></div>`}
-      <div style="position:absolute; top:0; left:0; right:0; height:16px; background:linear-gradient(90deg, #FF6B1A 0%, #C1440C 100%); box-shadow:0 0 25px rgba(232,93,27,.6); z-index:4;"></div>
-      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: false, heightPx: logoHeightPx(g.isStory), top: g.wmTop, left: g.padX })}
+        ? scrimHtml({ dark: false })
+        : ''}
+      <div style="position:absolute; top:0; left:0; right:0; height:12px; background:#E85D1B; z-index:4;"></div>
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: logoHeightPx(g.isStory), top: g.wmTop, left: g.padX })}
       ${badgeTag(opts.badgeText || 'OFERTA', { accent, top: g.wmTop, right: g.padX })}
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
-        ${opts.overlayTitle && opts.price ? `<div style="font-size:${g.isStory ? 34 : 30}px; font-weight:800; letter-spacing:3px; text-transform:uppercase; color:#FF8B4D; margin-bottom:14px; text-shadow:0 2px 10px rgba(0,0,0,.6);">${esc(opts.overlayTitle)}</div>` : ''}
+        ${opts.overlayTitle && opts.price ? `<div style="font-size:${g.isStory ? 34 : 30}px; font-weight:800; letter-spacing:3px; text-transform:uppercase; color:#E85D1B; margin-bottom:14px;">${esc(opts.overlayTitle)}</div>` : ''}
         ${priceBlock}
         ${couponTag(opts.couponCode, { isStory: g.isStory })}
       </div>
-      ${domainHtml(g, { accent })}
+      ${domainHtml(g, { dark: true, accent })}
     </div>
   </body></html>`;
 }
@@ -1361,27 +1358,17 @@ function specChipsHtml(points, g, { marginBottom = 0, onPaper = false } = {}) {
   // en el celular). Ver compactFact.
   const list = (points || []).map((p) => compactFact(p, 30)).filter(Boolean).slice(0, 3);
   if (!list.length) return '';
-  // onPaper: la variante 'marco' de fullbleed va sobre fondo claro — las cápsulas de
-  // vidrio oscuro sobre papel se ven sucias, así que ahí van con tinta oscura.
-  if (onPaper) {
-    const chipClaro = (p) => `<span style="display:inline-flex; align-items:center; gap:${g.isStory ? 11 : 9}px;
-      background:rgba(20,21,25,.06); border:1px solid rgba(20,21,25,.16);
-      border-radius:100px; padding:${g.isStory ? '15px 36px 15px 24px' : '13px 30px 13px 20px'};
-      font-size:${g.isStory ? 30 : 28}px; font-weight:600; letter-spacing:.2px; color:#1c1d21;">${checkSvg('#C1440C', g.isStory ? 24 : 22)}${esc(p)}</span>`;
-    return `<div style="display:flex; flex-wrap:wrap; gap:${g.isStory ? 14 : 11}px; margin-bottom:${marginBottom}px;">${list.map(chipClaro).join('')}</div>`;
-  }
-  const chip = (p) => `<span style="display:inline-flex; align-items:center; gap:${g.isStory ? 11 : 9}px;
-    background:rgba(10,11,14,.5); border:1px solid rgba(255,255,255,.2);
-    backdrop-filter:blur(20px); -webkit-backdrop-filter:blur(20px);
-    /* El padding derecho es más generoso que el izquierdo a propósito: la cápsula cierra
-       en curva y, con el texto justo contra el borde, la última letra se lee cortada. */
-    /* Tamaño pensado para el CELULAR, no para verlo al 100%: en el feed un 1080x1350 se
-       muestra a ~400pt de ancho, así que 22px terminaban siendo ~8pt en pantalla y había
-       que hacer zoom para leerlos. A 30/28px quedan en ~11pt, el mínimo cómodo. */
-    border-radius:100px; padding:${g.isStory ? '15px 36px 15px 24px' : '13px 30px 13px 20px'};
-    font-size:${g.isStory ? 30 : 28}px; font-weight:600; letter-spacing:.2px; color:#fff;
-    box-shadow:0 8px 22px rgba(0,0,0,.35);">${checkSvg('#FF8B4D', g.isStory ? 24 : 22)}${esc(p)}</span>`;
-  return `<div style="display:flex; flex-wrap:wrap; gap:${g.isStory ? 14 : 11}px; margin-bottom:${marginBottom}px;">${list.map(chip).join('')}</div>`;
+  const ink = onPaper ? '#1c1d21' : '#fff';
+  const rule = onPaper ? 'rgba(20,21,25,.22)' : 'rgba(255,255,255,.28)';
+  // Lista editorial, no una colección de pills con tilde: respira mejor y no se ve como
+  // un componente repetido de plantilla. El número funciona como ancla sin prometer que
+  // cada frase sea un "beneficio aprobado".
+  return `<div style="display:grid; gap:0; margin-bottom:${marginBottom}px; max-width:${g.isStory ? 850 : 760}px;">
+    ${list.map((p, i) => `<div style="display:grid; grid-template-columns:${g.isStory ? 52 : 46}px 1fr; align-items:center; gap:${g.isStory ? 18 : 15}px; padding:${g.isStory ? '14px 0' : '11px 0'}; border-top:1px solid ${rule}; color:${ink};">
+      <span style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 27 : 23}px; color:#E85D1B; letter-spacing:1px;">${String(i + 1).padStart(2, '0')}</span>
+      <span style="font-size:${g.isStory ? 30 : 27}px; font-weight:650; line-height:1.22; letter-spacing:.1px;">${esc(p)}</span>
+    </div>`).join('')}
+  </div>`;
 }
 
 /**
@@ -1408,14 +1395,14 @@ function pointsChecklistHtml(points, g, accent) {
   const gap = g.isStory ? (holgado ? 22 : 16) : (holgado ? 16 : 12);
 
   return `<div style="display:flex; flex-direction:column; gap:${gap}px;">
-    ${list.map((p) => `<div style="display:flex; align-items:center; gap:${g.isStory ? 24 : 18}px; background:rgba(255,255,255,.055); border:1px solid rgba(255,255,255,.13); border-radius:${g.isStory ? 24 : 20}px; padding:${padY}px ${g.isStory ? 34 : 26}px;">
-      <span style="flex:0 0 auto; width:${alto}px; height:${alto}px; border-radius:50%; background:linear-gradient(135deg, #FF6B1A 0%, ${accent} 100%); display:flex; align-items:center; justify-content:center; font-size:${Math.round(alto * 0.55)}px; font-weight:800; color:#fff; box-shadow:0 8px 20px rgba(232,93,27,.4);">✓</span>
-      <span style="font-size:${fuente}px; font-weight:700; line-height:1.25; color:rgba(255,255,255,.94); letter-spacing:.3px;">${esc(p)}</span>
+    ${list.map((p, i) => `<div style="display:grid; grid-template-columns:${alto}px 1fr; align-items:center; gap:${g.isStory ? 24 : 18}px; border-top:1px solid rgba(255,255,255,.22); padding:${padY}px 0;">
+      <span style="font-family:'Anton',sans-serif; font-size:${Math.round(alto * 0.62)}px; line-height:1; color:${accent}; letter-spacing:1px;">${String(i + 1).padStart(2, '0')}</span>
+      <span style="font-size:${fuente}px; font-weight:650; line-height:1.25; color:rgba(255,255,255,.94); letter-spacing:.2px;">${esc(p)}</span>
     </div>`).join('')}
   </div>`;
 }
 
-/** MAYORISTA: corporativa oscura con detalles dorados/naranjas, cápsulas de prestigio y CTA de presupuesto. */
+/** MAYORISTA: corporativa clara, ordenada y con un único CTA de presupuesto. */
 function buildMayoristaHtml(opts) {
   const g = sharedGeometry(opts.format);
   const accent = opts.accent || config.brand.colors.darkOrange;
@@ -1423,25 +1410,25 @@ function buildMayoristaHtml(opts) {
   const points = Array.isArray(opts.storyPoints) ? opts.storyPoints.filter(Boolean).slice(0, 3) : [];
 
   const shellOpen = `${headHtml(g.w, g.h)}</head><body>
-    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#fff; overflow:hidden;
-      background:linear-gradient(165deg, #0a0b0e 0%, #13161c 55%, #1c2029 100%);">
-      <div style="position:absolute; top:350px; left:50%; transform:translateX(-50%); width:650px; height:650px; background:radial-gradient(circle, rgba(232,93,27,.18) 0%, rgba(0,0,0,0) 65%); pointer-events:none; z-index:0;"></div>`;
+    <div style="position:relative; width:${g.w}px; height:${g.h}px; color:#151519; overflow:hidden;
+      background:linear-gradient(165deg, #ffffff 0%, #f3f1ec 58%, #e8e4dc 100%);">
+      <div style="position:absolute; top:350px; left:50%; transform:translateX(-50%); width:650px; height:650px; background:radial-gradient(circle, rgba(232,93,27,.10) 0%, rgba(255,255,255,0) 68%); pointer-events:none; z-index:0;"></div>`;
   const chrome = `
-      <div style="position:absolute; top:0; left:0; right:0; height:16px; background:linear-gradient(90deg, #FF6B1A 0%, #C1440C 100%); box-shadow:0 0 25px rgba(232,93,27,.6); z-index:4;"></div>
-      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: false, heightPx: logoHeightPx(g.isStory), top: g.wmTop, left: g.padX })}
-      <div style="position:absolute; top:${g.wmTop}px; right:${g.padX}px; background:rgba(232,93,27,.15); border:1.5px solid ${accent}; color:${accent}; font-weight:800; font-size:18px; padding:10px 22px; border-radius:100px; text-transform:uppercase; letter-spacing:3px; box-shadow:0 8px 24px rgba(232,93,27,.3); z-index:4;">MAYORISTA</div>`;
-  const ctaBtn = `<div style="display:inline-flex; align-items:center; gap:14px; background:linear-gradient(135deg, #FF6B1A 0%, #C1440C 100%); color:#fff; font-weight:800; font-size:${g.isStory ? 32 : 28}px; letter-spacing:2px; padding:18px 38px; border-radius:100px; text-transform:uppercase; box-shadow:0 15px 35px rgba(232,93,27,.5); border:1px solid rgba(255,255,255,.28);">PEDÍ TU PRESUPUESTO <span style="font-size:26px;">→</span></div>`;
+      <div style="position:absolute; top:0; left:0; right:0; height:12px; background:#E85D1B; z-index:4;"></div>
+      ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: logoHeightPx(g.isStory), top: g.wmTop, left: g.padX })}
+      <div style="position:absolute; top:${g.wmTop}px; right:${g.padX}px; color:${accent}; font-weight:800; font-size:18px; text-transform:uppercase; letter-spacing:3px; z-index:4;">MAYORISTA</div>`;
+  const ctaBtn = `<div style="display:inline-flex; align-items:center; gap:14px; background:#E85D1B; color:#fff; font-weight:800; font-size:${g.isStory ? 32 : 28}px; letter-spacing:2px; padding:18px 38px; border-radius:8px; text-transform:uppercase;">PEDÍ TU PRESUPUESTO <span style="font-size:26px;">→</span></div>`;
 
   // SIN FOTO (pieza institucional): nada de hueco en el medio — el título va arriba y
   // el centro se llena con el checklist de condiciones/beneficios REALES (storyPoints).
   if (!hasPhoto) {
     return `${shellOpen}${chrome}
       <div style="position:absolute; top:${g.isStory ? 400 : 230}px; bottom:${g.footBottom + (g.isStory ? 160 : 130)}px; left:${g.padX}px; right:${g.padX}px; display:flex; flex-direction:column; justify-content:center; gap:${g.isStory ? 56 : 40}px; z-index:3;">
-        ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 92 : 72}px; line-height:.98; text-transform:uppercase; color:#fff; text-shadow:0 4px 25px rgba(0,0,0,.8); letter-spacing:.5px;">${esc(opts.overlayTitle)}</div>` : ''}
-        ${pointsChecklistHtml(points, g, accent)}
+        ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 92 : 72}px; line-height:.98; text-transform:uppercase; color:#151519; letter-spacing:.5px;">${esc(opts.overlayTitle)}</div>` : ''}
+        ${specChipsHtml(points, g, { onPaper: true })}
       </div>
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">${ctaBtn}</div>
-      ${domainHtml(g, { accent })}
+      ${domainHtml(g, { dark: true, accent })}
     </div>
   </body></html>`;
   }
@@ -1457,19 +1444,19 @@ function buildMayoristaHtml(opts) {
     productImageUrl: opts.productImageUrl,
     box: { top: g.isStory ? 350 : 230, bottom: mayoBottom, left: g.padX, right: g.padX },
     shadow: 'rgba(0,0,0,.65)',
-    darkBg: true,
+    darkBg: false,
   });
-  const pointsLine = specChipsHtml(points, g, { marginBottom: g.isStory ? 26 : 20 });
+  const pointsLine = specChipsHtml(points, g, { marginBottom: g.isStory ? 26 : 20, onPaper: true });
 
   return `${shellOpen}
       ${hero.html}
-      ${hero.fullBleed ? scrimHtml({ dark: true }) : ''}${chrome}
+      ${hero.fullBleed ? scrimHtml({ dark: false }) : ''}${chrome}
       <div style="position:absolute; left:${g.padX}px; right:${g.padX}px; bottom:${g.footBottom}px; z-index:4;">
         ${pointsLine}
-        ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 78 : 64}px; line-height:.96; text-transform:uppercase; color:#fff; max-width:94%; text-shadow:0 4px 25px rgba(0,0,0,.8); letter-spacing:.5px;">${esc(opts.overlayTitle)}</div>` : ''}
+        ${opts.overlayTitle ? `<div style="font-family:'Anton',sans-serif; font-size:${g.isStory ? 78 : 64}px; line-height:.96; text-transform:uppercase; color:#151519; max-width:94%; letter-spacing:.5px;">${esc(opts.overlayTitle)}</div>` : ''}
         <div style="margin-top:${g.isStory ? 40 : 30}px;">${ctaBtn}</div>
       </div>
-      ${domainHtml(g, { accent })}
+      ${domainHtml(g, { dark: true, accent })}
     </div>
   </body></html>`;
 }

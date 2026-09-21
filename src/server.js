@@ -357,7 +357,7 @@ app.get('/api/calendar', wrap(async (req, res) => {
 
   const { rows } = await pool.query(
     `SELECT c.*,
-            a.id as asset_id, a.caption, a.hashtags, a.cta, a.image_path, a.video_path,
+            a.id as asset_id, a.product_id, a.caption, a.hashtags, a.cta, a.image_path, a.video_path,
             a.meta_post_id, a.status as asset_status, a.format as asset_format, a.slides, a.slides_meta,
             a.edited_video_path, a.edit_status, a.voiceover_path, a.est_cost_usd, a.gen_model, a.qa_notes, a.sticker,
             p.name as product_name, p.image_url as product_image_url, p.price as product_price, p.stock as product_stock,
@@ -1898,11 +1898,46 @@ app.post('/api/products/sync', wrap(async (req, res) => {
 }));
 
 app.get('/api/products', wrap(async (req, res) => {
-  const search = req.query.q ? `%${req.query.q}%` : '%';
+  const raw = String(req.query.q || '').trim().slice(0, 120);
+  // Si pegan la URL pública, buscamos por el último tramo (el permalink) en vez de
+  // exigir que palabras del dominio como "https", "com" o "productos" existan en
+  // la ficha. En URLs del administrador también rescatamos un id numérico largo.
+  let searchSource = raw;
+  let urlNumericId = 0;
+  if (/^https?:\/\//i.test(raw)) {
+    try {
+      const parsed = new URL(raw);
+      const segments = parsed.pathname.split('/').map((s) => decodeURIComponent(s).trim()).filter(Boolean);
+      const slug = [...segments].reverse().find((s) => !['productos', 'products', 'admin'].includes(s.toLowerCase()));
+      if (slug) searchSource = slug;
+      const numericSegment = [...segments].reverse().find((s) => /^\d{5,}$/.test(s));
+      if (numericSegment) urlNumericId = Number(numericSegment);
+    } catch (_) { /* una URL mal formada sigue funcionando como búsqueda de texto */ }
+  }
+  const normalized = searchSource.normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase()
+    .replace(/[^a-z0-9]+/g, ' ').trim();
+  const words = normalized.split(/\s+/).filter((w) => w.length >= 2).slice(0, 8);
+  const patterns = words.length ? words.map((w) => `%${w}%`) : ['%'];
+  const numericId = urlNumericId || (/^\d+$/.test(searchSource) ? Number(searchSource) : 0);
+  // Busca como escribe una persona: sin importar tildes, por varias palabras, marca,
+  // categoría, handle/URL o id de Tiendanube. Antes era un único ILIKE sobre `name`:
+  // "chomba micropique" no encontraba una ficha si el catálogo tenía otra puntuación,
+  // y pegar la URL de Tiendanube no servía para nada.
+  const haystack = `translate(lower(concat_ws(' ', name, COALESCE(brand,''), COALESCE(category,''), COALESCE(permalink,''), id::text)), 'áéíóúñü', 'aeiounu')`;
+  const nameNorm = `translate(lower(name), 'áéíóúñü', 'aeiounu')`;
   const { rows } = await pool.query(
-    `SELECT id, name, brand, category, price, stock, image_url
-     FROM products_cache WHERE published IS NOT FALSE AND name ILIKE $1 ORDER BY synced_at DESC LIMIT 50`,
-    [search]
+    `SELECT id, name, brand, category, price, promo_price, stock, image_url, permalink, synced_at
+       FROM products_cache
+      WHERE published IS NOT FALSE
+        AND ($2::bigint > 0 AND id = $2 OR ${haystack} LIKE ALL($1::text[]))
+      ORDER BY CASE
+        WHEN $2::bigint > 0 AND id = $2 THEN 0
+        WHEN ${nameNorm} = $3 THEN 1
+        WHEN ${nameNorm} LIKE ($3 || '%') THEN 2
+        ELSE 3 END,
+        COALESCE(stock, 0) DESC, synced_at DESC
+      LIMIT 50`,
+    [patterns, numericId, normalized]
   );
   res.json(rows);
 }));
@@ -1996,11 +2031,26 @@ app.post('/api/generate/:calendarId', wrap(async (req, res) => {
   const body = req.body || {};
   const newDetail = typeof body.pillarDetail === 'string' ? body.pillarDetail.trim() : null;
   const newTheme = typeof body.theme === 'string' ? body.theme.trim() : null;
+  const hasProductSelection = body.productIds !== undefined || body.product_ids !== undefined || body.product_id !== undefined;
+  const selectedProductIds = hasProductSelection
+    ? idListParam(body.productIds ?? body.product_ids, body.product_id)
+    : null;
   if (newDetail || newTheme) {
     await pool.query(
       `UPDATE content_calendar SET pillar_detail = COALESCE($2, pillar_detail), theme_title = COALESCE($3, theme_title) WHERE id = $1`,
       [id, newDetail, newTheme]
     );
+  }
+  // El modal de regeneración también permite corregir el producto. Se persiste ANTES
+  // de disparar el trabajo para que la generación use exactamente la ficha elegida y
+  // no vuelva a pasar por el matcheo automático. Una lista vacía vuelve a automático.
+  if (hasProductSelection) {
+    await pool.query(
+      `UPDATE content_calendar SET forced_product_id = $2, forced_product_ids = $3::jsonb WHERE id = $1`,
+      [id, selectedProductIds[0] || null, JSON.stringify(selectedProductIds)]
+    );
+  }
+  if (newDetail || newTheme || hasProductSelection) {
     const { rows: r2 } = await pool.query('SELECT * FROM content_calendar WHERE id = $1', [id]);
     slot = r2[0];
   }

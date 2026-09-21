@@ -1620,7 +1620,7 @@ function renderCard(item) {
     `<span class="badge commercial" title="${esc(d.angle || '')}">${icon('tag')} ${esc(d.title)}</span>`
   ).join('');
 
-  const regenBtn = `<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Regenerar</button>`;
+  const regenBtn = `<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Rehacer pieza</button>`;
   // Siempre disponible si hay imagen/video: para retocar en el celular (stickers,
   // música) o publicar a mano.
   const downloadBtn = (aid && (item.image_path || item.video_path))
@@ -1637,8 +1637,10 @@ function renderCard(item) {
     ? `<button class="btn-ghost btn-sm" data-act="uploadvideo" data-id="${aid}">${icon('upload')} Subir video</button>` : '';
   const editVideoBtn = (item.post_type === 'reel' && aid && item.video_path)
     ? `<button class="btn-ghost btn-sm" data-act="editvideo" data-id="${aid}">${icon('film')} Subtítulos${item.edit_status === 'done' ? ' ✓' : ''}</button>` : '';
-  const planBtn = status !== 'published'
-    ? `<button class="btn-ghost btn-sm" data-act="planslot" data-id="${item.id}">${icon('calendar')} Planificar</button>` : '';
+  // Una vez generada, la pieza se trabaja desde Editor / Rehacer. Repetir "Planificar"
+  // en cada estado hacía parecer que eran tres caminos distintos para la misma tarea.
+  const planBtn = status !== 'published' && !aid
+    ? `<button class="btn-ghost btn-sm" data-act="planslot" data-id="${item.id}">${icon('calendar')} Editar planificación</button>` : '';
   const moreMenu = (content) => content ? `<details class="piece-menu">
     <summary class="btn-ghost btn-sm">••• <span>Más</span></summary>
     <div class="piece-menu-pop">${content}</div></details>` : '';
@@ -1695,6 +1697,17 @@ function renderCard(item) {
     ? `<div class="caption">${esc(item.caption)}</div>${item.hashtags ? `<div class="hashtags">${esc(item.hashtags)}</div>` : ''}`
     : `<div class="caption empty">${esc(item.pillar_detail || 'Todavía sin generar.')}</div>`;
 
+  // Lectura por capas: arriba queda sólo lo que ayuda a decidir qué hacer. Pilar,
+  // audiencia, costo y fechas comerciales siguen disponibles, pero no compiten todos
+  // como una pared de badges.
+  const primaryMeta = `<span class="badge type">${typeLabel(item)}</span>${statusBadge}${forcedProductBadge}${qaBadge}${missedBadge}`;
+  const secondaryMeta = `<span class="badge pillar">${esc(item.pillar)}</span>
+    ${item.objective ? `<span class="badge objective" title="Qué busca esta pieza">${esc(item.objective)}</span>` : ''}
+    ${commercialBadge}${dateBadges}${item.scheduled_time ? `<span class="badge time">${icon('clock')} ${esc(item.scheduled_time)} hs</span>` : ''}
+    ${autoBadge}${costBadge}${modelBadge}`;
+  const metaDetails = secondaryMeta.replace(/\s/g, '')
+    ? `<details class="meta-more"><summary>Ver detalles</summary><div class="meta-more-body">${secondaryMeta}</div></details>` : '';
+
   // Check para las acciones en lote: sólo en lo que todavía se puede tocar.
   const checkbox = selectableItem(item)
     ? `<label class="card-check" title="Seleccionar para aprobar/descartar en lote">
@@ -1704,18 +1717,12 @@ function renderCard(item) {
   card.innerHTML = `
     ${checkbox}
     <div>${renderPreview(item)}</div>
-    <div class="body">
-      <div class="meta-row">
-        <span class="badge type">${typeLabel(item)}</span>
+      <div class="body">
+      <div class="meta-row meta-primary">
         ${carouselBadge(item)}
-        <span class="badge pillar">${esc(item.pillar)}</span>
-        ${item.objective ? `<span class="badge objective" title="Qué busca esta pieza">${esc(item.objective)}</span>` : ''}
-        ${commercialBadge}
-        ${forcedProductBadge}
-        ${dateBadges}
-        ${item.scheduled_time ? `<span class="badge time">${icon('clock')} ${esc(item.scheduled_time)} hs</span>` : ''}
-        ${autoBadge}${statusBadge}${missedBadge}${costBadge}${modelBadge}${qaBadge}
+        ${primaryMeta}
       </div>
+      ${metaDetails}
       ${caption}
       ${interaction}
       ${reelNote}
@@ -1879,20 +1886,20 @@ function readPlanForm(overlay) {
   };
 }
 
-/** Búsqueda de producto real de Tiendanube para fijarlo a un slot de pilar 'producto'. */
-async function planProductSearch(overlay, q, onPick) {
-  const out = overlay.querySelector('#plan-product-results');
+/** Catálogo real de Tiendanube. Acepta nombre, varias palabras, marca, URL/handle o id. */
+async function catalogProductSearch(overlay, q, onPick, resultsId = 'plan-product-results') {
+  const out = overlay.querySelector(`#${resultsId}`);
   if (!out) return;
   if (!q || q.length < 2) { out.innerHTML = ''; return; }
   try {
     const rows = await api(`/api/products?q=${encodeURIComponent(q)}`);
     out.innerHTML = rows.slice(0, 8).map((p) => `
-      <div class="prod-row plan-prod-result" data-id="${p.id}" style="cursor:pointer;">
+      <div class="prod-row catalog-prod-result" data-id="${p.id}" style="cursor:pointer;">
         <img src="${esc(p.image_url || '')}" onerror="this.style.visibility='hidden'"/>
         <div class="prod-info"><div class="prod-name">${esc(p.name)}</div>
           <div class="prod-sub">${esc(p.brand || '')} · stock ${p.stock ?? '∞'}</div></div>
       </div>`).join('') || '<p class="hint">Sin resultados.</p>';
-    out.querySelectorAll('.plan-prod-result').forEach((r) => r.addEventListener('click', () => {
+    out.querySelectorAll('.catalog-prod-result').forEach((r) => r.addEventListener('click', () => {
       const p = rows.find((x) => String(x.id) === String(r.dataset.id));
       if (p) onPick(p);
     }));
@@ -2200,7 +2207,7 @@ function openPlanSlot(item = null) {
   overlay.querySelector('#plan-product-search').addEventListener('input', (e) => {
     clearTimeout(planProductTimer);
     const q = e.target.value.trim();
-    planProductTimer = setTimeout(() => planProductSearch(overlay, q, (p) => {
+    planProductTimer = setTimeout(() => catalogProductSearch(overlay, q, (p) => {
       // Cuatro es el tope: con más, alguna prenda queda de adorno en la pieza.
       if (chosenProducts.some((x) => String(x.id) === String(p.id))) { toast('Ese producto ya está en la lista.'); return; }
       if (chosenProducts.length >= 4) { toast('Máximo 4 productos por pieza.', 'err'); return; }
@@ -2384,23 +2391,38 @@ async function regenSuggestions(item) {
 function openRegen(item) {
   if (!item) return;
   const current = item.pillar_detail || item.theme_title || '';
+  let regenProducts = (Array.isArray(item.forced_products) ? item.forced_products : [])
+    .map((p) => ({ id: p.id, name: p.name, image_url: p.image_url }));
+  if (!regenProducts.length && item.product_id && item.product_name) {
+    regenProducts = [{ id: item.product_id, name: item.product_name, image_url: item.product_image_url }];
+  }
   // Chips iniciales: el fallback instantáneo; después se reemplazan por los inteligentes.
   const initial = REGEN_FALLBACK[item.pillar] || ['Enfoque en beneficios', 'Enfoque en temporada'];
   const body = `
-    <p class="hint" style="margin-top:0;">Pilar: <b>${esc(item.pillar)}</b> · ${typeLabel(item)}. Cambiá el tema/ángulo y la IA vuelve a generar el texto y la imagen.</p>
+    <p class="hint" style="margin-top:0;">Pilar: <b>${esc(item.pillar)}</b> · ${typeLabel(item)}. Podés cambiar el enfoque o fijar otro producto exacto antes de crear la nueva versión.</p>
     <div class="field">
       <label>Tema / ángulo de esta pieza</label>
       <textarea class="input" id="regen-detail" placeholder="Ej: Botines con puntera para la construcción">${esc(current)}</textarea>
       <div class="chips-suggest" id="regen-chips">${initial.map((s) => `<span class="chip-suggest" data-s="${esc(s)}">${esc(s)}</span>`).join('')}
         <span class="chip-suggest loading" style="pointer-events:none; opacity:.6;">${icon('refresh', 'spin')} recomendaciones…</span></div>
     </div>
+    <div class="field" id="regen-product-field">
+      <label>Producto exacto de Tiendanube <span class="optional">opcional</span></label>
+      <div id="regen-product-chosen"></div>
+      <input class="input" id="regen-product-search" placeholder="Buscar por nombre, URL o id de Tiendanube…" autocomplete="off" />
+      <div id="regen-product-results"></div>
+      <p class="hint" style="margin-top:6px;">Si elegís uno, la generación usa exactamente ese artículo y sus fotos. Si lo dejás vacío, vuelve a elegir automáticamente.</p>
+    </div>
+    <details class="regen-advanced">
+      <summary>Opciones visuales avanzadas</summary>
+      <div class="regen-advanced-body">
     <div class="field">
       <label>Plantilla visual</label>
       <select class="input" id="regen-template">
         <option value="">Automática (según pilar)</option>
         <option value="fullbleed">Full-bleed — foto a sangre + precio</option>
         <option value="minimal">Minimal — estudio claro, evergreen</option>
-        <option value="promo">Promo — oscura, % OFF gigante</option>
+        <option value="promo">Promo — clara, oferta protagonista</option>
         <option value="educativo">Educativa — tipográfica clara</option>
         <option value="mayorista">Mayorista — corporativa + presupuesto</option>
         <option value="grid">Grid — bento de varias fotos reales</option>
@@ -2436,13 +2458,40 @@ function openRegen(item) {
     </div>
     <div class="field" id="regen-artbrief-wrap" style="display:none;">
       <label>Indicación para la imagen <span class="hint" style="font-weight:400;">(opcional)</span></label>
-      <textarea class="input" id="regen-artbrief" placeholder="Ej: taller mecánico de noche, luz naranja de contraluz, mucho humo y chispas"></textarea>
+      <textarea class="input" id="regen-artbrief" placeholder="Ej: estudio gris claro, luz natural lateral, prenda completa y mucho aire"></textarea>
     </div>
-    <div style="display:flex; gap:8px; justify-content:flex-end;">
+      </div>
+    </details>
+    <div class="regen-actions">
       <button class="btn-discard" id="regen-cancel">Cancelar</button>
-      <button class="btn-primary" id="regen-go">${icon('wand')} Regenerar con IA ${costTag(genCostLabel())}</button>
+      <button class="btn-primary" id="regen-go">${icon('wand')} Crear nueva versión ${costTag(genCostLabel())}</button>
     </div>`;
-  const overlay = showInfoModal('Regenerar pieza', body);
+  const overlay = showInfoModal('Rehacer pieza', body);
+  const renderRegenProduct = () => {
+    const box = overlay.querySelector('#regen-product-chosen');
+    box.innerHTML = regenProducts.length ? regenProducts.map((p) => `<div class="prod-row chosen-product">
+      <img src="${esc(p.image_url || '')}" onerror="this.style.visibility='hidden'" />
+      <div class="prod-info"><div class="prod-name">${esc(p.name || '')}</div><div class="prod-sub">Artículo fijado · no se reemplaza automáticamente</div></div>
+      <button type="button" class="btn-ghost btn-sm" data-regen-remove="${p.id}">${icon('x')} Quitar</button>
+    </div>`).join('') : '';
+    box.querySelectorAll('[data-regen-remove]').forEach((b) => b.addEventListener('click', () => {
+      regenProducts = regenProducts.filter((p) => String(p.id) !== String(b.dataset.regenRemove));
+      renderRegenProduct();
+    }));
+    hydrateIcons(box);
+  };
+  renderRegenProduct();
+  let regenProductTimer;
+  overlay.querySelector('#regen-product-search').addEventListener('input', (e) => {
+    clearTimeout(regenProductTimer);
+    const q = e.target.value.trim();
+    regenProductTimer = setTimeout(() => catalogProductSearch(overlay, q, (p) => {
+      regenProducts = [{ id: p.id, name: p.name, image_url: p.image_url }];
+      renderRegenProduct();
+      overlay.querySelector('#regen-product-search').value = '';
+      overlay.querySelector('#regen-product-results').innerHTML = '';
+    }, 'regen-product-results'), 260);
+  });
   const wireChips = () => overlay.querySelectorAll('.chip-suggest:not(.loading)').forEach((c) =>
     c.addEventListener('click', () => { overlay.querySelector('#regen-detail').value = c.dataset.s; }));
   wireChips();
@@ -2485,6 +2534,7 @@ function openRegen(item) {
           artMode: artSel.value || undefined,
           artBrief: artSel.value === 'generativa' ? (overlay.querySelector('#regen-artbrief').value.trim() || undefined) : undefined,
           carouselStyle: overlay.querySelector('#regen-carousel').value || undefined,
+          productIds: regenProducts.map((p) => p.id),
         }),
       });
       // Segundo plano: cerramos el modal ya y el panel muestra "generando" hasta que
@@ -2492,7 +2542,7 @@ function openRegen(item) {
       overlay.remove();
       toast('Generando en segundo plano… seguí usando el panel', 'ok');
       markGenerating(item.id);
-    } catch (e) { toast(e.message, 'err'); go.disabled = false; go.innerHTML = `${icon('wand')} Regenerar con IA`; }
+    } catch (e) { toast(e.message, 'err'); go.disabled = false; go.innerHTML = `${icon('wand')} Crear nueva versión`; }
   });
 }
 
@@ -3684,11 +3734,15 @@ function editContinuityHtml(item) {
   const prev = ordered.slice(0, Math.max(0, idx)).reverse().find((x) => x.caption);
   const next = ordered.slice(idx + 1).find((x) => x.pillar_detail || x.theme_title || x.caption);
   const row = (label, value) => value ? `<div class="continuity-item"><b>${label}</b><span>${esc(value)}</span></div>` : '';
-  return `<h4>${icon('route')} Continuidad editorial</h4>
-    ${row('Viene de', prev && prev.caption)}
-    ${row('Esta pieza', item.pillar_detail || item.theme_title || item.caption)}
-    ${row('Prepara', next && (next.pillar_detail || next.theme_title || next.caption))}
-    <p class="hint" style="padding:0;margin:8px 0 0;font-size:10.5px;">Las alternativas usan este contexto y evitan los arranques recientes.</p>`;
+  return `<details>
+    <summary>${icon('route')} Contexto editorial</summary>
+    <div class="continuity-body">
+      ${row('Viene de', prev && prev.caption)}
+      ${row('Esta pieza', item.pillar_detail || item.theme_title || item.caption)}
+      ${row('Prepara', next && (next.pillar_detail || next.theme_title || next.caption))}
+      <p class="hint" style="padding:0;margin:8px 0 0;font-size:10.5px;">Las alternativas usan este contexto y evitan los arranques recientes.</p>
+    </div>
+  </details>`;
 }
 
 function updateEditCount() {

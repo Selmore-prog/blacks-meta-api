@@ -188,13 +188,13 @@ function buildRecorteHtml(opts, g, head) {
     : Math.round(h * (isStory ? 0.605 : 0.590));
 
   return `${head}
-  <body style="position:relative; width:${w}px; height:${h}px; background:#0B0B0D; overflow:hidden;">
-    <!-- fondo: carbón con halo cálido detrás de la prenda -->
+  <body style="position:relative; width:${w}px; height:${h}px; background:#F3F1EC; overflow:hidden;">
+    <!-- fondo editorial claro: la prenda conserva color y detalle aun con poco brillo -->
     <div style="position:absolute; inset:0; background:
-      radial-gradient(120% 80% at 50% 30%, #2A2018 0%, #141416 45%, #0B0B0D 100%);"></div>
+      radial-gradient(120% 80% at 50% 30%, #FFFFFF 0%, #F3F1EC 58%, #E8E4DC 100%);"></div>
     <div style="position:absolute; left:50%; top:${Math.round(h * 0.30)}px; transform:translate(-50%,-50%);
       width:${Math.round(w * 1.1)}px; height:${Math.round(w * 1.1)}px; border-radius:50%;
-      background:radial-gradient(circle, ${ACCENT}44 0%, transparent 62%); z-index:1;"></div>
+      background:radial-gradient(circle, ${ACCENT}20 0%, transparent 64%); z-index:1;"></div>
 
     ${kicker ? `<div style="position:absolute; top:${Math.round(h * (isStory ? 0.155 : 0.105))}px; left:0; right:0;
       z-index:2; text-align:center; font-family:'Inter',sans-serif; font-weight:700;
@@ -210,12 +210,12 @@ function buildRecorteHtml(opts, g, head) {
     -->
     ${fitted ? `
     <div style="position:absolute; top:${l1Top}px; left:${g.padX}px; right:${g.padX}px; z-index:2; text-align:left;
-      font-family:'Anton',sans-serif; font-size:${fitted.size}px; line-height:.86; color:#fff;
+      font-family:'Anton',sans-serif; font-size:${fitted.size}px; line-height:.86; color:${INK};
       text-transform:uppercase; letter-spacing:-1px; white-space:nowrap;
       text-shadow:0 8px 40px rgba(0,0,0,.55);">${esc(fitted.l1)}</div>
     ${fitted.l2 ? `<div style="position:absolute; top:${l2Top}px; left:${g.padX}px; right:${g.padX}px; z-index:2; text-align:right;
       font-family:'Anton',sans-serif; font-size:${fitted.size}px; line-height:.86; color:transparent;
-      -webkit-text-stroke:2px rgba(255,255,255,.62); text-transform:uppercase; letter-spacing:-1px;
+      -webkit-text-stroke:2px rgba(10,10,10,.42); text-transform:uppercase; letter-spacing:-1px;
       white-space:nowrap;">${esc(fitted.l2)}</div>` : ''}` : ''}
 
     <!-- LA PRENDA, por encima del titular -->
@@ -226,12 +226,12 @@ function buildRecorteHtml(opts, g, head) {
       z-index:6; display:flex; ${isStory
         ? 'flex-direction:column; align-items:flex-start; gap:16px;'
         : 'align-items:flex-end; justify-content:space-between; gap:20px;'}">
-      ${priceBlock(opts.price, opts.promoPrice, { size: isStory ? 84 : 74 })}
+      ${priceBlock(opts.price, opts.promoPrice, { size: isStory ? 84 : 74, dark: false })}
       <div style="font-family:'Inter',sans-serif; font-weight:700; font-size:${isStory ? 22 : 19}px;
-        letter-spacing:2.5px; color:rgba(255,255,255,.5); ${isStory ? '' : 'padding-bottom:8px;'}">BLACKSINDUMENTARIA.COM.AR</div>
+        letter-spacing:2.5px; color:rgba(10,10,10,.48); ${isStory ? '' : 'padding-bottom:8px;'}">BLACKSINDUMENTARIA.COM.AR</div>
     </div>
 
-    ${opts.showBrand ? markSmall(opts.logos && opts.logos.light, { top: isStory ? g.safeTop + 10 : 52, left: g.padX, height: isStory ? 52 : 44 }) : ''}
+    ${opts.showBrand ? markSmall(opts.logos && opts.logos.onLight, { top: isStory ? g.safeTop + 10 : 52, left: g.padX, height: isStory ? 52 : 44, dark: false }) : ''}
     ${grain(0.18)}
   </body></html>`;
 }
@@ -291,29 +291,29 @@ function buildFichaHtml(opts, g, head) {
         width:10px; height:10px; border-radius:50%; background:${ACCENT}; box-shadow:0 0 0 5px ${ACCENT}33;"></div>
       <div style="position:absolute; top:${y}px; ${isLeft ? `left:${g.padX + 8}px` : `right:${g.padX + 8}px`};
         width:${lineLen}px; height:1px; background:linear-gradient(${isLeft ? 'to right' : 'to left'},
-        rgba(255,255,255,.15), rgba(255,255,255,.5)); z-index:5;"></div>
+        rgba(10,10,10,.14), rgba(10,10,10,.48)); z-index:5;"></div>
       <div style="position:absolute; top:${y - (isStory ? 54 : 48)}px;
         ${isLeft ? `left:${g.padX + 8}px` : `right:${g.padX + 8}px; text-align:right;`}
         max-width:${Math.round(w * 0.33)}px; z-index:7;">
         <div style="font-family:'Inter',sans-serif; font-weight:800; font-size:${isStory ? 25 : 22}px;
-          color:#fff; line-height:1.2;">${esc(s)}</div>
+          color:${INK}; line-height:1.2;">${esc(s)}</div>
       </div>`;
   }).join('');
 
   return `${head}
-  <body style="position:relative; width:${w}px; height:${h}px; background:#0C0C0F; overflow:hidden;">
+  <body style="position:relative; width:${w}px; height:${h}px; background:#F1F0EC; overflow:hidden;">
     <div style="position:absolute; inset:0; background:
-      radial-gradient(90% 60% at 50% 42%, #1C1C21 0%, #0C0C0F 70%);"></div>
+      radial-gradient(90% 60% at 50% 42%, #FFFFFF 0%, #F1F0EC 72%);"></div>
     <!-- retícula técnica muy sutil: da lenguaje de plano sin el look de planilla -->
     <div style="position:absolute; inset:0; opacity:.16;
-      background-image:linear-gradient(rgba(255,255,255,.10) 1px, transparent 1px),
-                       linear-gradient(90deg, rgba(255,255,255,.10) 1px, transparent 1px);
+      background-image:linear-gradient(rgba(10,10,10,.10) 1px, transparent 1px),
+                       linear-gradient(90deg, rgba(10,10,10,.10) 1px, transparent 1px);
       background-size:${isStory ? 90 : 78}px ${isStory ? 90 : 78}px;"></div>
 
     <div style="position:absolute; top:${isStory ? g.safeTop + 4 : 50}px; left:${g.padX}px; right:${g.padX}px; z-index:7;
       display:flex; align-items:baseline; justify-content:space-between; gap:20px;">
       <div style="font-family:'Anton',sans-serif; font-size:${isStory ? 62 : 54}px; line-height:1;
-        color:#fff; text-transform:uppercase; letter-spacing:-.5px; max-width:${Math.round(w * 0.72)}px;">${esc(title)}</div>
+        color:${INK}; text-transform:uppercase; letter-spacing:-.5px; max-width:${Math.round(w * 0.72)}px;">${esc(title)}</div>
       <div style="font-family:'Inter',sans-serif; font-weight:700; font-size:${isStory ? 20 : 17}px;
         letter-spacing:4px; color:${ACCENT}; white-space:nowrap;">FICHA</div>
     </div>
@@ -325,9 +325,9 @@ function buildFichaHtml(opts, g, head) {
       z-index:7; display:flex; ${isStory
         ? 'flex-direction:column; align-items:flex-start; gap:14px;'
         : 'align-items:flex-end; justify-content:space-between; gap:20px;'}">
-      ${priceBlock(opts.price, opts.promoPrice, { size: isStory ? 78 : 68 })}
+      ${priceBlock(opts.price, opts.promoPrice, { size: isStory ? 78 : 68, dark: false })}
       <div style="font-family:'Inter',sans-serif; font-weight:700; font-size:${isStory ? 21 : 18}px;
-        letter-spacing:2.5px; color:rgba(255,255,255,.45); padding-bottom:6px;">BLACKSINDUMENTARIA.COM.AR</div>
+        letter-spacing:2.5px; color:rgba(10,10,10,.45); padding-bottom:6px;">BLACKSINDUMENTARIA.COM.AR</div>
     </div>
     ${grain(0.16)}
   </body></html>`;
@@ -412,13 +412,13 @@ function buildEditorialHtml(opts, g, head) {
   const bullets = fit ? fit.lista : [];
 
   return `${head}
-  <body style="position:relative; width:${w}px; height:${h}px; background:#101014; overflow:hidden;">
+  <body style="position:relative; width:${w}px; height:${h}px; background:#F4F2ED; overflow:hidden;">
     <div style="position:absolute; inset:0; background:
-      linear-gradient(155deg, #1A1A20 0%, #101014 52%, #0A0A0C 100%);"></div>
+      linear-gradient(155deg, #FFFFFF 0%, #F4F2ED 52%, #E9E5DD 100%);"></div>
     <!-- número gigante de fondo: llena el vacío y da ritmo editorial -->
     ${stepNumber ? `<div style="position:absolute; right:${-Math.round(w * 0.06)}px; bottom:${-Math.round(h * 0.10)}px;
       font-family:'Anton',sans-serif; font-size:${Math.round(h * 0.52)}px; line-height:.8; z-index:1;
-      color:transparent; -webkit-text-stroke:3px rgba(255,255,255,.07);">${esc(stepNumber)}</div>` : ''}
+      color:transparent; -webkit-text-stroke:3px rgba(10,10,10,.07);">${esc(stepNumber)}</div>` : ''}
     <!-- franja de acento diagonal -->
     <div style="position:absolute; left:0; top:${Math.round(h * (isStory ? 0.52 : 0.50))}px; width:${w}px; height:${isStory ? 10 : 8}px;
       background:linear-gradient(90deg, ${ACCENT} 0%, ${ACCENT}00 78%); z-index:2;"></div>
@@ -437,9 +437,9 @@ function buildEditorialHtml(opts, g, head) {
         font-size:${isStory ? 24 : 21}px; letter-spacing:5px; color:${ACCENT}; margin-bottom:${isStory ? 26 : 22}px;">
         ${esc(String(kicker).toUpperCase())}</div>
       <div style="font-family:'Anton',sans-serif; font-size:${isStory ? 104 : 92}px; line-height:.92;
-        color:#fff; text-transform:uppercase; letter-spacing:-1px;">${esc(title)}</div>
+        color:${INK}; text-transform:uppercase; letter-spacing:-1px;">${esc(title)}</div>
       ${deck ? `<div style="margin-top:${isStory ? 26 : 22}px; font-family:'Inter',sans-serif; font-weight:500;
-        font-size:${isStory ? 32 : 28}px; line-height:1.42; color:rgba(255,255,255,.62);
+        font-size:${isStory ? 32 : 28}px; line-height:1.42; color:rgba(10,10,10,.62);
         max-width:${Math.round(w * (cut ? 0.60 : 0.78))}px;">${esc(deck)}</div>` : ''}
     </div>
 
@@ -449,13 +449,13 @@ function buildEditorialHtml(opts, g, head) {
         <span style="font-family:'Anton',sans-serif; font-size:${fit.n}px; line-height:1;
           color:${ACCENT}; min-width:${isStory ? 44 : 38}px;">${String(i + 1).padStart(2, '0')}</span>
         <span style="font-family:'Inter',sans-serif; font-weight:600; font-size:${fit.f}px;
-          line-height:1.32; color:rgba(255,255,255,.88);">${esc(b)}</span>
+          line-height:1.32; color:rgba(10,10,10,.86);">${esc(b)}</span>
       </div>`).join('')}
     </div>` : ''}
 
     <div style="position:absolute; left:${g.padX}px; bottom:${isStory ? g.safeBottom + 50 : 58}px; z-index:6;
       font-family:'Inter',sans-serif; font-weight:700; font-size:${isStory ? 21 : 18}px;
-      letter-spacing:2.5px; color:rgba(255,255,255,.42);">BLACKSINDUMENTARIA.COM.AR</div>
+      letter-spacing:2.5px; color:rgba(10,10,10,.42);">BLACKSINDUMENTARIA.COM.AR</div>
     ${grain(0.15)}
   </body></html>`;
 }

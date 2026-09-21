@@ -827,11 +827,11 @@ const SCENE_POOL = {
   ],
   luz: [
     'sol bajo de la tarde entrando rasante por el portón: sombras largas, tonos cálidos y bordes dorados',
-    'mediodía con haces de luz volumétrica cayendo desde tragaluces altos, polvo en suspensión visible',
-    'amanecer frío con neblina suave: luz azulada, contraste bajo y ambiente callado',
-    'noche de taller: lámparas halógenas colgantes que arman islas de luz cálida sobre fondo en penumbra',
+    'mediodía con luz natural amplia entrando desde tragaluces altos, exposición pareja y sombras abiertas',
+    'mañana luminosa con luz neutra y difusa: colores fieles, contraste medio y ambiente sereno',
+    'taller durante el día: portón abierto y softbox lateral grande, producto nítido sobre fondo gris medio',
     'día nublado de luz pareja y difusa, colores naturales desaturados tipo documental',
-    'contraluz dramático desde una abertura: siluetas recortadas con rim light y flare sutil',
+    'luz lateral suave desde una abertura amplia, relleno frontal y separación limpia del fondo',
   ],
   camara: [
     'ángulo bajo (contrapicado suave) que le da presencia y solidez al sujeto',
@@ -913,7 +913,8 @@ function videoSceneFor(name, seed = null) {
 function photoRealismRules() {
   return `REALISMO FOTOGRÁFICO Y DINÁMICA (que se sienta una FOTO real de campaña, no un render 3D):
 - Textura auténtica: si hay piel, con poros y micro-relieve real; la tela con fibras, frisa y caída natural del tejido; grano de película sutil (Kodak Portra). NADA de acabado plástico/CGI ni "piel de cera".
-- Luz creíble e imperfecta: una fuente principal coherente, sombras suaves reales, y —si el escenario lo pide— un leve flare, halo o polvo en suspensión. Evitá la luz plana de catálogo muerto.
+- CLARIDAD ANTES QUE CLIMA: una fuente principal amplia, neutra y bien expuesta sobre el producto. El color, la trama, el cuello, las costuras y la silueta tienen que reconocerse aun en una pantalla de celular con poco brillo.
+- Sombras suaves y abiertas, con detalle. PROHIBIDO resolver el interés visual con penumbra, flare, destellos, humo, chispas, haces volumétricos o contraluces que apaguen la prenda.
 - ENERGÍA Y MOVIMIENTO: buscá una toma con vida — un pliegue de tela en movimiento, una pose natural a medio gesto, peso real sobre el cuerpo o la superficie. Dinámica y con profundidad, NUNCA un maniquí rígido ni acartonado.
 - PRENDA PUESTA vs SUELTA: si la referencia muestra la prenda VESTIDA sobre una persona, mantené ese enfoque editorial (prenda puesta, caída real), encuadrando de los hombros/torso hacia abajo o de 3/4 de espaldas — NUNCA muestres ni reconstruyas la CARA (recortá por encima del mentón o dejala totalmente fuera de cuadro/foco). Si la referencia es la prenda SUELTA (sin persona), NO inventes una persona ni un modelo: quedate en bodegón/estudio.
 - Referencia de estilo: lookbook editorial premium (Carhartt / Zara / Nike), dinámico y creíble.`;
@@ -943,10 +944,10 @@ function posterArtDirection(format) {
   return `
 DIRECCIÓN DE AFICHE / KEY VISUAL DE CAMPAÑA (esta pieza es un afiche publicitario, no una foto de catálogo):
 - Composición de AVISO: un sujeto o gesto visual dominante, encuadre decidido, tensión y jerarquía clara. Que se lea de un vistazo a 20 cm en un celular.
-- Luz teatral de campaña: contraluz o luz lateral marcada, haces volumétricos, contraste alto, negros profundos con detalle. Nada de iluminación plana de estudio.
+- Luz editorial clara: softbox grande o luz natural lateral, exposición media-alta y sombras abiertas. La prenda y sus colores se leen primero; la atmósfera queda en segundo plano.
 - Profundidad real en capas (primer plano fuera de foco, sujeto nítido, fondo con caída) para que la pieza no se vea "pegada".
-- Paleta gráfica y editorial: base negro/carbón con el naranja quemado (#C1440C) como acento que aparece en la luz, en un objeto o en un reflejo. Contraste alto, saturación controlada.
-- ESPACIO RESERVADO PARA EL TEXTO (crítico): dejá ${zone} deliberadamente despejado —oscuro, desenfocado o vacío— sin detalle importante. Ahí va a ir el titular y el precio, que se estampan DESPUÉS con la tipografía de la marca. Si el sujeto invade esa zona, recomponé: mejor el sujeto más chico y desplazado que un texto ilegible encima.`;
+- Paleta gráfica y editorial: base clara o gris medio cálido; negro sólo como tinta y naranja quemado (#C1440C) como un único acento pequeño. Sin neón, destellos ni filtros de color sobre la prenda.
+- ESPACIO RESERVADO PARA EL TEXTO (crítico): dejá ${zone} deliberadamente despejado —liso, desenfocado o vacío— sin detalle importante. Ahí va a ir el titular y el precio, que se estampan DESPUÉS con la tipografía de la marca. Si el sujeto invade esa zona, recomponé: mejor el sujeto más chico y desplazado que un texto ilegible encima.`;
 }
 
 function noTextNoLogoRule(strict = false) {
@@ -957,6 +958,13 @@ REGLA DURA — CERO LOGOS: prohibido inventar o insinuar un logo, isotipo, escud
 REINTENTO ESTRICTO: el intento anterior violó esta regla. Es la instrucción MÁS IMPORTANTE del prompt, por encima de cualquier otra idea creativa — priorizala incluso si el resultado es una composición más simple y menos "publicitaria". Ante la duda, dejá más aire vacío y menos elementos en vez de arriesgarte a escribir algo.`;
 }
 
+/** Refuerzo para el segundo intento de escenas que llevan un producto real. */
+function strictProductRetryRule(strict = false) {
+  if (!strict) return '';
+  return `
+REINTENTO DE CALIDAD DEL PRODUCTO: el intento anterior fue descartado porque el artículo no coincidía con la referencia, no se veía con claridad o quedó demasiado oscuro. En esta salida, copiá la referencia sin reinterpretarla y usá luz frontal amplia, exposición media-alta y fondo más claro que la prenda. Color, cuello, corte, costuras y detalles tienen que coincidir; evitá por completo sombras dramáticas, humo, flare y luces de efecto.`;
+}
+
 /**
  * Verificación de calidad post-generación: se le muestra la imagen ya generada a un
  * modelo de visión y se le pregunta si coló texto o un logo (lo que rompió la pieza
@@ -964,7 +972,12 @@ REINTENTO ESTRICTO: el intento anterior violó esta regla. Es la instrucción M�
  * en la foto). Best-effort — si el chequeo en sí falla (cuota, red), se asume OK para
  * no trabar todo el pipeline por un problema de la verificación y no de la imagen.
  */
-async function checkImageQuality(img, { productHasBranding = false } = {}) {
+async function checkImageQuality(img, {
+  productHasBranding = false,
+  productReference = null,
+  productName = null,
+  requireClearProduct = false,
+} = {}) {
   // En escenas de PRODUCTO real, la prenda/calzado trae SU marca puesta (etiqueta
   // "Pampero", "Ombú" bordada, etc.) — eso es fidelidad, no un logo inventado.
   // Sin esta excepción el QA descartaba escenas legítimas YA PAGADAS y la pieza caía
@@ -972,15 +985,25 @@ async function checkImageQuality(img, { productHasBranding = false } = {}) {
   const brandingException = productHasBranding
     ? `\n- EXCEPCIÓN IMPORTANTE (escena de producto real): la marca/etiqueta que el producto trae PUESTA (bordado, etiqueta cosida, sello en la suela, marquilla en la cintura) NO cuenta como logo NI como texto — es parte del producto real y DEBE estar. Sólo marcá hasLogo/hasText si hay un logo o texto AGREGADO FUERA del producto: sello flotante, marca de agua, cartel, titular, wordmark en el fondo o en el piso.`
     : '';
+  const compareProduct = Boolean(productReference && productReference.data && productReference.mimeType);
+  const productRules = compareProduct
+    ? `\n- Hay DOS imágenes adjuntas: la PRIMERA es la salida generada y la SEGUNDA es la referencia real de Tiendanube${productName ? ` del producto "${productName}"` : ''}.
+- "sameProduct": true únicamente si la salida conserva el mismo tipo de prenda/producto, color principal, corte, cuello/silueta, costuras y detalles distintivos de la referencia. Si parece otro artículo o mezcla detalles, false.
+- "productClear": true únicamente si el producto protagonista está completo o suficientemente visible, enfocado y separado del fondo como para evaluarlo.
+- "tooDark": true si la tela, el color, la textura o la silueta se pierden en sombras/penumbra, aunque el fondo tenga luces decorativas.`
+    : (requireClearProduct
+      ? '\n- "productClear": true únicamente si el producto protagonista está bien expuesto, enfocado y se reconoce de inmediato.\n- "tooDark": true si el producto pierde color, textura o silueta en sombras/penumbra.'
+      : '');
   try {
     const data = await geminiGenerateContent(config.gemini.visionModel, {
       contents: [{
         role: 'user',
         parts: [
-          { text: `Sos control de calidad de una agencia de publicidad. Mirá esta imagen y respondé SOLO un JSON, sin explicación adicional: {"hasText": bool, "hasLogo": bool, "notes": "breve, en español"}.
+          { text: `Sos control de calidad de una agencia de publicidad. Mirá la imagen y respondé SOLO un JSON, sin explicación adicional: {"hasText": bool, "hasLogo": bool, "sameProduct": bool, "productClear": bool, "tooDark": bool, "notes": "breve, en español"}.
 - "hasText": true si aparece CUALQUIER letra, palabra, número, título, cartel, código de cupón o tipografía visible en la foto, en cualquier idioma, sin importar cuán chica, borrosa o parcial.
-- "hasLogo": true SOLO si aparece un logo, isotipo o wordmark de MARCA COMERCIAL (inventada o real: por ejemplo un logo de ropa, de calzado, o cualquier isotipo tipo "sello de marca"). NO cuenta como logo: banderas nacionales (incluida la bandera Argentina con su sol), escudos patrios, ni símbolos religiosos, deportivos o culturales genéricos — esos SÍ pueden estar si el contexto de la escena los pide.${brandingException}` },
+- "hasLogo": true SOLO si aparece un logo, isotipo o wordmark de MARCA COMERCIAL (inventada o real: por ejemplo un logo de ropa, de calzado, o cualquier isotipo tipo "sello de marca"). NO cuenta como logo: banderas nacionales (incluida la bandera Argentina con su sol), escudos patrios, ni símbolos religiosos, deportivos o culturales genéricos — esos SÍ pueden estar si el contexto de la escena los pide.${brandingException}${productRules}` },
           { inlineData: { data: img.buffer.toString('base64'), mimeType: img.mimeType } },
+          ...(compareProduct ? [{ inlineData: productReference }] : []),
         ],
       }],
       generationConfig: { temperature: 0, maxOutputTokens: 150, thinkingConfig: { thinkingBudget: 0 } },
@@ -988,7 +1011,18 @@ async function checkImageQuality(img, { productHasBranding = false } = {}) {
     const raw = textFromResponse(data).replace(/```json|```/g, '').trim();
     const match = raw.match(/\{[\s\S]*\}/);
     const obj = JSON.parse(match ? match[0] : raw);
-    return { ok: !obj.hasText && !obj.hasLogo, hasText: !!obj.hasText, hasLogo: !!obj.hasLogo, notes: obj.notes || '' };
+    const sameProduct = compareProduct ? obj.sameProduct !== false : true;
+    const productClear = (compareProduct || requireClearProduct) ? obj.productClear !== false : true;
+    const tooDark = (compareProduct || requireClearProduct) ? obj.tooDark === true : false;
+    return {
+      ok: !obj.hasText && !obj.hasLogo && sameProduct && productClear && !tooDark,
+      hasText: !!obj.hasText,
+      hasLogo: !!obj.hasLogo,
+      sameProduct,
+      productClear,
+      tooDark,
+      notes: obj.notes || '',
+    };
   } catch (err) {
     console.warn(`[ai] chequeo de calidad de imagen falló (sigo, asumo OK): ${err.message}`);
     return { ok: true };
@@ -1064,11 +1098,12 @@ Si dudás, respondé false: sólo poné true cuando puedas decir DÓNDE está el
  * QA VISUAL POST-RENDER (el "Director de Arte" que da la aprobación final).
  * A diferencia de checkImageQuality (que revisa la imagen IA cruda), esto mira la
  * PIEZA TERMINADA — plantilla renderizada con títulos, precio y logo estampados — y
- * detecta SOLO roturas graves de diseño que hasta ahora nadie veía antes de publicar:
+ * detecta roturas graves de diseño y de legibilidad del producto antes de publicar:
  *   1. texto cortado/truncado o que se sale del canvas,
  *   2. elementos que se PISAN entre sí (logo sobre el título, precio sobre el producto),
  *   3. texto ilegible por falta de contraste con el fondo,
- *   4. zonas rotas (foto que no cargó: bloque gris/blanco vacío, ícono de imagen rota).
+ *   4. zonas rotas (foto que no cargó: bloque gris/blanco vacío, ícono de imagen rota),
+ *   5. una prenda tan oscura o velada que ya no se reconocen color, textura o silueta.
  * NO opina de gustos/estética: sólo roturas objetivas. Es una llamada de visión al
  * modelo de texto (gratis). Best-effort: si el chequeo falla, se asume OK para no
  * trabar el pipeline por un problema del verificador y no de la pieza.
@@ -1093,8 +1128,9 @@ Marcá ok=false SOLO si estás COMPLETAMENTE SEGURO de una ROTURA OBJETIVA e ine
 4. Zona ROTA: bloque gris/blanco plano donde claramente debía ir una foto, ícono de imagen rota del navegador.
 5. BLOQUES PEGADOS: dos bloques distintos (la tarjeta de la foto, los datos, el precio, el botón, la URL del pie) que se TOCAN o quedan a un par de píxeles, sin nada de aire entre ellos, de modo que se leen como un solo amasijo. No cuenta que estén "cerca" con una separación clara y prolija: sólo si literalmente se tocan o se solapan.
 6. PRODUCTO MAL ENCUADRADO dentro de una tarjeta: la foto muestra a una persona cortada de golpe por el borde de la tarjeta (por ejemplo el torso cortado al ras, sin cabeza, con el corte al aire en el medio de la tarjeta blanca) y se lee como un recorte mal hecho, no como un encuadre buscado. Si la foto va a sangre (ocupa toda la pieza), un recorte así es normal en fotografía editorial y NO es un problema.
+7. PRODUCTO DEMASIADO OSCURO O VELADO: la prenda principal pierde su color real, textura o silueta porque quedó subexpuesta, tapada por un degradado/sombra, humo, destello o iluminación de efecto. Evaluá la pieza como se vería en un teléfono con brillo medio: si el artículo no se puede reconocer y comprar con confianza al primer vistazo, marcá el problema. Un fondo oscuro es válido sólo cuando la prenda sigue clara, fiel y bien separada.
 
-ELEMENTOS NORMALES DEL DISEÑO (NUNCA son problema): el pie centrado con la URL "${config.brand.site}" — si se lee entera, está perfecta; el wordmark/logo BLACKS arriba; mucho aire/espacio negativo (es intencional); texto chico pero completo; fotos de catálogo con fondo blanco; marcas de agua gigantes muy tenues de fondo; degradados oscuros sobre la foto.
+ELEMENTOS NORMALES DEL DISEÑO (NUNCA son problema): el pie centrado con la URL "${config.brand.site}" — si se lee entera, está perfecta; el wordmark/logo BLACKS arriba; mucho aire/espacio negativo (es intencional); texto chico pero completo; fotos de catálogo con fondo blanco; marcas de agua gigantes muy tenues de fondo. Un degradado sobre la foto sólo es normal si no apaga la prenda.
 
 REGLA DE ORO: ante la MÍNIMA duda, ok=true. Un falso rechazo frena una pieza sana y cuesta trabajo humano; sólo rechazá lo que un cliente señalaría como "esto salió mal" al primer vistazo.` },
           { inlineData: { data: small.toString('base64'), mimeType } },
@@ -1923,7 +1959,7 @@ async function generateBackground({ theme, brief, occasion, format = 'feed', ref
   const brandStyle = await brandStyleForImages();
   const scene = sceneVariation(seed);
   const hasRefs = referenceImages.slice(0, 3).some((r) => r && r.data && r.mimeType);
-  const buildPrompt = (strict) => `Actuás como DIRECTOR DE ARTE SENIOR y ESPECIALISTA EN PROMPT ENGINEERING de una agencia creativa premium. Generá la fotografía de fondo ${ratio} para una pieza comercial de BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
+  const buildPrompt = (strict) => `Actuás como DIRECTOR DE ARTE SENIOR y ESPECIALISTA EN PROMPT ENGINEERING de una agencia creativa premium. Generá la fotografía de fondo ${ratio} para una pieza comercial clara, contemporánea y minimalista de BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
 
 CONCEPTO GENERAL (la imagen tiene que contarlo con autoridad visual, no ser decorativa): "${theme || 'ropa de trabajo e industria'}".${briefBlock(brief)}${occasionGuidance(occasion)}
 
@@ -1935,12 +1971,12 @@ DIRECCIÓN DE FOTOGRAFÍA Y ÓPTICA COMERCIAL:
 - Fotografía editorial hiperrealista, calidad de campaña publicitaria impresa de alta gama. Lente Hasselblad H6D-100c, óptica 50mm/85mm f/1.8 prime lens, apertura amplia, profundidad de campo real y micro-texturas ultra nítidas.
 ${scene.describe()}
 - Escenario auténtico argentino del rubro, con superficies de desgaste creíble. NADA de estudios genéricos ni escenarios plásticos "de stock".
-- Color grading sobrio y premium: ciencia de color Kodak Portra 400, base negro/gris carbón con UN acento naranja quemado (#C1440C) apareciendo de forma orgánica en la escena. Grano fílmico sutil.
+- Color grading sobrio y premium: ciencia de color Kodak Portra 400, base clara o gris medio cálido con UN acento naranja quemado (#C1440C) pequeño. Exposición media-alta, sombras abiertas y grano fílmico sutil. Sin destellos, chispas, neón, humo ni viñeta oscura.
 ${brandStyle ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
 
 REALISMO ANTI-IA (crítico — la foto tiene que pasar por tomada con cámara real):
 - PROHIBIDO usar palabras genéricas en la interpretación mental como: hermoso, fotorrealista, 4k, 8k, render, unreal engine, masterpiece.
-- Imperfecciones del mundo real: polvo flotando en el aire capturado por la luz volumétrica, arrugas naturales en telas, rayones en herramientas, suciedad creíble en el piso. NADA impecable ni simetría artificial.
+- Imperfecciones del mundo real: arrugas naturales en telas, rayones en herramientas y desgaste creíble en el piso. NADA de polvo volumétrico, chispas o flare como recurso decorativo; tampoco simetría artificial.
 - Física de luz real: una sola fuente dominante coherente, sombras que caen exactamente hacia el mismo ángulo, reflejos ópticos imperfectos.
 
 ARQUITECTURA DE NEGATIVE SPACE Y ZONAS SEGURAS (TEXT SAFE AREAS):
@@ -2017,10 +2053,10 @@ QUÉ TIENE QUE SER (crítico para que el corte funcione):
 DIRECCIÓN DE FOTOGRAFÍA:
 - Fotografía editorial hiperrealista, calidad de campaña impresa. Óptica de 35mm, profundidad de campo real, micro-texturas nítidas donde hay foco.
 ${scene.describe()}
-- Base negro/gris carbón bien oscura (la tipografía va en blanco encima) con UN acento naranja quemado (#C1440C) apareciendo de forma orgánica —una luz, una herramienta, una señalización—, nunca como filtro sobre toda la escena.
-- Color grading sobrio tipo Kodak Portra 400, grano fílmico sutil, imperfecciones reales (polvo en el aire, desgaste, rayones).
+- Base clara o gris medio cálido, pareja de punta a punta, con UN acento naranja quemado (#C1440C) pequeño y orgánico. La pieza tiene que conservar información en las sombras; nada de penumbra dominante.
+- Color grading sobrio tipo Kodak Portra 400, exposición media-alta, grano fílmico sutil e imperfecciones reales (desgaste, rayones). Sin destellos, chispas, flare, neón o humo decorativo.
 ${brandStyle ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
-- La MITAD INFERIOR tiene que ser más oscura y tranquila que la superior: ahí se apoyan los titulares.
+- La MITAD INFERIOR tiene que ser visualmente tranquila y de tono parejo, no necesariamente oscura: ahí se apoyan los titulares.
 
 ${noTextNoLogoRule(strict)}
 - PROHIBIDO además: aspecto render 3D, simetría artificial, objetos flotando, viñeteado exagerado.`;
@@ -2231,12 +2267,12 @@ DIRECCIÓN DE FOTOGRAFÍA:
 - Fotografía editorial hiperrealista, calidad de campaña impresa. Óptica de 35mm, una sola profundidad de campo coherente en todo el ancho.
 ${scene.describe()}
 - Las prendas están DENTRO de la escena: la misma luz que el ambiente, sombra propia apoyada en el piso, contacto real con lo que tocan. Nada flotando ni con aspecto de recorte pegado sobre un fondo.
-- LA LUZ VA SOBRE LAS PRENDAS. El ambiente puede ser oscuro; las personas y lo que llevan puesto, NO. Una luz principal clara y direccional sobre las tres —de costado y un poco de frente, la MISMA para las tres— que deje ver el color real, la caída y la textura del tejido, con un contraluz suave que las despegue del fondo. Si la prenda es oscura, más razón todavía: tiene que leerse contra el fondo, no fundirse con él.
-- Base oscura (negro/gris carbón) con UN acento naranja quemado (#C1440C) que aparezca de forma orgánica —una luz, una herramienta, una señalización—, nunca como filtro sobre toda la escena.
+- LA LUZ VA SOBRE LAS PRENDAS. Una fuente principal amplia, clara y un poco frontal sobre las tres —la MISMA para las tres— deja ver el color real, la caída y la textura del tejido. Si la prenda es oscura, el fondo va claramente más claro para separarla; nunca se funden.
+- Base clara o gris medio cálido con UN acento naranja quemado (#C1440C) pequeño y orgánico. PROHIBIDO usar penumbra, destellos, chispas, neón, flare o humo para dar dramatismo.
 - TEMPERATURA DE COLOR CÁLIDA O NEUTRA. PROHIBIDO el tinte azul o celeste sobre toda la escena (el típico "industrial frío" o "hora azul"): la marca es negro y naranja quemado, y una escena azulada la deja irreconocible. Las sombras van a negro/marrón, no a azul.
 - Color grading sobrio tipo Kodak Portra 400, grano fílmico sutil, imperfecciones creíbles (polvo en el aire, desgaste, rayones) en el AMBIENTE, nunca en el producto.
 ${brandStyle ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
-- La FRANJA DE ABAJO (el último 22% del alto) tiene que ser oscura y tranquila en TODO el ancho: ahí se apoyan los titulares. Nada importante ahí abajo — pero ojo, esa franja es angosta: no oscurezcas el tercio inferior entero ni le cortes las piernas a la figura.
+- La FRANJA DE ABAJO (el último 22% del alto) tiene que ser lisa y tranquila en TODO el ancho: ahí se apoyan los titulares. Puede ser gris claro/medio; no la conviertas en una sombra negra ni le cortes las piernas a la figura.
 
 ${photoRealismRules()}
 
@@ -2246,6 +2282,7 @@ ${combo
     ? `- Los productos que se ven puestos son EXACTAMENTE los ${lista.length} de las referencias. Prohibido mezclarlos entre sí (ponerle a uno el color o el cuello del otro) y prohibido sumar una prenda o un calzado que no esté en las referencias.`
     : `- Las tres personas llevan EL MISMO MODELO de prenda de la referencia: mismo corte, mismo cuello, mismo largo, mismas costuras. Lo único que puede cambiar entre una y otra es el color, y sólo si ese color aparece en alguna de las fotos de referencia. Prohibido que alguna lleve una prenda distinta de la de la referencia.`}
 - Hay EXACTAMENTE TRES personas en toda la imagen. Ni una más de fondo, ni una silueta desenfocada, ni un reflejo con una cuarta.
+${strictProductRetryRule(strict)}
 
 ${noTextNoLogoRule(strict)}
 - LA FOTO LLEGA HASTA EL BORDE: sin marco, sin passepartout, sin margen de color, sin bordes redondeados, sin barras arriba, abajo ni a los costados. La imagen sangra los cuatro lados.
@@ -2281,7 +2318,12 @@ ${noTextNoLogoRule(strict)}
       if (limpio !== img.buffer) { img.buffer = limpio; img.mimeType = 'image/jpeg'; }
       spent += await logImageUsage('tira generativa');
       // La etiqueta real del producto (Pampero/Ombú) no descalifica: sólo texto/logo AGREGADO.
-      const check = await checkImageQuality(img, { productHasBranding: true });
+      const check = await checkImageQuality(img, {
+        productHasBranding: true,
+        productReference: refs[0],
+        productName: nombresDeProducto,
+        requireClearProduct: true,
+      });
       if (!check.ok) {
         console.warn(`[ai] generatePanoramaScene: descartada por control de calidad (texto=${check.hasText} logo=${check.hasLogo} ${check.notes || ''}), reintento más estricto...`);
         continue;
@@ -2592,11 +2634,11 @@ Devolvé SOLO este JSON:
  * intacta — cambia el material del piso, el color del fondo y el carácter de la luz.
  */
 const STUDIO_SETS = [
-  'ciclorama / seamless sweep sin esquinas (infinity cove) en gris medio a gris carbón, con degradado direccional suave y viñeta sutil que enmarca el producto. Iluminación de estudio de tres puntos con reflejo especular controlado',
+  'ciclorama / seamless sweep sin esquinas (infinity cove) en gris medio cálido, con degradado direccional suave. Iluminación de estudio de tres puntos, exposición alta y sombras abiertas',
   'plataforma de hormigón pulido gris cálido sobre fondo del mismo tono, con una única luz dura lateral que talla sombras largas y definidas (look editorial de campaña deportiva)',
   'fondo de papel de color arena / greige con un degradado vertical suave, producto apoyado sobre una base escalonada de yeso mate; luz difusa amplia de softbox grande, sombras suaves y limpias',
-  'fondo negro profundo con luz de recorte (rim light) que dibuja el contorno del producto, y un haz cenital estrecho que lo separa del fondo. Alto contraste, negros con detalle, estética de aviso premium',
-  'superficie de acero cepillado con reflejo especular controlado y fondo gris grafito en degradado; dos luces frías cruzadas que resaltan la textura del material (look industrial de catálogo técnico)',
+  'fondo gris perla con una luz principal amplia y un rebote frontal que deja ver cada textura; contraste medio, aire de catálogo editorial contemporáneo',
+  'superficie de acero cepillado claro con reflejo especular controlado y fondo gris medio en degradado; luz neutra grande que resalta la textura sin apagar el color',
   'fondo blanco roto (off-white) tipo estudio de moda, producto sobre un cubo de madera clara; luz natural simulada entrando de un ventanal, sombra suave hacia un costado, aire alrededor',
 ];
 
@@ -2711,6 +2753,7 @@ DIRECCIÓN DE FOTOGRAFÍA Y ÓPTICA COMERCIAL:
 ${shotDirection(shotSpec, scene, seed)}
 ${composicion}
 - Color grading premium: ciencia de color Kodak Portra 400, con acentos naranja quemado (#C1440C) sutiles.
+- El PRODUCTO queda más luminoso que el fondo y ocupa la jerarquía principal. Nada de subexposición creativa: el color y los detalles tienen que coincidir con Tiendanube y leerse sin subir el brillo del celular.
 ${brandStyle && allowScenery ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
 
 ${photoRealismRules()}
@@ -2724,6 +2767,7 @@ FIDELIDAD ABSOLUTA — PROHIBIDO MODIFICAR EL PRODUCTO (lo más importante):
 
 UN SOLO PRODUCTO EN CUADRO (crítico):
 - Mostrá EXACTAMENTE UN producto: el de la referencia. PROHIBIDO agregar un SEGUNDO par de calzado, otra prenda o cualquier producto extra — ni de fondo, ni en primer plano, ni desenfocado, ni "de acompañamiento". Si la referencia es un par de calzado, se ve ESE par y nada más.
+${strictProductRetryRule(strict)}
 
 ARQUITECTURA DE ZONAS SEGURAS (NEGATIVE SPACE):
 - Aire limpio y desenfocado en los tercios superior e inferior para garantizar contraste absoluto al superponer titulares y precios.
@@ -2747,10 +2791,16 @@ ${noTextNoLogoRule(strict)}
         spent += await logImageUsage('escena de producto');
         // La marca propia del producto (etiqueta Pampero/Ombú real) NO es motivo de
         // descarte: sólo logos/texto agregados FUERA del producto.
-        const check = await checkImageQuality(img, { productHasBranding: true });
+        const check = await checkImageQuality(img, {
+          productHasBranding: true,
+          productReference: refs[0],
+          productName,
+          requireClearProduct: true,
+        });
         if (!check.ok) {
           console.warn(`[ai] generateProductScene: descartada por control de calidad (texto=${check.hasText} logo=${check.hasLogo} ${check.notes || ''}), reintentando más estricto...`);
-          learnFrom('image', 'global', `El modelo de imagen coló ${check.hasText ? 'texto' : 'un logo'} en una escena de producto (plata tirada): reforzar la regla anti-texto/anti-logo`, check.notes);
+          const defect = check.hasText ? 'texto' : check.hasLogo ? 'un logo' : !check.sameProduct ? 'un producto distinto a Tiendanube' : check.tooDark ? 'el producto demasiado oscuro' : 'el producto poco claro';
+          learnFrom('image', 'global', `El modelo de imagen generó ${defect} en una escena de producto (plata tirada): reforzar fidelidad y claridad visual`, check.notes);
           continue;
         }
         img.costUsd = spent;
@@ -2802,11 +2852,11 @@ async function generateStudioScene({ products = [], theme, format = 'feed', goal
   }[goal] || '';
   const styleGuide = {
     auto: `LENGUAJE VISUAL: elegí una puesta diferente a la salida más obvia. Usá esta dirección de variación: ${scene.describe()}`,
-    hero: 'LENGUAJE VISUAL HERO: producto grande y completo, fondo oscuro arquitectónico, pedestal sutil, luz lateral dura y recorte limpio. Composición simple de alto impacto.',
+    hero: 'LENGUAJE VISUAL HERO: producto grande y completo, fondo claro o gris medio arquitectónico, pedestal sutil, luz amplia y recorte limpio. Composición simple, moderna y de lectura inmediata.',
     uso: 'LENGUAJE VISUAL EN USO: escena laboral argentina creíble y contemporánea. El producto se usa correctamente, sin pose de moda, con acción natural y entorno específico.',
     tecnico: 'LENGUAJE VISUAL TÉCNICO: encuadre cercano o macro editorial que revele materiales, costuras y terminaciones reales. Fondo controlado, luz rasante y lectura precisa.',
     bodegon: 'LENGUAJE VISUAL BODEGÓN: composición cenital o tres cuartos sobre una mesa de trabajo. Objetos ordenados, jerarquía clara y aire editorial; ningún producto queda tapado.',
-    industrial: 'LENGUAJE VISUAL CAMPAÑA: fotografía cinematográfica en arquitectura industrial real, profundidad, atmósfera y contraluz naranja sutil. Sobria, física y nada futurista.',
+    industrial: 'LENGUAJE VISUAL CAMPAÑA: fotografía editorial en arquitectura industrial real, profundidad y luz natural amplia. Un único acento naranja pequeño; sobria, física, clara y nada futurista.',
   }[style] || scene.describe();
   const varietyGuide = recentScenes.length
     ? `\nESCENAS RECIENTES DEL ESTUDIO (NO repitas su puesta, encuadre ni atmósfera; la nueva tiene que distinguirse a simple vista):\n${recentScenes.map((x) => `- ${x}`).join('\n')}`
@@ -2829,10 +2879,11 @@ ${styleGuide}
 ${brandStyle ? `- IDENTIDAD VISUAL APRENDIDA DE BLACKS (aplicala sin copiar una pieza literal): ${brandStyle}` : ''}
 - Utilería mínima y realista del escenario elegido, SIN robar protagonismo a los productos.
 - Lente Hasselblad 85mm prime lens f/1.8, enfoque selectivo milimétrico en las texturas del tejido y cuero, profundidad de campo con bokeh arquitectónico en el fondo.
-- Color grading premium: Kodak Portra 400, base sobria con acentos naranja quemado (#C1440C) sutiles.
+- Color grading premium: Kodak Portra 400, base clara o gris medio cálido con un único acento naranja quemado (#C1440C). Exposición media-alta, sombras abiertas y color fiel del producto.
 - REALISMO ANTI-IA: Imperfecciones creíbles en el entorno (desgaste en piso o herramientas), una sola fuente de luz coherente. Manos anatómicamente perfectas si aparecen.
 
 ${photoRealismRules()}
+${strictProductRetryRule(strict)}
 
 ${noTextNoLogoRule(strict)}
 Aire limpio y desenfocado arriba y abajo para futura superposición tipográfica.`;
@@ -2852,7 +2903,12 @@ Aire limpio y desenfocado arriba y abajo para futura superposición tipográfica
       if (!img) continue;
       spent += await logImageUsage('estudio');
       // Productos reales con su marca puesta: la etiqueta propia no es descarte.
-      const check = await checkImageQuality(img, { productHasBranding: true });
+      const check = await checkImageQuality(img, {
+        productHasBranding: true,
+        productReference: refs[0],
+        productName: names,
+        requireClearProduct: true,
+      });
       if (!check.ok) {
         console.warn(`[ai] generateStudioScene: descartada por control de calidad (texto=${check.hasText} logo=${check.hasLogo} ${check.notes || ''}), reintentando más estricto...`);
         continue;
