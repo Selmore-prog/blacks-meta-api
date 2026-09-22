@@ -2211,6 +2211,40 @@ app.post('/api/assets/:assetId/approve', wrap(async (req, res) => {
   res.json({ ok: true });
 }));
 
+// Revierte una aprobación accidental. Primero vuelve la pieza a borrador para que
+// cualquier worker que la alcance deje de considerarla publicable; después elimina
+// su entrada pendiente de la cola. Una pieza ya publicada no se puede "despublicar"
+// desde acá porque eso requeriría borrar contenido real en Meta.
+app.post('/api/assets/:assetId/unapprove', wrap(async (req, res) => {
+  const id = intParam(req.params.assetId);
+  if (!id) return res.status(400).json({ error: 'assetId inválido' });
+  const { rows } = await pool.query(
+    `UPDATE generated_assets
+        SET status = 'draft', updated_at = now()
+      WHERE id = $1 AND status = 'approved'
+      RETURNING calendar_id`,
+    [id]
+  );
+  if (!rows.length) {
+    const current = await pool.query(`SELECT status FROM generated_assets WHERE id = $1`, [id]);
+    if (!current.rows.length) return res.status(404).json({ error: 'No existe esa pieza.' });
+    return res.status(409).json({ error: `Sólo se puede deshacer una pieza aprobada. Estado actual: ${current.rows[0].status}.` });
+  }
+
+  await cancelQueuedForAsset(id).catch(() => {});
+  await pool.query(
+    `UPDATE content_calendar
+        SET status = 'draft'
+      WHERE id = $1 AND status = 'approved'
+        AND NOT EXISTS (
+          SELECT 1 FROM generated_assets a
+           WHERE a.calendar_id = $1 AND a.id <> $2 AND a.status IN ('approved', 'published')
+        )`,
+    [rows[0].calendar_id, id]
+  );
+  res.json({ ok: true, status: 'draft' });
+}));
+
 app.post('/api/assets/:assetId/edit', wrap(async (req, res) => {
   const id = intParam(req.params.assetId);
   if (!id) return res.status(400).json({ error: 'assetId inválido' });

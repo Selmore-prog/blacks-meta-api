@@ -1668,7 +1668,8 @@ function renderCard(item) {
     actions = (isSemi
       ? `<button class="btn-manual" data-act="publish" data-id="${aid}">${icon('info')} Cómo publicarla</button>`
       : `<button class="btn-publish" data-act="publish" data-id="${aid}">${icon('send')} Publicar ahora</button>`) +
-      `<button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Abrir editor</button>${genVideoBtn}
+      `<button class="btn-ghost btn-sm" data-act="unapprove" data-id="${aid}">${icon('refresh')} Deshacer aprobación</button>
+       <button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Abrir editor</button>${genVideoBtn}
        ${moreMenu(`${regenBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${downloadBtn}${planBtn}`)}`;
   } else if (status === 'published') {
     actions = `<span class="badge status-published" ${item.meta_post_id ? `title="ID de Instagram: ${esc(item.meta_post_id)}"` : ''}>${icon('check')} Publicada</span>
@@ -1751,6 +1752,9 @@ async function handleAction(act, id, btn, card, item) {
       markGenerating(id);
     } else if (act === 'approve') {
       await api(`/api/assets/${id}/approve`, { method: 'POST' }); toast('Aprobada', 'ok'); reloadKeepScroll();
+    } else if (act === 'unapprove') {
+      await api(`/api/assets/${id}/unapprove`, { method: 'POST' });
+      toast('Aprobación deshecha · volvió a borrador', 'ok'); reloadKeepScroll();
     } else if (act === 'discard') {
       const reason = await discardReasonModal();
       if (reason === null) return; // canceló
