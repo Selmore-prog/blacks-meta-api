@@ -1214,8 +1214,7 @@ async function generateForSlot(slot, overrides = {}) {
   const productosPedidos = idsElegidos.length ? await pickForcedProducts(idsElegidos) : [];
   // El guion del Reel puede haber elegido un producto real antes de generar el
   // asset. Usarlo mantiene el video, el copy y las tomas sobre la misma ficha.
-  const briefProductId = !idsElegidos.length && slot.post_type === 'reel' &&
-    ['producto', 'promo', 'mayorista'].includes(slot.pillar)
+  const briefProductId = !idsElegidos.length && slot.post_type === 'reel'
     ? Number(slot.reel_brief?.product_id) : 0;
   const briefProduct = briefProductId > 0
     ? await pickForcedProduct(briefProductId).catch(() => null) : null;
@@ -2365,9 +2364,9 @@ async function generateDaily() {
   await require('../src/settings').loadSettings().catch(() => {});
   console.log('[generate-daily] Sembrando calendario (próximos 14 días si faltan)...');
   await seedCalendar(14);
-  // El guion se prepara al acercarse la grabación: usa stock y pronóstico actual,
-  // y se revisa si cambia la banda climática de CABA.
-  await require('../src/reelBrief').refreshUpcomingReels()
+  // Preparar primero sólo los guiones de hoy para que coincidan con la pieza.
+  // Los próximos días se actualizan después y no demoran la generación de hoy.
+  await require('../src/reelBrief').refreshUpcomingReels({ startOffset: 0, endOffset: 0 })
     .catch((err) => console.warn(`[generate-daily] Guiones de Reel: ${err.message}`));
   await require('../src/shippingBadge').queueExistingReels()
     .catch((err) => console.warn(`[generate-daily] Etiquetas de envío en Reels: ${err.message}`));
@@ -2384,6 +2383,9 @@ async function generateDaily() {
       console.error(`[generate-daily] Error generando slot #${slot.id}:`, err.message);
     }
   }
+
+  await require('../src/reelBrief').refreshUpcomingReels({ startOffset: 1, endOffset: 7 })
+    .catch((err) => console.warn(`[generate-daily] Guiones próximos: ${err.message}`));
 
   console.log(`[generate-daily] Listo. Generados ${generatedCount} slots.`);
   if (generatedCount > 0) {

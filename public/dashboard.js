@@ -549,11 +549,21 @@ function discardReasonModal() {
  * aprobar, qué tiene una alerta, qué no se generó todavía. Estos "focos" son
  * filtros de un toque sobre esas 4 preguntas, con el número al lado.
  */
+function needsReelBrief(it) {
+  if (it.post_type !== 'reel' || it.pillar === 'repost' || statusOf(it) === 'published') return false;
+  const date = String(it.scheduled_date).slice(0, 10);
+  const end = new Date(`${todayKey()}T12:00:00Z`);
+  end.setUTCDate(end.getUTCDate() + 7);
+  return date >= todayKey() && date <= end.toISOString().slice(0, 10)
+    && (!it.reel_brief || Number(it.reel_brief.version) < 2);
+}
+
 function needsAttention(it) {
   return Boolean(it.asset_id && statusOf(it) === 'draft' && (it.qa_notes || it.gen_model === 'groq'))
     || Boolean(it.asset_id && it.queue_status === 'failed' && statusOf(it) !== 'published')
     // Un Reel aprobado sin video no se puede publicar: es una alerta real.
-    || Boolean(it.post_type === 'reel' && it.asset_id && !it.video_path && ['draft', 'approved'].includes(statusOf(it)));
+    || Boolean(it.post_type === 'reel' && it.asset_id && !it.video_path && ['draft', 'approved'].includes(statusOf(it)))
+    || needsReelBrief(it);
 }
 
 const FOCUS_DEFS = {
@@ -616,6 +626,7 @@ function renderCalendarIntelligence() {
   const drafts = week.filter((it) => statusOf(it) === 'draft').length;
   const approved = week.filter((it) => statusOf(it) === 'approved').length;
   const pending = week.filter((it) => statusOf(it) === 'sin-generar').length;
+  const briefsPending = week.filter(needsReelBrief).length;
   const fmtLabel = { feed: 'Feed', story: 'Historias', reel: 'Reels' };
   const formatsHtml = Object.entries(formats).map(([k, n]) => `<span>${fmtLabel[k] || esc(k)} <b>${n}</b></span>`).join('');
 
@@ -639,10 +650,14 @@ function renderCalendarIntelligence() {
       <div><b>${drafts + approved}</b><span>listas</span></div>
     </div>
     <div class="pulse-formats">${formatsHtml}</div>
-    ${pending ? `<button class="pulse-link" data-pulse-focus="sin-generar">Ver ${pending} sin generar ${icon('route')}</button>` : ''}
+    <div class="pulse-links">
+      ${pending ? `<button class="pulse-link" data-pulse-focus="sin-generar">Ver ${pending} sin generar ${icon('route')}</button>` : ''}
+      ${briefsPending ? `<button class="pulse-link" data-pulse-focus="alerta">Ver ${briefsPending} guion${briefsPending > 1 ? 'es' : ''} pendiente${briefsPending > 1 ? 's' : ''} ${icon('route')}</button>` : ''}
+    </div>
   </div>`;
-  const link = host.querySelector('[data-pulse-focus]');
-  if (link) link.addEventListener('click', () => { filters.focus = 'sin-generar'; renderCalView(); });
+  host.querySelectorAll('[data-pulse-focus]').forEach((link) => link.addEventListener('click', () => {
+    filters.focus = link.dataset.pulseFocus; renderCalView();
+  }));
 }
 
 function getFiltered() {
@@ -1606,6 +1621,8 @@ function renderCard(item) {
     ? `<span class="badge qa-warn" title="Se generó con el modelo de respaldo (Gemini falló en ese momento). Si el texto no convence, regenerala.">respaldo</span>` : '';
   const qaBadge = (aid && item.qa_notes && status === 'draft')
     ? `<span class="badge qa-warn" title="${esc(item.qa_notes)}">revisar copy</span>` : '';
+  const reelBriefBadge = needsReelBrief(item)
+    ? `<span class="badge qa-warn" title="Creá o actualizá el guion antes de grabar">${item.reel_brief ? 'actualizar guion' : 'falta guion'}</span>` : '';
 
   // Mayorista / Minorista a simple vista.
   const commercialBadge = item.pillar === 'mayorista'
@@ -1664,7 +1681,7 @@ function renderCard(item) {
   } else if (status === 'draft') {
     actions = `<button class="btn-approve" data-act="approve" data-id="${aid}">${icon('check')} Aprobar</button>
       <button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Abrir editor</button>
-      ${genVideoBtn}${moreMenu(`${reelBriefBtn}${regenBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${downloadBtn}
+      ${genVideoBtn}${reelBriefBtn}${moreMenu(`${regenBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${downloadBtn}
         <button class="btn-discard btn-sm" data-act="discard" data-id="${aid}">${icon('trash')} Descartar</button>${planBtn}`)}`;
   } else if (status === 'approved') {
     actions = (item.post_type === 'reel' && ['queued', 'processing'].includes(item.edit_status)
@@ -1723,7 +1740,7 @@ function renderCard(item) {
   // Lectura por capas: arriba queda sólo lo que ayuda a decidir qué hacer. Pilar,
   // audiencia, costo y fechas comerciales siguen disponibles, pero no compiten todos
   // como una pared de badges.
-  const primaryMeta = `<span class="badge type">${typeLabel(item)}</span>${statusBadge}${forcedProductBadge}${qaBadge}${missedBadge}`;
+  const primaryMeta = `<span class="badge type">${typeLabel(item)}</span>${statusBadge}${forcedProductBadge}${qaBadge}${reelBriefBadge}${missedBadge}`;
   const secondaryMeta = `<span class="badge pillar">${esc(item.pillar)}</span>
     ${item.objective ? `<span class="badge objective" title="Qué busca esta pieza">${esc(item.objective)}</span>` : ''}
     ${commercialBadge}${dateBadges}${item.scheduled_time ? `<span class="badge time">${icon('clock')} ${esc(item.scheduled_time)} hs</span>` : ''}
@@ -1879,7 +1896,7 @@ function openDownload(item) {
 
 /* ============ planificar / editar slots ============ */
 function todayKey() {
-  return new Date().toLocaleDateString('sv-SE');
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
 }
 
 function planSelect(id, label, options, value) {

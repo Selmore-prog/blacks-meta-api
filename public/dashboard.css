@@ -206,10 +206,11 @@ body.nav-mini .side-tabs .tab .ic { width: 20px; height: 20px; }
 .pulse-stats { display: flex; gap: 16px; padding-left: 18px; border-left: 1px solid var(--line); }
 .pulse-stats > div { min-width: 44px; }.pulse-stats b { display: block; font-size: 19px; }.pulse-stats span { display: block; color: var(--muted); font-size: 9.5px; text-transform: uppercase; letter-spacing: .06em; }
 .pulse-formats { display: flex; gap: 5px; flex-wrap: wrap; max-width: 170px; }.pulse-formats span { padding: 5px 8px; border-radius: 999px; background: var(--panel-2); color: var(--muted); font-size: 10px; }.pulse-formats b { color: var(--text); }
+.pulse-links { display: flex; flex-direction: column; align-items: flex-start; }
 .pulse-link { min-height: 0; padding: 7px 10px; color: var(--orange); background: transparent; border: 0; font-size: 11px; white-space: nowrap; }
 
 @media (max-width: 1050px) {
-  .calendar-pulse { grid-template-columns: 1fr auto; }.pulse-formats { display: none; }.pulse-link { grid-column: 2; grid-row: 1; align-self: end; }
+  .calendar-pulse { grid-template-columns: 1fr auto; }.pulse-formats { display: none; }.pulse-links { grid-column: 2; grid-row: 1; align-self: end; }
 }
 @media (max-width: 680px) {
   .calendar-hero { padding: 19px 17px; }.calendar-workbar { align-items: stretch; flex-direction: column; gap: 12px; margin-top: 20px; }
@@ -219,7 +220,7 @@ body.nav-mini .side-tabs .tab .ic { width: 20px; height: 20px; }
   .calendar-primary-actions > .action-menu:not(.action-menu-small) > summary { width: 100%; }
   .action-menu-pop { position: fixed; left: 12px; right: 12px; top: auto; bottom: 86px; width: auto; }
   .next-plan > span:last-child { display: none; }
-  .calendar-pulse { grid-template-columns: 1fr; gap: 12px; }.pulse-stats { padding: 11px 0 0; border-left: 0; border-top: 1px solid var(--line); }.pulse-link { grid-column: auto; grid-row: auto; justify-self: start; }
+  .calendar-pulse { grid-template-columns: 1fr; gap: 12px; }.pulse-stats { padding: 11px 0 0; border-left: 0; border-top: 1px solid var(--line); }.pulse-links { grid-column: auto; grid-row: auto; justify-self: start; }
 }
 
 /* ---------- Buttons ---------- */
