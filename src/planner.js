@@ -2,6 +2,7 @@ const pool = require('./db');
 const { generateJson } = require('./ai');
 const { analyzePerformance } = require('./insights');
 const { getWholesaleSettings, wholesaleContext } = require('./wholesale');
+const { getForecast } = require('./weather');
 
 /**
  * Planner mensual con IA: genera la rotación de contenido de un mes entero usando
@@ -35,7 +36,7 @@ async function gatherContext(monthStr) {
   const to = `${monthStr}-${String(daysInMonth(monthStr)).padStart(2, '0')}`;
 
   const { analyzeAccountPerformance } = require('./accountAnalyzer');
-  const [dates, topProducts, insights, wholesale, account, store, recent] = await Promise.all([
+  const [dates, topProducts, insights, wholesale, account, store, recent, forecast] = await Promise.all([
     pool.query(
       `SELECT event_date, title, category, angle, priority FROM commercial_dates
        WHERE event_date BETWEEN $1 AND $2 ORDER BY priority DESC, event_date`,
@@ -64,6 +65,7 @@ async function gatherContext(monthStr) {
          AND COALESCE(theme_title, pillar_detail) IS NOT NULL AND pillar != 'repost'
        ORDER BY scheduled_date DESC LIMIT 40`
     ).catch(() => ({ rows: [] })),
+    getForecast(),
   ]);
 
   return {
@@ -78,6 +80,7 @@ async function gatherContext(monthStr) {
     topProducts: topProducts.rows,
     insights,
     wholesale: wholesale ? wholesaleContext(wholesale) : null,
+    weatherDays: forecast.days.filter((d) => d.date.startsWith(monthStr)),
   };
 }
 
@@ -109,6 +112,7 @@ Tráfico pago: Meta Ads ${ctx.store.paidTraffic.metaAds.pct}% · Google Ads ${ct
 ` : ''}RENDIMIENTO HISTÓRICO POR PILAR:
 ${insightsTxt}
 ${ctx.wholesale ? `\nCONDICIONES MAYORISTAS: ${ctx.wholesale}` : ''}
+${ctx.weatherDays?.length ? `\nPRONÓSTICO DE CABA (MET Norway; sólo estas fechas, temperaturas aproximadas calculadas de intervalos; el resto del mes aún no tiene pronóstico): ${ctx.weatherDays.map((d) => `${d.date} ${d.min}-${d.max}°C${d.rainMm == null ? '' : `, lluvia hasta ${d.rainMm} mm/6h`}`).join('; ')}. No vendas abrigo térmico como necesidad inmediata de CABA en días cálidos. Un producto de frío puede apuntar al sur del país si se explicita ese público. No extrapoles el clima de CABA a toda Argentina. No cites cifras exactas del pronóstico en títulos públicos.\n` : ''}
 ${ctx.recentTopics && ctx.recentTopics.length ? `\nTEMAS YA USADOS EN LOS ÚLTIMOS 2 MESES (NO los repitas; si un producto vuelve, tiene que ser con un ángulo claramente distinto):\n${ctx.recentTopics.map((t) => `- ${t}`).join('\n')}\n` : ''}
 REGLAS DEL PLAN (obligatorias):
 - Asigná TODOS los días del mes (del 1 al ${nDays}), pero NO todos llevan publicación: cuando un día no tenga nada valioso que decir, usá pillar 'repost' (descanso). CALIDAD SOBRE CANTIDAD: mejor 4-5 piezas fuertes por semana que 7 de relleno. Mínimo 1 descanso por semana; hasta 2-3 si el material del mes es flojo.
@@ -118,6 +122,7 @@ REGLAS DEL PLAN (obligatorias):
 - Mezcla semanal aproximada: 2-3 feed, 1-2 reel, 2-3 story.
 - Pilares por semana: 2 producto, 1 promo, 1 educativo, 1 de marca o ugc, 1 mayorista cada 2 semanas, 1 engagement como máximo.
 - En piezas de 'producto'/'promo', nombrá SOLO productos de la lista de arriba (son los que tienen stock y curva de talles reales). No inventes productos.
+- Los Reels deben alternar productos, educación, armado de paquetes, despacho y contenido mayorista/minorista cuando tenga sentido. pillar_detail tiene que indicar qué mostrar o grabar. El guion con tomas y duración se produce por separado al acercarse la fecha, con clima actualizado.
 - En los días de fechas comerciales de prioridad >= 8, poné 'promo' con pillar_detail referido a esa fecha. El día ANTERIOR a una fecha de prioridad 10, anticipala.
 - automation_level: 'auto' siempre, salvo engagement con encuesta/quiz -> 'semi' (máximo 1 'semi' por semana). En los 'semi', interaction_hint tiene que ser la instrucción EXACTA del sticker, lista para copiar: tipo (ENCUESTA/QUIZ/PREGUNTA), la pregunta textual, las opciones textuales (2-4, cortas) y, si es quiz, cuál es la correcta. Ej: 'ENCUESTA: "¿Qué priorizás en un botín?" Opciones: "Comodidad" / "Resistencia"'. Nada vago tipo "agregá una encuesta sobre el tema".
 - scheduled_time entre '11:00' y '18:00'.${ctx.bestHours && ctx.bestHours.length

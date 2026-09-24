@@ -403,6 +403,7 @@ function watchJob(jobId) {
 
       if (job.asset_id) {
         await pool.query('UPDATE generated_assets SET video_path = $2, updated_at = now() WHERE id = $1', [job.asset_id, url]);
+        await require('./shippingBadge').queueForAsset(job.asset_id);
       } else {
         await pool.query(
           `INSERT INTO studio_assets (kind, path, prompt, product_ids, product_names, format, est_cost_usd)

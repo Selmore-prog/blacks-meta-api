@@ -46,7 +46,7 @@ function groupWords(words, maxWords = 3, maxDur = 1.6) {
  * Construye el .ass estilo CREADOR (karaoke: cada palabra se pinta con color de acento
  * cuando se dice) con pop-in. style: { position, uppercase, fontSize, maxWords, color, karaoke }
  */
-function buildAss({ words = [], overlays = [], style = {}, w = 1080, h = 1920 }) {
+function buildAss({ words = [], overlays = [], style = {}, shippingBadge = false, w = 1080, h = 1920 }) {
   const up = style.uppercase !== false;
   const size = style.fontSize || 96;
   const marginV = style.position === 'top' ? 300 : 420; // por encima de la UI de IG
@@ -70,6 +70,7 @@ ScaledBorderAndShadow: yes
 Format: Name, Fontname, Fontsize, PrimaryColour, SecondaryColour, OutlineColour, BackColour, Bold, Italic, Underline, StrikeOut, ScaleX, ScaleY, Spacing, Angle, BorderStyle, Outline, Shadow, Alignment, MarginL, MarginR, MarginV, Encoding
 Style: Sub,${font},${size},${primary},${white},${outline},&H90000000,-1,0,0,0,100,100,1,0,1,8,3,${align},80,80,${marginV},1
 Style: Top,${font},${Math.round(size * 0.9)},${white},${white},${outline},&H90000000,-1,0,0,0,100,100,1,0,1,8,3,8,80,80,260,1
+Style: Ship,${font},31,&H00000000,&H00000000,&H00000000,&H00000000,-1,0,0,0,100,100,0,0,1,0,0,7,0,0,0,1
 
 [Events]
 Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
@@ -95,7 +96,14 @@ Format: Layer, Start, End, Style, Name, MarginL, MarginR, MarginV, Effect, Text
     return `Dialogue: 0,${assTime(o.start || 0)},${assTime(o.end || 3)},Top,,0,0,0,,{\\fad(80,60)}${txt}`;
   });
 
-  return header + subs.concat(tops).join('\n') + '\n';
+  // Misma insignia clara de las fichas nativas: camión naranja y GRATIS oscuro.
+  // ASS vectorial evita depender de fuentes emoji en el runner de ffmpeg.
+  const badge = shippingBadge ? [
+    'Dialogue: 1,0:00:00.00,1:00:00.00,Ship,,0,0,0,,{\\an7\\pos(64,310)\\p1\\1c&H00FFFFFF&\\bord0\\shad0}m 20 0 l 255 0 b 268 0 275 8 275 20 l 275 42 b 275 54 268 62 255 62 l 20 62 b 8 62 0 54 0 42 l 0 20 b 0 8 8 0 20 0{\\p0}',
+    'Dialogue: 2,0:00:00.00,1:00:00.00,Ship,,0,0,0,,{\\an7\\pos(86,324)\\p1\\1c&H00006BFF&\\bord0\\shad0}m 1 5 l 33 5 l 33 30 l 1 30 l 1 5 m 34 13 l 45 13 l 54 22 l 54 30 l 34 30 l 34 13 m 7 31 b 7 23 18 23 18 31 b 18 39 7 39 7 31 m 39 31 b 39 23 50 23 50 31 b 50 39 39 39 39 31{\\p0}',
+    'Dialogue: 3,0:00:00.00,1:00:00.00,Ship,,0,0,0,,{\\an7\\pos(155,324)}GRATIS',
+  ] : [];
+  return header + subs.concat(tops, badge).join('\n') + '\n';
 }
 
 /* ---------- Quemado con ffmpeg ---------- */
@@ -116,12 +124,12 @@ function runFfmpeg(args) {
  * Quema los subtítulos (y opcional voz en off) sobre el video y devuelve la URL final subida.
  * videoUrl / voiceoverUrl pueden ser URLs http (ffmpeg las lee directo).
  */
-async function renderEditedVideo({ videoUrl, words = [], overlays = [], voiceoverUrl = null, style = {}, filename }) {
+async function renderEditedVideo({ videoUrl, words = [], overlays = [], voiceoverUrl = null, style = {}, shippingBadge = false, filename }) {
   if (!videoUrl) throw new Error('[videoEditor] falta videoUrl');
   const id = `${Date.now()}-${Math.floor(Math.random() * 1e6)}`;
   const assPath = path.join(os.tmpdir(), `subs-${id}.ass`);
   const outPath = path.join(os.tmpdir(), `edited-${id}.mp4`);
-  fs.writeFileSync(assPath, buildAss({ words, overlays, style }));
+  fs.writeFileSync(assPath, buildAss({ words, overlays, style, shippingBadge }));
 
   const assFilter = `ass=${assPath.replace(/\\/g, '/').replace(/:/g, '\\:')}`;
   const args = ['-y', '-loglevel', 'error', '-i', videoUrl];

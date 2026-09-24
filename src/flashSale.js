@@ -383,6 +383,7 @@ async function computeBlock() {
       price,
       promo_price: finalP,
       discount_pct: disc,
+      free_shipping: r.raw?.free_shipping === true,
       stock: r.stock === null ? null : Number(r.stock),
       low_stock: r.stock !== null && Number(r.stock) > 0 && Number(r.stock) <= 8,
     };

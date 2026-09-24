@@ -368,6 +368,10 @@ ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS show_labels BOOLEAN DEFAUL
 --   art_mode:       'generativa' | 'foto' | 'tipografica' | NULL (lo decide el director creativo)
 ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS carousel_style TEXT;
 ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS art_mode TEXT;
+-- Guion operativo del Reel; se refresca cuando cambia el contexto climático
+-- antes de grabarlo, sin tocar piezas publicadas ni decisiones manuales.
+ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS reel_brief JSONB;
+ALTER TABLE content_calendar ADD COLUMN IF NOT EXISTS reel_brief_updated_at TIMESTAMPTZ;
 -- Receta de cada slide del carrusel (para regenerar UNO solo con correcciones):
 -- [{kind, shotType, photoIndex, extraPhotos, background, focus, overlay, badge}]
 ALTER TABLE generated_assets ADD COLUMN IF NOT EXISTS slides_meta JSONB;

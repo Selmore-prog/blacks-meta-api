@@ -415,6 +415,15 @@ app.post('/api/calendar/seed', wrap(async (req, res) => {
   res.json({ ok: true, inserted: inserted.length });
 }));
 
+// Guion de grabación de un Reel. La generación diaria prepara los próximos
+// siete días; este botón permite crear o rehacer el de un slot recién agregado.
+app.post('/api/calendar/:id/reel-brief', wrap(async (req, res) => {
+  const id = intParam(req.params.id);
+  if (!id) return res.status(400).json({ error: 'id inválido' });
+  const brief = await require('./reelBrief').generateReelBrief(id, { force: true });
+  res.json({ ok: true, brief });
+}));
+
 /* Forma del carrusel y modo de arte guardados EN EL SLOT (no sólo en la regeneración de
    turno): cualquier valor que no sea uno de los conocidos vuelve a "automático" (null). */
 const carouselStyleParam = (v) => (['continuo', 'clasico'].includes(v) ? v : null);
@@ -515,6 +524,9 @@ app.patch('/api/calendar/:calendarId', wrap(async (req, res) => {
   const allowed = Object.keys(values).filter((key) => values[key] !== undefined);
   if (!allowed.length) return res.status(400).json({ error: 'No hay campos para actualizar.' });
   const sets = allowed.map((key, i) => `${key} = $${i + 2}`);
+  if (allowed.some((key) => ['post_type', 'pillar', 'pillar_detail', 'theme_title', 'objective', 'forced_product_id', 'forced_product_ids'].includes(key))) {
+    sets.push('reel_brief = NULL', 'reel_brief_updated_at = NULL');
+  }
   const params = [id, ...allowed.map((key) => values[key])];
   const { rows } = await pool.query(
     `UPDATE content_calendar SET ${sets.join(', ')} WHERE id = $1 RETURNING *`,
@@ -2522,6 +2534,7 @@ app.post('/api/assets/:assetId/upload-video', uploadVideo.single('file'), wrap(a
     contentType: req.file.mimetype || 'video/mp4',
   });
   await pool.query(`UPDATE generated_assets SET video_path = $2, updated_at = now() WHERE id = $1`, [id, url]);
+  await require('./shippingBadge').queueForAsset(id);
   res.json({ ok: true, video_path: url });
 }));
 
@@ -2826,7 +2839,7 @@ app.use((err, req, res, next) => {
 process.on('unhandledRejection', (reason) => console.error('[server] unhandledRejection:', reason));
 process.on('uncaughtException', (err) => console.error('[server] uncaughtException:', err));
 
-app.listen(config.port, () => {
+require('./reelBrief').ensureSchema().then(() => app.listen(config.port, () => {
   console.log(`[server] BLACKS content engine en puerto ${config.port} · IA: ${hasGemini() ? 'Gemini' : 'Groq'} · imágenes IA: ${config.ai.useAiImages}`);
   // Ajustes guardados desde el panel (ej. modelo de imagen elegido).
   require('./settings').loadSettings()
@@ -2834,4 +2847,4 @@ app.listen(config.port, () => {
     .catch(() => {});
   // Retoma los videos de Veo que quedaron a medio generar (ya están pagados).
   require('./videoAi').resumeVideoJobs().catch(() => {});
-});
+})).catch((err) => { console.error('[server] No pude preparar los guiones de Reel:', err); process.exitCode = 1; });

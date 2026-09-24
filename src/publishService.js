@@ -70,6 +70,11 @@ async function publishAssetById(assetId, { force = false } = {}) {
     throw new Error(`La pieza #${assetId} fue reemplazada por una versión más nueva (#${asset.latest_asset_id}): no se publica la versión vieja.`);
   }
 
+  if (asset.post_type === 'reel' && asset.video_path && !asset.edited_video_path &&
+      await require('./shippingBadge').forAsset(assetId)) {
+    throw new Error('El Reel todavía está preparando la etiqueta de envío gratis en el video. Se publicará cuando termine el render.');
+  }
+
   // Semiautomatizada: la publicás vos desde la app para poder agregar el sticker/encuesta.
   if (asset.automation_level === 'semi' && !force) {
     return {
@@ -171,6 +176,8 @@ async function enqueueDailyAuto() {
        AND c.pillar != 'repost'
        -- Slots pausados/eliminados desde el panel NO se publican.
        AND c.status <> 'skipped'
+       -- El archivo final con etiqueta/subtítulos debe existir antes de encolar.
+       AND NOT (c.post_type = 'reel' AND COALESCE(a.edit_status, 'none') IN ('queued', 'processing', 'error'))
        -- Sólo la ÚLTIMA versión de la pieza: si se regeneró, la vieja (aunque haya
        -- quedado aprobada) no se encola — era el bug de "publicó algo que eliminé".
        AND a.id = (SELECT MAX(ga.id) FROM generated_assets ga

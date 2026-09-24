@@ -1,6 +1,7 @@
 const pool = require('../src/db');
 const { getPublicUrl } = require('../src/storage');
 const { renderEditedVideo } = require('../src/videoEditor');
+const { forAsset: shippingBadgeForAsset } = require('../src/shippingBadge');
 
 /**
  * Procesa los videos encolados para editar (subtítulos + voz en off).
@@ -23,6 +24,7 @@ async function renderVideoEdits() {
         overlays: Array.isArray(a.overlays) ? a.overlays : [],
         voiceoverUrl: a.voiceover_path ? getPublicUrl(a.voiceover_path) : null,
         style: a.edit_style || {},
+        shippingBadge: await shippingBadgeForAsset(a.id),
       });
       await pool.query(`UPDATE generated_assets SET edited_video_path = $2, edit_status = 'done', updated_at = now() WHERE id = $1`, [a.id, url]);
       console.log(`[render-video-edits] #${a.id} -> ${url}`);

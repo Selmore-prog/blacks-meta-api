@@ -39,6 +39,7 @@ function toDateOnly(date) {
  * No duplica (UNIQUE por fecha/plataforma/post_type).
  */
 async function seedCalendar(daysAhead = 14, startDate = new Date()) {
+  await require('./reelBrief').ensureSchema();
   const inserted = [];
 
   // Plan mensual IA (si existe): manda sobre la rotación fija, día por día.
@@ -70,7 +71,12 @@ async function seedCalendar(daysAhead = 14, startDate = new Date()) {
          carousel = EXCLUDED.carousel,
          origin = EXCLUDED.origin,
          status = EXCLUDED.status,
-         objective = EXCLUDED.objective
+         objective = EXCLUDED.objective,
+         reel_brief = CASE WHEN content_calendar.pillar IS DISTINCT FROM EXCLUDED.pillar
+                            OR content_calendar.pillar_detail IS DISTINCT FROM EXCLUDED.pillar_detail
+                            OR content_calendar.theme_title IS DISTINCT FROM EXCLUDED.theme_title
+                            OR content_calendar.objective IS DISTINCT FROM EXCLUDED.objective
+                            THEN NULL ELSE content_calendar.reel_brief END
        WHERE content_calendar.status = 'pending'
           -- Sólo se pisan los descansos sembrados automáticamente: un slot que VOS
           -- pausaste (skipped con pilar real) queda pausado — la siembra diaria no

@@ -1103,7 +1103,7 @@ function renderPreview(item) {
   const slides = parseSlides(item.slides);
   const isCarousel = slides && slides.length > 1;
   let media;
-  if (item.video_path) media = `<video class="media" src="${esc(item.video_path)}" muted loop playsinline autoplay poster="${esc(item.image_path || '')}"></video>`;
+  if (item.video_path) media = `<video class="media" src="${esc(item.edited_video_path || item.video_path)}" muted loop playsinline autoplay poster="${esc(item.image_path || '')}"></video>`;
   else if (isCarousel) media = `<div class="carousel">${slides.map((u) => `<img src="${esc(u)}" loading="lazy" alt=""/>`).join('')}</div><div class="c-count">${icon('grid')} ${slides.length}</div>`;
   else if (item.image_path) media = `<img class="media" src="${esc(item.image_path)}" loading="lazy" alt="" />`;
   else media = `<div class="empty-media">${esc(item.pillar_detail || item.theme_title || 'Sin generar')}</div>`;
@@ -1173,7 +1173,7 @@ function openPreview(item) {
   const format = item.format || (item.post_type === 'feed' ? 'feed' : 'story');
   const isStory = format === 'story';
   const isReel = item.post_type === 'reel';
-  const img = item.image_path, vid = item.video_path;
+  const img = item.image_path, vid = item.edited_video_path || item.video_path;
   const slides = parseSlides(item.slides);
   const feedMedia = (slides && slides.length > 1)
     ? `<div class="carousel">${slides.map((u) => `<img src="${esc(u)}"/>`).join('')}</div><div class="c-count">${icon('grid')} 1/${slides.length}</div>`
@@ -1631,6 +1631,8 @@ function renderCard(item) {
       ? `<span class="badge semi gen-chip">${icon('refresh', 'spin')} Generando el video…</span>`
       : `<button class="btn-video" data-act="genvideo" data-id="${aid}">${icon('film')} Generar video con IA</button>`)
     : '';
+  const reelBriefBtn = item.post_type === 'reel' && status !== 'published'
+    ? `<button class="btn-ghost btn-sm" data-act="reelbrief" data-id="${item.id}">${icon('sparkles')} ${item.reel_brief ? 'Actualizar guion' : 'Crear guion'}</button>` : '';
   const videoBtn = (item.post_type === 'reel' && aid)
     ? `<button class="btn-ghost btn-sm" data-act="videoprompt" data-id="${aid}" title="Para generarlo a mano en Gemini/Veo">${icon('copy')} Prompt a mano</button>` : '';
   const uploadVideoBtn = (item.post_type === 'reel' && aid)
@@ -1656,21 +1658,23 @@ function renderCard(item) {
     // lo hacés en Gemini/Veo con el prompt y lo subís).
     actions = item.post_type === 'reel'
       ? `<button class="btn-primary" data-act="generate" data-id="${item.id}">${icon('bolt')} Generar copy (sin video) ${costTag('Gratis')}</button>
-        ${moreMenu(`<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Cambiar tema</button>${planBtn}`)}`
+        ${reelBriefBtn}${moreMenu(`<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Cambiar tema</button>${planBtn}`)}`
       : `<button class="btn-primary" data-act="generate" data-id="${item.id}">${icon('bolt')} Generar pieza ${costTag(genCostLabel())}</button>
         ${moreMenu(`<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Cambiar tema</button>${planBtn}`)}`;
   } else if (status === 'draft') {
     actions = `<button class="btn-approve" data-act="approve" data-id="${aid}">${icon('check')} Aprobar</button>
       <button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Abrir editor</button>
-      ${genVideoBtn}${moreMenu(`${regenBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${downloadBtn}
+      ${genVideoBtn}${moreMenu(`${reelBriefBtn}${regenBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${downloadBtn}
         <button class="btn-discard btn-sm" data-act="discard" data-id="${aid}">${icon('trash')} Descartar</button>${planBtn}`)}`;
   } else if (status === 'approved') {
-    actions = (isSemi
+    actions = (item.post_type === 'reel' && ['queued', 'processing'].includes(item.edit_status)
+      ? `<span class="badge semi gen-chip">${icon('refresh', 'spin')} Preparando video final…</span>`
+      : isSemi
       ? `<button class="btn-manual" data-act="publish" data-id="${aid}">${icon('info')} Cómo publicarla</button>`
       : `<button class="btn-publish" data-act="publish" data-id="${aid}">${icon('send')} Publicar ahora</button>`) +
       `<button class="btn-ghost btn-sm" data-act="unapprove" data-id="${aid}">${icon('refresh')} Deshacer aprobación</button>
        <button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Abrir editor</button>${genVideoBtn}
-       ${moreMenu(`${regenBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${downloadBtn}${planBtn}`)}`;
+       ${moreMenu(`${reelBriefBtn}${regenBtn}${videoBtn}${uploadVideoBtn}${editVideoBtn}${downloadBtn}${planBtn}`)}`;
   } else if (status === 'published') {
     actions = `<span class="badge status-published" ${item.meta_post_id ? `title="ID de Instagram: ${esc(item.meta_post_id)}"` : ''}>${icon('check')} Publicada</span>
       ${downloadBtn}
@@ -1693,10 +1697,28 @@ function renderCard(item) {
   // El copy y la imagen base salen del panel; el video lo generás en Gemini/Veo.
   const reelNote = (item.post_type === 'reel' && aid && !item.video_path && ['draft', 'approved'].includes(status))
     ? `<div class="reel-note">${icon('film')} Este Reel tiene el copy listo pero <b>le falta el video</b> (no se publica sin él): tocá <b>Generar video con IA</b> y en 1-4 minutos queda solo. Si preferís hacerlo a mano, están el <b>prompt</b> y <b>Subir video</b>.</div>` : '';
+  const shippingRenderNote = item.post_type === 'reel' && item.video_path && ['queued', 'processing', 'error'].includes(item.edit_status)
+    ? `<div class="reel-note">${icon('film')} ${item.edit_status === 'error' ? 'Falló la edición del video. Abrí “Subtítulos” y volvé a generar la versión final.' : 'Se está preparando el video final con la etiqueta de envío gratis, si corresponde. Se publicará cuando termine.'}</div>` : '';
 
   const caption = item.caption
     ? `<div class="caption">${esc(item.caption)}</div>${item.hashtags ? `<div class="hashtags">${esc(item.hashtags)}</div>` : ''}`
     : `<div class="caption empty">${esc(item.pillar_detail || 'Todavía sin generar.')}</div>`;
+  const reelBrief = item.post_type === 'reel' && item.reel_brief
+    ? `<details class="reel-brief"><summary>${icon('film')} Guion de grabación · ${Number(item.reel_brief.duration_sec) || 20} s <span>Ver tomas</span></summary>
+        <div class="reel-brief-body">
+          <p><b>Idea:</b> ${esc(item.reel_brief.concept)}</p>
+          ${item.reel_brief.product_name ? `<p><b>Producto protagonista:</b> ${esc(item.reel_brief.product_name)}</p>` : ''}
+          <p><b>Por qué esta duración:</b> ${esc(item.reel_brief.duration_reason)}</p>
+          ${item.reel_brief.weather ? `<p class="reel-weather">Pronóstico CABA para ${esc(item.reel_brief.weather.date)}: aprox. ${esc(item.reel_brief.weather.min)}–${esc(item.reel_brief.weather.max)} °C${Number.isFinite(item.reel_brief.weather.rainMm) ? ` · lluvia hasta ${esc(item.reel_brief.weather.rainMm)} mm/6 h` : ''}. Datos: <a href="https://api.met.no/" target="_blank" rel="noopener">MET Norway</a> (<a href="https://creativecommons.org/licenses/by/4.0/" target="_blank" rel="noopener">CC BY 4.0</a>); valores diarios calculados a partir de intervalos.</p>` : '<p class="reel-weather">Sin pronóstico para esa fecha; idea basada en temporada.</p>'}
+          <p><b>Prepará:</b> ${esc(item.reel_brief.preparation)}</p>
+          <p><b>Gancho:</b> ${esc(item.reel_brief.hook)}</p>
+          <ol>${(item.reel_brief.shots || []).map((shot) => `<li><b>${esc(shot.seconds)} s</b> · ${esc(shot.record)}${shot.say ? `<br><strong>Decí:</strong> “${esc(shot.say)}”` : ''}${shot.on_screen ? `<br><strong>En pantalla:</strong> ${esc(shot.on_screen)}` : ''}</li>`).join('')}</ol>
+          <p><b>Portada:</b> ${esc(item.reel_brief.cover)}</p>
+          <p><b>Texto de publicación:</b> ${esc(item.reel_brief.caption)}</p>
+          <p><b>Cierre:</b> ${esc(item.reel_brief.cta)}</p>
+          <p class="reel-weather">Este guion es para grabar y editar las tomas. “Generar video con IA” crea un clip de hasta 8 s que podés usar como una toma.</p>
+        </div></details>`
+    : '';
 
   // Lectura por capas: arriba queda sólo lo que ayuda a decidir qué hacer. Pilar,
   // audiencia, costo y fechas comerciales siguen disponibles, pero no compiten todos
@@ -1725,8 +1747,10 @@ function renderCard(item) {
       </div>
       ${metaDetails}
       ${caption}
+      ${reelBrief}
       ${interaction}
       ${reelNote}
+      ${shippingRenderNote}
       ${pubTimerHtml(item, status)}
       <div class="actions">${actions}</div>
     </div>`;
@@ -1769,6 +1793,10 @@ async function handleAction(act, id, btn, card, item) {
       openRegen(item || calItems.find((x) => String(x.id) === String(id)));
     } else if (act === 'genvideo') {
       openVideoGenerate(id);
+    } else if (act === 'reelbrief') {
+      btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Armando guion…`;
+      await api(`/api/calendar/${id}/reel-brief`, { method: 'POST' });
+      toast('Guion de Reel actualizado', 'ok'); reloadKeepScroll();
     } else if (act === 'videoprompt') {
       openVideoPrompt(id);
     } else if (act === 'uploadvideo') {
@@ -1822,7 +1850,7 @@ function openDownload(item) {
   if (!item) return;
   const slides = parseSlides(item.slides);
   const files = [];
-  if (item.video_path) files.push({ url: item.edited_video_path || item.video_path, label: item.edited_video_path ? 'Video con subtítulos' : 'Video del Reel', ext: 'mp4' });
+  if (item.video_path) files.push({ url: item.edited_video_path || item.video_path, label: item.edited_video_path ? 'Video final' : 'Video del Reel', ext: 'mp4' });
   if (slides && slides.length > 1) slides.forEach((u, i) => files.push({ url: u, label: `Slide ${i + 1} de ${slides.length}`, ext: 'jpg' }));
   else if (item.image_path) files.push({ url: item.image_path, label: item.video_path ? 'Imagen base' : 'Imagen', ext: 'jpg' });
   if (!files.length) { toast('Esta pieza todavía no tiene imagen ni video.'); return; }

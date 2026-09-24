@@ -1181,7 +1181,15 @@ async function generateForSlot(slot, overrides = {}) {
   const brandProfile = await getBrandProfile();
   // Permite regenerar cambiando el tema/ángulo del contenido sin cambiar el pilar.
   const pillarDetail = overrides.pillarDetail || slot.pillar_detail;
-  const effectiveSlot = { ...slot, pillar_detail: pillarDetail };
+  const targetDate = slot.scheduled_date instanceof Date
+    ? slot.scheduled_date.toISOString().slice(0, 10) : String(slot.scheduled_date).slice(0, 10);
+  const { getForecast, weatherForDate } = require('../src/weather');
+  const forecast = await getForecast();
+  const weather = weatherForDate(forecast, targetDate);
+  const weatherNote = weather
+    ? `Pronóstico de CABA para ${targetDate}: ${weather.min}-${weather.max}°C aproximados${weather.rainMm == null ? '' : `, lluvia hasta ${weather.rainMm} mm/6h`}. Fuente: MET Norway. Usar sólo para elegir el ángulo, no citar cifras exactas en el copy. No asumir que vale para todo el país. Si hace calor, no presentar abrigo térmico como necesidad local; si corresponde al sur, nombrar ese público. No atribuir resistencia al agua sin ficha.`
+    : null;
+  const effectiveSlot = { ...slot, pillar_detail: [pillarDetail, weatherNote].filter(Boolean).join(' · ') };
   // Dirección de arte pedida a mano desde el panel (ver ART_MODES).
   const artMode = normalizeArtMode(overrides.artMode) || normalizeArtMode(slot.art_mode);
   const artBrief = String(overrides.artBrief || '').trim().slice(0, 400) || null;
@@ -1204,6 +1212,14 @@ async function generateForSlot(slot, overrides = {}) {
      pieza es esa. Ver el bloque "PIEZA A PEDIDO" arriba. */
   const idsElegidos = idsPedidos(slot);
   const productosPedidos = idsElegidos.length ? await pickForcedProducts(idsElegidos) : [];
+  // El guion del Reel puede haber elegido un producto real antes de generar el
+  // asset. Usarlo mantiene el video, el copy y las tomas sobre la misma ficha.
+  const briefProductId = !idsElegidos.length && slot.post_type === 'reel' &&
+    ['producto', 'promo', 'mayorista'].includes(slot.pillar)
+    ? Number(slot.reel_brief?.product_id) : 0;
+  const briefProduct = briefProductId > 0
+    ? await pickForcedProduct(briefProductId).catch(() => null) : null;
+  const validBriefProduct = briefProduct && Number(briefProduct.stock) > 0 ? briefProduct : null;
   const visualBrief = String(overrides.visualBrief || slot.visual_brief || '').trim().slice(0, 600) || null;
   const quiereEtiquetas = Boolean(slot.show_labels);
   if (productosPedidos.length > 1 || visualBrief) {
@@ -1247,7 +1263,7 @@ async function generateForSlot(slot, overrides = {}) {
   // llamada de texto (gratis). Best-effort: si falla, plan = null y sigue la lógica
   // clásica de siempre. Ver el flujo completo en src/creativeDirector.js.
   let directorPlan = null;
-  if (!noProductBrief && !idsElegidos.length) {
+  if (!noProductBrief && !idsElegidos.length && !validBriefProduct) {
     try {
       const { planPiece } = require('../src/creativeDirector');
       // El menú que ve el director YA viene sin las plantillas de las últimas piezas:
@@ -1283,6 +1299,8 @@ async function generateForSlot(slot, overrides = {}) {
       // El primero de la lista es el protagonista (precio, ficha, copy); los demás
       // acompañan en la imagen. Ya vienen refrescados en vivo de Tiendanube.
       [product] = productosPedidos;
+    } else if (validBriefProduct) {
+      product = validBriefProduct;
     } else if (directorPlan && directorPlan.product && (isMayorista || PRODUCT_PILLARS.includes(slot.pillar))) {
       product = await pickForcedProduct(directorPlan.product.id); // refresca precio/stock en vivo
     } else if (directorPlan && !directorPlan.product) {
@@ -1414,6 +1432,7 @@ async function generateForSlot(slot, overrides = {}) {
         ? `La pieza muestra JUNTOS estos productos reales: ${productosPedidos.map((x) => x.name).join(' + ')}. El texto tiene que hablar del conjunto, no de uno solo.`
         : null,
       visualBrief ? `Pedido del dueño para esta pieza: "${visualBrief}".` : null,
+      weatherNote,
       directorPlan ? directorPlan.copyAngle : null,
     ].filter(Boolean).join(' ') || null,
     // Qué muestra la imagen ya elegida (director de fotografía): el copy habla de ESO.
@@ -2346,6 +2365,12 @@ async function generateDaily() {
   await require('../src/settings').loadSettings().catch(() => {});
   console.log('[generate-daily] Sembrando calendario (próximos 14 días si faltan)...');
   await seedCalendar(14);
+  // El guion se prepara al acercarse la grabación: usa stock y pronóstico actual,
+  // y se revisa si cambia la banda climática de CABA.
+  await require('../src/reelBrief').refreshUpcomingReels()
+    .catch((err) => console.warn(`[generate-daily] Guiones de Reel: ${err.message}`));
+  await require('../src/shippingBadge').queueExistingReels()
+    .catch((err) => console.warn(`[generate-daily] Etiquetas de envío en Reels: ${err.message}`));
 
   const pending = await getPendingForDate(new Date());
   console.log(`[generate-daily] ${pending.length} slot(s) pendientes para hoy.`);
