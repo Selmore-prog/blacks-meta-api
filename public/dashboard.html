@@ -30,6 +30,7 @@
       <button class="tab" data-view="stats" onclick="switchTab('stats')"><span data-ic="chart"></span><span class="tl">Estadísticas</span></button>
       <button class="tab" data-view="metrics" onclick="switchTab('metrics')"><span data-ic="list"></span><span class="tl">Métricas</span></button>
       <button class="tab" data-view="analysis" onclick="switchTab('analysis')"><span data-ic="search"></span><span class="tl">Análisis web</span></button>
+      <button class="tab" data-view="access" onclick="switchTab('access')"><span data-ic="user"></span><span class="tl">Accesos</span></button>
     </nav>
     <div class="side-foot">@blacks.indumentaria</div>
     <button class="side-collapse" id="side-collapse" onclick="toggleSidenav()" title="Comprimir / desplegar el menú">‹</button>
@@ -259,10 +260,7 @@
       <div id="pt-trabajos" class="pt-pane hidden">
         <div id="works-tools"></div>
 
-        <!-- Acceso acotado para que otra persona cargue trabajos sin ver el panel
-             entero. Vive SOLO acá, no en works-panel.js: el portal del equipo
-             comparte ese archivo y no tiene que ver esta configuración. -->
-        <div id="team-portal-cfg" style="margin-top:22px;"></div>
+        <button class="btn-ghost btn-sm" onclick="switchTab('access')" style="margin-top:18px;">Administrar accesos del equipo</button>
       </div>
     </section>
 
@@ -554,6 +552,16 @@
         <div id="search-stats"><p class="loading">Cargando búsquedas…</p></div>
       </div>
     </section>
+    <!-- ===== Administración de accesos ===== -->
+    <section id="view-access" class="view hidden">
+      <div class="page-head"><div><span class="studio-kicker">ADMINISTRACIÓN</span><h2>Usuarios y permisos</h2>
+        <p class="hint">Creá una cuenta por persona y elegí qué secciones puede usar.</p></div></div>
+      <div id="team-users-panel"></div>
+      <details class="access-legacy"><summary>Acceso compartido anterior</summary>
+        <p class="hint">La clave compartida para bordados sigue funcionando mientras esté activa. Podés desactivarla cuando el equipo ya tenga cuentas individuales.</p>
+        <div id="team-portal-cfg"></div>
+      </details>
+    </section>
   </div>
 
   <!-- ===== Navegación inferior (mobile, tipo app) ===== -->
@@ -567,6 +575,7 @@
     <button class="tab" data-view="stats" onclick="switchTab('stats')"><span data-ic="chart"></span><span class="tl">Estadísticas</span></button>
     <button class="tab" data-view="metrics" onclick="switchTab('metrics')"><span data-ic="list"></span><span class="tl">Métricas</span></button>
     <button class="tab" data-view="analysis" onclick="switchTab('analysis')"><span data-ic="search"></span><span class="tl">Análisis</span></button>
+    <button class="tab" data-view="access" onclick="switchTab('access')"><span data-ic="user"></span><span class="tl">Accesos</span></button>
   </nav>
 
   <!-- Modal edición: en desktop es un panel lateral que se desliza desde la derecha;

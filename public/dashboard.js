@@ -169,6 +169,7 @@ function switchTab(view) {
     switchAnalysisPane(pane);
   }
   if (view === 'ads') loadAdsPerformance();
+  if (view === 'access') loadAccessPanel();
 }
 
 /* Sub-pestañas de PRODUCTOS.
@@ -205,7 +206,7 @@ function switchProductsPane(name) {
   ptCargados.add(name);
   if (name === 'prioridades') loadProducts();
   else if (name === 'fotos') loadMediaTools();
-  else if (name === 'trabajos') { loadWorks(); loadTeamPortal(); }
+  else if (name === 'trabajos') loadWorks();
 }
 
 /** El botón "Refrescar" de la barra: recarga SOLO el panel que estás mirando. */
@@ -7033,6 +7034,105 @@ async function flashEnd() {
  * ========================================================================== */
 
 let teamCfg = null;
+let teamUsersData = null;
+
+function loadAccessPanel() {
+  loadTeamUsers();
+  loadTeamPortal();
+}
+
+async function loadTeamUsers() {
+  const box = document.getElementById('team-users-panel');
+  if (!box) return;
+  box.innerHTML = `<div class="panel">${skeleton('rows', 3)}</div>`;
+  try {
+    teamUsersData = await api('/api/team/users');
+    renderTeamUsers();
+  } catch (err) {
+    box.innerHTML = `<div class="panel"><p class="hint">No se pudieron cargar los usuarios: ${esc(err.message)}</p></div>`;
+  }
+}
+
+function renderTeamUsers() {
+  const box = document.getElementById('team-users-panel');
+  const data = teamUsersData || { users: [], catalog: [] };
+  const checks = (sections, cls) => (data.catalog || []).map((section) => `
+    <label class="access-check"><input type="checkbox" class="${cls}" data-section="${esc(section.id)}"
+      ${sections?.[section.id] ? 'checked' : ''}><span><b>${esc(section.label)}</b><small>${esc(section.help)}</small></span></label>`).join('');
+  box.innerHTML = `
+    <div class="panel access-panel">
+      ${panelHead('Cuentas individuales', 'Cada persona entra con su mail y contraseña. Los permisos se verifican también en el servidor.')}
+      <p class="hint">El acceso del equipo es <a href="/equipo.html" target="_blank" rel="noopener">${esc(location.origin)}/equipo.html</a>. Al crear una cuenta aparece una clave temporal una sola vez; compartila vos con esa persona. Al entrar tendrá que cambiarla.</p>
+      <form class="access-create" onsubmit="createTeamUser(event)">
+        <div class="field"><label>Mail de la persona</label><input class="input" type="email" id="access-email" autocomplete="off" placeholder="nombre@empresa.com" required></div>
+        <div class="access-checks">${checks({ calendar: true }, 'access-new-section')}</div>
+        <button class="btn-primary btn-sm" type="submit">Crear acceso</button>
+      </form>
+    </div>
+    <div class="panel access-panel">
+      ${panelHead('Personas con acceso')}
+      ${data.users.length ? data.users.map((user) => `<div class="access-user" data-user-id="${Number(user.id)}">
+        <div class="access-user-head"><b>${esc(user.email)}</b><span class="badge ${user.active ? 'status-approved' : 'qa-warn'}">${user.active ? 'Activo' : 'Desactivado'}</span></div>
+        <div class="access-checks">${checks(user.sections, 'access-user-section')}</div>
+        <label class="access-check"><input type="checkbox" class="access-user-active" ${user.active ? 'checked' : ''}><span><b>Acceso activo</b><small>Al desactivarlo, se cierran sus sesiones.</small></span></label>
+        <div class="access-actions"><button class="btn-primary btn-sm" onclick="saveTeamUser(${Number(user.id)})">Guardar permisos</button>
+          <button class="btn-ghost btn-sm" onclick="resetTeamUserPassword(${Number(user.id)})">Restablecer contraseña</button></div>
+      </div>`).join('') : '<p class="hint">Todavía no hay cuentas individuales.</p>'}
+    </div>`;
+}
+
+function showTemporaryPassword(email, password) {
+  const overlay = showInfoModal('Acceso del equipo', `<p>Cuenta: <b>${esc(email)}</b></p>
+    <p>Esta contraseña temporal se muestra una sola vez. Compartila por un canal seguro; la persona deberá cambiarla al entrar.</p>
+    <div class="access-secret"><code>${esc(password)}</code><button class="btn-ghost btn-sm" type="button">Copiar</button></div>`);
+  overlay.querySelector('.access-secret button').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(password); toast('Contraseña copiada.', 'ok'); }
+    catch (_) { toast('Seleccioná y copiá la contraseña.', 'warn'); }
+  });
+}
+
+async function createTeamUser(event) {
+  event.preventDefault();
+  const form = event.currentTarget;
+  const button = form.querySelector('button[type="submit"]');
+  const sections = {};
+  form.querySelectorAll('.access-new-section').forEach((input) => { sections[input.dataset.section] = input.checked; });
+  button.disabled = true;
+  try {
+    const email = form.querySelector('#access-email').value.trim();
+    const created = await api('/api/team/users', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, sections }) });
+    await loadTeamUsers();
+    showTemporaryPassword(created.user.email, created.temporaryPassword);
+  } catch (err) { toast(err.message, 'error'); button.disabled = false; }
+}
+
+async function saveTeamUser(id) {
+  const row = document.querySelector(`.access-user[data-user-id="${id}"]`);
+  if (!row) return;
+  const sections = {};
+  row.querySelectorAll('.access-user-section').forEach((input) => { sections[input.dataset.section] = input.checked; });
+  const button = row.querySelector('.access-actions .btn-primary');
+  button.disabled = true;
+  try {
+    await api(`/api/team/users/${id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ sections, active: row.querySelector('.access-user-active').checked }) });
+    toast('Permisos guardados.', 'ok');
+    await loadTeamUsers();
+  } catch (err) { toast(err.message, 'error'); button.disabled = false; }
+}
+
+async function resetTeamUserPassword(id) {
+  const row = document.querySelector(`.access-user[data-user-id="${id}"]`);
+  if (!row) return;
+  const email = row.querySelector('.access-user-head b').textContent;
+  if (!confirm(`¿Restablecer la contraseña de ${email}? Se cerrarán sus sesiones actuales.`)) return;
+  try {
+    const result = await api(`/api/team/users/${id}/reset-password`, { method: 'POST' });
+    showTemporaryPassword(email, result.temporaryPassword);
+    await loadTeamUsers();
+  } catch (err) { toast(err.message, 'error'); }
+}
 
 async function loadTeamPortal() {
   const box = document.getElementById('team-portal-cfg');

@@ -4,7 +4,7 @@
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <meta name="robots" content="noindex, nofollow" />
-  <title>BLACKS · Carga de contenido</title>
+  <title>BLACKS · Equipo</title>
   <link rel="stylesheet" href="/dashboard.css" />
   <style>
     /* Sólo lo propio del portal: el resto sale de dashboard.css. */
@@ -26,6 +26,30 @@
     .team-head .sub { color: var(--muted); font-size: 13px; }
     .team-head .spacer { flex: 1; }
     .team-empty { color: var(--muted); font-size: 14px; padding: 30px 0; text-align: center; }
+    .team-login .legacy-access { margin-top: 20px; padding-top: 15px; border-top: 1px solid var(--line); }
+    .team-login .legacy-access summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+    .team-login .legacy-access form { margin-top: 12px; }
+    .team-cal-head { display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap; margin-bottom: 14px; }
+    .team-cal-head h2 { margin: 0; font-size: 19px; }
+    .team-cal-layout { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 14px; align-items: start; }
+    .team-cal-scroll { overflow-x: auto; padding-bottom: 8px; }
+    .team-cal-grid { display: grid; grid-template-columns: repeat(7, minmax(0, 1fr)); gap: 6px; }
+    .team-cal-weekday { color: var(--muted); font-size: 11px; font-weight: 700; text-transform: uppercase; padding: 4px 8px; }
+    .team-cal-day { min-height: 86px; padding: 8px; background: var(--panel); border: 1px solid var(--line); border-radius: 10px; text-align: left; color: var(--text); cursor: pointer; }
+    .team-cal-day:hover, .team-cal-day.selected { border-color: var(--orange); background: var(--orange-dim); }
+    .team-cal-day.outside { opacity: .45; }
+    .team-cal-day b { display: block; font-size: 12px; margin-bottom: 5px; }
+    .team-cal-day span { display: block; font-size: 10px; line-height: 1.35; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .team-cal-detail { margin: 0; max-height: 74vh; overflow-y: auto; }
+    .team-cal-piece { padding: 12px 0; border-top: 1px solid var(--line); }
+    .team-cal-piece:first-of-type { border-top: 0; }
+    .team-cal-piece h4 { margin: 4px 0; font-size: 14px; }
+    .team-cal-piece p { margin: 6px 0; color: var(--muted); font-size: 13px; line-height: 1.5; }
+    .team-cal-piece details { margin-top: 8px; font-size: 12px; }
+    .team-cal-piece details summary { cursor: pointer; font-weight: 700; }
+    .team-cal-piece li { margin: 8px 0; line-height: 1.45; }
+    @media (max-width: 800px) { .team-cal-layout { grid-template-columns: 1fr; } .team-cal-grid { min-width: 550px; } .team-cal-detail { max-height: none; } }
+    @media (max-width: 680px) { .team-wrap { padding-bottom: 36px; } }
   </style>
 </head>
 <body class="team">
@@ -33,13 +57,34 @@
   <!-- ---------- Ingreso ---------- -->
   <div id="login-view" class="team-wrap team-login">
     <div class="panel">
-      <h1>Carga de contenido</h1>
+      <h1>Acceso del equipo</h1>
       <p>BLACKS Indumentaria</p>
       <form id="login-form" autocomplete="on">
+        <label for="team-email">Mail</label>
+        <input type="email" id="team-email" placeholder="nombre@empresa.com" autocomplete="username" required />
+        <label for="team-pass" style="margin-top:12px;">Contraseña</label>
         <input type="password" id="team-pass" placeholder="Contraseña" autocomplete="current-password" required />
         <button class="btn-primary" type="submit" id="login-btn">Entrar</button>
       </form>
       <div class="team-error" id="login-error"></div>
+      <details class="legacy-access"><summary>Entrar con la clave compartida anterior</summary>
+        <form id="legacy-login-form"><input type="password" id="legacy-team-pass" placeholder="Clave del equipo" autocomplete="current-password" required />
+          <button class="btn-ghost" type="submit" id="legacy-login-btn">Entrar</button></form>
+      </details>
+    </div>
+  </div>
+
+  <div id="password-view" class="team-wrap team-login hidden">
+    <div class="panel"><h1 id="password-title">Elegí tu contraseña</h1>
+      <p id="password-help">La clave temporal sirve para el primer ingreso. Cambiala para usar las secciones habilitadas.</p>
+      <form id="password-form">
+        <label for="team-current-pass">Clave temporal</label><input type="password" id="team-current-pass" autocomplete="current-password" required />
+        <label for="team-new-pass" style="margin-top:12px;">Nueva contraseña (mínimo 12 caracteres)</label>
+        <input type="password" id="team-new-pass" autocomplete="new-password" minlength="12" required />
+        <button class="btn-primary" type="submit" id="password-btn">Guardar contraseña</button>
+      </form>
+      <div class="team-error" id="password-error"></div>
+      <button class="btn-ghost btn-sm" onclick="teamLogout()">Salir</button>
     </div>
   </div>
 
@@ -47,14 +92,17 @@
   <div id="app-view" class="team-wrap hidden">
     <div class="team-head">
       <div>
-        <h1>Carga de contenido</h1>
+        <h1>Equipo BLACKS</h1>
         <div class="sub" id="team-sub">BLACKS Indumentaria</div>
       </div>
       <div class="spacer"></div>
+      <button class="btn-ghost btn-sm hidden" id="team-change-pass" onclick="mostrarCambioClave(false)">Cambiar contraseña</button>
       <button class="btn-ghost btn-sm" onclick="teamLogout()">Salir</button>
     </div>
 
     <div class="pt-tabs" id="team-tabs"></div>
+
+    <div id="sec-calendar" class="pt-pane hidden"><div id="team-calendar"></div></div>
 
     <!-- Trabajos con bordado: el mismo panel que usa el dueño (works-panel.js). -->
     <div id="sec-works" class="pt-pane hidden">

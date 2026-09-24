@@ -1860,6 +1860,33 @@ button .cost-tag { margin-left: 8px; }
 .tp-field input[type="password"] { width: 100%; max-width: 340px; background: rgba(255,255,255,.04);
   border: 1px solid var(--line); border-radius: 10px; padding: 9px 11px; color: var(--text); font-size: .86rem; }
 .tp-field input[type="password"]:focus { outline: none; border-color: var(--orange); }
+
+/* Accesos individuales administrados por el dueño. */
+#view-access { max-width: 980px; margin: 0 auto; padding: 24px; }
+.access-panel { margin-bottom: 18px; }
+.access-panel .hint { line-height: 1.5; }
+.access-create { display: grid; gap: 14px; margin-top: 18px; }
+.access-create > .field { max-width: 440px; }
+.access-create > button { justify-self: start; }
+.access-checks { display: flex; flex-wrap: wrap; gap: 8px; }
+.access-check { display: flex; align-items: flex-start; gap: 9px; min-width: 210px; padding: 10px 12px;
+  border: 1px solid var(--line); border-radius: 10px; background: var(--panel-2); cursor: pointer; }
+.access-check input { margin-top: 3px; accent-color: var(--orange); }
+.access-check span { display: grid; gap: 3px; }
+.access-check b { font-size: 13px; }
+.access-check small { max-width: 230px; color: var(--muted); font-size: 11px; line-height: 1.4; }
+.access-user { padding: 16px 0; border-top: 1px solid var(--line); }
+.access-user:first-of-type { border-top: 0; }
+.access-user-head, .access-actions { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; margin-bottom: 10px; }
+.access-user-head b { font-size: 14px; overflow-wrap: anywhere; }
+.access-user > .access-check { margin: 10px 0; max-width: 265px; }
+.access-legacy { border: 1px solid var(--line); border-radius: 12px; padding: 15px; margin-bottom: 20px; }
+.access-legacy > summary { cursor: pointer; font-weight: 700; }
+.access-legacy > .hint { margin: 12px 0; }
+.access-secret { display: flex; align-items: center; flex-wrap: wrap; gap: 10px; padding: 10px;
+  border: 1px solid var(--line); border-radius: 9px; background: var(--panel-2); }
+.access-secret code { overflow-wrap: anywhere; font-size: 15px; font-weight: 700; }
+@media (max-width: 680px) { #view-access { padding: 16px; } .access-check { min-width: 100%; } }
 .tp-url { background: rgba(255,255,255,.07); border-radius: 6px; padding: 2px 6px; font-size: .8rem; }
 
 

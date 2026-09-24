@@ -13,6 +13,8 @@ const { getBrandProfile } = require('./brandProfile');
 const { uploadAsset } = require('./storage');
 const works = require('./works');
 const teamPortal = require('./teamPortal');
+const teamUsers = require('./teamUsers');
+const ownerSession = require('./ownerSession');
 const styleService = require('./styleService');
 const { importDriveFolder } = require('./driveService');
 const { analyzeAccountPerformance } = require('./accountAnalyzer');
@@ -43,37 +45,34 @@ const storeCategories = require('./storeCategories');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
+app.use(['/api/login', '/api/team'], (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 
 /* ----------------------- Login del panel ----------------------- */
 // Si DASHBOARD_PASSWORD está seteada, todo el panel y la API piden sesión
 // (cookie firmada, stateless). Sin la variable, se comporta como antes (abierto).
-const SESSION_COOKIE = 'blacks_session';
-
-function sessionToken() {
-  return crypto
-    .createHmac('sha256', `${config.dashboardPassword}::${config.cronSecret}`)
-    .update('blacks-dashboard-v1')
-    .digest('hex');
-}
-
 function hasValidSession(req) {
-  const cookies = req.headers.cookie || '';
-  const match = cookies.split(';').map((c) => c.trim()).find((c) => c.startsWith(`${SESSION_COOKIE}=`));
-  if (!match) return false;
-  const value = match.slice(SESSION_COOKIE.length + 1);
-  const expected = sessionToken();
-  return value.length === expected.length && crypto.timingSafeEqual(Buffer.from(value), Buffer.from(expected));
+  return ownerSession.verifyToken(ownerSession.readToken(req));
 }
 
+const ownerAttempts = new Map();
 app.post('/api/login', (req, res) => {
   if (!config.dashboardPassword) return res.json({ ok: true });
+  const ip = req.socket.remoteAddress || 'desconocida';
+  const attempt = ownerAttempts.get(ip);
+  const now = Date.now();
+  if (attempt && attempt.until > now && attempt.count >= 8) {
+    return res.status(429).json({ error: 'Demasiados intentos. Probá de nuevo en 10 minutos.' });
+  }
   const { password } = req.body || {};
   if (!password || password !== config.dashboardPassword) {
+    ownerAttempts.set(ip, { count: (attempt && attempt.until > now ? attempt.count : 0) + 1, until: now + 10 * 60_000 });
     return res.status(401).json({ error: 'Contraseña incorrecta.' });
   }
-  const maxAge = 30 * 24 * 60 * 60; // 30 días
-  const secure = config.publicBaseUrl.startsWith('https') ? '; Secure' : '';
-  res.setHeader('Set-Cookie', `${SESSION_COOKIE}=${sessionToken()}; Path=/; Max-Age=${maxAge}; HttpOnly; SameSite=Lax${secure}`);
+  ownerAttempts.delete(ip);
+  res.setHeader('Set-Cookie', [
+    ownerSession.cookie(ownerSession.createToken()),
+    teamPortal.cookieDeSalida(), teamUsers.clearCookie(),
+  ]);
   res.json({ ok: true });
 });
 
@@ -92,12 +91,23 @@ app.use(async (req, res, next) => {
     '/api/nav/style',
     // Portal del equipo: la pantalla de ingreso y su hoja de estilos. No exponen
     // nada — son el formulario de login y CSS. Ver src/teamPortal.js.
-    '/equipo.html', '/equipo.js', '/works-panel.js', '/dashboard.css', '/api/team/login'];
+    '/equipo.html', '/equipo.js', '/works-panel.js', '/dashboard.css', '/api/team/login', '/api/team/user-login'];
   if (open.includes(req.path) || req.path.startsWith('/api/cron/')) return next(); // cron tiene su propio secret
   // La ficha de producto MAYORISTA (otro dominio) pide sus trabajos: sólo lectura
   // y devuelve fotos que ya son públicas en la vidriera. Ver src/works.js.
   if (req.method === 'GET' && req.path.startsWith('/api/works/product/')) return next();
   if (hasValidSession(req)) return next(); // el dueño: acceso total
+
+  const user = await teamUsers.sessionFor(req).catch(() => null);
+  if (user) {
+    if (['/api/team/session', '/api/team/logout', '/api/team/password'].includes(req.path)) return next();
+    if (teamUsers.allows(user, req.method, req.path)) {
+      return ['GET', 'HEAD'].includes(req.method) ? next() : sameOrigin(req, res, next);
+    }
+    if (req.path.startsWith('/api/')) return res.status(403).json({ error: user.must_change_password
+      ? 'Cambiá tu contraseña temporal antes de usar el portal.' : 'Tu acceso no incluye esta sección.' });
+    return res.redirect('/equipo.html');
+  }
 
   /* PORTAL DEL EQUIPO. Segunda contraseña, con permisos acotados a las secciones
      que el dueño haya tildado. Denegar por defecto: lo que no está explícitamente
@@ -106,7 +116,9 @@ app.use(async (req, res, next) => {
   const team = await teamPortal.sessionFor(req).catch(() => null);
   if (team) {
     if (req.path === '/api/team/session' || req.path === '/api/team/logout') return next();
-    if (teamPortal.permite(team, req.method, req.path)) return next();
+    if (teamPortal.permite(team, req.method, req.path)) {
+      return ['GET', 'HEAD'].includes(req.method) ? next() : sameOrigin(req, res, next);
+    }
     if (req.path.startsWith('/api/')) {
       return res.status(403).json({ error: 'Tu acceso no incluye esta sección.' });
     }
@@ -1535,13 +1547,39 @@ app.get('/api/team', wrap(async (req, res) => {
   res.json(await teamPortal.getConfig());
 }));
 
-app.post('/api/team', wrap(async (req, res) => {
+app.post('/api/team', sameOrigin, wrap(async (req, res) => {
   const b = req.body || {};
   res.json(await teamPortal.saveConfig({
     enabled: b.enabled,
     sections: b.sections,
     password: b.password,
   }));
+}));
+
+function sameOrigin(req, res, next) {
+  const origin = req.get('origin');
+  if (origin) {
+    try {
+      if (new URL(origin).host !== req.get('host')) return res.status(403).json({ error: 'Origen no permitido.' });
+    } catch (_) { return res.status(403).json({ error: 'Origen no permitido.' }); }
+  }
+  return next();
+}
+
+app.get('/api/team/users', wrap(async (req, res) => {
+  res.json({ users: await teamUsers.listUsers(), catalog: teamUsers.catalog() });
+}));
+
+app.post('/api/team/users', sameOrigin, wrap(async (req, res) => {
+  res.status(201).json(await teamUsers.createUser(req.body?.email, req.body?.sections));
+}));
+
+app.patch('/api/team/users/:id', sameOrigin, wrap(async (req, res) => {
+  res.json(await teamUsers.updateUser(req.params.id, req.body || {}));
+}));
+
+app.post('/api/team/users/:id/reset-password', sameOrigin, wrap(async (req, res) => {
+  res.json(await teamUsers.resetPassword(req.params.id));
 }));
 
 /* Login del equipo. Es la única ruta del portal abierta sin sesión, así que
@@ -1552,7 +1590,7 @@ const MAX_INTENTOS = 8;
 const BLOQUEO_MS = 10 * 60_000;
 
 app.post('/api/team/login', wrap(async (req, res) => {
-  const ip = req.headers['x-forwarded-for'] || req.socket.remoteAddress || 'desconocida';
+  const ip = req.socket.remoteAddress || 'desconocida';
   const ahora = Date.now();
   const reg = intentos.get(ip);
   if (reg && reg.hasta > ahora && reg.n >= MAX_INTENTOS) {
@@ -1568,21 +1606,65 @@ app.post('/api/team/login', wrap(async (req, res) => {
   }
 
   intentos.delete(ip);
-  res.setHeader('Set-Cookie', r.cookie);
+  res.setHeader('Set-Cookie', [r.cookie, ownerSession.clearCookie(), teamUsers.clearCookie()]);
   res.json({ ok: true, sections: r.sections });
 }));
 
-app.post('/api/team/logout', (req, res) => {
-  res.setHeader('Set-Cookie', teamPortal.cookieDeSalida());
+app.post('/api/team/user-login', sameOrigin, wrap(async (req, res) => {
+  let account = 'invalid';
+  try { account = teamUsers.normalizeEmail(req.body?.email); } catch (_) {}
+  const ip = `user:${account}:${req.socket.remoteAddress || 'desconocida'}`;
+  const ahora = Date.now();
+  const reg = intentos.get(ip);
+  if (reg && reg.hasta > ahora && reg.n >= MAX_INTENTOS) {
+    const min = Math.ceil((reg.hasta - ahora) / 60000);
+    return res.status(429).json({ error: `Demasiados intentos. Probá de nuevo en ${min} min.` });
+  }
+  const result = await teamUsers.login(req.body?.email, req.body?.password);
+  if (!result) {
+    const n = (reg && reg.hasta > ahora ? reg.n : 0) + 1;
+    intentos.set(ip, { n, hasta: ahora + BLOQUEO_MS });
+    return res.status(401).json({ error: 'Mail o contraseña incorrectos.' });
+  }
+  intentos.delete(ip);
+  res.setHeader('Set-Cookie', [result.cookie, ownerSession.clearCookie(), teamPortal.cookieDeSalida()]);
+  res.json({ ok: true, ...result.user });
+}));
+
+app.post('/api/team/logout', wrap(async (req, res) => {
+  res.setHeader('Set-Cookie', [teamPortal.cookieDeSalida(), await teamUsers.logout(req), ownerSession.clearCookie()]);
   res.json({ ok: true });
-});
+}));
+
+app.post('/api/team/password', sameOrigin, wrap(async (req, res) => {
+  const user = await teamUsers.sessionFor(req);
+  if (!user) return res.status(401).json({ error: 'Sesión requerida.' });
+  res.json(await teamUsers.changePassword(user, req.body?.currentPassword, req.body?.newPassword));
+}));
 
 /* Qué secciones tiene habilitadas la sesión que está mirando. Lo llama
    equipo.js al cargar para dibujar sólo lo que corresponde. */
 app.get('/api/team/session', wrap(async (req, res) => {
+  const user = await teamUsers.sessionFor(req);
+  if (user) return res.json({ ok: true, mode: 'user', email: user.email, sections: user.sections,
+    mustChangePassword: user.must_change_password });
   const team = await teamPortal.sessionFor(req).catch(() => null);
   if (!team) return res.status(401).json({ error: 'Sesión requerida.', needLogin: true });
-  res.json({ ok: true, sections: team.sections });
+  res.json({ ok: true, mode: 'shared', sections: team.sections });
+}));
+
+app.get('/api/team/calendar', wrap(async (req, res) => {
+  const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 60);
+  const { rows } = await pool.query(`SELECT c.id, c.scheduled_date, c.scheduled_time, c.platform,
+      c.post_type, c.pillar, c.pillar_detail, c.theme_title, c.status, c.objective, c.reel_brief,
+      a.caption, a.hashtags, a.status AS asset_status
+    FROM content_calendar c
+    LEFT JOIN LATERAL (SELECT caption, hashtags, status FROM generated_assets
+      WHERE calendar_id = c.id AND status <> 'discarded' ORDER BY id DESC LIMIT 1) a ON true
+    WHERE c.scheduled_date BETWEEN (now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date - 7
+      AND (now() AT TIME ZONE 'America/Argentina/Buenos_Aires')::date + $1::int
+    ORDER BY c.scheduled_date, c.scheduled_time NULLS LAST, c.id`, [days]);
+  res.json({ items: rows });
 }));
 
 /* =========================================================================
@@ -2839,7 +2921,7 @@ app.use((err, req, res, next) => {
 process.on('unhandledRejection', (reason) => console.error('[server] unhandledRejection:', reason));
 process.on('uncaughtException', (err) => console.error('[server] uncaughtException:', err));
 
-require('./reelBrief').ensureSchema().then(() => app.listen(config.port, () => {
+Promise.all([require('./reelBrief').ensureSchema(), teamUsers.ensureSchema()]).then(() => app.listen(config.port, () => {
   console.log(`[server] BLACKS content engine en puerto ${config.port} · IA: ${hasGemini() ? 'Gemini' : 'Groq'} · imágenes IA: ${config.ai.useAiImages}`);
   // Ajustes guardados desde el panel (ej. modelo de imagen elegido).
   require('./settings').loadSettings()

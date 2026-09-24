@@ -223,6 +223,26 @@ CREATE TABLE IF NOT EXISTS app_settings (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- Cuentas individuales del equipo y sesiones revocables.
+CREATE TABLE IF NOT EXISTS team_users (
+  id BIGSERIAL PRIMARY KEY,
+  email TEXT NOT NULL UNIQUE,
+  password_hash TEXT NOT NULL,
+  sections JSONB NOT NULL DEFAULT '{}'::jsonb,
+  active BOOLEAN NOT NULL DEFAULT true,
+  must_change_password BOOLEAN NOT NULL DEFAULT true,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+
+CREATE TABLE IF NOT EXISTS team_user_sessions (
+  token_hash TEXT PRIMARY KEY,
+  user_id BIGINT NOT NULL REFERENCES team_users(id) ON DELETE CASCADE,
+  expires_at TIMESTAMPTZ NOT NULL,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT now()
+);
+CREATE INDEX IF NOT EXISTS team_user_sessions_user_id_idx ON team_user_sessions(user_id);
+
 -- VIDEO CON IA (ago-2026): cada generación de Veo tarda 1-4 min, así que no puede
 -- vivir en memoria (un reinicio de Render perdería el video ya pagado). Cada pedido
 -- queda acá con el nombre de la operación de Google para poder seguirla o retomarla.
