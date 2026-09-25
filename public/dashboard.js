@@ -155,6 +155,7 @@ function switchTab(view) {
   document.querySelectorAll('.view').forEach((v) => v.classList.add('hidden'));
   document.getElementById(`view-${view}`).classList.remove('hidden');
   if (view === 'style') loadStyle();
+  if (view === 'whatsapp' && window.loadWhatsAppChannel) window.loadWhatsAppChannel();
   if (view === 'metrics') loadMetrics();
   if (view === 'stats' && !statsData) loadStoreStats();
   if (view === 'products') switchProductsPane(productsPaneGuardado());
@@ -451,7 +452,7 @@ let calView = 'list';
 // planificar un mes que se estira más allá de la ventana (ej. agosto visto desde
 // julio) el horizonte sube y sobrevive al recargar la página — antes volvía a 30 y
 // el mes recién planificado "desaparecía" de la vista aunque estaba en la base.
-const CAL_DAYS_MAX = 60; // tope que acepta /api/calendar
+const CAL_DAYS_MAX = 70; // alcanza el mes siguiente completo incluso desde el día 1
 function loadCalDays() {
   const saved = Number(localStorage.getItem('calViewDays'));
   return saved >= 21 && saved <= CAL_DAYS_MAX ? saved : 30;
@@ -1676,9 +1677,9 @@ function renderCard(item) {
     // lo hacés en Gemini/Veo con el prompt y lo subís).
     actions = item.post_type === 'reel'
       ? `<button class="btn-primary" data-act="generate" data-id="${item.id}">${icon('bolt')} Generar copy (sin video) ${costTag('Gratis')}</button>
-        ${reelBriefBtn}${moreMenu(`<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Cambiar tema</button>${planBtn}`)}`
+        ${reelBriefBtn}${moreMenu(`<button class="btn-ghost btn-sm" data-act="regen-topic" data-id="${item.id}">${icon('wand')} Nuevo tema con IA (sin pieza)</button>${planBtn}`)}`
       : `<button class="btn-primary" data-act="generate" data-id="${item.id}">${icon('bolt')} Generar pieza ${costTag(genCostLabel())}</button>
-        ${moreMenu(`<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Cambiar tema</button>${planBtn}`)}`;
+        ${moreMenu(`<button class="btn-ghost btn-sm" data-act="regen-topic" data-id="${item.id}">${icon('wand')} Nuevo tema con IA (sin pieza)</button>${planBtn}`)}`;
   } else if (status === 'draft') {
     actions = `<button class="btn-approve" data-act="approve" data-id="${aid}">${icon('check')} Aprobar</button>
       <button class="btn-ghost btn-sm" data-act="edit" data-id="${aid}">${icon('edit')} Abrir editor</button>
@@ -1698,7 +1699,7 @@ function renderCard(item) {
       ${downloadBtn}
       ${moreMenu(`<button class="btn-ghost btn-sm" data-act="republish" data-id="${aid}" title="Por si la borraste de Instagram o querés volver a publicarla">${icon('refresh')} Republicar</button>`)}`;
   } else if (status === 'discarded') {
-    actions = `<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('refresh')} Regenerar</button>${planBtn}`;
+    actions = `<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('refresh')} Regenerar pieza</button>${planBtn}`;
   }
 
   const stickerSpec = (isSemi && status !== 'published') ? stickerSpecHtml(item.sticker) : '';
@@ -1809,6 +1810,10 @@ async function handleAction(act, id, btn, card, item) {
       openEdit(id);
     } else if (act === 'regen') {
       openRegen(item || calItems.find((x) => String(x.id) === String(id)));
+    } else if (act === 'regen-topic') {
+      btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Buscando tema…`;
+      await api(`/api/calendar/${id}/regenerate-topic`, { method: 'POST' });
+      toast('Tema actualizado, sin generar pieza.', 'ok'); reloadKeepScroll();
     } else if (act === 'genvideo') {
       openVideoGenerate(id);
     } else if (act === 'reelbrief') {
@@ -2398,9 +2403,9 @@ function openPlanSlot(item = null) {
 /* ============ regenerar con otro tema ============ */
 const REGEN_FALLBACK = {
   educativo: ['Cómo elegir el talle correcto', 'Cuidados para que la ropa dure más', 'Diferencia entre telas de trabajo'],
-  producto: ['Lo más vendido de la semana', 'Ideal para el frío', 'Novedad recién llegada'],
-  promo: ['Ofertas de temporada', '3 cuotas sin interés', 'Envío gratis desde cierto monto'],
-  marca: ['Por qué elegir esta marca', 'Historia de la marca'],
+  producto: ['Detalle de uso de un producto disponible', 'Comparación entre dos productos disponibles', 'Producto útil para el rubro'],
+  promo: ['Producto disponible de temporada', 'Selección con stock para esta semana', 'Beneficio vigente verificado'],
+  marca: ['Cómo preparamos un pedido', 'Qué mirar al elegir ropa de trabajo'],
   engagement: ['¿Qué preferís vos?', 'Contanos en qué rubro trabajás'],
 };
 
@@ -3468,6 +3473,11 @@ async function generateMonthPlan() {
         <option value="${next}" selected>${monthName(next)} — próximo mes</option>
       </select>
     </div>
+    <div class="field">
+      <label>Reels por semana</label>
+      <select class="input" id="plan-reels"><option value="1">1</option><option value="2" selected>2</option><option value="3">3</option><option value="4">4</option></select>
+      <p class="hint">La IA alterna productos, educación, demostraciones y enfoques mayoristas. Es una meta aproximada para el mes.</p>
+    </div>
     <div style="display:flex; gap:8px; justify-content:flex-end;">
       <button class="btn-discard" id="plan-cancel">Cancelar</button>
       <button class="btn-primary" id="plan-go">${icon('calendar')} Generar plan ${costTag('Gratis')}</button>
@@ -3480,18 +3490,22 @@ async function generateMonthPlan() {
     go.disabled = true; go.innerHTML = `${icon('refresh', 'spin')} Armando el plan… (~30 seg)`;
     try {
       const r = await api('/api/plan/generate', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ month }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ month, reelsPerWeek: Number(overlay.querySelector('#plan-reels').value) }),
       });
       overlay.remove();
       const mix = Object.entries(r.byPillar || {}).map(([k, v]) => `${k}: ${v}`).join(' · ');
-      toast(`Plan de ${monthName(r.month)} listo (${r.days} días). ${mix}`, 'ok');
       // Re-sembrar y estirar la vista hasta el último día del mes planificado, para
       // que un mes futuro (ej. agosto desde julio) quede visible sin recargar.
       const [y, m] = r.month.split('-').map(Number);
       const daysAhead = Math.max(21, Math.ceil((new Date(Date.UTC(y, m, 0)) - new Date()) / 86400000) + 1);
-      await api('/api/calendar/seed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ days: daysAhead }) }).catch(() => {});
+      let seedError = null;
+      try { await api('/api/calendar/seed', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ days: daysAhead }) }); }
+      catch (err) { seedError = err; }
       setCalDays(Math.max(calendarViewDays, daysAhead));
       reloadKeepScroll();
+      toast(seedError
+        ? `Plan guardado (${r.days} días, ${r.reels} reels), pero el calendario no se actualizó: ${seedError.message}`
+        : `Plan de ${monthName(r.month)} listo (${r.days} días, ${r.reels} reels). ${mix}`, seedError ? 'err' : 'ok');
     } catch (e) {
       toast(`No se pudo generar el plan: ${e.message}`, 'err');
       go.disabled = false; go.innerHTML = `${icon('calendar')} Generar plan`;

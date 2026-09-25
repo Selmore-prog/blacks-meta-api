@@ -124,6 +124,26 @@ body.nav-mini .side-tabs .tab .ic { width: 20px; height: 20px; }
 
 /* ---------- Vistas + responsive del layout ---------- */
 .view { max-width: 1180px; margin: 0 auto; padding: 30px 28px 110px; animation: viewIn .3s var(--ease); }
+.wa-controls { display:flex; flex-wrap:wrap; align-items:end; gap:10px; margin:24px 0 16px; }
+.wa-controls label { display:flex; flex-direction:column; gap:5px; color:var(--muted); font-size:12px; font-weight:700; }
+.wa-controls .input { min-width:170px; }
+.wa-summary { display:flex; flex-wrap:wrap; gap:8px 18px; align-items:center; padding:14px 18px; margin-bottom:16px; border:1px solid var(--line); border-radius:12px; background:var(--panel); }
+.wa-summary span { color:var(--muted); font-size:13px; }
+.wa-posts { display:grid; grid-template-columns:repeat(auto-fit,minmax(290px,1fr)); gap:14px; }
+.wa-post { min-width:0; padding:18px; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); box-shadow:var(--shadow); }
+.wa-post-head { display:flex; justify-content:space-between; align-items:center; gap:8px; color:var(--muted); font-size:12px; text-transform:capitalize; }
+.wa-post h3 { margin:14px 0 9px; font-size:18px; }
+.wa-body { white-space:pre-wrap; line-height:1.55; margin:0 0 14px; }
+.wa-options { display:flex; flex-wrap:wrap; gap:7px; margin-bottom:14px; }
+.wa-options span { border:1px solid var(--line); border-radius:999px; padding:6px 10px; font-size:13px; }
+.wa-product { display:flex; align-items:center; gap:10px; margin:10px 0; padding:8px; background:var(--panel-2); border-radius:10px; font-size:13px; }
+.wa-product img { width:46px; height:46px; object-fit:cover; border-radius:7px; }
+.wa-product small { display:block; color:var(--muted); margin-top:3px; }
+.wa-prompt { margin:12px 0; font-size:13px; color:var(--muted); }
+.wa-prompt p { line-height:1.5; }
+.wa-actions { display:flex; flex-wrap:wrap; gap:7px; margin-top:15px; }
+.wa-empty { box-shadow:none; border-style:dashed; }
+.wa-empty .wa-post-head { margin-bottom:18px; }
 @keyframes viewIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .hidden { display: none !important; }
 

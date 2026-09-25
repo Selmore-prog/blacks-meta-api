@@ -45,9 +45,15 @@ async function gatherContext(monthStr) {
     // Sólo productos "publicables" (curva de talles sana, stock razonable): el plan
     // no debe proponer productos que después el generador va a descartar.
     pool.query(
-      `SELECT name, brand, category, sales_30d, stock FROM products_cache
-       WHERE ${require('./productScore').eligibleSQL()}
-       ORDER BY sales_30d DESC NULLS LAST LIMIT 8`
+      `WITH ranked AS (
+         SELECT id, name, brand, category, sales_30d, stock,
+           row_number() OVER (PARTITION BY COALESCE(category, '')
+             ORDER BY sales_30d DESC NULLS LAST, stock DESC) AS category_rank
+         FROM products_cache WHERE ${require('./productScore').eligibleSQL()}
+           AND synced_at >= now() - interval '36 hours'
+       )
+       SELECT id, name, brand, category, sales_30d, stock FROM ranked
+       WHERE category_rank <= 5 ORDER BY category_rank, sales_30d DESC NULLS LAST LIMIT 30`
     ),
     analyzePerformance().catch(() => ({ pillars: [], recommendation: '' })),
     getWholesaleSettings().catch(() => null),
@@ -84,14 +90,14 @@ async function gatherContext(monthStr) {
   };
 }
 
-function buildPlanPrompt(monthStr, ctx) {
+function buildPlanPrompt(monthStr, ctx, { reelsPerWeek = 2 } = {}) {
   const nDays = daysInMonth(monthStr);
   const datesTxt = ctx.commercialDates.length
     ? ctx.commercialDates.map((d) => `- ${d.date}: ${d.title} (${d.category}, prioridad ${d.priority}). ${d.angle || ''}`).join('\n')
     : '(ninguna fecha especial este mes)';
   const productsTxt = ctx.topProducts.length
-    ? ctx.topProducts.map((p) => `- ${p.name}${p.brand ? ` (${p.brand})` : ''}: ${p.sales_30d || 0} ventas/30d, stock ${p.stock}`).join('\n')
-    : '(sin datos de ventas todavía)';
+    ? ctx.topProducts.map((p) => `- #${p.id} ${p.name}${p.brand ? ` (${p.brand})` : ''} [${p.category || 'sin categoría'}]: ${p.sales_30d || 0} ventas/30d, stock ${p.stock}`).join('\n')
+    : '(no hay productos elegibles con stock actualizado; no propongas artículos específicos)';
   const insightsTxt = (ctx.insights.pillars || []).length
     ? ctx.insights.pillars.map((p) => `- ${p.pillar}: alcance prom. ${p.avg_reach || 0} en ${p.posts_count} post(s)`).join('\n')
       + (ctx.insights.recommendation ? `\nRecomendación: ${ctx.insights.recommendation}` : '')
@@ -119,10 +125,10 @@ REGLAS DEL PLAN (obligatorias):
 - Cada pieza tiene que justificar su lugar: preguntate "¿por qué alguien pararía a mirar esto?". Si la respuesta es débil, ese día es descanso.
 - objective ∈ {${OBJECTIVES.join(', ')}}: qué busca la pieza. venta = empujar compra ahora; trafico = llevar gente a la tienda; confianza = valor/prueba social sin vender; comunidad = conversación. Distribuí: ni todo venta (cansa) ni todo confianza (no convierte).
 - pillar ∈ {${PILLARS.join(', ')}} · post_type ∈ {feed, story, reel} · format: 'feed' para post_type feed, 'story' para story/reel.
-- Mezcla semanal aproximada: 2-3 feed, 1-2 reel, 2-3 story.
+- Programá aproximadamente ${reelsPerWeek} reels por semana (pedido del usuario). Completá con feed e historias sin rellenar días por obligación. Un día de descanso sigue siendo válido.
 - Pilares por semana: 2 producto, 1 promo, 1 educativo, 1 de marca o ugc, 1 mayorista cada 2 semanas, 1 engagement como máximo.
-- En piezas de 'producto'/'promo', nombrá SOLO productos de la lista de arriba (son los que tienen stock y curva de talles reales). No inventes productos.
-- Los Reels deben alternar productos, educación, armado de paquetes, despacho y contenido mayorista/minorista cuando tenga sentido. pillar_detail tiene que indicar qué mostrar o grabar. El guion con tomas y duración se produce por separado al acercarse la fecha, con clima actualizado.
+- En piezas de 'producto'/'promo', nombrá SOLO productos de la lista de arriba (son los que tienen stock y curva de talles reales). No inventes productos. Distribuí marcas y categorías; no concentres la semana en un mismo artículo.
+- Los Reels deben alternar productos elegibles, demostración de uso, detalles de materiales, educación, comparación, preparación de pedidos y contenido mayorista/minorista cuando tenga sentido. No repitas el mismo producto ni el mismo recurso narrativo en reels cercanos. No inventes tomas de clientes, testimonios o escenas que requieran material inexistente. pillar_detail tiene que indicar qué mostrar o grabar. El guion con tomas y duración se produce por separado al acercarse la fecha, con clima actualizado.
 - En los días de fechas comerciales de prioridad >= 8, poné 'promo' con pillar_detail referido a esa fecha. El día ANTERIOR a una fecha de prioridad 10, anticipala.
 - automation_level: 'auto' siempre, salvo engagement con encuesta/quiz -> 'semi' (máximo 1 'semi' por semana). En los 'semi', interaction_hint tiene que ser la instrucción EXACTA del sticker, lista para copiar: tipo (ENCUESTA/QUIZ/PREGUNTA), la pregunta textual, las opciones textuales (2-4, cortas) y, si es quiz, cuál es la correcta. Ej: 'ENCUESTA: "¿Qué priorizás en un botín?" Opciones: "Comodidad" / "Resistencia"'. Nada vago tipo "agregá una encuesta sobre el tema".
 - scheduled_time entre '11:00' y '18:00'.${ctx.bestHours && ctx.bestHours.length
@@ -179,14 +185,14 @@ function validatePlan(days, monthStr) {
  * Si la IA falla o devuelve muy pocos días válidos, NO guarda nada (queda la
  * ROTATION fija como respaldo) y lanza el error para que se vea.
  */
-async function generateMonthlyPlan({ month } = {}) {
+async function generateMonthlyPlan({ month, reelsPerWeek = 2 } = {}) {
   const monthStr = /^\d{4}-\d{2}$/.test(month || '') ? month : monthString();
   console.log(`[planner] Generando plan para ${monthStr}...`);
 
   const ctx = await gatherContext(monthStr);
   const result = await generateJson({
     system: 'Sos un estratega de contenido para redes sociales de una marca argentina. Respondés SOLO con JSON válido.',
-    prompt: buildPlanPrompt(monthStr, ctx),
+    prompt: buildPlanPrompt(monthStr, ctx, { reelsPerWeek }),
     maxTokens: 8000,
     temperature: 0.5,
   });
@@ -201,13 +207,13 @@ async function generateMonthlyPlan({ month } = {}) {
     `INSERT INTO rotation_plans (month, plan, source, notes)
      VALUES ($1, $2, 'ai', $3)
      ON CONFLICT (month) DO UPDATE SET plan = EXCLUDED.plan, source = EXCLUDED.source, notes = EXCLUDED.notes, updated_at = now()`,
-    [monthStr, JSON.stringify(days), `Generado con ${ctx.commercialDates.length} fecha(s) comercial(es) y ${ctx.topProducts.length} producto(s) top.`]
+    [monthStr, JSON.stringify(days), `Generado con ${ctx.commercialDates.length} fecha(s) comercial(es), ${ctx.topProducts.length} producto(s) elegibles y ${reelsPerWeek} reels/semana solicitados.`]
   );
 
   const byPillar = {};
   for (const d of days) byPillar[d.pillar] = (byPillar[d.pillar] || 0) + 1;
   console.log(`[planner] Plan ${monthStr} guardado: ${days.length} días.`);
-  return { month: monthStr, days: days.length, byPillar };
+  return { month: monthStr, days: days.length, byPillar, reels: days.filter((d) => d.post_type === 'reel' && d.pillar !== 'repost').length };
 }
 
 async function getPlan(monthStr) {
@@ -247,4 +253,52 @@ async function nextPlannableMonth(now = new Date()) {
   return monthString(next);
 }
 
-module.exports = { generateMonthlyPlan, getPlan, getPlanMap, nextPlannableMonth, validatePlan, buildPlanPrompt, defaultObjective };
+/** Cambia sólo la propuesta editorial de un slot pendiente. No genera ninguna pieza. */
+async function regenerateSlotTopic(id) {
+  const { rows } = await pool.query(
+    `SELECT c.* FROM content_calendar c WHERE c.id = $1`, [id]
+  );
+  const slot = rows[0];
+  if (!slot) { const err = new Error('No existe ese día del calendario.'); err.status = 404; throw err; }
+  if (!['pending', 'draft'].includes(slot.status) && !(slot.status === 'skipped' && slot.pillar === 'repost')) {
+    const err = new Error('Sólo se puede cambiar el tema antes de generar o aprobar la pieza.'); err.status = 409; throw err;
+  }
+  const day = slot.scheduled_date instanceof Date
+    ? slot.scheduled_date.toISOString().slice(0, 10) : String(slot.scheduled_date).slice(0, 10);
+  const [ctx, neighbors] = await Promise.all([
+    gatherContext(day.slice(0, 7)),
+    pool.query(`SELECT scheduled_date, post_type, COALESCE(theme_title, pillar_detail) AS topic
+      FROM content_calendar WHERE id <> $1 AND scheduled_date BETWEEN $2::date - 7 AND $2::date + 7
+        AND pillar <> 'repost' ORDER BY scheduled_date`, [id, day]),
+  ]);
+  const weather = ctx.weatherDays.find((d) => d.date === day);
+  const products = ctx.topProducts;
+  const result = await generateJson({
+    system: 'Sos estratega editorial de BLACKS Indumentaria. Respondé sólo JSON válido, sin inventar datos.',
+    prompt: `Proponé un TEMA NUEVO para el ${day}, formato ${slot.post_type}, de BLACKS Indumentaria. Cambiá el enfoque actual: "${slot.pillar_detail || slot.theme_title || 'descanso'}". No generes copy, imagen ni guion.\nProductos publicables (id, nombre, categoría, stock): ${products.map((p) => `#${p.id} ${p.name} [${p.category || ''}], ${p.stock} u.`).join('; ') || 'ninguno'}.\nTemas recientes a evitar: ${ctx.recentTopics.slice(0, 25).join('; ') || 'sin datos'}.\nPiezas cercanas en el calendario (evitá repetir enfoque o producto, sobre todo entre reels): ${neighbors.rows.map((n) => `${String(n.scheduled_date instanceof Date ? n.scheduled_date.toISOString() : n.scheduled_date).slice(0, 10)} ${n.post_type}: ${n.topic}`).join('; ') || 'ninguna'}.\n${weather ? `Pronóstico para CABA: ${weather.min}-${weather.max}°C, lluvia hasta ${weather.rainMm ?? 'sin dato'} mm/6h.` : 'No hay pronóstico para ese día; usá la temporada con prudencia.'} No extrapoles el clima de CABA a todo el país. Variá ángulo, rubro, categoría y tipo de relato. Si es reel, indicá qué grabar con material sencillo y real, distinto a los reels recientes. Nunca inventes descuentos, testimonios, características ni stock. Para pilar producto o promo, elegí product_id de la lista; si la lista está vacía, elegí educativo, marca o mayorista sin producto. No propongas encuestas ni stickers en esta acción.\nDevolvé {"pillar":"producto|promo|educativo|marca|mayorista|ugc","theme_title":"título corto","pillar_detail":"idea concreta y ejecutable","objective":"venta|trafico|confianza|comunidad","product_id":123 o null}.`,
+    maxTokens: 700,
+    temperature: 0.8,
+  });
+  if (!result || !result.theme_title || !result.pillar_detail) throw new Error('La IA no devolvió un tema utilizable.');
+  const pillar = ['producto', 'promo', 'educativo', 'marca', 'mayorista', 'ugc'].includes(result.pillar) ? result.pillar : 'educativo';
+  const matched = products.find((p) => String(p.id) === String(result.product_id));
+  if (['producto', 'promo'].includes(pillar) && !matched) throw new Error('La IA propuso un producto fuera del catálogo disponible. Probá de nuevo.');
+  const productId = matched ? matched.id : null;
+  const detail = String(result.pillar_detail).trim().slice(0, 300);
+  const title = String(result.theme_title).trim().slice(0, 120);
+  const objective = OBJECTIVES.includes(result.objective) ? result.objective : defaultObjective(pillar);
+  const { rows: updated } = await pool.query(
+    `UPDATE content_calendar c SET pillar = $2, theme_title = $3, pillar_detail = $4,
+       objective = $5, forced_product_id = $6, forced_product_ids = $7::jsonb,
+       origin = 'manual', status = 'pending', automation_level = 'auto', interaction_hint = NULL,
+       reel_brief = NULL, reel_brief_updated_at = NULL
+     WHERE c.id = $1 AND c.status IN ('pending', 'draft', 'skipped')
+       AND NOT EXISTS (SELECT 1 FROM generated_assets a WHERE a.calendar_id = c.id AND a.status <> 'discarded')
+     RETURNING *`,
+    [id, pillar, title, detail, objective, productId, JSON.stringify(productId ? [productId] : [])]
+  );
+  if (!updated[0]) { const err = new Error('El día cambió mientras se generaba el tema. Actualizá el calendario.'); err.status = 409; throw err; }
+  return updated[0];
+}
+
+module.exports = { generateMonthlyPlan, regenerateSlotTopic, getPlan, getPlanMap, nextPlannableMonth, validatePlan, buildPlanPrompt, defaultObjective };

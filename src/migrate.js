@@ -447,6 +447,7 @@ async function migrate() {
   // Trabajos realizados (bordados): el esquema vive en su propio módulo porque
   // también se crea solo, la primera vez que se usa la feature. Ver src/works.js.
   await pool.query(require('./works').SCHEMA_SQL);
+  await pool.query(require('./whatsappChannel').SCHEMA_SQL);
   // Asegurar la fila unica del perfil de marca.
   await pool.query(`INSERT INTO brand_profile (id) VALUES (1) ON CONFLICT (id) DO NOTHING`);
   // Fila unica de datos verificados de la empresa (se llena con el primer sync).

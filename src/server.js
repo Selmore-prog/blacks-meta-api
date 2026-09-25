@@ -26,7 +26,7 @@ const { getWholesaleSettings, saveWholesaleSettings } = require('./wholesale');
 const { syncCompanyInfo, getCompanyFacts } = require('./companyInfo');
 const { listCommercialDates } = require('./commercialDates');
 const { notifyPublishResult, notifyWeeklyReport } = require('./notifier');
-const { generateMonthlyPlan, getPlan, nextPlannableMonth } = require('./planner');
+const { generateMonthlyPlan, regenerateSlotTopic, getPlan, nextPlannableMonth } = require('./planner');
 const { buildInterest } = require('./productInterest');
 const { getRails, getRailsConfig, saveRailsConfig, validateConfig, buildPayload,
   invalidate: invalidateRails, RULES, SPECIAL_RULES, SLOT_IDS, LAYOUTS } = require('./homeRails');
@@ -42,6 +42,7 @@ const homeCopy = require('./homeCopy');
 const searchAnalytics = require('./searchAnalytics');
 const storeHome = require('./storeHome');
 const storeCategories = require('./storeCategories');
+const whatsappChannel = require('./whatsappChannel');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -357,7 +358,7 @@ app.get('/api/cron/has-pending-renders', authCron, wrap(async (req, res) => {
 
 /* ----------------------- Calendario ----------------------- */
 app.get('/api/calendar', wrap(async (req, res) => {
-  const days = Math.min(Number(req.query.days || 14), 60);
+  const days = Math.min(Number(req.query.days || 14), 70);
   // Días hacia atrás: nada se borra de la base cuando una pieza no se publica
   // (por ej. se pasó la ventana horaria) — sólo queda fuera de la vista por defecto
   // porque normalmente sólo interesa hoy en adelante. Con `back` se puede pedir
@@ -422,7 +423,7 @@ app.get('/api/calendar', wrap(async (req, res) => {
 
 // Re-siembra manual del calendario.
 app.post('/api/calendar/seed', wrap(async (req, res) => {
-  const days = Math.min(Number(req.body && req.body.days) || 14, 60);
+  const days = Math.min(Number(req.body && req.body.days) || 14, 70);
   const inserted = await seedCalendar(days);
   res.json({ ok: true, inserted: inserted.length });
 }));
@@ -538,6 +539,7 @@ app.patch('/api/calendar/:calendarId', wrap(async (req, res) => {
   const sets = allowed.map((key, i) => `${key} = $${i + 2}`);
   if (allowed.some((key) => ['post_type', 'pillar', 'pillar_detail', 'theme_title', 'objective', 'forced_product_id', 'forced_product_ids'].includes(key))) {
     sets.push('reel_brief = NULL', 'reel_brief_updated_at = NULL');
+    sets.push("origin = 'manual'");
   }
   const params = [id, ...allowed.map((key) => values[key])];
   const { rows } = await pool.query(
@@ -812,8 +814,39 @@ app.get('/api/plan', wrap(async (req, res) => {
 app.post('/api/plan/generate', wrap(async (req, res) => {
   const body = req.body || {};
   const month = /^\d{4}-\d{2}$/.test(body.month || '') ? body.month : await nextPlannableMonth();
-  const summary = await generateMonthlyPlan({ month });
+  const reelsPerWeek = Number(body.reelsPerWeek ?? 2);
+  if (!Number.isInteger(reelsPerWeek) || reelsPerWeek < 1 || reelsPerWeek > 4) {
+    return res.status(400).json({ error: 'Elegí entre 1 y 4 reels por semana.' });
+  }
+  const summary = await generateMonthlyPlan({ month, reelsPerWeek });
   res.json({ ok: true, ...summary });
+}));
+
+app.post('/api/calendar/:id/regenerate-topic', wrap(async (req, res) => {
+  const id = intParam(req.params.id);
+  if (!id) return res.status(400).json({ error: 'id inválido' });
+  res.json({ ok: true, slot: await regenerateSlotTopic(id) });
+}));
+
+/* ----------------------- Canal de WhatsApp ----------------------- */
+app.get('/api/whatsapp-channel/summary', wrap(async (_req, res) => {
+  res.json(await whatsappChannel.getSummary());
+}));
+app.get('/api/whatsapp-channel', wrap(async (req, res) => {
+  const from = String(req.query.from || '');
+  const to = String(req.query.to || '');
+  res.json(await whatsappChannel.listPosts(from, to));
+}));
+app.post('/api/whatsapp-channel/generate', wrap(async (req, res) => {
+  const body = req.body || {};
+  const count = Number(body.count);
+  const posts = await whatsappChannel.generatePosts({ start: body.start, count });
+  res.json({ ok: true, generated: posts.length, posts });
+}));
+app.patch('/api/whatsapp-channel/:id', wrap(async (req, res) => {
+  const id = intParam(req.params.id);
+  if (!id) return res.status(400).json({ error: 'id inválido' });
+  res.json({ ok: true, post: await whatsappChannel.updatePost(id, req.body || {}) });
 }));
 
 // Cron mensual (día 25): deja armado el plan del mes siguiente.

@@ -42,6 +42,22 @@ async function seedCalendar(daysAhead = 14, startDate = new Date()) {
   await require('./reelBrief').ensureSchema();
   const inserted = [];
 
+  const firstDate = toDateOnly(startDate);
+  const last = new Date(startDate);
+  last.setDate(last.getDate() + daysAhead - 1);
+  const lastDate = toDateOnly(last);
+  // Una decisión manual o una pieza ya creada bloquea el día completo. Si el
+  // nuevo plan cambia feed por reel, tampoco debe crear un segundo slot allí.
+  const { rows: lockedRows } = await pool.query(
+    `SELECT DISTINCT c.scheduled_date FROM content_calendar c
+     WHERE c.platform = 'instagram' AND c.scheduled_date BETWEEN $1 AND $2
+       AND (c.origin = 'manual' OR (c.status = 'skipped' AND c.pillar <> 'repost') OR EXISTS (
+         SELECT 1 FROM generated_assets a WHERE a.calendar_id = c.id AND a.status <> 'discarded'))`,
+    [firstDate, lastDate]
+  );
+  const lockedDates = new Set(lockedRows.map((r) => toDateOnly(r.scheduled_date instanceof Date
+    ? r.scheduled_date : new Date(`${r.scheduled_date}T12:00:00Z`))));
+
   // Plan mensual IA (si existe): manda sobre la rotación fija, día por día.
   const { getPlanMap } = require('./planner'); // require acá para evitar dependencia circular
   const planMap = await getPlanMap(startDate, daysAhead).catch(() => ({}));
@@ -50,6 +66,7 @@ async function seedCalendar(daysAhead = 14, startDate = new Date()) {
     const date = new Date(startDate);
     date.setDate(date.getDate() + i);
     const dateStr = toDateOnly(date);
+    if (lockedDates.has(dateStr)) continue;
     const planSlot = planMap[dateStr];
     const slot = planSlot || ROTATION[i % ROTATION.length];
     const status = slot.pillar === 'repost' ? 'skipped' : 'pending';
@@ -77,11 +94,14 @@ async function seedCalendar(daysAhead = 14, startDate = new Date()) {
                             OR content_calendar.theme_title IS DISTINCT FROM EXCLUDED.theme_title
                             OR content_calendar.objective IS DISTINCT FROM EXCLUDED.objective
                             THEN NULL ELSE content_calendar.reel_brief END
-       WHERE content_calendar.status = 'pending'
+       WHERE (content_calendar.status = 'pending'
           -- Sólo se pisan los descansos sembrados automáticamente: un slot que VOS
           -- pausaste (skipped con pilar real) queda pausado — la siembra diaria no
           -- lo resucita a 'pending' (era el bug de piezas eliminadas que volvían).
-          OR (content_calendar.status = 'skipped' AND content_calendar.pillar = 'repost')
+          OR (content_calendar.status = 'skipped' AND content_calendar.pillar = 'repost'))
+         AND COALESCE(content_calendar.origin, 'rotation') <> 'manual'
+         AND NOT EXISTS (SELECT 1 FROM generated_assets ga
+                         WHERE ga.calendar_id = content_calendar.id AND ga.status <> 'discarded')
        RETURNING id`,
       [dateStr, slot.post_type, slot.format, slot.pillar, slot.pillar_detail,
        slot.automation_level || 'auto', slot.interaction_hint || null, slot.scheduled_time || null,
