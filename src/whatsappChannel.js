@@ -301,5 +301,12 @@ async function updatePost(id, body) {
   return rows[0];
 }
 
+async function deletePost(id) {
+  await ensureSchema();
+  const { rows } = await pool.query(`DELETE FROM whatsapp_channel_posts WHERE id = $1 RETURNING id`, [id]);
+  if (!rows[0]) { const err = new Error('No existe esa publicación.'); err.status = 404; throw err; }
+  return rows[0];
+}
+
 module.exports = { SCHEMA_SQL, ensureSchema, validDate, dateRange, normalizePosts,
-  generatePosts, generateFromIdea, listPosts, getSummary, updatePost, setPostStatus };
+  generatePosts, generateFromIdea, listPosts, getSummary, updatePost, setPostStatus, deletePost };

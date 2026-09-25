@@ -861,6 +861,11 @@ app.patch('/api/whatsapp-channel/:id', wrap(async (req, res) => {
   if (!id) return res.status(400).json({ error: 'id inválido' });
   res.json({ ok: true, post: await whatsappChannel.updatePost(id, req.body || {}) });
 }));
+app.delete('/api/whatsapp-channel/:id', wrap(async (req, res) => {
+  const id = intParam(req.params.id);
+  if (!id) return res.status(400).json({ error: 'id inválido' });
+  res.json({ ok: true, deleted: await whatsappChannel.deletePost(id) });
+}));
 
 // Cron mensual (día 25): deja armado el plan del mes siguiente.
 app.post('/api/cron/generate-plan', authCron, wrap(async (req, res) => {

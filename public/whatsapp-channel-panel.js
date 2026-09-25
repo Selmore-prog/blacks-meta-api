@@ -68,7 +68,8 @@
           <button class="btn-ghost btn-sm" data-edit="${p.id}">${icon('edit')} Editar</button>
           ${p.status === 'published_manual' ? `<button class="btn-ghost btn-sm" data-status="${p.id}" data-next="draft">Volver a pendiente</button>`
             : `<button class="btn-ghost btn-sm" data-status="${p.id}" data-next="published_manual">Marcar publicada</button>`}
-          ${isCustom ? '' : `<button class="btn-ghost btn-sm" data-generate="${date}">${icon('refresh')} Regenerar</button>`}</div>
+          ${isCustom ? '' : `<button class="btn-ghost btn-sm" data-generate="${date}">${icon('refresh')} Regenerar</button>`}
+          <button class="btn-discard btn-sm" data-delete="${p.id}">${icon('trash')} Eliminar</button></div>
       </article>`;
       }).join('');
     }).join('');
@@ -90,6 +91,19 @@
     list.querySelectorAll('[data-edit]').forEach((btn) => btn.addEventListener('click', () => {
       const post = posts.find((p) => String(p.id) === btn.dataset.edit);
       if (post) edit(post);
+    }));
+    list.querySelectorAll('[data-delete]').forEach((btn) => btn.addEventListener('click', async () => {
+      const post = posts.find((p) => String(p.id) === btn.dataset.delete);
+      if (!post) return;
+      const ok = await confirmModal('Eliminar publicación',
+        `Se eliminará sólo <b>${esc(post.topic)}</b> del ${esc(labelDate(post.post_date))}. Esta acción no se puede deshacer.`, 'Eliminar');
+      if (!ok) return;
+      btn.disabled = true;
+      try {
+        await api(`/api/whatsapp-channel/${post.id}`, { method: 'DELETE' });
+        toast('Publicación eliminada', 'ok');
+        await load();
+      } catch (err) { toast(err.message, 'err'); btn.disabled = false; }
     }));
   }
 
