@@ -847,6 +847,7 @@ app.post('/api/whatsapp-channel/from-idea', wrap(async (req, res) => {
   const body = req.body || {};
   const posts = await whatsappChannel.generateFromIdea({
     idea: body.idea, productIds: body.productIds, count: Number(body.count), scheduledAt: body.scheduledAt,
+    audience: body.audience,
   });
   res.json({ ok: true, generated: posts.length, posts });
 }));

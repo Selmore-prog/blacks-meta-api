@@ -47,7 +47,9 @@
       const chosen = Array.isArray(p.selected_products) && p.selected_products.length ? p.selected_products
         : (p.product_id ? [{ name: p.product_name, image_url: p.product_image_url, stock: p.product_stock,
           published: p.product_published, synced_at: p.product_synced_at }] : []);
-      const unavailable = chosen.some((product) => product.published === false || Number(product.stock) <= 0 ||
+      const unavailable = chosen.some((product) => product.published === false ||
+        (p.audience !== 'mayorista' && Number(product.stock) <= 0) ||
+        (p.audience === 'mayorista' && product.stock != null && Number(product.stock) <= 0) ||
         !product.synced_at || Date.now() - new Date(product.synced_at).getTime() > 36 * 3600000);
       const isCustom = p.source === 'custom';
       const due = p.scheduled_at && new Date(p.scheduled_at).getTime() <= Date.now();
@@ -56,7 +58,7 @@
       const state = p.status === 'published_manual' ? 'Marcada como publicada' :
         (isCustom && p.status === 'planned' ? (due ? 'Lista para publicar' : `Planificada: ${when}`) : 'Borrador');
       return `<article class="wa-post" data-id="${p.id}">
-        <div class="wa-post-head"><b>${esc(labelDate(date))}</b><span class="badge ${p.kind === 'encuesta' ? 'semi' : 'objective'}">${p.kind === 'encuesta' ? 'Encuesta' : (isCustom ? `A pedido${p.position > 1 ? ` · ${p.position}` : ''}` : 'Texto')}</span></div>
+        <div class="wa-post-head"><b>${esc(labelDate(date))}</b><span class="badge ${p.kind === 'encuesta' ? 'semi' : 'objective'}">${p.kind === 'encuesta' ? 'Encuesta' : (isCustom ? `A pedido${p.position > 1 ? ` · ${p.position}` : ''}` : 'Texto')} · ${p.audience === 'mayorista' ? 'Mayorista' : 'Minorista'}</span></div>
         <div class="wa-state">${esc(state)}</div>
         <h3>${esc(p.topic)}</h3><p class="wa-body">${esc(p.body)}</p>
         ${options.length ? `<div class="wa-options">${options.map((x) => `<span>${esc(x)}</span>`).join('')}</div>` : ''}
@@ -134,6 +136,7 @@
     });
   }
   const productSearch = document.getElementById('wa-product-search');
+  const audienceSelect = document.getElementById('wa-audience');
   const productResults = document.getElementById('wa-product-results');
   const productChosen = document.getElementById('wa-product-chosen');
   function renderChosen() {
@@ -144,6 +147,10 @@
     }));
   }
   let searchTurn = 0;
+  audienceSelect.addEventListener('change', () => {
+    searchTurn += 1; selectedProducts = []; renderChosen();
+    productSearch.value = ''; productResults.innerHTML = '';
+  });
   productSearch.addEventListener('input', async () => {
     const q = productSearch.value.trim();
     const turn = ++searchTurn;
@@ -151,10 +158,12 @@
     try {
       const found = await api(`/api/products?q=${encodeURIComponent(q)}`);
       if (turn !== searchTurn) return;
-      const eligible = found.filter((p) => Number(p.stock) > 0).slice(0, 12);
+      const eligible = found.filter((p) => audienceSelect.value === 'mayorista'
+        ? (p.stock == null || Number(p.stock) > 0)
+        : Number(p.stock) > 0 && Number(p.price) > 0).slice(0, 12);
       productResults.innerHTML = eligible.length ? eligible.map((p) => `<button type="button" class="wa-product-result" data-product="${p.id}">
-        ${p.image_url ? `<img src="${attr(p.image_url)}" alt="">` : ''}<span>${esc(p.name)} <small>${Number(p.stock)} u. en catálogo</small></span></button>`).join('')
-        : '<p class="hint">No encontré productos con stock para esa búsqueda.</p>';
+        ${p.image_url ? `<img src="${attr(p.image_url)}" alt="">` : ''}<span>${esc(p.name)} <small>${p.stock == null ? 'Disponibilidad a consultar' : `${Number(p.stock)} u. en catálogo`}</small></span></button>`).join('')
+        : '<p class="hint">No encontré productos disponibles para esa búsqueda.</p>';
       productResults.querySelectorAll('[data-product]').forEach((btn) => btn.addEventListener('click', () => {
         const product = eligible.find((p) => String(p.id) === btn.dataset.product);
         if (!product || selectedProducts.some((p) => String(p.id) === String(product.id))) return;
@@ -181,7 +190,7 @@
     button.disabled = true;
     try {
       const result = await api('/api/whatsapp-channel/from-idea', { method: 'POST',
-        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idea,
+        headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ idea, audience: audienceSelect.value,
           productIds: selectedProducts.map((p) => p.id), count: Number(document.getElementById('wa-idea-count').value), scheduledAt }) });
       document.getElementById('wa-idea').value = '';
       selectedProducts = []; renderChosen();

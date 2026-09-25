@@ -108,12 +108,13 @@
           <input class="input" id="wa-product-search" placeholder="Buscá por nombre, URL o ID…" autocomplete="off" />
           <div id="wa-product-results"></div><div id="wa-product-chosen" class="wa-selected"></div></div>
         <div class="wa-controls">
+          <label>Público <select class="input" id="wa-audience"><option value="minorista">Minorista</option><option value="mayorista">Mayorista</option></select></label>
           <label>Mensajes <select class="input" id="wa-idea-count"><option value="1">1 mensaje</option><option value="2">2 mensajes</option></select></label>
           <label>Momento <select class="input" id="wa-timing"><option value="now">Ahora</option><option value="later">Planificar fecha y hora</option></select></label>
           <label id="wa-schedule-field" class="hidden">Fecha y hora <input class="input" id="wa-schedule" type="datetime-local" /></label>
           <button class="btn-primary" id="wa-generate-idea">Generar mensajes</button>
         </div>
-        <p class="hint">La fecha queda en el calendario de esta sección. La publicación al canal se hace desde WhatsApp.</p>
+        <p class="hint">El precio y los beneficios se toman del catálogo y la configuración al generar. Si planificás para otro día, revisalos antes de publicar. La publicación al canal se hace desde WhatsApp.</p>
       </div>
       <div class="wa-controls">
         <label>Desde <input class="input" type="date" id="wa-start" /></label>
