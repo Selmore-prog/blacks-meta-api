@@ -843,6 +843,18 @@ app.post('/api/whatsapp-channel/generate', wrap(async (req, res) => {
   const posts = await whatsappChannel.generatePosts({ start: body.start, count });
   res.json({ ok: true, generated: posts.length, posts });
 }));
+app.post('/api/whatsapp-channel/from-idea', wrap(async (req, res) => {
+  const body = req.body || {};
+  const posts = await whatsappChannel.generateFromIdea({
+    idea: body.idea, productIds: body.productIds, count: Number(body.count), scheduledAt: body.scheduledAt,
+  });
+  res.json({ ok: true, generated: posts.length, posts });
+}));
+app.patch('/api/whatsapp-channel/:id/status', wrap(async (req, res) => {
+  const id = intParam(req.params.id);
+  if (!id) return res.status(400).json({ error: 'id inválido' });
+  res.json({ ok: true, post: await whatsappChannel.setPostStatus(id, req.body?.status) });
+}));
 app.patch('/api/whatsapp-channel/:id', wrap(async (req, res) => {
   const id = intParam(req.params.id);
   if (!id) return res.status(400).json({ error: 'id inválido' });

@@ -100,6 +100,21 @@
         <div class="calendar-title"><span class="studio-kicker">CANAL DE WHATSAPP</span><h2>Publicaciones del canal</h2>
           <div class="sub">Ideas diarias con stock y clima actualizados. Copiá el texto o cargá la encuesta en WhatsApp.</div></div>
       </div>
+      <div class="wa-composer panel">
+        <h3>Crear desde una idea</h3>
+        <p class="hint">Escribí, por ejemplo, “reingresó este producto”. Elegí hasta cuatro artículos y la IA prepara uno o dos mensajes distintos.</p>
+        <label class="field"><span>Tema o indicación</span><textarea class="input" id="wa-idea" rows="3" placeholder="Ej: Reingresaron las camperas. Avisá al canal y destacá para qué trabajos sirven."></textarea></label>
+        <div class="field"><label for="wa-product-search">Productos de Tiendanube (opcional)</label>
+          <input class="input" id="wa-product-search" placeholder="Buscá por nombre, URL o ID…" autocomplete="off" />
+          <div id="wa-product-results"></div><div id="wa-product-chosen" class="wa-selected"></div></div>
+        <div class="wa-controls">
+          <label>Mensajes <select class="input" id="wa-idea-count"><option value="1">1 mensaje</option><option value="2">2 mensajes</option></select></label>
+          <label>Momento <select class="input" id="wa-timing"><option value="now">Ahora</option><option value="later">Planificar fecha y hora</option></select></label>
+          <label id="wa-schedule-field" class="hidden">Fecha y hora <input class="input" id="wa-schedule" type="datetime-local" /></label>
+          <button class="btn-primary" id="wa-generate-idea">Generar mensajes</button>
+        </div>
+        <p class="hint">La fecha queda en el calendario de esta sección. La publicación al canal se hace desde WhatsApp.</p>
+      </div>
       <div class="wa-controls">
         <label>Desde <input class="input" type="date" id="wa-start" /></label>
         <button class="btn-primary" id="wa-day">Generar este día</button>

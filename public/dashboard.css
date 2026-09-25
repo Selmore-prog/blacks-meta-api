@@ -125,6 +125,19 @@ body.nav-mini .side-tabs .tab .ic { width: 20px; height: 20px; }
 /* ---------- Vistas + responsive del layout ---------- */
 .view { max-width: 1180px; margin: 0 auto; padding: 30px 28px 110px; animation: viewIn .3s var(--ease); }
 .wa-controls { display:flex; flex-wrap:wrap; align-items:end; gap:10px; margin:24px 0 16px; }
+.wa-composer { padding:20px; margin-top:22px; }
+.wa-composer h3 { margin:0 0 6px; }
+.wa-composer .field { display:block; margin-top:15px; }
+.wa-composer .field > span { display:block; margin-bottom:6px; font-weight:700; }
+.wa-composer textarea { width:100%; }
+.wa-composer .wa-controls { margin-bottom:0; }
+.wa-product-result { width:100%; display:flex; align-items:center; gap:9px; padding:8px; text-align:left; border:0; border-bottom:1px solid var(--line); background:var(--panel); color:var(--text); cursor:pointer; }
+.wa-product-result:hover { background:var(--panel-2); }
+.wa-product-result img { width:36px; height:36px; object-fit:cover; border-radius:6px; }
+.wa-product-result small { display:block; color:var(--muted); }
+.wa-selected { display:flex; flex-wrap:wrap; gap:6px; margin-top:8px; }
+.wa-selected-item { display:inline-flex; align-items:center; gap:7px; padding:5px 9px; border-radius:999px; background:var(--panel-2); font-size:12px; }
+.wa-selected-item button { border:0; background:transparent; cursor:pointer; font-size:16px; }
 .wa-controls label { display:flex; flex-direction:column; gap:5px; color:var(--muted); font-size:12px; font-weight:700; }
 .wa-controls .input { min-width:170px; }
 .wa-summary { display:flex; flex-wrap:wrap; gap:8px 18px; align-items:center; padding:14px 18px; margin-bottom:16px; border:1px solid var(--line); border-radius:12px; background:var(--panel); }
@@ -133,6 +146,7 @@ body.nav-mini .side-tabs .tab .ic { width: 20px; height: 20px; }
 .wa-post { min-width:0; padding:18px; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); box-shadow:var(--shadow); }
 .wa-post-head { display:flex; justify-content:space-between; align-items:center; gap:8px; color:var(--muted); font-size:12px; text-transform:capitalize; }
 .wa-post h3 { margin:14px 0 9px; font-size:18px; }
+.wa-state { margin-top:8px; color:var(--muted); font-size:12px; }
 .wa-body { white-space:pre-wrap; line-height:1.55; margin:0 0 14px; }
 .wa-options { display:flex; flex-wrap:wrap; gap:7px; margin-bottom:14px; }
 .wa-options span { border:1px solid var(--line); border-radius:999px; padding:6px 10px; font-size:13px; }

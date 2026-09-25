@@ -1,20 +1,38 @@
 const pool = require('./db');
+const crypto = require('crypto');
 const { generateJson } = require('./ai');
 const { getForecast, weatherForDate } = require('./weather');
 const { eligibleSQL } = require('./productScore');
 
 const SCHEMA_SQL = `CREATE TABLE IF NOT EXISTS whatsapp_channel_posts (
   id BIGSERIAL PRIMARY KEY,
-  post_date DATE NOT NULL UNIQUE,
+  post_date DATE NOT NULL,
   kind TEXT NOT NULL CHECK (kind IN ('texto', 'encuesta')),
   topic TEXT NOT NULL,
   body TEXT NOT NULL,
   poll_options JSONB NOT NULL DEFAULT '[]'::jsonb,
   image_prompt TEXT,
   product_id BIGINT REFERENCES products_cache(id) ON DELETE SET NULL,
+  product_ids JSONB NOT NULL DEFAULT '[]'::jsonb,
+  source TEXT NOT NULL DEFAULT 'automatic',
+  batch_id UUID,
+  position INTEGER NOT NULL DEFAULT 1,
+  scheduled_at TIMESTAMPTZ,
+  status TEXT NOT NULL DEFAULT 'draft',
+  topic_request TEXT,
   generated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
   updated_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+ALTER TABLE whatsapp_channel_posts ADD COLUMN IF NOT EXISTS product_ids JSONB NOT NULL DEFAULT '[]'::jsonb;
+ALTER TABLE whatsapp_channel_posts ADD COLUMN IF NOT EXISTS source TEXT NOT NULL DEFAULT 'automatic';
+ALTER TABLE whatsapp_channel_posts ADD COLUMN IF NOT EXISTS batch_id UUID;
+ALTER TABLE whatsapp_channel_posts ADD COLUMN IF NOT EXISTS position INTEGER NOT NULL DEFAULT 1;
+ALTER TABLE whatsapp_channel_posts ADD COLUMN IF NOT EXISTS scheduled_at TIMESTAMPTZ;
+ALTER TABLE whatsapp_channel_posts ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'draft';
+ALTER TABLE whatsapp_channel_posts ADD COLUMN IF NOT EXISTS topic_request TEXT;
+ALTER TABLE whatsapp_channel_posts DROP CONSTRAINT IF EXISTS whatsapp_channel_posts_post_date_key;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_whatsapp_channel_automatic_date
+  ON whatsapp_channel_posts(post_date) WHERE source = 'automatic' AND position = 1;
 CREATE INDEX IF NOT EXISTS idx_whatsapp_channel_posts_date ON whatsapp_channel_posts(post_date);`;
 
 let schemaPromise;
@@ -104,17 +122,20 @@ async function generatePosts({ start, count = 7, replaceTopic = '' }) {
     await client.query('BEGIN');
     for (const post of posts) {
       await client.query(`INSERT INTO whatsapp_channel_posts
-        (post_date, kind, topic, body, poll_options, image_prompt, product_id)
-        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7)
-        ON CONFLICT (post_date) DO UPDATE SET kind = EXCLUDED.kind, topic = EXCLUDED.topic,
+        (post_date, kind, topic, body, poll_options, image_prompt, product_id, product_ids, source, position)
+        VALUES ($1, $2, $3, $4, $5::jsonb, $6, $7, $8::jsonb, 'automatic', 1)
+        ON CONFLICT (post_date) WHERE source = 'automatic' AND position = 1
+        DO UPDATE SET kind = EXCLUDED.kind, topic = EXCLUDED.topic,
           body = EXCLUDED.body, poll_options = EXCLUDED.poll_options, image_prompt = EXCLUDED.image_prompt,
-          product_id = EXCLUDED.product_id, generated_at = now(), updated_at = now()`,
-        [post.date, post.kind, post.topic, post.body, JSON.stringify(post.poll_options), post.image_prompt, post.product_id]);
+          product_id = EXCLUDED.product_id, product_ids = EXCLUDED.product_ids,
+          status = 'draft', generated_at = now(), updated_at = now()`,
+        [post.date, post.kind, post.topic, post.body, JSON.stringify(post.poll_options), post.image_prompt,
+          post.product_id, JSON.stringify(post.product_id ? [post.product_id] : [])]);
     }
     await client.query('COMMIT');
   } catch (err) { await client.query('ROLLBACK'); throw err; }
   finally { client.release(); }
-  return listPosts(dates[0], dates.at(-1));
+  return (await listPosts(dates[0], dates.at(-1))).filter((p) => p.source === 'automatic');
 }
 
 async function listPosts(from, to) {
@@ -124,9 +145,16 @@ async function listPosts(from, to) {
   }
   const { rows } = await pool.query(`SELECT w.*, p.name AS product_name, p.image_url AS product_image_url,
     p.permalink AS product_permalink, p.stock AS product_stock, p.published AS product_published,
-    p.synced_at AS product_synced_at
+    p.synced_at AS product_synced_at, COALESCE(selected.items, '[]'::json) AS selected_products
     FROM whatsapp_channel_posts w LEFT JOIN products_cache p ON p.id = w.product_id
-    WHERE w.post_date BETWEEN $1 AND $2 ORDER BY w.post_date`, [from, to]);
+    LEFT JOIN LATERAL (
+      SELECT json_agg(json_build_object('id', pc.id, 'name', pc.name, 'stock', pc.stock,
+        'image_url', pc.image_url, 'published', pc.published, 'synced_at', pc.synced_at)
+        ORDER BY ids.ord) AS items
+      FROM jsonb_array_elements_text(w.product_ids) WITH ORDINALITY AS ids(pid, ord)
+      JOIN products_cache pc ON pc.id = ids.pid::bigint
+    ) selected ON true
+    WHERE w.post_date BETWEEN $1 AND $2 ORDER BY w.post_date, w.scheduled_at NULLS LAST, w.position, w.id`, [from, to]);
   return rows;
 }
 
@@ -134,7 +162,86 @@ async function getSummary() {
   await ensureSchema();
   const { rows } = await pool.query(`SELECT count(*)::int AS total,
     count(*) FILTER (WHERE kind = 'encuesta')::int AS polls,
+    count(*) FILTER (WHERE status = 'planned')::int AS planned,
+    count(*) FILTER (WHERE status = 'planned' AND scheduled_at <= now())::int AS due,
+    min(scheduled_at) FILTER (WHERE status = 'planned' AND scheduled_at > now()) AS next_scheduled_at,
     max(generated_at) AS last_generated_at FROM whatsapp_channel_posts`);
+  return rows[0];
+}
+
+function localDate(date) {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Argentina/Buenos_Aires',
+    year: 'numeric', month: '2-digit', day: '2-digit' }).format(date);
+}
+
+/** Un brief libre crea uno o dos mensajes con productos elegidos por el dueño. */
+async function generateFromIdea({ idea, productIds = [], count = 1, scheduledAt = null }) {
+  await ensureSchema();
+  const topic = String(idea || '').trim().slice(0, 500);
+  const ids = [...new Set((Array.isArray(productIds) ? productIds : []).map(Number))];
+  if (topic.length < 5 || ![1, 2].includes(count) || ids.length > 4 ||
+      ids.some((id) => !Number.isSafeInteger(id) || id <= 0)) {
+    const err = new Error('Escribí el tema, elegí 1 o 2 mensajes y hasta 4 productos válidos.'); err.status = 400; throw err;
+  }
+  const when = scheduledAt ? new Date(scheduledAt) : new Date();
+  if (Number.isNaN(when.getTime()) || when.getTime() < Date.now() - 120000 ||
+      when.getTime() > Date.now() + 366 * 86400000) {
+    const err = new Error('Elegí una fecha y hora de publicación válida, hasta un año en adelante.'); err.status = 400; throw err;
+  }
+  const date = localDate(when);
+  const [chosen, forecast] = await Promise.all([
+    ids.length ? pool.query(`SELECT id, name, brand, category, stock, image_url
+      FROM products_cache WHERE id = ANY($1::bigint[]) AND ${eligibleSQL()}
+        AND synced_at >= now() - interval '36 hours'`, [ids]) : { rows: [] },
+    getForecast(),
+  ]);
+  if (chosen.rows.length !== ids.length) {
+    const err = new Error('Uno de los productos ya no tiene stock/talles aptos o el catálogo está desactualizado. Sincronizá y volvé a elegirlo.');
+    err.status = 409; throw err;
+  }
+  const products = ids.map((id) => chosen.rows.find((p) => Number(p.id) === id));
+  const weather = weatherForDate(forecast, date);
+  const result = await generateJson({
+    system: 'Sos editor del canal de WhatsApp de BLACKS Indumentaria. Devolvé sólo JSON válido.',
+    prompt: `El dueño quiere publicar ${count} mensaje(s) sobre este tema: "${topic}". Fecha prevista: ${date}. Productos que ELIGIÓ, verificados con stock y talles aptos: ${products.map((p) => `#${p.id} ${p.name}${p.brand ? ` (${p.brand})` : ''}, categoría ${p.category || 'sin dato'}, stock ${p.stock}`).join('; ') || 'ninguno'}. Usá estos productos si se eligieron; no sustituyas ni agregues otros. Si el dueño indicó que hubo un reingreso, podés decirlo, pero no inventes cantidad reingresada, precio, descuento, características, talles específicos ni fecha de reposición. Si pidió dos mensajes, que sean complementarios: uno anuncia o introduce y el otro aporta un detalle, uso o pregunta concreta; no repitas la misma frase. Texto breve, natural y profesional para canal de WhatsApp en Argentina, listo para copiar. Sin hashtags. No inventes testimonios, beneficios comerciales ni promesas. ${weather ? `Clima previsto en CABA: ${weather.min}-${weather.max}°C, lluvia hasta ${weather.rainMm ?? 'sin dato'} mm/6h. Usalo sólo si es pertinente, sin extrapolarlo a todo el país.` : 'Sin pronóstico para esa fecha.'} Para cada mensaje agregá image_prompt opcional, fiel a la foto real de los productos elegidos; no inventes logos ni texto en la imagen. Devolvé {"messages":[{"body":"...","image_prompt":"..." o null}]}.`,
+    maxTokens: count === 2 ? 1200 : 750,
+    temperature: 0.7,
+  });
+  const messages = result?.messages;
+  if (!Array.isArray(messages) || messages.length !== count ||
+      messages.some((m) => !String(m?.body || '').trim())) {
+    throw new Error('La IA no devolvió los mensajes pedidos. No se guardó nada.');
+  }
+  const batchId = crypto.randomUUID();
+  const status = when.getTime() > Date.now() + 60000 ? 'planned' : 'draft';
+  const client = await pool.connect();
+  try {
+    await client.query('BEGIN');
+    for (let index = 0; index < messages.length; index += 1) {
+      const item = messages[index];
+      await client.query(`INSERT INTO whatsapp_channel_posts
+        (post_date, kind, topic, body, poll_options, image_prompt, product_id, product_ids,
+         source, batch_id, position, scheduled_at, status, topic_request)
+        VALUES ($1, 'texto', $2, $3, '[]'::jsonb, $4, $5, $6::jsonb,
+          'custom', $7::uuid, $8, $9, $10, $11)`,
+        [date, topic.slice(0, 120), String(item.body).trim().slice(0, 1800),
+          item.image_prompt ? String(item.image_prompt).trim().slice(0, 1000) : null,
+          ids[0] || null, JSON.stringify(ids), batchId, index + 1, when.toISOString(), status, topic]);
+    }
+    await client.query('COMMIT');
+  } catch (err) { await client.query('ROLLBACK'); throw err; }
+  finally { client.release(); }
+  return (await listPosts(date, date)).filter((p) => p.batch_id === batchId);
+}
+
+async function setPostStatus(id, status) {
+  await ensureSchema();
+  if (!['draft', 'planned', 'published_manual'].includes(status)) {
+    const err = new Error('Estado inválido.'); err.status = 400; throw err;
+  }
+  const { rows } = await pool.query(`UPDATE whatsapp_channel_posts SET status = $2, updated_at = now()
+    WHERE id = $1 RETURNING *`, [id, status]);
+  if (!rows[0]) { const err = new Error('No existe esa publicación.'); err.status = 404; throw err; }
   return rows[0];
 }
 
@@ -154,4 +261,5 @@ async function updatePost(id, body) {
   return rows[0];
 }
 
-module.exports = { SCHEMA_SQL, ensureSchema, validDate, dateRange, normalizePosts, generatePosts, listPosts, getSummary, updatePost };
+module.exports = { SCHEMA_SQL, ensureSchema, validDate, dateRange, normalizePosts,
+  generatePosts, generateFromIdea, listPosts, getSummary, updatePost, setPostStatus };
