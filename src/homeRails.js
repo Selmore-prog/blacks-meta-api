@@ -171,6 +171,10 @@ function toCard(row, { transferPct } = {}) {
     sizes_in_stock: row.sizes_in_stock === null ? null : Number(row.sizes_in_stock),
     // Bandera para que la tienda pueda pintar "últimas unidades" sin recalcular.
     low_stock: row.stock !== null && Number(row.stock) > 0 && Number(row.stock) <= 8,
+    // Envío gratis marcado a mano en el admin (13 productos a sep-2026). El
+    // umbral por monto NO se decide acá: lo aplica la tienda con su propio
+    // settings.free_shipping_min, igual que en las fichas nativas.
+    free_shipping: row.free_shipping === true,
   };
 }
 
@@ -179,7 +183,7 @@ function toCard(row, { transferPct } = {}) {
    Ya está corregido, pero la columna recién se llena al próximo `npm run sync`,
    así que acá se cae a los campos crudos para que los rieles anden desde hoy. */
 const CARD_COLUMNS = `id, name, brand, price, promo_price, stock, sizes_in_stock,
-                      image_url, images,
+                      image_url, images, (raw->>'free_shipping') = 'true' AS free_shipping,
                       COALESCE(permalink, raw->'handle'->>'es', raw->>'canonical_url') AS permalink`;
 
 /* ---------------------------- resolución de reglas ---------------------------- */
