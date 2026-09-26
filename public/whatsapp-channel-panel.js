@@ -52,6 +52,7 @@
         (p.audience === 'mayorista' && product.stock != null && Number(product.stock) <= 0) ||
         !product.synced_at || Date.now() - new Date(product.synced_at).getTime() > 36 * 3600000);
       const isCustom = p.source === 'custom';
+      const canCreateVisual = p.kind === 'encuesta' || chosen.length > 0;
       const due = p.scheduled_at && new Date(p.scheduled_at).getTime() <= Date.now();
       const when = p.scheduled_at ? new Date(p.scheduled_at).toLocaleString('es-AR', { timeZone: 'America/Argentina/Buenos_Aires',
         day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }) : null;
@@ -65,11 +66,13 @@
         ${chosen.length ? `<div class="wa-product">${chosen[0].image_url ? `<img src="${attr(chosen[0].image_url)}" alt="" loading="lazy">` : ''}<span><b>${esc(chosen.map((x) => x.name).join(' · '))}</b>${unavailable ? '<small>Revisá stock antes de publicar</small>' : '<small>Foto real del catálogo</small>'}${chosen[0].image_url ? `<small><a href="${attr(chosen[0].image_url)}" target="_blank" rel="noopener">Abrir foto</a></small>` : ''}</span></div>` : ''}
         ${p.image_prompt ? `<details class="wa-prompt"><summary>Prompt para imagen</summary><p>${esc(p.image_prompt)}</p><button class="btn-ghost btn-sm" data-copy-prompt="${p.id}">Copiar prompt</button></details>` : ''}
         <div class="wa-actions"><button class="btn-primary btn-sm" data-copy="${p.id}">${icon('copy')} Copiar ${p.kind === 'encuesta' ? 'pregunta y opciones' : 'texto'}</button>
+          ${canCreateVisual ? `<button class="btn-ghost btn-sm" data-visual="${p.id}">Crear pieza</button>` : ''}
           <button class="btn-ghost btn-sm" data-edit="${p.id}">${icon('edit')} Editar</button>
           ${p.status === 'published_manual' ? `<button class="btn-ghost btn-sm" data-status="${p.id}" data-next="draft">Volver a pendiente</button>`
             : `<button class="btn-ghost btn-sm" data-status="${p.id}" data-next="published_manual">Marcar publicada</button>`}
           ${isCustom ? '' : `<button class="btn-ghost btn-sm" data-generate="${date}">${icon('refresh')} Regenerar</button>`}
           <button class="btn-discard btn-sm" data-delete="${p.id}">${icon('trash')} Eliminar</button></div>
+        ${canCreateVisual ? `<div class="wa-visual" data-visual-container="${p.id}" hidden></div>` : ''}
       </article>`;
       }).join('');
     }).join('');
@@ -80,6 +83,11 @@
     list.querySelectorAll('[data-copy-prompt]').forEach((btn) => btn.addEventListener('click', () => {
       const post = posts.find((p) => String(p.id) === btn.dataset.copyPrompt);
       if (post) copy(post.image_prompt);
+    }));
+    list.querySelectorAll('[data-visual]').forEach((btn) => btn.addEventListener('click', () => {
+      const post = posts.find((p) => String(p.id) === btn.dataset.visual);
+      const mount = btn.closest('.wa-post')?.querySelector('[data-visual-container]');
+      if (post && mount) window.whatsappVisual.open(post, mount, btn);
     }));
     list.querySelectorAll('[data-generate]').forEach((btn) => btn.addEventListener('click', () => generate(btn.dataset.generate, 1, btn)));
     list.querySelectorAll('[data-status]').forEach((btn) => btn.addEventListener('click', async () => {

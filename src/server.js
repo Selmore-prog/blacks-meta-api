@@ -43,6 +43,7 @@ const searchAnalytics = require('./searchAnalytics');
 const storeHome = require('./storeHome');
 const storeCategories = require('./storeCategories');
 const whatsappChannel = require('./whatsappChannel');
+const whatsappVisual = require('./whatsappVisual');
 
 const app = express();
 app.use(express.json({ limit: '2mb' }));
@@ -836,6 +837,25 @@ app.get('/api/whatsapp-channel', wrap(async (req, res) => {
   const from = String(req.query.from || '');
   const to = String(req.query.to || '');
   res.json(await whatsappChannel.listPosts(from, to));
+}));
+app.get('/api/whatsapp-channel/:id/visual-data', wrap(async (req, res) => {
+  const id = intParam(req.params.id);
+  if (!id) return res.status(400).json({ error: 'id inválido' });
+  res.setHeader('Cache-Control', 'no-store');
+  res.json(await whatsappVisual.visualData(id));
+}));
+app.get('/api/whatsapp-channel/:id/visual-photo/:productIndex/:photoIndex', wrap(async (req, res) => {
+  const id = intParam(req.params.id);
+  if (!id) return res.status(400).json({ error: 'id inválido' });
+  const { bytes, contentType } = await whatsappVisual.visualPhoto(id,
+    Number(req.params.productIndex), Number(req.params.photoIndex));
+  res.setHeader('Cache-Control', 'private, max-age=3600');
+  res.type(contentType).send(bytes);
+}));
+app.post('/api/whatsapp-channel/:id/refresh-commerce', wrap(async (req, res) => {
+  const id = intParam(req.params.id);
+  if (!id) return res.status(400).json({ error: 'id inválido' });
+  res.json({ ok: true, post: await whatsappVisual.refreshCommerce(id) });
 }));
 app.post('/api/whatsapp-channel/generate', wrap(async (req, res) => {
   const body = req.body || {};
