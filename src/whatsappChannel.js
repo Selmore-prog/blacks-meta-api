@@ -7,6 +7,7 @@ const { getConfig: getBenefitsConfig } = require('./benefits');
 const { getCompanyFacts } = require('./companyInfo');
 const { getWholesaleSettings, wholesaleContext } = require('./wholesale');
 const { productUrl, completeMessage, normalizeChannelTone, verifiedBenefitsConfig } = require('./channelCommerce');
+const { dateKey, editorialBody, catalogEvidence, reviewPosts } = require('./channelEditorial');
 
 const SCHEMA_SQL = `CREATE TABLE IF NOT EXISTS whatsapp_channel_posts (
   id BIGSERIAL PRIMARY KEY,
@@ -84,8 +85,11 @@ async function contextFor(dates) {
       ORDER BY synced_at DESC, name LIMIT 16`),
     pool.query(`SELECT event_date, title, angle FROM commercial_dates
       WHERE event_date BETWEEN $1 AND $2 ORDER BY event_date`, [dates[0], dates.at(-1)]),
-    pool.query(`SELECT post_date, topic, kind FROM whatsapp_channel_posts
-      WHERE post_date >= $1::date - 30 ORDER BY post_date DESC LIMIT 24`, [dates[0]]),
+    pool.query(`SELECT w.post_date, w.topic, w.body, w.kind, w.audience, w.product_id, w.product_ids,
+        w.source, w.status, w.scheduled_at, p.name AS product_name
+      FROM whatsapp_channel_posts w LEFT JOIN products_cache p ON p.id = w.product_id
+      WHERE w.post_date BETWEEN $1::date - 45 AND $2::date + 45
+      ORDER BY w.post_date, w.scheduled_at NULLS LAST, w.id LIMIT 160`, [dates[0], dates.at(-1)]),
     getForecast(),
     getBenefitsConfig().catch(() => null),
     getCompanyFacts().catch(() => null),
@@ -94,6 +98,100 @@ async function contextFor(dates) {
   return { products: catalog.rows, wholesaleProducts: wholesaleCatalog.rows,
     dates: commercial.rows, recent: recent.rows, forecast,
     benefits: verifiedBenefitsConfig(benefits, companyFacts), wholesale };
+}
+
+function timelineText(posts, products) {
+  const names = new Map(products.map((p) => [String(p.id), p.name]));
+  return posts.map((p) => {
+    const ids = Array.isArray(p.product_ids) && p.product_ids.length ? p.product_ids : [p.product_id].filter(Boolean);
+    const used = ids.map((id) => names.get(String(id)) ||
+      (String(p.product_id) === String(id) ? p.product_name : null) || `#${id}`).join(', ');
+    return `${dateKey(p.post_date)} [${p.status}, ${p.source}, ${p.audience}, ${p.kind}] ${p.topic}; producto: ${used || 'ninguno'}; texto: ${editorialBody(p.body).slice(0, 500)}`;
+  }).join('\n') || 'Sin publicaciones cercanas.';
+}
+
+function generationPrompt({ dates, ctx, forecastText, replaceTopic = '', feedback = '', draft = null }) {
+  const available = (items) => items.filter(productUrl).map((p) =>
+    `#${p.id} ${p.name} [${p.category || 'sin categoría'}]; rasgos comprobables: ${catalogEvidence(p).slice(0, 430)}`
+  ).join('\n') || 'ninguno';
+  const current = ctx.recent.filter((p) => dates.includes(dateKey(p.post_date)) && p.source === 'automatic');
+  const surrounding = ctx.recent.filter((p) => !current.includes(p));
+  return `Armá ${dates.length} publicación(es), una para cada fecha: ${dates.join(', ')}. Sos el editor humano del canal de WhatsApp de BLACKS Indumentaria. Antes de escribir, evaluá en privado para cada fecha: qué publicó antes y qué tiene planificado después, qué artículo y categoría ya aparecieron, si el tema aporta algo nuevo, qué necesidad real resuelve el producto, si el clima es pertinente, qué hecho del catálogo respalda cada afirmación, qué apertura y estructura usaste en otras recomendaciones y qué motivo tendría alguien para leerlo. Revisá la semana completa como una secuencia, no como piezas aisladas. No incluyas ese análisis en el JSON.
+
+HISTORIAL Y PLANIFICACIÓN CERCANA (texto editorial sin pie comercial):
+${timelineText(surrounding, [...ctx.products, ...ctx.wholesaleProducts])}
+${current.length ? `\nPROPUESTAS EXISTENTES EN LOS DÍAS QUE SE REGENERAN (evitá copiarlas):\n${timelineText(current, [...ctx.products, ...ctx.wholesaleProducts])}` : ''}
+
+PRODUCTOS MINORISTAS CON STOCK, PRECIO Y ENLACE: ${available(ctx.products)}
+PRODUCTOS MAYORISTAS APTOS: ${available(ctx.wholesaleProducts)}
+Condiciones mayoristas verificadas: ${wholesaleContext(ctx.wholesale) || 'sin datos configurados'}.
+Clima previsto SÓLO en CABA: ${forecastText}. Fechas comerciales: ${ctx.dates.map((d) => `${dateKey(d.event_date)} ${d.title}: ${d.angle || ''}`).join('; ') || 'ninguna'}.
+
+REGLAS EDITORIALES:
+- Alterná información útil, novedades concretas de producto y conversación; en una semana incluí 1-2 encuestas y 1-2 mensajes mayoristas si hay productos mayoristas aptos. No rellenes todos los días con ventas.
+- No repitas producto en un lapso de 7 días, incluyendo publicaciones pasadas, futuras y los demás días de esta tanda. No repitas título, idea, gancho ni texto de los últimos 30 días. Diversificá categorías y marcas.
+- Una recomendación debe tener una razón específica y comprobable. Si el catálogo sólo da el nombre, no atribuyas prestaciones, materiales, resistencia, comodidad o usos técnicos sin evidencia. Si no encontrás un producto coherente con el tema, elegí otro tema o dejá product_id en null.
+- Mencioná lluvia sólo cuando el producto tenga un vínculo directo y comprobable con ella (por ejemplo impermeabilidad documentada). Un jean o pantalón común no resuelve la lluvia. No uses el pronóstico como excusa para recomendar cualquier prenda; tampoco extrapoles CABA al país ni cites temperaturas exactas.
+- En recomendaciones variá de verdad la forma: una escena de uso creíble, una observación práctica, una pregunta útil, un detalle de producto verificado o una comparación. Alterná aperturas, longitud, cantidad de párrafos, ritmo, cierre y ubicación del producto. Que algunas sean de una sola frase y otras tengan dos párrafos breves; si hay tres o más recomendaciones, al menos una debe tener dos párrafos. Apuntá a 25-60 palabras de texto editorial por publicación. Evitá títulos comodín como "Novedad de producto" y frases vacías como "día a día", "uso diario", "excelente opción", "es ideal para", "comodidad y estilo", "te acompaña", "un clásico que siempre suma" o "aliado para tu día a día". Elegí un rasgo distintivo del catálogo para cada artículo y no repitas el mismo beneficio en varios posts.
+- Español argentino natural y profesional, sin lenguaje inclusivo, "Atención", "Che" o "volvió a ingresar". Emojis sólo cuando aporten, máximo dos. Sin hashtags. No inventes precios, envíos, cuotas, descuentos, testimonios ni disponibilidad. Esos datos y enlaces se adjuntan después: NO los escribas en body.
+- En mayorista hablá de consulta o pedido, nunca de precio minorista ni carrito. Si no hay producto apto, hacé contenido útil sin artículo específico.
+- En encuesta, body es la pregunta exacta, poll_options tiene 2 a 4 respuestas cortas y product_id debe ser null. En texto, poll_options es []. image_prompt puede ser null; si existe, fiel al producto real y sin logos ni texto inventados.
+${replaceTopic ? `- Reemplazá esta idea: ${replaceTopic}.` : ''}
+${feedback ? `\nERRORES DETECTADOS EN EL BORRADOR ANTERIOR; corregilos todos: ${feedback}` : ''}
+${draft ? `\nREFERENCIA BREVE DEL BORRADOR ANTERIOR, sólo para entender los errores: ${JSON.stringify(draft.map((p) => ({ date: p.date, topic: p.topic, product_id: p.product_id, opening: String(p.body || '').slice(0, 100) })))}` : ''}
+
+Devolvé SÓLO {"posts":[{"date":"YYYY-MM-DD","kind":"texto|encuesta","audience":"minorista|mayorista","topic":"...","body":"...","poll_options":[],"image_prompt":null,"product_id":123 o null}]}.`;
+}
+
+async function critiquePosts(posts, ctx, surrounding) {
+  const evidence = [...ctx.products, ...ctx.wholesaleProducts].filter((p) =>
+    posts.some((post) => String(post.product_id) === String(p.id))
+  ).map((p) => `#${p.id} ${catalogEvidence(p).slice(0, 800)}`).join('\n');
+  const result = await generateJson({
+    system: 'Sos un editor exigente que audita copys comerciales. Respondé sólo JSON válido.',
+    prompt: `Auditá estas publicaciones para el canal de BLACKS. Marcá SÓLO problemas concretos, indicando fecha: ideas o estructuras repetidas entre sí o con la planificación, producto que no resuelve el tema, afirmaciones sin sustento en el catálogo, frases genéricas o estilo de plantilla, introducciones demasiado parecidas y recomendaciones sin un dato específico. Una encuesta no necesita producto ni dato de catálogo: alcanza con una pregunta concreta y pertinente para gente que compra ropa de trabajo o calzado. No juzgues el pie comercial que se agregará después. No propongas productos fuera del catálogo. Si está bien, issues debe ser [].
+CATÁLOGO VERIFICADO:\n${evidence || 'sin productos'}
+PUBLICACIONES YA HECHAS O PLANIFICADAS:\n${timelineText(surrounding, [...ctx.products, ...ctx.wholesaleProducts])}
+BORRADOR:\n${JSON.stringify(posts)}
+Devolvé SOLO {"issues":[{"date":"YYYY-MM-DD","reason":"problema concreto y cómo corregirlo"}]}.`,
+    maxTokens: 1400,
+    temperature: 0.2,
+    thinkingBudget: 1000,
+  });
+  if (!Array.isArray(result?.issues)) throw new Error('La revisión editorial no devolvió un resultado válido.');
+  return result.issues.slice(0, 8).map((issue) => `${dateKey(issue.date)}: ${String(issue.reason || '').slice(0, 350)}`)
+    .filter((issue) => issue.length > 14);
+}
+
+async function repairStyleIssues(posts, issues, ctx) {
+  const byDate = new Map();
+  for (const issue of issues) {
+    const date = issue.slice(0, 10);
+    if (/^\d{4}-\d{2}-\d{2}$/.test(date)) byDate.set(date, [...(byDate.get(date) || []), issue]);
+  }
+  if (issues.some((issue) => issue.includes('un solo bloque'))) {
+    const post = posts.find((p) => p.kind === 'texto' && p.product_id);
+    if (post) byDate.set(post.date, [...(byDate.get(post.date) || []),
+      'Reescribí en dos párrafos breves con un salto de línea real; hacé que la segunda parte agregue un dato concreto.']);
+  }
+  const catalog = [...ctx.products, ...ctx.wholesaleProducts];
+  const revised = await Promise.all(posts.map(async (post) => {
+    const problems = byDate.get(post.date);
+    if (!problems?.length) return post;
+    const product = catalog.find((p) => String(p.id) === String(post.product_id));
+    const result = await generateJson({
+      system: 'Sos editor de estilo de un canal comercial argentino. Respondé sólo JSON válido.',
+      prompt: `Reescribí una sola publicación. Conservá fecha, público, tipo y product_id. Corregí específicamente: ${problems.join(' ')}\nProducto y datos verificables: ${product ? catalogEvidence(product).slice(0, 800) : 'sin producto específico'}.\nOtras piezas de la tanda, para no parecerte: ${JSON.stringify(posts.filter((p) => p.date !== post.date).map((p) => ({ topic: p.topic, body: p.body })))}.\nTexto actual: ${JSON.stringify({ topic: post.topic, body: post.body, poll_options: post.poll_options })}.\n${post.kind === 'encuesta' ? 'La pregunta debe ser breve, específica para compradores de indumentaria de trabajo o calzado, y tener 2-4 opciones concretas. No agregues producto_id.' : 'Usá español argentino natural, 25-60 palabras, sin frases genéricas ni prestaciones inventadas.'} Devolvé sólo {"topic":"...","body":"...","poll_options":[]}.`,
+      maxTokens: 650,
+      temperature: 0.7,
+    });
+    if (!String(result?.topic || '').trim() || !String(result?.body || '').trim()) return post;
+    const options = post.kind === 'encuesta' && Array.isArray(result.poll_options)
+      ? result.poll_options.map((x) => String(x).trim().slice(0, 60)).filter(Boolean).slice(0, 4) : [];
+    return { ...post, topic: String(result.topic).trim().slice(0, 120), body: String(result.body).trim().slice(0, 1800),
+      poll_options: options.length >= 2 ? options : post.poll_options };
+  }));
+  return revised;
 }
 
 function normalizePosts(raw, dates, products, wholesaleProducts = []) {
@@ -132,19 +230,61 @@ async function generatePosts({ start, count = 7, replaceTopic = '' }) {
     const w = weatherForDate(ctx.forecast, date);
     return `${date}: ${w ? `${w.min}-${w.max} °C, lluvia hasta ${w.rainMm ?? 'sin dato'} mm/6h` : 'sin pronóstico'}`;
   }).join('; ');
-  const result = await generateJson({
-    system: 'Sos editor del canal de WhatsApp de BLACKS Indumentaria en Argentina. Respondé sólo JSON válido.',
-    prompt: `Armá ${count} publicación(es), una para cada fecha: ${dates.join(', ')}. Mensajes breves para el canal de WhatsApp de BLACKS. Alterná información útil, novedades de producto y conversación; en una semana incluí 1-2 encuestas y 1-2 mensajes mayoristas si hay productos mayoristas disponibles. Cada día debe tener otro ángulo. Español argentino natural y profesional, como escrito por una persona: sin lenguaje inclusivo, sin aperturas forzadas como "Atención", "Che" o "volvió a ingresar", sin exceso de confianza. Usá uno o dos emojis pertinentes por mensaje. Sin hashtags. No inventes precios, envíos, cuotas, descuentos, testimonios ni disponibilidad. Esos datos y los enlaces se adjuntan después desde el catálogo: NO los escribas en body.\nProductos MINORISTAS aptos (usá el ID exacto y audience=minorista): ${ctx.products.filter(productUrl).map((p) => `#${p.id} ${p.name} [${p.category || 'sin categoría'}]`).join('; ') || 'ninguno'}. Productos MAYORISTAS aptos (ID exacto y audience=mayorista): ${ctx.wholesaleProducts.filter(productUrl).map((p) => `#${p.id} ${p.name} [${p.category || 'sin categoría'}]`).join('; ') || 'ninguno'}. En mayorista hablá de consulta o pedido, nunca de precio minorista ni carrito. Condiciones mayoristas verificadas: ${wholesaleContext(ctx.wholesale) || 'sin datos configurados'}. Si no hay productos aptos, hacé contenido útil sin artículos específicos. Variá marcas, categorías y productos.\nClima previsto en CABA: ${forecastText}. Mencionalo sólo si aporta al tema; no extrapoles CABA a todo el país ni cites temperaturas exactas. Fechas comerciales: ${ctx.dates.map((d) => `${String(d.event_date instanceof Date ? d.event_date.toISOString() : d.event_date).slice(0, 10)} ${d.title}: ${d.angle || ''}`).join('; ') || 'ninguna'}. Temas recientes a evitar: ${ctx.recent.map((p) => `${String(p.post_date instanceof Date ? p.post_date.toISOString() : p.post_date).slice(0, 10)} ${p.topic}`).join('; ') || 'ninguno'}. ${replaceTopic ? `Reemplazá esta idea: ${replaceTopic}.` : ''}\nEn encuesta, body es la pregunta exacta, poll_options tiene de 2 a 4 respuestas cortas y product_id debe ser null. En texto, body es sólo el texto editorial y poll_options es []. image_prompt describe una imagen fiel al producto real, sin logos ni texto inventados; puede ser null. Devolvé {"posts":[{"date":"YYYY-MM-DD","kind":"texto|encuesta","audience":"minorista|mayorista","topic":"...","body":"...","poll_options":[],"image_prompt":null,"product_id":123 o null}]}.`,
-    maxTokens: count === 7 ? 4000 : 900,
-    temperature: 0.75,
-  });
-  const posts = normalizePosts(result?.posts, dates, ctx.products.filter(productUrl), ctx.wholesaleProducts.filter(productUrl));
+  const surrounding = ctx.recent.filter((p) => !(dates.includes(dateKey(p.post_date)) && p.source === 'automatic'));
+  const retailEligible = ctx.products.filter(productUrl);
+  const wholesaleEligible = ctx.wholesaleProducts.filter(productUrl);
+  let posts;
+  let feedback = '';
+  let draft = null;
+  for (let attempt = 0; attempt < 4; attempt += 1) {
+    const result = await generateJson({
+      system: 'Sos editor del canal de WhatsApp de BLACKS Indumentaria en Argentina. Respondé sólo JSON válido.',
+      prompt: generationPrompt({ dates, ctx, forecastText, replaceTopic, feedback, draft }),
+      maxTokens: count === 7 ? 6000 : 1200,
+      temperature: attempt === 0 ? 0.85 : 0.65,
+      thinkingBudget: count === 7 ? 700 : 400,
+    });
+    try {
+      let candidate = normalizePosts(result?.posts, dates, retailEligible, wholesaleEligible);
+      let issues = reviewPosts(candidate, surrounding, [...retailEligible, ...wholesaleEligible]);
+      if (issues.length && issues.every((issue) => /frase genérica|demasiado largo|un solo bloque|repite (?:la|una) apertura|texto se parece/.test(issue))) {
+        candidate = await repairStyleIssues(candidate, issues, ctx);
+        issues = reviewPosts(candidate, surrounding, [...retailEligible, ...wholesaleEligible]);
+      }
+      if (issues.length) {
+        feedback = issues.join(' ');
+        draft = candidate;
+        continue;
+      }
+      let editorialIssues = await critiquePosts(candidate, ctx, surrounding);
+      if (editorialIssues.length) {
+        candidate = await repairStyleIssues(candidate, editorialIssues, ctx);
+        issues = reviewPosts(candidate, surrounding, [...retailEligible, ...wholesaleEligible]);
+        if (!issues.length) editorialIssues = await critiquePosts(candidate, ctx, surrounding);
+        else editorialIssues = issues;
+      }
+      if (editorialIssues.length) {
+        feedback = editorialIssues.join(' ');
+        draft = candidate;
+        continue;
+      }
+      posts = candidate;
+      break;
+    } catch (err) {
+      feedback = `${err.message}${result && !Array.isArray(result.posts) ? ` (campos recibidos: ${Object.keys(result).join(', ')})` : ''}`;
+      draft = Array.isArray(result?.posts) ? result.posts : null;
+    }
+  }
+  if (!posts) throw new Error(`La tanda no superó la revisión editorial: ${feedback}. No se guardó nada.`);
   const retail = new Map(ctx.products.map((p) => [String(p.id), p]));
   const wholesale = new Map(ctx.wholesaleProducts.map((p) => [String(p.id), p]));
+  let recommendationIndex = 0;
   for (const post of posts) {
     const product = (post.audience === 'mayorista' ? wholesale : retail).get(String(post.product_id));
+    const presentation = product && post.kind === 'texto' ? recommendationIndex++ % 3 : 0;
     post.body = post.kind === 'encuesta' ? normalizeChannelTone(post.body)
-      : completeMessage(post.body, product ? [product] : [], post.audience, ctx.benefits, ctx.wholesale);
+      : completeMessage(post.body, product ? [product] : [], post.audience, ctx.benefits, ctx.wholesale,
+        presentation);
   }
   const client = await pool.connect();
   try {

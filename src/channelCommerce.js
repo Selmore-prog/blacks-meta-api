@@ -58,7 +58,7 @@ function normalizeChannelTone(text) {
 }
 
 /** Adjunta hechos verificados y links fuera de la parte libre que redacta la IA. */
-function completeMessage(body, products, audience, benefitsConfig, wholesale) {
+function completeMessage(body, products, audience, benefitsConfig, wholesale, presentation = 0) {
   const text = normalizeChannelTone(body);
   const facts = benefitsFromConfig(benefitsConfig);
   if (!products.length) return text;
@@ -73,7 +73,9 @@ function completeMessage(body, products, audience, benefitsConfig, wholesale) {
   } else {
     if (products.length === 1) {
       const price = currentPrice(products[0]);
-      if (price) lines.push(`💰 Precio: ${money(price)}`);
+      if (price) lines.push(presentation === 1 ? `💰 ${money(price)}` :
+        presentation === 2 ? `Precio: ${money(price)}` : `💰 Precio: ${money(price)}`);
+      if (presentation === 1 && facts.installment) lines.push(`💳 ${facts.installment.replace(/[.!]+$/, '')}`);
       if (hasFreeShipping(products[0], facts)) lines.push('🚚 Envío gratis');
     } else {
       for (const product of products) {
@@ -81,10 +83,13 @@ function completeMessage(body, products, audience, benefitsConfig, wholesale) {
         if (price) lines.push(`💰 ${product.name}: ${money(price)}${hasFreeShipping(product, facts) ? ' · envío gratis' : ''}`);
       }
     }
-    if (facts.installment) lines.push(`💳 ${facts.installment.replace(/[.!]+$/, '')}`);
+    if (facts.installment && (presentation !== 1 || products.length > 1)) {
+      lines.push(`💳 ${facts.installment.replace(/[.!]+$/, '')}`);
+    }
     for (const product of products) {
       const url = productUrl(product);
-      if (url) lines.push(`🛒 ${products.length > 1 ? `${product.name}: ` : 'Comprá acá: '}${url}`);
+      if (url) lines.push(presentation === 1 && products.length === 1 ? `🔗 Ver producto: ${url}` :
+        `🛒 ${products.length > 1 ? `${product.name}: ` : presentation === 2 ? 'En la tienda: ' : 'Comprá acá: '}${url}`);
     }
   }
   return [text, lines.join('\n')].filter(Boolean).join('\n\n');
