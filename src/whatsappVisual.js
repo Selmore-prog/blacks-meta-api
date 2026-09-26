@@ -34,6 +34,35 @@ function specsFor(product) {
     .slice(0, 3);
 }
 
+function offerFor(product) {
+  const price = currentPrice(product);
+  const regular = Number(product.price);
+  const discounted = price && Number.isFinite(regular) && regular > price;
+  return { price, regularPrice: discounted ? regular : null,
+    discountPercent: discounted ? Math.round((1 - price / regular) * 100) : null };
+}
+
+function visualHeadline(products, post) {
+  if (products.length === 1) return products[0].name;
+  if (products.length) return products.slice(0, 2).map((product) => product.name).join(' + ');
+  return post.topic;
+}
+
+function planVisualStyles(posts) {
+  let previous = -1;
+  const styles = new Map();
+  for (const post of posts) {
+    const key = `${post.post_date instanceof Date ? post.post_date.toISOString().slice(0, 10) : post.post_date}:${post.audience}:${post.topic}`;
+    let hash = 2166136261;
+    for (const char of key) hash = Math.imul(hash ^ char.charCodeAt(0), 16777619);
+    let style = (hash >>> 0) % 3;
+    if (style === previous) style = (style + 1) % 3;
+    styles.set(String(post.id), style);
+    previous = style;
+  }
+  return styles;
+}
+
 function statedPrices(body) {
   return String(body || '').split('\n').filter((line) => /^\s*(?:💰|Precio:)/iu.test(line))
     .map((line) => line.match(/\$\s*([\d.]+(?:,\d{1,2})?)/))
@@ -57,6 +86,10 @@ async function postAndProducts(id) {
 
 async function visualData(id) {
   const { post, products } = await postAndProducts(id);
+  const neighbors = (await pool.query(`SELECT id, post_date, audience, topic FROM whatsapp_channel_posts
+    WHERE post_date BETWEEN $1::date - 14 AND $1::date + 14
+    ORDER BY post_date, id`, [post.post_date])).rows;
+  const plannedStyle = planVisualStyles(neighbors).get(String(post.id)) ?? 0;
   if (products.some((product) => product.published === false || !product.synced_at ||
       Date.now() - new Date(product.synced_at).getTime() > 36 * 3600000 ||
       (product.stock != null && Number(product.stock) <= 0))) {
@@ -79,7 +112,8 @@ async function visualData(id) {
     }
   }
   const visualProducts = products.map((product, index) => ({
-    id: String(product.id), name: product.name, price: post.audience === 'minorista' ? currentPrice(product) : null,
+    id: String(product.id), name: product.name,
+    ...(post.audience === 'minorista' ? offerFor(product) : { price: null, regularPrice: null, discountPercent: null }),
     freeShipping: post.audience === 'minorista' && hasFreeShipping(product, benefits),
     specs: specsFor(product), photoCount: imageUrls(product).length,
     photoBase: `/api/whatsapp-channel/${id}/visual-photo/${index}`,
@@ -90,10 +124,13 @@ async function visualData(id) {
   return {
     id: String(post.id), date: String(post.post_date instanceof Date ? post.post_date.toISOString() : post.post_date).slice(0, 10),
     checkedAt: new Date().toISOString(),
-    kind: post.kind, audience: post.audience, topic: post.topic, body: editorialBody(post.body),
+    kind: post.kind, audience: post.audience, topic: post.topic,
+    headline: visualHeadline(products, post), body: editorialBody(post.body),
+    plannedStyle,
     pollOptions: Array.isArray(post.poll_options) ? post.poll_options : [],
     products: visualProducts,
     installments: post.audience === 'minorista' && products.length ? benefits.installment : null,
+    shippingThreshold: post.audience === 'minorista' && products.length ? benefits.shippingThreshold : null,
   };
 }
 
@@ -138,4 +175,5 @@ async function refreshCommerce(id) {
   return rows[0];
 }
 
-module.exports = { imageUrls, specsFor, statedPrices, visualData, visualPhoto, refreshCommerce };
+module.exports = { imageUrls, specsFor, offerFor, visualHeadline, planVisualStyles,
+  statedPrices, visualData, visualPhoto, refreshCommerce };

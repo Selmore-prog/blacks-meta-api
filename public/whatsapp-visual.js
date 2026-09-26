@@ -8,11 +8,6 @@
   const MUTED = '#696b70';
   const cache = new Map();
 
-  function hash(value) {
-    let out = 2166136261;
-    for (const char of String(value)) out = Math.imul(out ^ char.charCodeAt(0), 16777619);
-    return out >>> 0;
-  }
   function text(ctx, value, x, y, font, color = INK) {
     ctx.font = font;
     ctx.fillStyle = color;
@@ -58,98 +53,126 @@
     ctx.roundRect(x, y, w, h, radius);
     ctx.fill();
   }
-  function photo(ctx, image, x, y, w, h, dark = false) {
-    rounded(ctx, x, y, w, h, 30, dark ? '#ebe9e4' : '#ffffff');
+  function photo(ctx, image, x, y, w, h) {
+    ctx.fillStyle = '#e9e7e2';
+    ctx.fillRect(x, y, w, h);
     if (!image) return;
-    ctx.save();
-    ctx.beginPath(); ctx.roundRect(x, y, w, h, 30); ctx.clip();
-    const scale = Math.min(w / image.width, h / image.height);
-    const drawW = image.width * scale;
-    const drawH = image.height * scale;
-    ctx.drawImage(image, x + (w - drawW) / 2, y + (h - drawH) / 2, drawW, drawH);
-    ctx.restore();
+    // Foto de catálogo a sangre: ningún marco, tarjeta ni margen agregado.
+    const scale = Math.max(w / image.width, h / image.height);
+    const sourceW = w / scale;
+    const sourceH = h / scale;
+    // La mayoría de las tomas son de cuerpo entero: priorizar cabeza y prenda sobre el recorte inferior.
+    ctx.drawImage(image, (image.width - sourceW) / 2, Math.max(0, image.height - sourceH) * 0.08,
+      sourceW, sourceH, x, y, w, h);
   }
   function formatMoney(value) {
     return `$${Number(value).toLocaleString('es-AR', { maximumFractionDigits: 2 })}`;
   }
-  function brand(ctx, dark, audience) {
-    text(ctx, 'BLACKS', 68, 84, '900 34px Inter, Arial, sans-serif', dark ? PAPER : INK);
-    rounded(ctx, 68, 104, 64, 6, 3, ORANGE);
-    ctx.textAlign = 'right';
-    text(ctx, audience === 'mayorista' ? 'PARA EMPRESAS' : 'CANAL BLACKS', 1012, 84,
-      '700 24px Inter, Arial, sans-serif', dark ? '#d7d7d4' : MUTED);
-    ctx.textAlign = 'left';
-  }
   function productPhotos(ctx, products, images, bounds, audience) {
     const visible = products.slice(0, Math.min(4, products.length));
     if (visible.length === 1) { photo(ctx, images[0], bounds.x, bounds.y, bounds.w, bounds.h); return; }
-    const gap = 12;
-    const cols = visible.length === 2 ? 2 : 2;
+    const cols = 2;
     const rows = Math.ceil(visible.length / cols);
-    const cellW = (bounds.w - gap * (cols - 1)) / cols;
-    const cellH = (bounds.h - gap * (rows - 1)) / rows;
+    const cellW = bounds.w / cols;
+    const cellH = bounds.h / rows;
     visible.forEach((product, i) => {
-      const x = bounds.x + (i % cols) * (cellW + gap);
-      const y = bounds.y + Math.floor(i / cols) * (cellH + gap);
-      photo(ctx, images[i], x, y, cellW, cellH);
-      rounded(ctx, x + 8, y + cellH - 48, cellW - 16, 40, 10, 'rgba(255,255,255,.94)');
-      const label = audience === 'minorista' && product.price
-        ? `${product.name} · ${formatMoney(product.price)}` : product.name;
-      block(ctx, label, x + 18, y + cellH - 44, cellW - 36,
-        { size: 18, min: 15, maxLines: 1, weight: 700 });
+      const wideLast = visible.length === 3 && i === 2;
+      const x = wideLast ? bounds.x : bounds.x + (i % cols) * cellW;
+      const y = bounds.y + Math.floor(i / cols) * cellH;
+      const w = wideLast ? bounds.w : cellW;
+      photo(ctx, images[i], x, y, w, cellH);
+      ctx.fillStyle = 'rgba(24,25,28,.86)';
+      ctx.fillRect(x, y + cellH - 92, w, 92);
+      block(ctx, product.name, x + 18, y + cellH - 88, w - 36,
+        { size: 21, min: 17, maxLines: 1, weight: 700, color: PAPER });
+      if (audience === 'minorista' && product.price) {
+        text(ctx, formatMoney(product.price), x + 18, y + cellH - 17,
+          '800 27px Inter, Arial, sans-serif', PAPER);
+        if (product.regularPrice && product.discountPercent) {
+          const old = formatMoney(product.regularPrice);
+          ctx.font = '500 18px Inter, Arial, sans-serif';
+          const oldWidth = ctx.measureText(old).width;
+          text(ctx, old, x + 185, y + cellH - 19,
+            '500 18px Inter, Arial, sans-serif', '#c9c9c9');
+          ctx.strokeStyle = '#c9c9c9'; ctx.lineWidth = 1.5;
+          ctx.beginPath(); ctx.moveTo(x + 185, y + cellH - 26);
+          ctx.lineTo(x + 185 + oldWidth, y + cellH - 26); ctx.stroke();
+          text(ctx, `${product.discountPercent}% OFF`, x + 195 + oldWidth,
+            y + cellH - 19, '800 18px Inter, Arial, sans-serif', '#ff8b59');
+        }
+      }
     });
   }
-  function photoLabel(ctx, data, x, y, width, size = 23) {
-    if (!data.products.length) return;
-    const label = data.products.length === 1 ? data.products[0].name : `${data.products.length} productos del catálogo`;
-    rounded(ctx, x, y, width, 48, 12, 'rgba(255,255,255,.94)');
-    block(ctx, label, x + 16, y + 7, width - 32,
-      { size, min: Math.min(size, 18), maxLines: 1, weight: 700 });
+  function footer(ctx, color) {
+    text(ctx, 'blacksindumentaria.com.ar', 68, 1317,
+      '500 20px Inter, Arial, sans-serif', color);
   }
-  function firstSentence(body) {
-    return String(body || '').replace(/\s+/g, ' ').trim().split(/(?<=[.!?])\s/)[0].slice(0, 170);
+  function displayName(value) {
+    const name = String(value || '');
+    if (name !== name.toLocaleUpperCase('es-AR')) return name;
+    const lower = name.toLocaleLowerCase('es-AR').replace(/\bpampero\b/g, 'Pampero');
+    return lower.charAt(0).toLocaleUpperCase('es-AR') + lower.slice(1);
   }
-  function detailLines(data) {
-    if (data.audience === 'mayorista') {
-      return data.products.flatMap((product) => product.specs).slice(0, 3);
-    }
-    if (data.products.length > 1) {
-      return data.products.slice(0, 3).map((product) =>
-        `${product.name.replace(/\s+/g, ' ').slice(0, 31)}${product.price ? ` · ${formatMoney(product.price)}` : ''}`);
-    }
-    return data.products[0]?.specs?.slice(0, 2) || [];
-  }
-  function commerce(ctx, data, top, dark, compact = false) {
-    const fg = dark ? PAPER : INK;
-    if (data.audience === 'mayorista') {
-      text(ctx, 'CONSULTÁ POR TU EQUIPO', 68, top + 40, `800 ${compact ? 29 : 37}px Inter, Arial, sans-serif`, fg);
-      text(ctx, 'Consultá talles y cantidades', 68, top + 80, '500 23px Inter, Arial, sans-serif', dark ? '#c5c6c8' : MUTED);
-      return;
-    }
-    const price = data.products.length === 1 ? data.products[0].price : null;
-    if (price) {
-      text(ctx, formatMoney(price), 68, top + 55, `900 ${compact ? 62 : 82}px Inter, Arial, sans-serif`, fg);
-      if (data.installments) text(ctx, data.installments.replace(/[.!]+$/, ''), 68, top + 100,
-        '600 27px Inter, Arial, sans-serif', dark ? '#dadbdd' : MUTED);
-      if (data.products[0].freeShipping) text(ctx, 'ENVÍO GRATIS', 68, top + 139,
-        '800 21px Inter, Arial, sans-serif', ORANGE);
-    } else if (data.installments) {
-      text(ctx, data.installments.replace(/[.!]+$/, ''), 68, top + 58,
-        '700 28px Inter, Arial, sans-serif', fg);
+  function heading(ctx, data, top, foreground, subtle) {
+    text(ctx, data.audience === 'mayorista' ? 'MAYORISTA' : 'MINORISTA',
+      68, top + 20, '700 19px Inter, Arial, sans-serif', subtle);
+    const title = data.products.length === 1 ? data.products[0].name : data.headline || data.topic;
+    block(ctx, displayName(title), 68, top + 38, 944,
+      { size: 58, min: 42, maxLines: 2, color: foreground, leading: 1.12 });
+    if (data.audience === 'minorista' && data.products.length === 1) {
+      const details = (data.products[0].specs || []).slice(0, 2).join(' · ');
+      block(ctx, details, 68, top + 183, 944,
+        { size: 23, min: 21, maxLines: 1, weight: 500, color: subtle });
     }
   }
-  function finish(ctx, dark) {
-    ctx.strokeStyle = dark ? '#53545a' : '#d6d3cc';
-    ctx.beginPath(); ctx.moveTo(68, 1284); ctx.lineTo(1012, 1284); ctx.stroke();
-    text(ctx, 'BLACKS INDUMENTARIA', 68, 1322, '700 19px Inter, Arial, sans-serif', dark ? '#bcbec2' : MUTED);
-    ctx.textAlign = 'right';
-    text(ctx, 'blacksindumentaria.com.ar', 1012, 1322, '500 19px Inter, Arial, sans-serif', dark ? '#bcbec2' : MUTED);
-    ctx.textAlign = 'left';
+  function technicalDetails(ctx, data, top, foreground, subtle) {
+    const lines = [...new Set(data.products.flatMap((product) => product.specs || []))].slice(0, 3);
+    if (lines.length) {
+      text(ctx, 'FICHA TÉCNICA', 68, top + 20, '700 19px Inter, Arial, sans-serif', subtle);
+      lines.forEach((line, i) => {
+        ctx.fillStyle = ORANGE;
+        ctx.fillRect(68, top + 53 + i * 46, 12, 4);
+        block(ctx, line, 97, top + 35 + i * 46, 915,
+          { size: 28, min: 23, maxLines: 1, weight: 500, color: foreground });
+      });
+    }
+    text(ctx, 'Consultá por talles y cantidades', 68, top + 236,
+      '600 25px Inter, Arial, sans-serif', foreground);
+  }
+  function offer(ctx, data, top, foreground, subtle) {
+    const item = data.products.length === 1 ? data.products[0] : null;
+    const discounted = item?.regularPrice && item?.discountPercent;
+    let benefitsTop = top + 130;
+    if (item?.price) {
+      text(ctx, 'PRECIO FINAL', 68, top + 18, '700 18px Inter, Arial, sans-serif', subtle);
+      if (discounted) {
+        const old = formatMoney(item.regularPrice);
+        ctx.font = '500 27px Inter, Arial, sans-serif';
+        const oldWidth = ctx.measureText(old).width;
+        text(ctx, old, 68, top + 58, '500 27px Inter, Arial, sans-serif', subtle);
+        ctx.strokeStyle = subtle; ctx.lineWidth = 2;
+        ctx.beginPath(); ctx.moveTo(68, top + 49); ctx.lineTo(68 + oldWidth, top + 49); ctx.stroke();
+        const badgeX = 68 + oldWidth + 24;
+        rounded(ctx, badgeX, top + 31, 133, 37, 7, ORANGE);
+        text(ctx, `${item.discountPercent}% OFF`, badgeX + 13, top + 57,
+          '800 21px Inter, Arial, sans-serif', '#ffffff');
+      }
+      const baseline = top + (discounted ? 147 : 110);
+      text(ctx, formatMoney(item.price), 68, baseline, '800 82px Inter, Arial, sans-serif', foreground);
+      benefitsTop = baseline + 50;
+    }
+    if (data.installments) {
+      text(ctx, data.installments.replace(/[.!]+$/, ''), 68, benefitsTop,
+        '600 26px Inter, Arial, sans-serif', foreground);
+    }
+    if (data.shippingThreshold) {
+      text(ctx, `Envío gratis desde ${formatMoney(data.shippingThreshold)}`,
+        68, benefitsTop + 39, '500 23px Inter, Arial, sans-serif', subtle);
+    }
   }
   function drawPoll(ctx, data, style) {
     const dark = style === 1;
     ctx.fillStyle = dark ? INK : PAPER; ctx.fillRect(0, 0, W, H);
-    brand(ctx, dark, data.audience);
     text(ctx, 'TU OPINIÓN', 68, 215, '800 26px Inter, Arial, sans-serif', ORANGE);
     block(ctx, data.body, 68, 260, 940, { size: 84, min: 62, maxLines: 5, color: dark ? PAPER : INK });
     const options = data.pollOptions.slice(0, 4);
@@ -159,55 +182,32 @@
       text(ctx, String(i + 1).padStart(2, '0'), 94, y + 58, '800 26px Inter, Arial, sans-serif', ORANGE);
       block(ctx, option, 158, y + 17, 820, { size: 38, min: 30, maxLines: 1, color: dark ? PAPER : INK });
     });
-    finish(ctx, dark);
+    footer(ctx, dark ? '#bcbec2' : MUTED);
   }
   function drawProduct(ctx, data, images, style) {
     const dark = style === 1;
-    ctx.fillStyle = dark ? INK : PAPER; ctx.fillRect(0, 0, W, H);
-    brand(ctx, dark, data.audience);
-    const checked = data.checkedAt ? new Date(data.checkedAt).toLocaleDateString('es-AR',
-      { timeZone: 'America/Argentina/Buenos_Aires', day: 'numeric', month: 'numeric' }) : '';
-    const label = data.audience === 'mayorista' ? 'FICHA PARA EQUIPOS'
-      : data.products.some((product) => product.price) && checked ? `PRECIO AL ${checked}` : 'EN EL CATÁLOGO';
-    if (style === 0) {
-      text(ctx, label, 68, 167, '800 22px Inter, Arial, sans-serif', ORANGE);
-      block(ctx, data.topic, 68, 187, 940,
-        { size: 64, min: 50, maxLines: 3, color: INK });
-      productPhotos(ctx, data.products, images, { x: 68, y: 410, w: 944, h: 540 }, data.audience);
-      photoLabel(ctx, data, 88, 880, 810);
-      const details = detailLines(data);
-      details.slice(0, 2).forEach((line, i) => {
-        text(ctx, `0${i + 1}`, 68, 1002 + i * 42, '800 21px Inter, Arial, sans-serif', ORANGE);
-        block(ctx, line, 120, 976 + i * 42, 850, { size: 27, min: 22, maxLines: 1 });
-      });
-      commerce(ctx, data, data.audience === 'mayorista' ? 1120 : 1100, false, true);
-    } else if (style === 1) {
-      productPhotos(ctx, data.products, images, { x: 68, y: 145, w: 944, h: 600 }, data.audience);
-      photoLabel(ctx, data, 88, 675, 810);
-      text(ctx, label, 68, 800, '800 22px Inter, Arial, sans-serif', ORANGE);
-      block(ctx, data.topic, 68, 830, 940,
-        { size: 60, min: 47, maxLines: 3, color: PAPER });
-      if (data.audience === 'mayorista') {
-        detailLines(data).slice(0, 2).forEach((line, i) =>
-          block(ctx, `• ${line}`, 68, 1040 + i * 42, 930,
-            { size: 25, min: 21, maxLines: 1, color: '#d7d8da' }));
-      }
-      commerce(ctx, data, 1110, true, true);
+    const foreground = dark ? PAPER : INK;
+    const subtle = dark ? '#c8c9cc' : MUTED;
+    ctx.fillStyle = dark ? INK : style === 2 ? '#eee9df' : PAPER;
+    ctx.fillRect(0, 0, W, H);
+    // Las variantes comparten jerarquía y espaciado; sólo cambia la composición.
+    if (style === 1) {
+      productPhotos(ctx, data.products, images, { x: 0, y: 0, w: W, h: 690 }, data.audience);
+      heading(ctx, data, 725, foreground, subtle);
     } else {
-      text(ctx, label, 68, 177, '800 22px Inter, Arial, sans-serif', ORANGE);
-      productPhotos(ctx, data.products, images, { x: 68, y: 225, w: 510, h: 770 }, data.audience);
-      photoLabel(ctx, data, 84, 925, 478, 20);
-      block(ctx, data.topic, 615, 248, 385, { size: 62, min: 42, maxLines: 5 });
-      const details = detailLines(data);
-      details.slice(0, 3).forEach((line, i) => {
-        rounded(ctx, 615, 690 + i * 75, 397, 60, 15, '#ffffff');
-        block(ctx, line, 635, 699 + i * 75, 355, { size: 23, min: 19, maxLines: 1 });
-      });
-      const summary = firstSentence(data.body);
-      if (summary) block(ctx, summary, 68, 1025, 940, { size: 29, min: 24, maxLines: 2, weight: 500, color: MUTED });
-      commerce(ctx, data, 1110, false, true);
+      const photoTop = style === 2 ? 250 : 270;
+      if (style === 2) {
+        ctx.fillStyle = INK;
+        ctx.fillRect(0, 0, W, photoTop);
+      }
+      heading(ctx, data, style === 2 ? 25 : 35,
+        style === 2 ? PAPER : INK, style === 2 ? '#c8c9cc' : MUTED);
+      productPhotos(ctx, data.products, images, { x: 0, y: photoTop, w: W, h: 950 - photoTop }, data.audience);
     }
-    finish(ctx, dark);
+    const infoTop = dark ? 962 : 985;
+    if (data.audience === 'mayorista') technicalDetails(ctx, data, infoTop, foreground, subtle);
+    else offer(ctx, data, infoTop, foreground, subtle);
+    footer(ctx, subtle);
   }
   function loadImage(url) {
     return new Promise((resolve) => {
@@ -218,10 +218,18 @@
     });
   }
   async function draw(canvas, data, version) {
-    await document.fonts.load('800 80px Inter');
-    const style = (hash(`${data.id}:${data.topic}`) + version) % 3;
-    const images = await Promise.all(data.products.map((product) =>
-      product.photoCount ? loadImage(`${product.photoBase}/${version % product.photoCount}`) : null));
+    await Promise.all([500, 600, 700, 800].map((weight) => document.fonts.load(`${weight} 80px Inter`)));
+    const style = ((data.plannedStyle || 0) + version) % 3;
+    const images = await Promise.all(data.products.map(async (product) => {
+      for (let offset = 0; offset < Math.min(product.photoCount, 3); offset++) {
+        const image = await loadImage(`${product.photoBase}/${(version + offset) % product.photoCount}`);
+        if (image) return image;
+      }
+      return null;
+    }));
+    if (data.products.length && images.some((image) => !image)) {
+      throw new Error('No se pudo cargar una foto del catálogo. Probá de nuevo.');
+    }
     canvas.width = W; canvas.height = H;
     const ctx = canvas.getContext('2d');
     if (data.kind === 'encuesta') drawPoll(ctx, data, style);
@@ -242,7 +250,7 @@
     button.disabled = true;
     try {
       const entry = cache.get(String(post.id)) || { version: -1, data: null };
-      if (!entry.data) entry.data = await window.api(`/api/whatsapp-channel/${post.id}/visual-data`);
+      entry.data = await window.api(`/api/whatsapp-channel/${post.id}/visual-data`);
       entry.version += 1;
       cache.set(String(post.id), entry);
       mount.innerHTML = '<div class="wa-visual-tools"><b>Pieza lista para el canal</b><button class="btn-ghost btn-sm" data-visual-next>Otra versión</button><button class="btn-primary btn-sm" data-visual-download>Descargar PNG</button></div><canvas class="wa-visual-canvas" aria-label="Vista previa de la pieza"></canvas>';
