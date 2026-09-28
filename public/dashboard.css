@@ -161,6 +161,10 @@ body.nav-mini .side-tabs .tab .ic { width: 20px; height: 20px; }
 .wa-visual-tools { display:flex; flex-wrap:wrap; align-items:center; gap:7px; margin-bottom:10px; }
 .wa-visual-tools b { flex-basis:100%; font-size:12px; color:var(--muted); }
 .wa-visual-canvas { display:block; width:100%; max-width:420px; height:auto; border-radius:9px; box-shadow:0 8px 22px rgba(20,20,24,.14); }
+.wa-visual-tools select { width:100%; min-width:0; font:inherit; padding:8px; }
+.wa-visual-caption { margin-top:14px; }
+.wa-visual-caption label { display:block; color:var(--muted); font-size:12px; }
+.wa-visual-caption textarea { display:block; width:100%; box-sizing:border-box; margin:8px 0; padding:10px; font:inherit; line-height:1.5; resize:vertical; }
 .wa-empty { box-shadow:none; border-style:dashed; }
 .wa-empty .wa-post-head { margin-bottom:18px; }
 @keyframes viewIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }

@@ -5,6 +5,7 @@ const { verifiedBenefitsConfig, benefitsFromConfig, currentPrice, hasFreeShippin
   completeMessage } = require('./channelCommerce');
 const { editorialBody } = require('./channelEditorial');
 const { extractSpecTags } = require('./imageRenderer');
+const { catalogPhotos, visualCatalog, visualCampaign, complementaryCaption } = require('./channelVisualCatalog');
 
 function error(message, status = 400) {
   const err = new Error(message);
@@ -13,14 +14,7 @@ function error(message, status = 400) {
 }
 
 function imageUrls(product) {
-  const images = Array.isArray(product.images) ? product.images : [];
-  return [...new Set([product.image_url, ...images.map((item) => typeof item === 'string' ? item : item?.src)]
-    .filter((url) => {
-      try {
-        const parsed = new URL(url);
-        return parsed.protocol === 'https:' && parsed.hostname === 'acdn-us.mitiendanube.com';
-      } catch (_) { return false; }
-    }))].slice(0, 8);
+  return catalogPhotos(product).map((photo) => photo.url);
 }
 
 function specsFor(product) {
@@ -30,7 +24,7 @@ function specsFor(product) {
   return extractSpecTags(cleanHtml, 8, { productName: product.name, maxLen: 52 })
     .map((spec) => spec.replace(/\s+/g, ' ').trim())
     .filter((spec) => !/^(?:consultar|pensad[oa]s?|adaptable|diseño funcional|en .* para mayor|buzo canguro .* buzo)/i.test(spec)
-      && !/\b(?:uso diario|ideal para|mayor comodidad|&[a-z]+;)\b/i.test(spec))
+      && !/\b(?:uso diario|ideal para|mayor comodidad|talles?|colores?|disponib\w*|&[a-z]+;)\b/i.test(spec))
     .slice(0, 3);
 }
 
@@ -116,6 +110,7 @@ async function visualData(id) {
     ...(post.audience === 'minorista' ? offerFor(product) : { price: null, regularPrice: null, discountPercent: null }),
     freeShipping: post.audience === 'minorista' && hasFreeShipping(product, benefits),
     specs: specsFor(product), photoCount: imageUrls(product).length,
+    ...visualCatalog(product),
     photoBase: `/api/whatsapp-channel/${id}/visual-photo/${index}`,
   }));
   if (products.length && visualProducts.every((product) => !product.photoCount)) {
@@ -127,6 +122,9 @@ async function visualData(id) {
     kind: post.kind, audience: post.audience, topic: post.topic,
     headline: visualHeadline(products, post), body: editorialBody(post.body),
     plannedStyle,
+    campaign: visualCampaign(post, visualProducts),
+    caption: post.kind === 'encuesta' ? [post.body, ...(post.poll_options || []).map((option) => `• ${option}`)].join('\n')
+      : complementaryCaption(post, visualProducts),
     pollOptions: Array.isArray(post.poll_options) ? post.poll_options : [],
     products: visualProducts,
     installments: post.audience === 'minorista' && products.length ? benefits.installment : null,
@@ -134,11 +132,14 @@ async function visualData(id) {
   };
 }
 
-async function visualPhoto(id, productIndex, photoIndex) {
+async function visualPhoto(id, productIndex, photoIndex, expectedKey) {
   if (!Number.isInteger(productIndex) || productIndex < 0 || productIndex > 3 ||
-      !Number.isInteger(photoIndex) || photoIndex < 0 || photoIndex > 7) throw error('Foto inválida.');
+      !Number.isInteger(photoIndex) || photoIndex < 0) throw error('Foto inválida.');
   const { products } = await postAndProducts(id);
   const product = products[productIndex];
+  if (expectedKey && catalogPhotos(product || {})[photoIndex]?.key !== expectedKey) {
+    throw error('Las fotos del catálogo cambiaron. Volvé a crear la pieza.', 409);
+  }
   const url = product && imageUrls(product)[photoIndex];
   if (!url) throw error('No existe esa foto del producto.', 404);
   const response = await fetch(url, { redirect: 'error', signal: AbortSignal.timeout(10000) });

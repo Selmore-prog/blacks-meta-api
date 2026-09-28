@@ -848,7 +848,7 @@ app.get('/api/whatsapp-channel/:id/visual-photo/:productIndex/:photoIndex', wrap
   const id = intParam(req.params.id);
   if (!id) return res.status(400).json({ error: 'id inválido' });
   const { bytes, contentType } = await whatsappVisual.visualPhoto(id,
-    Number(req.params.productIndex), Number(req.params.photoIndex));
+    Number(req.params.productIndex), Number(req.params.photoIndex), req.query.key);
   res.setHeader('Cache-Control', 'private, max-age=3600');
   res.type(contentType).send(bytes);
 }));
