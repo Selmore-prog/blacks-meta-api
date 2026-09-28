@@ -1,0 +1,110 @@
+[
+ {
+  "clave": "jean-clasico",
+  "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/nuevas 4.5/jean-vaquero.png",
+  "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/nuevas 9.16/jean vaquero.png",
+  "titular": "JEAN CLÁSICO RECTO",
+  "bajada": "Del 40 al 54, en cinco colores",
+  "chip": "24% OFF",
+  "beneficio": "Hasta 6 cuotas sin interés",
+  "recorte_11": 0.5,
+  "bajada_11": null,
+  "beneficio_11": null,
+  "productos": [
+   298859922
+  ],
+  "precio": 36999,
+  "descuento": 24
+ },
+ {
+  "clave": "jean-alpargatas",
+  "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/jean-alpargatas_4x5_v2.png",
+  "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/jean-alpargatas_9x16_v2.png",
+  "posicion": "arriba",
+  "titular": "JEAN + ALPARGATAS",
+  "bajada": "El combo de primavera, con envío gratis",
+  "chip": "$61.998 LOS DOS",
+  "beneficio": "Hasta 6 cuotas sin interés",
+  "recorte_11": 1.0,
+  "bajada_11": null,
+  "beneficio_11": null,
+  "productos": [
+   298859922,
+   354993720
+  ],
+  "precio_total": 61998,
+  "envio_gratis": true
+ },
+ {
+  "clave": "bermuda-cazador",
+  "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/bermuda-cazador_4x5_v1.png",
+  "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/bermuda-cazador_9x16_v2.png",
+  "posicion_916": "arriba",
+  "titular": "BERMUDA CARGO",
+  "bajada": "Gurre Cazador · azul, beige y negro",
+  "chip": "40% OFF",
+  "beneficio": "Hasta 6 cuotas sin interés",
+  "beneficio_916": null,
+  "recorte_11": 0.25,
+  "bajada_11": null,
+  "beneficio_11": null,
+  "productos": [
+   260499993
+  ],
+  "precio": 26999,
+  "descuento": 40
+ },
+ {
+  "clave": "cargo-slim",
+  "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/cargo-slim_4x5_v1.png",
+  "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/cargo-slim_9x16_v1.png",
+  "posicion": "arriba",
+  "titular": "CÓMODO|Y ELASTIZADO",
+  "bajada": "El cargo slim fit que se mueve con vos",
+  "chip": "ENVÍO GRATIS",
+  "beneficio": "Hasta 6 cuotas sin interés",
+  "recorte_11": 0.7,
+  "bajada_11": null,
+  "beneficio_11": null,
+  "productos": [
+   74186959
+  ],
+  "precio": 58999,
+  "envio_gratis": true
+ },
+ {
+  "clave": "chomba-micropique",
+  "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/nuevas 4.5/chombamicropique.png",
+  "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/nuevas 9.16/chomba micropique.png",
+  "titular": "CHOMBA MICROPIQUE",
+  "bajada": "No se encoge ni destiñe. Cuatro colores.",
+  "chip": "$26.999",
+  "beneficio": "Hasta 6 cuotas sin interés",
+  "recorte_11": 0.2,
+  "bajada_11": null,
+  "beneficio_11": null,
+  "productos": [
+   203561925
+  ],
+  "precio": 26999
+ },
+ {
+  "clave": "remera-colores",
+  "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/remera-colores_45.png",
+  "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/remera-colores_916.png",
+  "fuente_11": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/remera-colores_11.png",
+  "posicion": "arriba",
+  "titular": "REMERA LISA PAMPERO",
+  "bajada": "Jersey peinado, en cuatro colores",
+  "chip": "$17.999",
+  "beneficio": "Hasta 6 cuotas sin interés",
+  "beneficio_916": null,
+  "bajada_11": null,
+  "beneficio_11": null,
+  "productos": [
+   136305274
+  ],
+  "precio": 17999,
+  "beneficio_45": null
+ }
+]

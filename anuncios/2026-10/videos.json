@@ -1,0 +1,61 @@
+{
+ "video-jean-clasico": {
+  "clave": "video-jean-clasico",
+  "titular": "JEAN CLÁSICO RECTO",
+  "bajada": "Del 40 al 54, en cinco colores",
+  "chip": "24% OFF",
+  "beneficio": "Hasta 6 cuotas sin interés",
+  "entra_titular": 0.3,
+  "entra_chip": 2.6,
+  "recorte_45": 0.45,
+  "productos": [
+   298859922
+  ],
+  "descuento": 24,
+  "recorte_11": 0.5,
+  "bajada_11": null,
+  "beneficio_11": null,
+  "clip": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/veo-jean-sin-texto.mp4"
+ },
+ "video-cargo-ripstop": {
+  "clave": "video-cargo-ripstop",
+  "titular": "RIPSTOP|ANTIDESGARRO",
+  "bajada": "El cargo que aguanta la jornada",
+  "chip": "ENVÍO GRATIS",
+  "beneficio": "Hasta 6 cuotas sin interés",
+  "posicion": "arriba",
+  "entra_titular": 0.3,
+  "entra_chip": 2.6,
+  "recorte_45": 0.35,
+  "productos": [
+   74186334
+  ],
+  "envio_gratis": true,
+  "recorte_11": 0.3,
+  "bajada_11": null,
+  "beneficio_11": null,
+  "clip": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/veo-ripstop-sin-texto.mp4"
+ },
+ "video-jean-alpargatas": {
+  "clave": "video-jean-alpargatas",
+  "titular": "JEAN +|ALPARGATAS",
+  "bajada": "El combo de primavera, con envío gratis",
+  "chip": "$61.998 LOS DOS",
+  "beneficio": "Hasta 6 cuotas sin interés",
+  "posicion": "arriba",
+  "entra_titular": 0.3,
+  "entra_chip": 2.6,
+  "recorte_45": 0.5,
+  "productos": [
+   298859922,
+   354993720
+  ],
+  "precio_total": 61998,
+  "envio_gratis": true,
+  "recorte_11": 0.8,
+  "bajada_11": null,
+  "beneficio_11": null,
+  "portada_seg": 3.2,
+  "clip": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/veo-combo-sin-texto.mp4"
+ }
+}

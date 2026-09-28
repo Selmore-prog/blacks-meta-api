@@ -1,0 +1,122 @@
+{
+ "adset": "120250621817500783",
+ "piezas": [
+  {
+   "nombre": "12 · Jean Clásico Recto",
+   "tipo": "imagen",
+   "feed": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 4.5/jean-clasico_45.jpg",
+   "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 9.16/jean-clasico_916.jpg",
+   "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 1.1/jean-clasico_11.jpg",
+   "titulo": "Jean Vaquero Clásico — $36.999",
+   "descripcion": "10% OFF pagando por transferencia",
+   "url": "https://blacksindumentaria.com.ar/productos/pantalones-jean-vaquero-clasico-recto-original/",
+   "texto_feed": "Jean clásico recto de trabajo. Tela firme, corte de siempre, del talle 40 al 54 y en cinco colores. 24% OFF y hasta 6 cuotas sin interés.",
+   "texto_vertical": "Jean clásico recto. Del 40 al 54, 24% OFF y hasta 6 cuotas sin interés."
+  },
+  {
+   "nombre": "13 · Combo Jean + Alpargatas",
+   "tipo": "imagen",
+   "feed": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 4.5/jean-alpargatas_45.jpg",
+   "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 9.16/jean-alpargatas_916.jpg",
+   "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 1.1/jean-alpargatas_11.jpg",
+   "titulo": "Jean + alpargatas: $61.998 los dos",
+   "descripcion": "Envío gratis a todo el país",
+   "url": "https://blacksindumentaria.com.ar/urbano/",
+   "texto_feed": "El combo de primavera: jean clásico recto ($36.999) + alpargatas Rueda de lona y yute con el sol bordado ($24.999). Juntos pasan los $45.000 y el envío es gratis. Hasta 6 cuotas sin interés.",
+   "texto_vertical": "Jean clásico + alpargatas: $61.998 los dos, con envío gratis."
+  },
+  {
+   "nombre": "14 · Bermuda Cargo Cazador",
+   "tipo": "imagen",
+   "feed": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 4.5/bermuda-cazador_45.jpg",
+   "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 9.16/bermuda-cazador_916.jpg",
+   "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 1.1/bermuda-cazador_11.jpg",
+   "titulo": "Bermuda Cargo Cazador — $26.999",
+   "descripcion": "40% OFF · hasta 6 cuotas sin interés",
+   "url": "https://blacksindumentaria.com.ar/productos/bermuda-cargo-cazador-gurre/",
+   "texto_feed": "Para el calor que viene: bermuda cargo Gurre Cazador de gabardina 100% algodón, con costuras reforzadas y bolsillos cargo con tapa. En azul, beige y negro, con 40% OFF.",
+   "texto_vertical": "Bermuda cargo de gabardina 100% algodón: $26.999 con 40% OFF."
+  },
+  {
+   "nombre": "15 · Cargo Slim Fit",
+   "tipo": "imagen",
+   "feed": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 4.5/cargo-slim_45.jpg",
+   "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 9.16/cargo-slim_916.jpg",
+   "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 1.1/cargo-slim_11.jpg",
+   "titulo": "Cargo Slim Fit Elastizado — $58.999",
+   "descripcion": "Envío gratis a todo el país",
+   "url": "https://blacksindumentaria.com.ar/productos/pantalon-fit-cargo-elastizado-pampero/",
+   "texto_feed": "Cómodo y elastizado: gabardina que acompaña cada movimiento, costuras reforzadas y bolsillos con tapa. Cargo slim fit Pampero con envío gratis y hasta 6 cuotas sin interés.",
+   "texto_vertical": "Cargo slim fit Pampero: cómodo, elastizado y con envío gratis."
+  },
+  {
+   "nombre": "16 · Chomba Micropique",
+   "tipo": "imagen",
+   "feed": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 4.5/chomba-micropique_45.jpg",
+   "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 9.16/chomba-micropique_916.jpg",
+   "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 1.1/chomba-micropique_11.jpg",
+   "titulo": "Chomba Micropique Pampero — $26.999",
+   "descripcion": "Hasta 6 cuotas sin interés",
+   "url": "https://blacksindumentaria.com.ar/productos/chomba-micropique-pampero/",
+   "texto_feed": "Chomba micropique Pampero: suave, resistente y con costuras reforzadas. No se encoge ni destiñe con los lavados. En gris, negro, azul y blanco.",
+   "texto_vertical": "Chomba micropique Pampero: no se encoge ni destiñe. $26.999."
+  },
+  {
+   "nombre": "17 · Remera Lisa Pampero",
+   "tipo": "imagen",
+   "feed": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 4.5/remera-colores_45.jpg",
+   "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 9.16/remera-colores_916.jpg",
+   "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 1.1/remera-colores_11.jpg",
+   "titulo": "Remera Lisa Pampero — $17.999",
+   "descripcion": "Hasta 6 cuotas sin interés",
+   "url": "https://blacksindumentaria.com.ar/productos/remera-lisa-algodon-pampero/",
+   "texto_feed": "La remera de todos los días: jersey peinado suave y transpirable, cuello en rib y costuras reforzadas en cuello y hombros. En azul, gris, negro y blanco.",
+   "texto_vertical": "Remera lisa Pampero de jersey peinado: $17.999, en cuatro colores."
+  },
+  {
+   "nombre": "18 · Video · Jean Clásico Recto",
+   "tipo": "video",
+   "feed": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/videos/video-jean-clasico_45.mp4",
+   "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/videos/video-jean-clasico_916.mp4",
+   "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/videos/video-jean-clasico_11.mp4",
+   "portada_feed": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/videos/video-jean-clasico_45.jpg",
+   "portada_vertical": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/videos/video-jean-clasico_916.jpg",
+   "portada_cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/videos/video-jean-clasico_11.jpg",
+   "titulo": "Jean Vaquero Clásico — $36.999",
+   "descripcion": "10% OFF pagando por transferencia",
+   "url": "https://blacksindumentaria.com.ar/productos/pantalones-jean-vaquero-clasico-recto-original/",
+   "texto_feed": "Jean clásico recto hecho en Argentina: 100% algodón, cierre YKK y remaches. Del talle 40 al 54 y en cinco colores. 24% OFF y hasta 6 cuotas sin interés.",
+   "texto_vertical": "Jean clásico recto 100% algodón, hecho en Argentina. 24% OFF y hasta 6 cuotas sin interés."
+  },
+  {
+   "nombre": "19 · Video · Cargo Ripstop",
+   "tipo": "video",
+   "feed": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/videos/video-cargo-ripstop_45.mp4",
+   "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/videos/video-cargo-ripstop_916.mp4",
+   "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/videos/video-cargo-ripstop_11.mp4",
+   "portada_feed": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/videos/video-cargo-ripstop_45.jpg",
+   "portada_vertical": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/videos/video-cargo-ripstop_916.jpg",
+   "portada_cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/videos/video-cargo-ripstop_11.jpg",
+   "titulo": "Cargo Ripstop Antidesgarro — $59.999",
+   "descripcion": "Envío gratis a todo el país",
+   "url": "https://blacksindumentaria.com.ar/productos/pantalon-cargo-ripstop-antidesgarro-pampero/",
+   "texto_feed": "Tejido ripstop antidesgarro con triple costura en laterales y entrepierna, y bolsillos cargo con tapa para las herramientas. El cargo que aguanta la jornada, con envío gratis y hasta 6 cuotas sin interés.",
+   "texto_vertical": "Cargo ripstop antidesgarro: $59.999 con envío gratis."
+  },
+  {
+   "nombre": "20 · Video · Jean + Alpargatas",
+   "tipo": "video",
+   "feed": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/videos/video-jean-alpargatas_45.mp4",
+   "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/videos/video-jean-alpargatas_916.mp4",
+   "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/videos/video-jean-alpargatas_11.mp4",
+   "portada_feed": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/videos/video-jean-alpargatas_45.jpg",
+   "portada_vertical": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/videos/video-jean-alpargatas_916.jpg",
+   "portada_cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/videos/video-jean-alpargatas_11.jpg",
+   "titulo": "Jean + alpargatas: $61.998 los dos",
+   "descripcion": "Envío gratis a todo el país",
+   "url": "https://blacksindumentaria.com.ar/urbano/",
+   "texto_feed": "El combo de primavera: jean clásico recto ($36.999) + alpargatas Rueda de lona y yute con el sol bordado ($24.999). Juntos pasan los $45.000 y el envío es gratis. Hasta 6 cuotas sin interés.",
+   "texto_vertical": "Jean clásico + alpargatas: $61.998 los dos, con envío gratis."
+  }
+ ]
+}

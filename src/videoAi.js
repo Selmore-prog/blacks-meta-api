@@ -254,7 +254,12 @@ async function startVeoVideo({ prompt, image = null, quality = DEFAULT_QUALITY, 
   const dur = normalizeDuration(duration);
 
   const instance = { prompt };
-  if (image) instance.image = { inlineData: { mimeType: image.mimeType, data: image.data } };
+  // Formato de imagen de Veo en la API de Gemini: `bytesBase64Encoded` + `mimeType`.
+  // Hasta sep-2026 se mandaba `inlineData` y la API empezó a rechazarlo ("`inlineData`
+  // isn't supported by this model"): los dos primeros intentos fallaban y el TERCERO
+  // (sólo texto) salía bien — o sea, el video se generaba y se cobraba SIN la foto del
+  // producto, con una prenda inventada. Verificado el 28-sep con 3 videos reales.
+  if (image) instance.image = { bytesBase64Encoded: image.data, mimeType: image.mimeType };
   const parameters = {
     aspectRatio,
     resolution: q.resolution,
@@ -266,9 +271,10 @@ async function startVeoVideo({ prompt, image = null, quality = DEFAULT_QUALITY, 
     { instances: [instance], parameters },
     // 2º intento: sin negativePrompt/resolution (los que más cambian entre revisiones).
     { instances: [instance], parameters: { aspectRatio, durationSeconds: dur } },
-    // 3º intento: sólo texto (por si la imagen de referencia es la rechazada).
-    { instances: [{ prompt }], parameters: { aspectRatio } },
   ];
+  // Sólo texto ÚNICAMENTE si nunca hubo foto. Con foto, caer a "sólo texto" es cobrar
+  // un video de un producto que no es el nuestro: mejor un error claro que eso.
+  if (!image) attempts.push({ instances: [{ prompt }], parameters: { aspectRatio } });
 
   let lastError = '';
   for (const [i, body] of attempts.entries()) {

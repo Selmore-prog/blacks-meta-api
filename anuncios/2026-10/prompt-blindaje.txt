@@ -1,0 +1,14 @@
+The garments and footwear in the reference images are REAL products photographed for our online store. Use them EXACTLY as they are and preserve them pixel-faithfully.
+
+Do NOT redesign, recolor, restyle or "improve" anything. Preserve exactly: the fabric colour and texture, the weave, every pocket and its position and shape, all seams and stitching lines and their thread colour, rivets, buttons, zips, belt loops, cuffs, hems, labels, embroidery and any print. Do not add pockets, stripes, panels, logos or details that are not in the reference. Do not change the cut, the fit or the proportions.
+
+Only generate the person's pose, the environment, the lighting and the atmosphere. Relight the products so they sit naturally in the new scene, matching the direction, colour temperature and softness of the scene's light, with physically correct contact shadows — but without altering the products themselves.
+
+Photorealistic result, natural documentary advertising photography, not a fashion shoot.
+No text, no letters, no numbers, no captions, no watermarks.
+No logos and no invented brand marks of any kind.
+No face in frame (crop at the chest or below).
+No plastic or waxy skin, no airbrushed retouching.
+No oversaturated colours, no HDR glow.
+No perfect symmetry, no studio catalogue pose, no stock-photo look.
+No rendered, CGI or 3D look, no illustration.

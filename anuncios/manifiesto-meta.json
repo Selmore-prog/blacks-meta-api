@@ -1,0 +1,87 @@
+{
+  "_que_es": "Lo que PROMETE cada anuncio activo de Meta (texto quemado en la imagen/video y en el título). scripts/verificar-precios-anuncios.js lo compara contra Tiendanube en vivo. Cada anuncio nuevo con precio, descuento o envío gratis tiene que entrar acá.",
+  "envio_gratis_desde": 45000,
+  "anuncios": [
+    {
+      "ad_id": "120250723395630783",
+      "nombre": "12 · Jean Clásico Recto",
+      "productos": [
+        298859922
+      ],
+      "precio": 36999,
+      "descuento": 24
+    },
+    {
+      "ad_id": "120250723398140783",
+      "nombre": "13 · Combo Jean + Alpargatas",
+      "productos": [
+        298859922,
+        354993720
+      ],
+      "precio_total": 61998,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120250723400150783",
+      "nombre": "14 · Bermuda Cargo Cazador",
+      "productos": [
+        260499993
+      ],
+      "precio": 26999,
+      "descuento": 40
+    },
+    {
+      "ad_id": "120250723402730783",
+      "nombre": "15 · Cargo Slim Fit",
+      "productos": [
+        74186959
+      ],
+      "precio": 58999,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120250723404940783",
+      "nombre": "16 · Chomba Micropique",
+      "productos": [
+        203561925
+      ],
+      "precio": 26999
+    },
+    {
+      "ad_id": "120250723408130783",
+      "nombre": "17 · Remera Lisa Pampero",
+      "productos": [
+        136305274
+      ],
+      "precio": 17999
+    },
+    {
+      "ad_id": "120250723417770783",
+      "nombre": "18 · Video · Jean Clásico Recto",
+      "productos": [
+        298859922
+      ],
+      "precio": 36999,
+      "descuento": 24
+    },
+    {
+      "ad_id": "120250723425300783",
+      "nombre": "19 · Video · Cargo Ripstop",
+      "productos": [
+        74186334
+      ],
+      "precio": 59999,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120250723433250783",
+      "nombre": "20 · Video · Jean + Alpargatas",
+      "productos": [
+        298859922,
+        354993720
+      ],
+      "precio_total": 61998,
+      "envio_gratis": true
+    }
+  ]
+}
