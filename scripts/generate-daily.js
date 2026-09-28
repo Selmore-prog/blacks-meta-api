@@ -1815,6 +1815,7 @@ async function generateForSlot(slot, overrides = {}) {
       // En paralelo (memoria acotada por el navegador compartido + semáforo de imageRenderer).
       const slideResults = await Promise.all(plan.map((shot, i) => renderCarouselShot(shot, i, ctx)));
       const urls = slideResults.map((r) => r.url);
+      carouselDesign = artDirection.encodeDesign(plan[0]?.template || 'fullbleed', plan[0]?.variant);
       pieceCostUsd += slideResults.reduce((sum, r) => sum + (r.costUsd || 0), 0);
       coverBuffer = slideResults[0] ? slideResults[0].buffer : null;
       coverClipped = slideResults[0] ? (slideResults[0].clippedText || []) : [];
@@ -1922,8 +1923,8 @@ async function generateForSlot(slot, overrides = {}) {
       product: product || visualProduct,
       displayTitle: (product && product.name) || overlayTitle,
       title: overlayTitle,
-      specs: template === 'ficha' && storyDesc
-        ? extractSpecTags(storyDesc, 5, { productName: (product && product.name) || '' })
+      specs: (template === 'ficha' || campaign.isCampaign(template)) && storyDesc
+        ? extractSpecTags(storyDesc, campaign.isCampaign(template) ? 2 : 5, { productName: (product && product.name) || '' })
         : null,
       deck: copy.deck || copy.subtitle || null,
       cutoutOk,
