@@ -7,6 +7,24 @@ const { buildHtml, TEMPLATE_REQUIREMENTS } = require('../src/imageRenderer');
 const { chooseTemplate, templateCandidates } = require('../scripts/generate-daily');
 const art = require('../src/artDirection');
 
+test('la identidad siempre es neutra con naranja, incluidas las recetas pastel anteriores', () => {
+  for(const name of [...Object.keys(campaign.PALETTES),'salvia','cielo','arena','arcilla']) {
+    const p=campaign.paletteFor(name);
+    assert.equal(p.ink,require('../src/config').brand.colors.black);assert.equal(p.accent,require('../src/config').brand.colors.darkOrange);
+    const rgb=p.paper.slice(1).match(/../g);
+    assert.equal(new Set(rgb).size,1);
+  }
+  for(const template of campaign.NAMES) {
+    const plan=campaign.scenePlan(template);
+    const a=plan.copy,b=plan.subject;
+    assert.ok(a[0]+a[2]<=b[0] || b[0]+b[2]<=a[0] || a[1]+a[3]<=b[1] || b[1]+b[3]<=a[1]);
+    const brief=campaign.sceneDirection({template,format:'feed'});
+    assert.match(brief,/fotografía será el fondo de TODO el aviso/);
+    assert.match(brief,/PROHIBIDO poner personas.*cajas, cubos, pedestales/);
+    assert.doesNotMatch(brief,/por fuera de esta foto|no reserves tercios/);
+  }
+});
+
 test('los avisos tienen 18 composiciones distintas sin superponer texto y producto', () => {
   assert.equal(campaign.NAMES.length, 18);
   assert.equal(new Set(Object.values(campaign.LAYOUTS).map(l => JSON.stringify([l.text,l.photos]))).size,18);
@@ -30,7 +48,7 @@ test('el director y el fallback respetan material y rotación, incluso si la IA 
   assert.ok(!candidates.includes('aviso_duo'));
   assert.notEqual(chooseTemplate(slot,{visualProduct,aiPick:'aviso_portada',recientes:[{template:'aviso_portada'}]}),'aviso_portada');
   assert.equal(chooseTemplate(slot,{override:'aviso_portada',visualProduct,recientes:[{template:'aviso_portada'}]}),'aviso_portada');
-  assert.notEqual(art.pickVariant('aviso_derecha',[{template:'aviso_portada',variant:'arena'}]),'arena');
+  assert.notEqual(art.pickVariant('aviso_derecha',[{template:'aviso_portada',variant:'blanco'}]),'blanco');
   assert.equal(campaign.resolveLayout('aviso_mosaico',1),campaign.LAYOUTS.aviso_portada);
 });
 
@@ -49,7 +67,7 @@ test('modo foto y corrección no generan ni pagan una escena; modo IA recibe dir
     const svg=Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" width="300" height="400"/>');
     let calls=0,uploads=0,html='';
     require('./src/ai').generateProductScene=async args=>{
-      calls++;assert.equal(args.artStyle,'light_campaign');assert.match(args.brief,/CAMPAÑA CLARA/);
+      calls++;assert.equal(args.artStyle,'light_campaign');assert.match(args.brief,/CAMPAÑA BLACKS/);
       return {buffer:svg,mimeType:'image/svg+xml',costUsd:.04};
     };
     require('./src/storage').uploadAsset=async()=>{uploads++;return 'https://example.com/render.jpg';};
@@ -63,8 +81,8 @@ test('modo foto y corrección no generan ni pagan una escena; modo IA recibe dir
       const photo=await renderPostBuffer({...base,useAiProductScene:false});
       assert.equal(calls,0);assert.equal(photo.costUsd,0);assert.match(html,/catalogo.jpg/);
       const ai=await renderPostBuffer({...base,useAiProductScene:true,artStyle:'poster'});
-      assert.equal(calls,1);assert.equal(ai.costUsd,.04);assert.ok(ai.cleanImageUrl.startsWith('data:image/'));
-      const correction=await renderPostBuffer({...base,productImageUrl:null,bgImageUrl:ai.cleanImageUrl,useAiProductScene:false});
+      assert.equal(calls,1);assert.equal(ai.costUsd,.04);assert.equal(ai.campaignSceneVersion,2);assert.ok(ai.cleanImageUrl.startsWith('data:image/'));
+      const correction=await renderPostBuffer({...base,productImageUrl:null,bgImageUrl:ai.cleanImageUrl,campaignSceneVersion:ai.campaignSceneVersion,useAiProductScene:false});
       assert.equal(calls,1);assert.equal(correction.cleanImageUrl,ai.cleanImageUrl);assert.equal(correction.costUsd,0);
       assert.equal(uploads,3);
     })().catch(e=>{console.error(e);process.exitCode=1;});
@@ -79,19 +97,21 @@ test('render feed/story: imagen entera, escena reutilizada, textos y oferta dent
   const page=await browser.newPage();
   await page.setRequestInterception(true);
   page.on('request',r=>r.url().startsWith('http')?r.abort():r.continue());
-  for(const format of ['feed','story']) for(const template of campaign.NAMES) {
+  for(const mode of ['foto','escena']) for(const format of ['feed','story']) for(const template of campaign.NAMES) {
     const h=format==='story'?1920:1350;
     await page.setViewport({width:1080,height:h});
-    await page.setContent(buildHtml({template,format,variant:'cielo',overlayTitle:'Pantalón cargo ripstop antidesgarro',kicker:'Reposición de producto',specs:['Tejido ripstop','Bolsillos laterales'],bgImageUrl:fixture(0),productImageUrls:[fixture(1),fixture(2,true),fixture(3)],price:72399,promoPrice:59999,ctaLabel:'Hasta 6 cuotas sin interés'}),{waitUntil:'load'});
+    await page.setContent(buildHtml({template,format,variant:'cielo',overlayTitle:'Pantalón cargo ripstop antidesgarro',kicker:'Reposición de producto',specs:['Tejido ripstop','Bolsillos laterales'],...(mode==='escena'?{bgImageUrl:fixture(0),campaignSceneVersion:2}:{productImageUrl:fixture(0)}),productImageUrls:[fixture(1),fixture(2,true),fixture(3)],price:72399,promoPrice:59999,ctaLabel:'Hasta 6 cuotas sin interés'}),{waitUntil:'load'});
     await campaign.fitText(page);
     const state=await page.evaluate(()=>({
       images:[...document.images].map(el=>({loaded:el.complete&&el.naturalWidth>0,fit:getComputedStyle(el).objectFit,transform:getComputedStyle(el).transform})),
       overflow:[...document.querySelectorAll('.copy,.footer,h1')].filter(el=>(el.tagName!=='H1'&&el.scrollHeight>el.clientHeight+1)||el.scrollWidth>el.clientWidth+1).map(el=>el.className||el.tagName),
       main:document.images[0].src,
+      scene:document.querySelector('.scene-photo')?.getBoundingClientRect().toJSON(),
       text:[...document.querySelectorAll('.copy,.footer')].map(el=>({top:el.getBoundingClientRect().top,bottom:el.getBoundingClientRect().bottom})),
     }));
     assert.deepEqual(state.overflow,[],`${format}/${template}`);
     assert.equal(state.main,fixture(0));
+    if(mode==='escena') assert.deepEqual([state.scene.x,state.scene.y,state.scene.width,state.scene.height],[0,0,1080,h]);
     assert.equal(state.images.length,campaign.LAYOUTS[template].photos.length);
     assert.ok(state.images.every(i=>i.loaded&&i.fit==='contain'&&i.transform==='none'),template);
     assert.ok(state.text.every(r=>r.top>=(format==='story'?196:54)&&r.bottom<=h-(format==='story'?236:54)+1),template);
@@ -104,5 +124,11 @@ test('render feed/story: imagen entera, escena reutilizada, textos y oferta dent
     assert.equal(await page.$eval('.canvas',el=>el.dataset.expanded==='true'),expected);
     assert.equal(await page.$eval('.photo img',el=>getComputedStyle(el).objectFit),'contain');
   }
+  await page.setContent(buildHtml({template:'aviso_derecha',format:'feed',campaignSceneVersion:2,overlayTitle:'Cargo ripstop antidesgarro',bgImageUrl:studio(160)}),{waitUntil:'load'});
+  await campaign.fitText(page);
+  const adapted=await page.$eval('.copy',el=>({width:el.getBoundingClientRect().width,right:el.getBoundingClientRect().right,overflow:el.scrollWidth>el.clientWidth+1}));
+  assert.ok(adapted.width<384 && adapted.width>=220);
+  assert.ok(adapted.right<420); // El sujeto empieza en x=420; la tipografía queda fuera.
+  assert.equal(adapted.overflow,false);
   await page.close();
 });

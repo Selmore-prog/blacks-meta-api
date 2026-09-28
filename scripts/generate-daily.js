@@ -740,7 +740,7 @@ async function renderCarouselShot(shot, i, ctx) {
       ? overlayHead
       : agreeWithProduct(overlayHead || config.brand.ctaHeadline, (product && product.name) || sceneTheme);
     return renderPostBuffer({
-      format, template, variant,
+      format, template, variant, campaignSceneVersion: shot.campaignSceneVersion,
       overlayTitle: head,
       ctaHeadline: head,
       ctaLabel: pillar === 'mayorista' ? 'Consultas mayoristas' : 'Ver en la tienda',
@@ -760,7 +760,7 @@ async function renderCarouselShot(shot, i, ctx) {
   // PRECIO (sólo historias): foto real full-bleed + bloque de precio.
   if (shot.shotType === 'price') {
     return renderPostBuffer({
-      format, template, variant, overlayTitle: shot.overlay || null,
+      format, template, variant, campaignSceneVersion: shot.campaignSceneVersion, overlayTitle: shot.overlay || null,
       price: product && product.price, promoPrice: product && product.promo_price,
       productImageUrl: refUrl,
       productImageUrls: otrasFotos,
@@ -788,7 +788,7 @@ async function renderCarouselShot(shot, i, ctx) {
   const slideBrief = [imageBrief, shot.focus].filter(Boolean).join(' — ').slice(0, 500);
   const slideBadge = badgeText || shot.badge || null;
   return renderPostBuffer({
-    format, template, variant,
+    format, template, variant, campaignSceneVersion: shot.campaignSceneVersion,
     overlayTitle: overlay,
     badgeText: i === 0 ? slideBadge : null,
     productImageUrl: refUrl,
@@ -1843,7 +1843,7 @@ async function generateForSlot(slot, overrides = {}) {
         // 'variantes' es un collage de fotos reales a propósito: no cuenta como falla.
         if (seEsperabaEscena && !esGenerada && shot.shotType !== 'variantes') sinEscena += 1;
         const sceneUrl = esGenerada ? await persistScene(clean, `slot${slot.id}-c${i + 1}`) : null;
-        return sceneUrl ? { ...shot, sceneUrl } : shot;
+        return sceneUrl ? { ...shot, sceneUrl, campaignSceneVersion: slideResults[i].campaignSceneVersion } : shot;
       }));
       slidesMetaJson = JSON.stringify(planConEscena); // receta de cada slide, para regenerar UNO solo
 
@@ -2256,6 +2256,7 @@ async function generateForSlot(slot, overrides = {}) {
       const recipe = {
         format: renderOpts.format,
         template: finalTemplate,
+        campaignSceneVersion: render.campaignSceneVersion,
         // La variante también viaja en la receta: si no, "Corregir el texto" volvía a
         // renderizar la pieza con la composición clásica y el diseño cambiaba solo.
         variant: finalVariant,
@@ -2273,6 +2274,7 @@ async function generateForSlot(slot, overrides = {}) {
         photoFraming: renderOpts.photoFraming,
         productDescription: renderOpts.productDescription,
         productImageUrls: renderOpts.productImageUrls,
+        referenceImageUrl: /^https?:/.test(renderOpts.productImageUrl || '') ? renderOpts.productImageUrl : null,
         displayTitle: renderOpts.displayTitle,
         specs: renderOpts.specs,
         deck: renderOpts.deck,
@@ -2617,7 +2619,8 @@ async function regenerateSlide({ assetId, index, overlay, instructions, photo })
     return { slides: nuevos, image_path: nuevos[0], note: notes.join(' ').trim() };
   }
 
-  const { url, cleanImageUrl } = await renderCarouselShot(shot, i, ctx);
+  const { url, cleanImageUrl, campaignSceneVersion } = await renderCarouselShot(shot, i, ctx);
+  shot.campaignSceneVersion = campaignSceneVersion;
 
   /* ============ ¿LA IA PUDO GENERAR LA FOTO QUE SE PIDIÓ? ============
    * Cuando la generación está en pausa (429 de cuota, tope de gasto del día) el render
@@ -2854,12 +2857,12 @@ async function correctPiece({ assetId, instruction, artMode: artModeIn, artBrief
       renderInput = { ...base, template: 'poster', productImageUrl: null, productImageUrls: [], bgImageUrl: null, coverImage: false };
     } else if (artMode === 'foto') {
       // Volver a la foto real del catálogo (descarta la escena IA que hubiera).
-      const productPhoto = await originalProductPhoto(asset);
+      const productPhoto = recipe.referenceImageUrl || await originalProductPhoto(asset);
       renderInput = { ...base, bgImageUrl: null, productImageUrl: productPhoto || meta.sceneUrl || null };
     } else {
       // generativa: se REGENERA la imagen (esto sí cuesta). El producto real, si lo hay,
       // entra como referencia para que la escena sea ESE producto y no uno inventado.
-      const productPhoto = await originalProductPhoto(asset);
+      const productPhoto = recipe.referenceImageUrl || await originalProductPhoto(asset);
       renderInput = {
         ...base,
         bgTheme: recipe.bgTheme || recipe.overlayTitle || asset.theme_title || '',
@@ -2880,6 +2883,7 @@ async function correctPiece({ assetId, instruction, artMode: artModeIn, artBrief
   }
 
   const render = await renderPostBuffer(renderInput);
+  recipe.campaignSceneVersion = render.campaignSceneVersion;
 
   // Si se generó arte nuevo, la escena limpia pasa a ser la de la receta (así la próxima
   // corrección de texto reusa ESTA imagen y no vuelve a pagar).

@@ -977,6 +977,7 @@ async function checkImageQuality(img, {
   productReference = null,
   productName = null,
   requireClearProduct = false,
+  requireGroundedScene = false,
 } = {}) {
   // En escenas de PRODUCTO real, la prenda/calzado trae SU marca puesta (etiqueta
   // "Pampero", "Ombú" bordada, etc.) — eso es fidelidad, no un logo inventado.
@@ -999,9 +1000,9 @@ async function checkImageQuality(img, {
       contents: [{
         role: 'user',
         parts: [
-          { text: `Sos control de calidad de una agencia de publicidad. Mirá la imagen y respondé SOLO un JSON, sin explicación adicional: {"hasText": bool, "hasLogo": bool, "sameProduct": bool, "productClear": bool, "tooDark": bool, "notes": "breve, en español"}.
+          { text: `Sos control de calidad de una agencia de publicidad. Mirá la imagen y respondé SOLO un JSON, sin explicación adicional: {"hasText": bool, "hasLogo": bool, "sameProduct": bool, "productClear": bool, "tooDark": bool, "groundedScene": bool, "notes": "breve, en español"}.
 - "hasText": true si aparece CUALQUIER letra, palabra, número, título, cartel, código de cupón o tipografía visible en la foto, en cualquier idioma, sin importar cuán chica, borrosa o parcial.
-- "hasLogo": true SOLO si aparece un logo, isotipo o wordmark de MARCA COMERCIAL (inventada o real: por ejemplo un logo de ropa, de calzado, o cualquier isotipo tipo "sello de marca"). NO cuenta como logo: banderas nacionales (incluida la bandera Argentina con su sol), escudos patrios, ni símbolos religiosos, deportivos o culturales genéricos — esos SÍ pueden estar si el contexto de la escena los pide.${brandingException}${productRules}` },
+- "hasLogo": true SOLO si aparece un logo, isotipo o wordmark de MARCA COMERCIAL (inventada o real: por ejemplo un logo de ropa, de calzado, o cualquier isotipo tipo "sello de marca"). NO cuenta como logo: banderas nacionales (incluida la bandera Argentina con su sol), escudos patrios, ni símbolos religiosos, deportivos o culturales genéricos — esos SÍ pueden estar si el contexto de la escena los pide.${brandingException}${productRules}${requireGroundedScene ? '\n- "groundedScene": false si una persona está parada sobre una caja, cubo, pedestal, tarima o soporte decorativo, si flota o si la postura y el apoyo son físicamente incoherentes. Debe estar sobre el piso real y continuo. Un objeto sin persona colocado en una mesa de trabajo es válido. No penalices un encuadre de torso/detalle donde no se ve el piso.' : ''}` },
           { inlineData: { data: img.buffer.toString('base64'), mimeType: img.mimeType } },
           ...(compareProduct ? [{ inlineData: productReference }] : []),
         ],
@@ -1014,8 +1015,10 @@ async function checkImageQuality(img, {
     const sameProduct = compareProduct ? obj.sameProduct !== false : true;
     const productClear = (compareProduct || requireClearProduct) ? obj.productClear !== false : true;
     const tooDark = (compareProduct || requireClearProduct) ? obj.tooDark === true : false;
+    const groundedScene = !requireGroundedScene || obj.groundedScene !== false;
     return {
-      ok: !obj.hasText && !obj.hasLogo && sameProduct && productClear && !tooDark,
+      ok: !obj.hasText && !obj.hasLogo && sameProduct && productClear && !tooDark && groundedScene,
+      groundedScene,
       hasText: !!obj.hasText,
       hasLogo: !!obj.hasLogo,
       sameProduct,
@@ -1128,9 +1131,10 @@ Marcá ok=false SOLO si estás COMPLETAMENTE SEGURO de una ROTURA OBJETIVA e ine
 4. Zona ROTA: bloque gris/blanco plano donde claramente debía ir una foto, ícono de imagen rota del navegador.
 5. BLOQUES PEGADOS: dos bloques distintos (la tarjeta de la foto, los datos, el precio, el botón, la URL del pie) que se TOCAN o quedan a un par de píxeles, sin nada de aire entre ellos, de modo que se leen como un solo amasijo. No cuenta que estén "cerca" con una separación clara y prolija: sólo si literalmente se tocan o se solapan.
 6. PRODUCTO MAL ENCUADRADO dentro de una tarjeta: la foto muestra a una persona cortada de golpe por el borde de la tarjeta (por ejemplo el torso cortado al ras, sin cabeza, con el corte al aire en el medio de la tarjeta blanca) y se lee como un recorte mal hecho, no como un encuadre buscado. Si la foto va a sangre (ocupa toda la pieza), un recorte así es normal en fotografía editorial y NO es un problema.
-7. PRODUCTO DEMASIADO OSCURO O VELADO: la prenda principal pierde su color real, textura o silueta porque quedó subexpuesta, tapada por un degradado/sombra, humo, destello o iluminación de efecto. Evaluá la pieza como se vería en un teléfono con brillo medio: si el artículo no se puede reconocer y comprar con confianza al primer vistazo, marcá el problema. Un fondo oscuro es válido sólo cuando la prenda sigue clara, fiel y bien separada.
+7. ESCENA INCOHERENTE: una persona parada encima de una caja, cubo, pedestal o soporte decorativo; apoyo imposible o cuerpo flotando. Un producto suelto en una mesa de trabajo sí puede ser válido.
+8. PRODUCTO DEMASIADO OSCURO O VELADO: la prenda principal pierde su color real, textura o silueta porque quedó subexpuesta, tapada por un degradado/sombra, humo, destello o iluminación de efecto. Evaluá la pieza como se vería en un teléfono con brillo medio: si el artículo no se puede reconocer y comprar con confianza al primer vistazo, marcá el problema. Un fondo oscuro es válido sólo cuando la prenda sigue clara, fiel y bien separada.
 
-ELEMENTOS NORMALES DEL DISEÑO (NUNCA son problema): el pie centrado con la URL "${config.brand.site}" — si se lee entera, está perfecta; el wordmark/logo BLACKS arriba; mucho aire/espacio negativo (es intencional); texto chico pero completo; fotos de catálogo con fondo blanco; marcas de agua gigantes muy tenues de fondo. Un degradado sobre la foto sólo es normal si no apaga la prenda.
+ELEMENTOS NORMALES DEL DISEÑO (NUNCA son problema): el pie centrado con la URL "${config.brand.site}" — si se lee entera, está perfecta; el wordmark/logo BLACKS arriba; espacio negativo útil para dar legibilidad al mensaje; texto chico pero completo; fotos de catálogo con fondo blanco; marcas de agua gigantes muy tenues de fondo. Un degradado sobre la foto sólo es normal si no apaga la prenda.
 
 REGLA DE ORO: ante la MÍNIMA duda, ok=true. Un falso rechazo frena una pieza sana y cuesta trabajo humano; sólo rechazá lo que un cliente señalaría como "esto salió mal" al primer vistazo.` },
           { inlineData: { data: small.toString('base64'), mimeType } },
@@ -1956,7 +1960,7 @@ async function generateBackground({ theme, brief, occasion, format = 'feed', ref
   const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
 
   const composicion = artStyle === 'light_campaign'
-    ? 'Producto grande, centrado y completo dentro de la fotografía, sin extremos fuera del cuadro. El texto y las zonas seguras se agregan por fuera de esta foto; no reserves tercios vacíos para titulares.'
+    ? 'La escena ocupa TODO el aviso. Respetá las zonas de sujeto y texto indicadas en el brief: la tipografía irá integrada SOBRE el entorno continuo, nunca por fuera en una tarjeta. Producto completo y grande dentro de su zona.'
     : composicionParaFormato(format);
   const brandStyle = await brandStyleForImages();
   const scene = sceneVariation(seed);
@@ -2325,6 +2329,7 @@ ${noTextNoLogoRule(strict)}
         productReference: refs[0],
         productName: nombresDeProducto,
         requireClearProduct: true,
+        requireGroundedScene: true,
       });
       if (!check.ok) {
         console.warn(`[ai] generatePanoramaScene: descartada por control de calidad (texto=${check.hasText} logo=${check.hasLogo} ${check.notes || ''}), reintento más estricto...`);
@@ -2637,11 +2642,11 @@ Devolvé SOLO este JSON:
  */
 const STUDIO_SETS = [
   'ciclorama / seamless sweep sin esquinas (infinity cove) en gris medio cálido, con degradado direccional suave. Iluminación de estudio de tres puntos, exposición alta y sombras abiertas',
-  'plataforma de hormigón pulido gris cálido sobre fondo del mismo tono, con una única luz dura lateral que talla sombras largas y definidas (look editorial de campaña deportiva)',
-  'fondo de papel de color arena / greige con un degradado vertical suave, producto apoyado sobre una base escalonada de yeso mate; luz difusa amplia de softbox grande, sombras suaves y limpias',
+  'piso continuo de hormigón gris neutro y pared del mismo tono, luz lateral amplia, sin bases elevadas ni soportes decorativos',
+  'ciclorama blanco neutro continuo hasta el suelo, luz difusa amplia de softbox, sombras de contacto suaves, sin tarimas ni escalones',
   'fondo gris perla con una luz principal amplia y un rebote frontal que deja ver cada textura; contraste medio, aire de catálogo editorial contemporáneo',
   'superficie de acero cepillado claro con reflejo especular controlado y fondo gris medio en degradado; luz neutra grande que resalta la textura sin apagar el color',
-  'fondo blanco roto (off-white) tipo estudio de moda, producto sobre un cubo de madera clara; luz natural simulada entrando de un ventanal, sombra suave hacia un costado, aire alrededor',
+  'estudio blanco con piso liso continuo, luz natural entrando de un ventanal y sombra suave hacia un costado; la persona se apoya directamente en el suelo, sin cubos ni cajas',
 ];
 
 /** Set de estudio determinístico por seed (mismo criterio que sceneFromPool). */
@@ -2731,7 +2736,7 @@ async function generateProductScene({ productImageUrl, productImageUrls = [], pr
 
   const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
   const composicion = artStyle === 'light_campaign'
-    ? 'Producto grande, centrado y completo dentro de la fotografía, sin extremos fuera del cuadro. El texto y las zonas seguras se agregan por fuera de esta foto; no reserves tercios vacíos para titulares.'
+    ? 'La escena ocupa TODO el aviso. Respetá las zonas de sujeto y texto indicadas en el brief: la tipografía irá integrada SOBRE el entorno continuo, nunca por fuera en una tarjeta. Producto completo y grande dentro de su zona.'
     : composicionParaFormato(format);
   const brandStyle = await brandStyleForImages();
   const scene = sceneVariation(seed);
@@ -2754,9 +2759,9 @@ LA PRIMERA IMAGEN DE REFERENCIA MANDA LA TOMA (es la foto real de catálogo eleg
 CONTEXTO DE LA PIEZA: ${theme || productName || 'indumentaria laboral y seguridad industrial'}.${briefBlock(brief, { allowScenery })}${allowScenery ? occasionGuidance(occasion) : ''}
 
 DIRECCIÓN DE FOTOGRAFÍA Y ÓPTICA COMERCIAL:
-${artStyle === 'light_campaign' ? shotDirection({ ...shotSpec, background: 'limpio' }, scene, seed) : shotDirection(shotSpec, scene, seed)}
+${artStyle === 'light_campaign' ? require('./templatesCampaign').LIGHT_DIRECTION + '\n- Fotografía comercial natural a la altura de la prenda, postura cotidiana y piso continuo. Respetá la pose de referencia. El foco es: ' + (shotSpec?.focus || 'la prenda real y sus terminaciones') : shotDirection(shotSpec, scene, seed)}
 ${composicion}
-- Color grading premium: ciencia de color Kodak Portra 400, con acentos naranja quemado (#C1440C) sutiles.
+${artStyle === 'light_campaign' ? '- Color fiel y neutro. No dibujar líneas, franjas, bordes ni geometrías naranja: esos acentos los agrega el diseño tipográfico después.' : '- Color grading premium: ciencia de color Kodak Portra 400, con acentos naranja quemado (#C1440C) sutiles.'}
 - El PRODUCTO queda más luminoso que el fondo y ocupa la jerarquía principal. Nada de subexposición creativa: el color y los detalles tienen que coincidir con Tiendanube y leerse sin subir el brillo del celular.
 ${brandStyle && allowScenery && artStyle !== 'light_campaign' ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
 
@@ -2774,7 +2779,7 @@ UN SOLO PRODUCTO EN CUADRO (crítico):
 ${strictProductRetryRule(strict)}
 
 ARQUITECTURA DE ZONAS SEGURAS (NEGATIVE SPACE):
-${artStyle === 'light_campaign' ? '- Foto luminosa con el producto entero; ocupar el cuadro sin recortar la prenda. Sin texto ni áreas vacías dedicadas al texto.' : '- Aire limpio y desenfocado en los tercios superior e inferior para garantizar contraste absoluto al superponer titulares y precios.'}
+${artStyle === 'light_campaign' ? '- Foto continua luminosa con el producto entero en la zona del sujeto. Reservá sólo las zonas de texto indicadas en el brief, integradas al mismo entorno. Sin paneles, recuadros ni letras.' : '- Aire limpio y desenfocado en los tercios superior e inferior para garantizar contraste absoluto al superponer titulares y precios.'}
 ${artStyle === 'poster' ? posterArtDirection(format) : ''}
 ${noTextNoLogoRule(strict)}
 - PROHIBIDO además: manos/pies deformes, duplicar el producto, cambiarle color o forma, o aspecto de render 3D artificial.`;
@@ -2800,10 +2805,11 @@ ${noTextNoLogoRule(strict)}
           productReference: refs[0],
           productName,
           requireClearProduct: true,
+          requireGroundedScene: true,
         });
         if (!check.ok) {
           console.warn(`[ai] generateProductScene: descartada por control de calidad (texto=${check.hasText} logo=${check.hasLogo} ${check.notes || ''}), reintentando más estricto...`);
-          const defect = check.hasText ? 'texto' : check.hasLogo ? 'un logo' : !check.sameProduct ? 'un producto distinto a Tiendanube' : check.tooDark ? 'el producto demasiado oscuro' : 'el producto poco claro';
+          const defect = check.groundedScene === false ? 'una persona sobre un soporte decorativo o con apoyo incoherente' : check.hasText ? 'texto' : check.hasLogo ? 'un logo' : !check.sameProduct ? 'un producto distinto a Tiendanube' : check.tooDark ? 'el producto demasiado oscuro' : 'el producto poco claro';
           learnFrom('image', 'global', `El modelo de imagen generó ${defect} en una escena de producto (plata tirada): reforzar fidelidad y claridad visual`, check.notes);
           continue;
         }
@@ -2856,7 +2862,7 @@ async function generateStudioScene({ products = [], theme, format = 'feed', goal
   }[goal] || '';
   const styleGuide = {
     auto: `LENGUAJE VISUAL: elegí una puesta diferente a la salida más obvia. Usá esta dirección de variación: ${scene.describe()}`,
-    hero: 'LENGUAJE VISUAL HERO: producto grande y completo, fondo claro o gris medio arquitectónico, pedestal sutil, luz amplia y recorte limpio. Composición simple, moderna y de lectura inmediata.',
+    hero: 'LENGUAJE VISUAL HERO: producto grande y completo, fondo claro o gris medio arquitectónico, apoyo natural sobre piso continuo, luz amplia y encuadre completo. Composición simple, moderna y de lectura inmediata.',
     uso: 'LENGUAJE VISUAL EN USO: escena laboral argentina creíble y contemporánea. El producto se usa correctamente, sin pose de moda, con acción natural y entorno específico.',
     tecnico: 'LENGUAJE VISUAL TÉCNICO: encuadre cercano o macro editorial que revele materiales, costuras y terminaciones reales. Fondo controlado, luz rasante y lectura precisa.',
     bodegon: 'LENGUAJE VISUAL BODEGÓN: composición cenital o tres cuartos sobre una mesa de trabajo. Objetos ordenados, jerarquía clara y aire editorial; ningún producto queda tapado.',
@@ -2912,6 +2918,7 @@ Aire limpio y desenfocado arriba y abajo para futura superposición tipográfica
         productReference: refs[0],
         productName: names,
         requireClearProduct: true,
+        requireGroundedScene: true,
       });
       if (!check.ok) {
         console.warn(`[ai] generateStudioScene: descartada por control de calidad (texto=${check.hasText} logo=${check.hasLogo} ${check.notes || ''}), reintentando más estricto...`);

@@ -1905,6 +1905,7 @@ async function renderPostBuffer(options) {
   let bgImageUrl = options.bgImageUrl || null;
   let productImageUrl = options.productImageUrl || null;
   let costUsd = 0;
+  let campaignSceneVersion = options.bgImageUrl ? Number(options.campaignSceneVersion) || 0 : 0;
 
   // Plantillas que muestran FOTOS REALES del catálogo (varias tomas o specs reales):
   // ahí no conviene reemplazar la foto por una escena compuesta con IA.
@@ -1924,7 +1925,7 @@ async function renderPostBuffer(options) {
     const scene = await generateProductScene({
       productImageUrl, productImageUrls: options.productImageUrls || [],
       productName: options.overlayTitle, theme: options.bgTheme,
-      brief: campaign.isCampaign(options.template) ? [options.bgBrief, campaign.LIGHT_DIRECTION].filter(Boolean).join('\n') : options.bgBrief, occasion: options.bgOccasion, format,
+      brief: campaign.isCampaign(options.template) ? [options.bgBrief, campaign.sceneDirection(options)].filter(Boolean).join('\n') : options.bgBrief, occasion: options.bgOccasion, format,
       seed: options.layoutSeed, // variedad de escenario/luz/cámara por pieza
       shotSpec: options.shotSpec || null, // director de arte: tipo de toma, foco, fondo
       artStyle: campaign.isCampaign(options.template) ? 'light_campaign' : options.artStyle || null, // 'poster' = arte de afiche con zona libre para el texto
@@ -1932,6 +1933,7 @@ async function renderPostBuffer(options) {
     if (scene) {
       bgImageUrl = `data:${scene.mimeType};base64,${scene.buffer.toString('base64')}`;
       productImageUrl = null;
+      if (campaign.isCampaign(options.template)) campaignSceneVersion = 2;
       costUsd += scene.costUsd || 0;
     }
   }
@@ -1949,12 +1951,13 @@ async function renderPostBuffer(options) {
   if (!bgImageUrl && options.useAiBackground) {
     const bg = await generateBackground({
       theme: options.bgTheme || options.overlayTitle,
-      brief: campaign.isCampaign(options.template) ? [options.bgBrief, campaign.LIGHT_DIRECTION].filter(Boolean).join('\n') : options.bgBrief, occasion: options.bgOccasion, format,
+      brief: campaign.isCampaign(options.template) ? [options.bgBrief, campaign.sceneDirection(options)].filter(Boolean).join('\n') : options.bgBrief, occasion: options.bgOccasion, format,
       seed: options.layoutSeed,
       artStyle: campaign.isCampaign(options.template) ? 'light_campaign' : options.artStyle || null,
     });
     if (bg) {
       bgImageUrl = `data:${bg.mimeType};base64,${bg.buffer.toString('base64')}`;
+      if (campaign.isCampaign(options.template)) campaignSceneVersion = 2;
       costUsd += bg.costUsd || 0;
     }
   }
@@ -2004,7 +2007,7 @@ async function renderPostBuffer(options) {
     && options.showBrand !== false
     && (options.showBrand === true || options.pillar === 'marca' || options.template === 'mayorista');
 
-  const html = buildHtml({ ...options, showBrand, format, bgImageUrl, productImageUrl, cutoutUrl, cutoutBox });
+  const html = buildHtml({ ...options, campaignSceneVersion, showBrand, format, bgImageUrl, productImageUrl, cutoutUrl, cutoutBox });
 
   // Navegador compartido + a lo sumo 2 páginas a la vez (memoria de Render).
   await acquireRenderSlot();
@@ -2036,7 +2039,7 @@ async function renderPostBuffer(options) {
   // encima. Sirve para reusarla en otro slide (ej. el de precio) sin duplicar texto
   // "quemado" — reusar directamente `url` (que ya tiene chrome) genera doble cuadro/texto fantasma.
   const cleanImageUrl = bgImageUrl || productImageUrl || null;
-  return { url, buffer, costUsd, cleanImageUrl, clippedText };
+  return { url, buffer, costUsd, cleanImageUrl, clippedText, campaignSceneVersion };
 }
 
 /**
