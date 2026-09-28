@@ -5830,6 +5830,9 @@ const HS_SUBS = {
   bloques: 'Portadas, videos y secciones informativas que armás vos, con vista previa.',
   rieles: 'Qué productos arma solo cada carrusel, según ventas y stock reales.',
   flash: 'Ofertas con contador y descuento real escrito en Tiendanube.',
+  // Tampoco es del home: el combo se ofrece en la ficha. Va al lado de Ofertas
+  // flash porque es el otro descuento automático.
+  combos: 'El % que se descuenta solo al llevar dos productos que se compran juntos.',
   plan: 'Cómo está tu página hoy, cómo convendría que esté y qué falta para eso.',
   reco: 'Qué banners conviene poner, con el número que justifica cada uno.',
   // Ojo: el menú NO es del home, se ve en todas las páginas. Está acá porque es
@@ -5878,6 +5881,7 @@ function switchHomePane(name) {
   const cargar = {
     rieles: 'loadHomeRails',
     flash: 'loadFlash',
+    combos: 'comboCargar',
     plan: 'loadHomePlan',
     reco: 'loadHomeBanners',
     bloques: 'loadHomeBlocks',

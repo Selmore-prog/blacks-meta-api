@@ -436,6 +436,7 @@ function descriptionImages(product) {
 // este filtro de candidatas Y la validación dura del director creativo.
 const { TEMPLATES: VALID_TEMPLATES, TEMPLATE_INFO, TEMPLATE_REQUIREMENTS, extractSpecTags, extractBriefChips } = require('../src/imageRenderer');
 const { reviewPiece } = require('../src/pieceBrief');
+const campaign = require('../src/templatesCampaign');
 
 // Qué estilos tienen sentido para cada pilar — variedad real por pilar, filtrada
 // después por lo que el producto puede sostener (fotos/descripción disponibles).
@@ -451,13 +452,13 @@ const PILLAR_TEMPLATE_POOL = {
   // 'recorte' y 'ficha' van primeras en producto/promo a propósito: son las que sacan
   // a la prenda del rectángulo de catálogo. 'editorial' reemplaza de hecho a
   // 'educativo' (que dejaba dos tercios de la pieza en blanco liso).
-  producto: ['recorte', 'ficha', 'fullbleed', 'minimal', 'grid', 'overlap', 'specsheet'],
-  promo: ['recorte', 'promo', 'splitscreen', 'fullbleed', 'poster'],
-  educativo: ['editorial', 'blueprint', 'educativo'],
-  mayorista: ['mayorista', 'stackedcards', 'magazine', 'editorial'],
-  marca: ['recorte', 'minimal', 'magazine', 'overlap', 'fullbleed', 'poster'],
-  ugc: ['magazine', 'polaroidstrip', 'overlap', 'minimal'],
-  engagement: ['recorte', 'fullbleed', 'splitscreen', 'minimal', 'poster'],
+  producto: [...campaign.NAMES, 'recorte', 'ficha', 'fullbleed', 'minimal', 'grid', 'overlap', 'specsheet'],
+  promo: [...campaign.NAMES, 'recorte', 'promo', 'splitscreen', 'fullbleed', 'poster'],
+  educativo: ['aviso_derecha', 'aviso_izquierda', 'aviso_galeria', 'editorial', 'blueprint', 'educativo'],
+  mayorista: [...campaign.NAMES, 'mayorista', 'stackedcards', 'magazine', 'editorial'],
+  marca: [...campaign.NAMES, 'recorte', 'minimal', 'magazine', 'overlap', 'fullbleed', 'poster'],
+  ugc: [...campaign.NAMES, 'magazine', 'polaroidstrip', 'overlap', 'minimal'],
+  engagement: [...campaign.NAMES, 'recorte', 'fullbleed', 'splitscreen', 'minimal', 'poster'],
 };
 
 // Eyebrow (kicker) por pilar: la etiqueta chica en mayúscula que va ARRIBA del titular
@@ -492,7 +493,7 @@ function templateCandidates(slot, { visualProduct, cutoutOk = null } = {}) {
   const pool = (PILLAR_TEMPLATE_POOL[slot.pillar] || ['fullbleed', 'minimal']).filter((t) => {
     const req = TEMPLATE_REQUIREMENTS[t];
     if (!req) return true;
-    if (req.minImages && images.length < req.minImages) return false;
+    if (req.minImages && new Set(images).size < req.minImages) return false;
     if (req.needsDescription && !hasDescription) return false;
     if (req.storyOnly && !isStory) return false;
     // 'recorte' y 'ficha' se apoyan ENTERAS en la silueta de la prenda: el titular pasa
@@ -545,11 +546,11 @@ function chooseTemplate(slot, { override, visualProduct, aiPick, recientes = [],
 
   const candidates = templateCandidates(slot, { visualProduct, cutoutOk });
   // El cerebro eligió una plantilla entre las candidatas válidas: la respetamos.
-  if (aiPick && candidates.includes(aiPick)) return aiPick;
+  const frescas = artDirection.withoutRecent(candidates, recientes);
+  if (aiPick && frescas.includes(aiPick)) return aiPick;
   // Rotación de respaldo. `slot.id % n` no garantizaba variedad: los ids no son
   // consecutivos dentro de un mismo pilar, así que salían tres fullbleed seguidas.
   // Ahora primero se descartan las plantillas de las últimas piezas.
-  const frescas = artDirection.withoutRecent(candidates, recientes);
   return frescas[Number(slot.id) % frescas.length];
 }
 
@@ -664,6 +665,13 @@ async function persistScene(cleanImageUrl, tag) {
  */
 async function renderCarouselShot(shot, i, ctx) {
   const { refImgs, visualImageUrl, sceneTheme, format, logos, occasion, couponCode, overlayTitle, badgeText, imageBrief, pillar, slotId, product, artMode } = ctx;
+  // La receta del slide conserva composición y paleta al corregir textos.
+  // Las escenas viejas siguen usando su plantilla original.
+  const lightTemplates = ['aviso_portada', 'aviso_derecha', 'aviso_pie', 'aviso_izquierda', 'aviso_esquina', 'aviso_contrapunto'];
+  const template = shot.template || (shot.sceneUrl ? 'fullbleed' : lightTemplates[(Math.abs(Number(slotId) || 0) + i) % lightTemplates.length]);
+  const variant = shot.variant || Object.keys(campaign.PALETTES)[Math.abs(Number(slotId) || 0) % Object.keys(campaign.PALETTES).length];
+  shot.template = template;
+  shot.variant = variant;
   const refUrl = refImgs.length ? (refImgs[shot.photoIndex] || refImgs[i % refImgs.length]) : visualImageUrl;
 
   /*
@@ -707,8 +715,10 @@ async function renderCarouselShot(shot, i, ctx) {
   if (shot.shotType === 'variantes') {
     const byIndex = [shot.photoIndex, ...(shot.extraPhotos || [])].map((idx) => refImgs[idx]).filter(Boolean);
     const bento = [...new Set([...byIndex, ...(shot.extraUrls || []).filter(Boolean)])].slice(0, MAX_BENTO);
+    const galleryTemplate = bento.length >= 4 ? 'aviso_mosaico' : bento.length >= 3 ? 'aviso_trio' : bento.length >= 2 ? 'aviso_duo' : 'aviso_portada';
+    shot.template = galleryTemplate;
     return renderPostBuffer({
-      format, template: 'grid',
+      format, template: galleryTemplate, variant,
       overlayTitle: shot.overlay || 'También en otros colores',
       productImageUrls: bento.length ? bento : [refUrl],
       productImageUrl: bento[0] || refUrl,
@@ -730,9 +740,10 @@ async function renderCarouselShot(shot, i, ctx) {
       ? overlayHead
       : agreeWithProduct(overlayHead || config.brand.ctaHeadline, (product && product.name) || sceneTheme);
     return renderPostBuffer({
-      format, template: 'fullbleed',
+      format, template, variant,
       overlayTitle: head,
       ctaHeadline: head,
+      ctaLabel: pillar === 'mayorista' ? 'Consultas mayoristas' : 'Ver en la tienda',
       ctaBenefits: config.brand.ctaBenefits,
       productImageUrl: refUrl,
       productImageUrls: otrasFotos,
@@ -749,7 +760,7 @@ async function renderCarouselShot(shot, i, ctx) {
   // PRECIO (sólo historias): foto real full-bleed + bloque de precio.
   if (shot.shotType === 'price') {
     return renderPostBuffer({
-      format, template: 'fullbleed', overlayTitle: shot.overlay || null,
+      format, template, variant, overlayTitle: shot.overlay || null,
       price: product && product.price, promoPrice: product && product.promo_price,
       productImageUrl: refUrl,
       productImageUrls: otrasFotos,
@@ -777,7 +788,7 @@ async function renderCarouselShot(shot, i, ctx) {
   const slideBrief = [imageBrief, shot.focus].filter(Boolean).join(' — ').slice(0, 500);
   const slideBadge = badgeText || shot.badge || null;
   return renderPostBuffer({
-    format, template: 'fullbleed',
+    format, template, variant,
     overlayTitle: overlay,
     badgeText: i === 0 ? slideBadge : null,
     productImageUrl: refUrl,
@@ -1252,7 +1263,7 @@ async function generateForSlot(slot, overrides = {}) {
   const recentPieces = await recentPieceSummaries().catch(() => []);
   // MEMORIA DE DISEÑO: con qué plantilla y variante salieron las últimas piezas, y con
   // qué palabras vienen arrancando los copys. Se usa para que el feed no se repita.
-  const design = await artDirection.directionFor().catch(() => ({ recientes: [], arranquesUsados: [] }));
+  const design = await artDirection.directionFor(slot).catch(() => ({ recientes: [], arranquesUsados: [] }));
   const isCarousel = Boolean(slot.carousel) && format === 'feed'; // los carruseles de la API de Meta son de feed
 
   // ============ DIRECTOR CREATIVO (análisis previo de la pieza) ============
@@ -2260,6 +2271,10 @@ async function generateForSlot(slot, overrides = {}) {
         coverImage: renderOpts.coverImage,
         photoFraming: renderOpts.photoFraming,
         productDescription: renderOpts.productDescription,
+        productImageUrls: renderOpts.productImageUrls,
+        displayTitle: renderOpts.displayTitle,
+        specs: renderOpts.specs,
+        deck: renderOpts.deck,
         layoutSeed: finalSeed,
         showBrand: renderOpts.showBrand !== false,
       };
@@ -2926,4 +2941,4 @@ async function originalProductPhoto(asset) {
   return (rows[0] && rows[0].image_url) || null;
 }
 
-module.exports = { generateDaily, generateForSlot, pickRelevantVisualProduct, VALID_TEMPLATES, regenerateSlide, correctPiece, renderCarouselPanorama };
+module.exports = { templateCandidates, chooseTemplate, generateDaily, generateForSlot, pickRelevantVisualProduct, VALID_TEMPLATES, regenerateSlide, correctPiece, renderCarouselPanorama };

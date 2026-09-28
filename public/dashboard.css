@@ -2899,3 +2899,68 @@ button .cost-tag { margin-left: 8px; }
 .mp-estado { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; padding: 3px 8px; border-radius: 999px; }
 .mp-on  { background: rgba(47,125,79,.18); color: #6FBF8E; }
 .mp-off { background: rgba(255,107,0,.15); color: #FFB27A; }
+
+/* ==========================================================================
+   COMBO FRECUENTE (Home de la tienda → Combos). Ver public/combo-panel.js.
+   La vista previa copia el modal real de la ficha (negro/blanco, badge del %)
+   para que el número se vea donde lo va a ver el cliente.
+   ========================================================================== */
+.combo-panel { border: 1px solid var(--line); }
+.combo-panel .flash-banner { flex-wrap: nowrap; align-items: flex-start; font-size: 13px; line-height: 1.5; }
+.combo-panel .flash-banner > div { flex: 1; min-width: 0; }
+.combo-panel .flash-banner > span { flex-shrink: 0; margin-top: 1px; }
+#hs-combos .error { color: #b42318; font-size: 13px; line-height: 1.5; }
+
+.combo-hoy {
+  display: flex; align-items: center; gap: 16px; margin-bottom: 18px;
+  padding: 14px 16px; background: var(--panel-2); border: 1px solid var(--line); border-radius: 12px;
+}
+.combo-hoy-num { font-size: 34px; font-weight: 800; letter-spacing: -.02em; line-height: 1; min-width: 72px; }
+.combo-hoy-txt { display: flex; flex-direction: column; gap: 3px; font-size: 13px; }
+.combo-hoy-txt span { color: var(--muted); font-size: 12.5px; }
+
+.combo-atajos { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+.combo-atajo {
+  min-height: 36px; padding: 7px 14px; border-radius: 999px;
+  background: var(--panel); color: var(--text); border: 1px solid var(--line); font-weight: 700;
+}
+.combo-atajo:hover { border-color: var(--text); }
+.combo-atajo.activo { background: var(--text); color: #fff; border-color: var(--text); }
+
+.combo-fila { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+.combo-input { display: flex; align-items: center; gap: 8px; }
+.combo-input .input { width: 96px; font-size: 16px; font-weight: 700; text-align: center; }
+.combo-input span { font-weight: 700; color: var(--muted); }
+.combo-estado { margin: 8px 0 0; min-height: 18px; font-size: 12.5px; color: var(--muted); }
+.combo-estado.ok { color: #16733a; }
+.combo-estado.error { color: #b42318; }
+
+.combo-previa { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 14px; margin: 8px 0 20px; }
+.combo-previa--off { display: block; padding: 14px 16px; border: 1px dashed var(--line); border-radius: 12px; color: var(--muted); font-size: 13px; }
+.combo-previa-modal, .combo-previa-carrito {
+  background: #fff; border: 1px solid #e6e6e6; border-radius: 14px; padding: 14px; color: #111;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, .06);
+}
+.cpm-titulo { font-weight: 800; font-size: 14px; }
+.cpm-sub { font-size: 12.5px; color: #444; margin: 3px 0 12px; line-height: 1.4; }
+.cpm-card { display: flex; gap: 12px; align-items: center; border: 1px solid #eee; border-radius: 10px; padding: 8px; }
+.cpm-foto { position: relative; width: 64px; height: 64px; border-radius: 8px; background: #f1f1f1; flex-shrink: 0; }
+.cpm-badge {
+  position: absolute; top: 5px; left: 5px; background: #111; color: #fff;
+  font-size: 10.5px; font-weight: 800; padding: 2px 6px; border-radius: 6px;
+}
+.cpm-nombre { font-size: 12.5px; color: #333; }
+.cpm-precio { font-weight: 800; font-size: 14px; margin-top: 2px; }
+.cpm-ahorro { font-size: 11.5px; color: #111; font-weight: 700; margin-top: 2px; }
+.cpc-fila { display: flex; justify-content: space-between; font-size: 13px; padding: 4px 0; }
+.cpc-desc { color: #00a650; font-weight: 700; }   /* verde: así se ve el descuento en el carrito real */
+.cpc-total { border-top: 1px solid #eee; margin-top: 4px; padding-top: 8px; font-weight: 800; font-size: 14px; }
+
+.combo-looks { border-top: 1px solid var(--line); padding-top: 14px; }
+.combo-looks-lista { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.combo-look { font-size: 12.5px; padding: 6px 12px; border-radius: 999px; background: var(--panel-2); border: 1px solid var(--line); }
+
+@media (max-width: 720px) {
+  .combo-previa { grid-template-columns: 1fr; }
+  .combo-hoy-num { font-size: 28px; min-width: 60px; }
+}

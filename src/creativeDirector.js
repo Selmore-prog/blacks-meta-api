@@ -227,7 +227,7 @@ function buildDirectorPrompt({ slot, candidates, wholesale, companyFacts, recent
   // opción pobre. Se calcula acá, es gratis, y le da con qué razonar.
   const brief = `${slot.pillar_detail || ''} ${slot.theme_title || ''}`;
   const numbers = brief.match(/\d{1,3}\s*%|\d+\s*x\s*\d+|\d+\s*cuotas/gi) || [];
-  const maxPhotos = candidates.reduce((m, c) => Math.max(m, Number(c.images_count || c.n_images || 0)), 0);
+  const maxPhotos = candidates.reduce((m, c) => Math.max(m, Number(c.photos || c.images_count || c.n_images || 0)), 0);
   const material = [
     numbers.length
       ? `- CIFRA FUERTE en el ángulo: ${numbers.join(' · ')} → es el activo de venta más potente que tiene esta pieza. El diseño la imprime GIGANTE, así que el overlay tiene que conservarla.`
@@ -275,6 +275,9 @@ CÓMO DECIDIR (pensá en este orden):
 4. "template": la plantilla de la lista que MEJOR comunica este mensaje (respetá su descripción; una plantilla que requiere varias fotos no sirve para un candidato con 1 foto).
    - REGLA DE DENSIDAD: la plantilla elegida tiene que tener con qué llenarse. Si NO hay producto que mostrar, no elijas una plantilla cuyo protagonista es la foto (queda un lienzo casi vacío): elegí "poster", que está hecha para sostenerse sola.
    - Si el ángulo trae una CIFRA FUERTE y no hay un producto puntual que mostrar → "poster" casi siempre: es la única que trata el número como pieza gráfica gigante.
+   - DIRECCIÓN DEL FEED: preferí los avisos claros aviso_* para producto, promoción, reingreso y mayorista, combinándolos con estilos existentes cuando el mensaje lo justifique. Tipografía moderna, producto GRANDE Y COMPLETO, pocos datos. No armes una infografía ni repitas un eslogan de BLACKS.
+   - Elegí la composición según las fotos del candidato ELEGIDO (no el máximo del catálogo): una vista grande, díptico si hay dos vistas distintas, galería o riel si hay tres o cuatro. Alterná protagonista a izquierda/derecha, mensaje arriba/abajo y fondos claros. Nunca espejes la foto ni inventes vistas/colores disponibles. Títulos y datos deben corresponder a esa prenda.
+   - La imagen comunica UNA idea y hasta dos características verificadas. El caption amplía con uso, condiciones o una invitación concreta; no transcribe el cartel. Variá la estructura de las recomendaciones. Con escenas generativas mantené luz diurna, fondo claro y el producto íntegro; el diseño tipográfico se agrega después.
 5. "copy_angle": el ángulo concreto para el copy en 1-2 frases — SOLO con los datos dados arriba (condiciones reales, datos verificados, producto elegido). PROHIBIDO inventar datos, cifras o características. Español argentino directo y profesional, sin frases de marketing de IA ("descubrí", "eleva tu", "no te lo pierdas").
    - TEMA SIN MATERIAL: si el ángulo del plan pide datos que NO figuran en el contexto (ej. "nuestra historia", trayectoria, hitos, cifras de la empresa), NO armes una pieza genérica de relleno — PIVOTEÁ el ángulo a algo CONCRETO del material disponible: qué hace la empresa (los datos verificados de arriba), condiciones reales, tipos de producto reales, o una pregunta específica a la audiencia. Una pieza que no dice nada específico no genera nada en la audiencia.
    - El copy_angle tiene que contener al menos UN elemento específico (un dato real, una condición, un tipo de producto, una pregunta concreta). PROHIBIDO el relleno corporativo: "la calidad es nuestra prioridad", "tu socio en seguridad", "te acompañamos", "comprometidos con la excelencia".

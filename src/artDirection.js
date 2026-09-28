@@ -1,4 +1,5 @@
 const pool = require('./db');
+const campaign = require('./templatesCampaign');
 
 /**
  * DIRECCIÓN DE ARTE · memoria de diseño del feed.
@@ -27,14 +28,9 @@ const pool = require('./db');
  * generación sigue como siempre.
  */
 
-/**
- * VARIANTES DE COMPOSICIÓN por plantilla.
- *
- * Son cambios de LAYOUT reales (posición, jerarquía, tratamiento del fondo), no de
- * color: la identidad de la marca —negro, naranja quemado, Anton + Inter— no se toca.
- * Un diseñador que trabaja bien para una marca varía la composición, no la paleta.
- */
+/** Variantes implementadas: composición clásica o paleta de los avisos claros. */
 const TEMPLATE_VARIANTS = {
+  ...Object.fromEntries(campaign.NAMES.map(name => [name, Object.keys(campaign.PALETTES)])),
   fullbleed: [
     // La de siempre: scrim editorial y tarjeta de precio de vidrio abajo a la izquierda.
     'clasico',
@@ -66,13 +62,16 @@ function variantsFor(template) {
  * Se lee de generated_assets (la columna `template` guarda "plantilla:variante" desde
  * ago-2026; las filas viejas traen sólo la plantilla y se leen igual).
  */
-async function recentDesigns(limit = 10) {
+async function recentDesigns(limit = 18, slot = null) {
   try {
     const { rows } = await pool.query(
-      `SELECT template FROM generated_assets
-       WHERE template IS NOT NULL AND status != 'discarded'
-       ORDER BY id DESC LIMIT $1`,
-      [limit]
+      `SELECT a.template FROM generated_assets a
+       JOIN content_calendar c ON c.id = a.calendar_id
+       WHERE a.template IS NOT NULL AND a.status != 'discarded'
+         AND ($3::int IS NULL OR a.calendar_id != $3)
+       ORDER BY CASE WHEN $2::date IS NOT NULL THEN ABS(c.scheduled_date - $2::date) END ASC,
+                a.id DESC LIMIT $1`,
+      [limit, slot && slot.scheduled_date || null, slot && slot.id || null]
     );
     return rows.map((r) => decodeDesign(r.template));
   } catch (_) {
@@ -111,7 +110,7 @@ function pickVariant(template, recientes, seed = 0) {
   // plantilla. Sin uso reciente = infinito (candidata ideal).
   const antiguedad = new Map(opciones.map((v) => [v, Infinity]));
   recientes.forEach((d, i) => {
-    if (d.template !== template) return;
+    if (campaign.isCampaign(template) ? !campaign.isCampaign(d.template) : d.template !== template) return;
     if (antiguedad.get(d.variant) === Infinity) antiguedad.set(d.variant, i);
   });
   let mejor = null;
@@ -176,8 +175,8 @@ async function recentOpeners(limit = 25) {
  * (el menú ya llega filtrado). Pedirle "no repitas" a un modelo que igual elige la
  * opción más segura fue exactamente lo que no funcionó durante 45 días.
  */
-async function directionFor() {
-  const [recientes, arranquesUsados] = await Promise.all([recentDesigns(10), recentOpeners(25)]);
+async function directionFor(slot = null) {
+  const [recientes, arranquesUsados] = await Promise.all([recentDesigns(18, slot), recentOpeners(25)]);
   return { recientes, arranquesUsados };
 }
 

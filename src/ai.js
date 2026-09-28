@@ -250,7 +250,7 @@ La pregunta y las opciones tienen que ser concretas y fáciles de contestar en 2
   // entre las candidatas válidas para el producto/pilar. Va en la misma respuesta del
   // copy (gratis). Si no elige, se rota por seed.
   const templates = (Array.isArray(templateOptions) && templateOptions.length)
-    ? `\n\nFORMATO DE IMAGEN (elegí el que MEJOR comunica ESTA pieza según su mensaje y objetivo; devolvé "template" con el nombre exacto):\n${templateOptions.map((t) => `- ${t.name}: ${t.desc}`).join('\n')}`
+    ? `\n\nFORMATO DE IMAGEN (preferí avisos claros aviso_* para promociones y productos cuando haya fotos suficientes; elegí el que MEJOR comunica ESTA pieza según su mensaje y objetivo; devolvé "template" con el nombre exacto):\n${templateOptions.map((t) => `- ${t.name}: ${t.desc}`).join('\n')}`
     : '';
 
   // Ángulo decidido por el director creativo (el análisis previo de la pieza):
@@ -264,7 +264,7 @@ La pregunta y las opciones tienen que ser concretas y fáciles de contestar en 2
   // imagen se decidían por separado y podían contradecirse (bug real, jul-2026:
   // overlay sobre "puntera de acero" con una foto que mostraba la suela).
   const imageCtx = imageContext
-    ? `\nIMAGEN YA DECIDIDA PARA ESTA PIEZA (director de fotografía): ${imageContext}. El "overlay" describe/refuerza exactamente ESO que la foto muestra, y el copy desarrolla ese mismo foco — PROHIBIDO destacar una característica que la imagen no muestra.`
+    ? `\nIMAGEN YA DECIDIDA PARA ESTA PIEZA (director de fotografía): ${imageContext}. El "overlay" describe/refuerza exactamente ESO que la foto muestra, y el copy desarrolla ese mismo foco con información complementaria, sin transcribir el cartel ni repetir siempre la misma estructura — PROHIBIDO destacar una característica que la imagen no muestra.`
     : '';
 
   // NÚMEROS DEL ÁNGULO: si el brief trae un descuento/cifra concreta, es EL activo de
@@ -1955,7 +1955,9 @@ async function generateBackground({ theme, brief, occasion, format = 'feed', ref
 
   const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
 
-  const composicion = composicionParaFormato(format);
+  const composicion = artStyle === 'light_campaign'
+    ? 'Producto grande, centrado y completo dentro de la fotografía, sin extremos fuera del cuadro. El texto y las zonas seguras se agregan por fuera de esta foto; no reserves tercios vacíos para titulares.'
+    : composicionParaFormato(format);
   const brandStyle = await brandStyleForImages();
   const scene = sceneVariation(seed);
   const hasRefs = referenceImages.slice(0, 3).some((r) => r && r.data && r.mimeType);
@@ -2728,7 +2730,9 @@ async function generateProductScene({ productImageUrl, productImageUrls = [], pr
   if (!refs.length) return null;
 
   const ratio = format === 'story' ? 'vertical 9:16 (1080x1920)' : 'vertical 4:5 (1080x1350)';
-  const composicion = composicionParaFormato(format);
+  const composicion = artStyle === 'light_campaign'
+    ? 'Producto grande, centrado y completo dentro de la fotografía, sin extremos fuera del cuadro. El texto y las zonas seguras se agregan por fuera de esta foto; no reserves tercios vacíos para titulares.'
+    : composicionParaFormato(format);
   const brandStyle = await brandStyleForImages();
   const scene = sceneVariation(seed);
   // Tomas de DETALLE/macro: nada de escenografía (bandera, ambiente, composición de
@@ -2750,11 +2754,11 @@ LA PRIMERA IMAGEN DE REFERENCIA MANDA LA TOMA (es la foto real de catálogo eleg
 CONTEXTO DE LA PIEZA: ${theme || productName || 'indumentaria laboral y seguridad industrial'}.${briefBlock(brief, { allowScenery })}${allowScenery ? occasionGuidance(occasion) : ''}
 
 DIRECCIÓN DE FOTOGRAFÍA Y ÓPTICA COMERCIAL:
-${shotDirection(shotSpec, scene, seed)}
+${artStyle === 'light_campaign' ? shotDirection({ ...shotSpec, background: 'limpio' }, scene, seed) : shotDirection(shotSpec, scene, seed)}
 ${composicion}
 - Color grading premium: ciencia de color Kodak Portra 400, con acentos naranja quemado (#C1440C) sutiles.
 - El PRODUCTO queda más luminoso que el fondo y ocupa la jerarquía principal. Nada de subexposición creativa: el color y los detalles tienen que coincidir con Tiendanube y leerse sin subir el brillo del celular.
-${brandStyle && allowScenery ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
+${brandStyle && allowScenery && artStyle !== 'light_campaign' ? `- IDENTIDAD DE LA MARCA (respetala): ${brandStyle}` : ''}
 
 ${photoRealismRules()}
 
@@ -2770,7 +2774,7 @@ UN SOLO PRODUCTO EN CUADRO (crítico):
 ${strictProductRetryRule(strict)}
 
 ARQUITECTURA DE ZONAS SEGURAS (NEGATIVE SPACE):
-- Aire limpio y desenfocado en los tercios superior e inferior para garantizar contraste absoluto al superponer titulares y precios.
+${artStyle === 'light_campaign' ? '- Foto luminosa con el producto entero; ocupar el cuadro sin recortar la prenda. Sin texto ni áreas vacías dedicadas al texto.' : '- Aire limpio y desenfocado en los tercios superior e inferior para garantizar contraste absoluto al superponer titulares y precios.'}
 ${artStyle === 'poster' ? posterArtDirection(format) : ''}
 ${noTextNoLogoRule(strict)}
 - PROHIBIDO además: manos/pies deformes, duplicar el producto, cambiarle color o forma, o aspecto de render 3D artificial.`;

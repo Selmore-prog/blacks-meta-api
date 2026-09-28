@@ -320,6 +320,7 @@
         <button class="hstab active" data-pane="bloques" onclick="switchHomePane('bloques')">Bloques de contenido</button>
         <button class="hstab" data-pane="rieles" onclick="switchHomePane('rieles')">Carruseles automáticos</button>
         <button class="hstab" data-pane="flash" onclick="switchHomePane('flash')">Ofertas flash</button>
+        <button class="hstab" data-pane="combos" onclick="switchHomePane('combos')">Combos</button>
         <button class="hstab" data-pane="plan" onclick="switchHomePane('plan')">Esquema ideal</button>
         <button class="hstab" data-pane="reco" onclick="switchHomePane('reco')">Banners</button>
         <button class="hstab" data-pane="menu" onclick="switchHomePane('menu')">Menú</button>
@@ -357,6 +358,12 @@
       <div class="hs-pane hidden" id="hs-flash">
         <div id="flash-panel"><p class="loading">Cargando ofertas flash…</p></div>
       </div>
+
+      <!-- % del "Combo frecuente": se lo manda directo al Worker de descuentos de
+           Cloudflare (checkout + modal de la ficha). No es del home, como el menú:
+           está al lado de Ofertas flash porque es el otro descuento automático.
+           Lo dibuja public/combo-panel.js (src/comboDiscount.js). -->
+      <div class="hs-pane hidden" id="hs-combos"><p class="loading">Cargando combos…</p></div>
 
       <!-- Esquema ideal: cruza el home REAL (leído del HTML de la tienda en vivo)
            con el catálogo, las ventas, las consultas y la temporada. Escribe los
@@ -675,6 +682,8 @@
   <script src="/nav-panel.js"></script>
   <!-- Franja de beneficios. Usa los helpers de dashboard.js, igual que nav-panel. -->
   <script src="/benefits-panel.js"></script>
+  <!-- % del Combo frecuente. Usa los helpers de dashboard.js, igual que nav-panel. -->
+  <script src="/combo-panel.js"></script>
   <!-- Esquema ideal del home. Va después de home-blocks-panel.js: para crear un
        bloque desde el plan usa su estado (hbState) y sus funciones. -->
   <script src="/home-plan-panel.js"></script>

@@ -31,6 +31,7 @@ const { buildInterest } = require('./productInterest');
 const { getRails, getRailsConfig, saveRailsConfig, validateConfig, buildPayload,
   invalidate: invalidateRails, RULES, SPECIAL_RULES, SLOT_IDS, LAYOUTS } = require('./homeRails');
 const flashSale = require('./flashSale');
+const comboDiscount = require('./comboDiscount');
 const homeBlocks = require('./homeBlocks');
 const navMenu = require('./navMenu');
 const navAssets = require('./navAssets');
@@ -1550,6 +1551,19 @@ app.post('/api/flash/activate', wrap(async (req, res) => {
 // Restaura los precios anteriores y apaga la sección.
 app.post('/api/flash/end', wrap(async (req, res) => {
   res.json(await flashSale.end());
+}));
+
+// ---- % DEL "COMBO FRECUENTE" --------------------------------------------
+// El motor sólo hace de pasamanos hacia el Worker de descuentos de Cloudflare,
+// que es quien lo aplica en el checkout y lo muestra en el modal de la ficha.
+// Ver src/comboDiscount.js. Sin sección en el portal del equipo, a propósito:
+// cambia un descuento real, igual que Ofertas flash.
+app.get('/api/combo-discount', wrap(async (req, res) => {
+  res.json(await comboDiscount.getState());
+}));
+
+app.post('/api/combo-discount', wrap(async (req, res) => {
+  res.json(await comboDiscount.setPercent((req.body || {}).percent));
 }));
 
 /* ======================= TRABAJOS REALIZADOS (bordados) ===================

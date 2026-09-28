@@ -34,6 +34,15 @@ module.exports = {
     apiBase: 'https://api.tiendanube.com/v1',
   },
 
+  // Worker de Cloudflare que aplica los descuentos automáticos (combos del
+  // lookbook + "Combo frecuente"). Vive en el repo del theme:
+  // backend/lookbook-discounts/worker.js. La clave es la MISMA ADMIN_KEY que
+  // tiene cargada el Worker en Cloudflare. Ver src/comboDiscount.js.
+  discountsWorker: {
+    url: required('DISCOUNTS_WORKER_URL', 'https://blacks-lookbook-discounts.sebaelmore.workers.dev'),
+    adminKey: required('DISCOUNTS_WORKER_KEY', ''),
+  },
+
   groq: {
     apiKey: required('GROQ_API_KEY'),
     model: required('GROQ_MODEL', 'openai/gpt-oss-120b'),

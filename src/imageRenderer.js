@@ -4,6 +4,7 @@ const { uploadAsset } = require('./storage');
 const { generateBackground, generateProductScene, generateDiagram } = require('./ai');
 const { stripEmoji, fixSpelling, compactFact } = require('./textUtils');
 const modern = require('./templatesModern');
+const campaign = require('./templatesCampaign');
 const { cutoutFromUrl } = require('./productCutout');
 const panorama = require('./carouselPanorama');
 
@@ -103,7 +104,7 @@ function arrowSvg(color = '#fff', size = 22) {
 const TEMPLATES = ['fullbleed', 'minimal', 'promo', 'educativo', 'mayorista',
   'grid', 'overlap', 'specsheet', 'splitscreen', 'blueprint', 'magazine', 'stackedcards', 'polaroidstrip', 'poster',
   // Plantillas modernas basadas en el recorte de la prenda (ver templatesModern.js).
-  'recorte', 'ficha', 'editorial'];
+  'recorte', 'ficha', 'editorial', ...campaign.NAMES];
 
 // Las que dependen del recorte de la prenda (renderPostBuffer lo calcula solo).
 const MODERN_TEMPLATES = ['recorte', 'ficha', 'editorial'];
@@ -112,6 +113,7 @@ const MODERN_TEMPLATES = ['recorte', 'ficha', 'editorial'];
 // mejor le queda a la pieza según su mensaje/objetivo. Sólo texto informativo — la
 // disponibilidad real la filtra generate-daily (fotos/descripción que hay).
 const TEMPLATE_INFO = {
+  ...campaign.INFO,
   // Las modernas van primeras y descritas con detalle A PROPÓSITO: el cerebro elige
   // sobre esta lista y, sin descripción, una plantilla es una opción vacía que nunca
   // se elige (fue exactamente lo que pasó al agregarlas: la IA siguió eligiendo
@@ -142,6 +144,7 @@ const TEMPLATE_INFO = {
 // generate-daily y el director podía elegir una plantilla que el producto no
 // sostenía. Los clásicos sin zona de foto obligatoria no figuran: siempre valen.
 const TEMPLATE_REQUIREMENTS = {
+  ...campaign.REQUIREMENTS,
   // Las modernas dependen del RECORTE de la prenda: sin una foto de catálogo sobre
   // fondo de estudio no hay silueta que poner delante del titular ni a la que
   // anclarle las líneas de la ficha. generate-daily verifica el recorte de verdad
@@ -1862,6 +1865,10 @@ function buildPolaroidStripHtml(opts) {
 
 /** Despachador: elige el builder según opts.template (default: fullbleed, la clásica). */
 function buildHtml(opts) {
+  if (campaign.isCampaign(opts.template)) {
+    const g = sharedGeometry(opts.format);
+    return campaign.buildHtml(opts, g, headHtml(g.w, g.h));
+  }
   switch (opts.template) {
     case 'minimal': return buildMinimalHtml(opts);
     case 'promo': return buildPromoHtml(opts);
@@ -1917,10 +1924,10 @@ async function renderPostBuffer(options) {
     const scene = await generateProductScene({
       productImageUrl, productImageUrls: options.productImageUrls || [],
       productName: options.overlayTitle, theme: options.bgTheme,
-      brief: options.bgBrief, occasion: options.bgOccasion, format,
+      brief: campaign.isCampaign(options.template) ? [options.bgBrief, campaign.LIGHT_DIRECTION].filter(Boolean).join('\n') : options.bgBrief, occasion: options.bgOccasion, format,
       seed: options.layoutSeed, // variedad de escenario/luz/cámara por pieza
       shotSpec: options.shotSpec || null, // director de arte: tipo de toma, foco, fondo
-      artStyle: options.artStyle || null, // 'poster' = arte de afiche con zona libre para el texto
+      artStyle: campaign.isCampaign(options.template) ? 'light_campaign' : options.artStyle || null, // 'poster' = arte de afiche con zona libre para el texto
     });
     if (scene) {
       bgImageUrl = `data:${scene.mimeType};base64,${scene.buffer.toString('base64')}`;
@@ -1942,9 +1949,9 @@ async function renderPostBuffer(options) {
   if (!bgImageUrl && options.useAiBackground) {
     const bg = await generateBackground({
       theme: options.bgTheme || options.overlayTitle,
-      brief: options.bgBrief, occasion: options.bgOccasion, format,
+      brief: campaign.isCampaign(options.template) ? [options.bgBrief, campaign.LIGHT_DIRECTION].filter(Boolean).join('\n') : options.bgBrief, occasion: options.bgOccasion, format,
       seed: options.layoutSeed,
-      artStyle: options.artStyle || null,
+      artStyle: campaign.isCampaign(options.template) ? 'light_campaign' : options.artStyle || null,
     });
     if (bg) {
       bgImageUrl = `data:${bg.mimeType};base64,${bg.buffer.toString('base64')}`;
@@ -2016,6 +2023,7 @@ async function renderPostBuffer(options) {
     }
     // Esperar a que las tipografías (Anton/Inter) estén listas antes de capturar.
     try { await page.evaluate(async () => { if (document.fonts && document.fonts.ready) await document.fonts.ready; }); } catch (_) {}
+    if (campaign.isCampaign(options.template)) await campaign.fitText(page);
     clippedText = await measureClippedText(page, w).catch(() => []);
     buffer = await page.screenshot({ type: 'jpeg', quality: 90 });
   } finally {
