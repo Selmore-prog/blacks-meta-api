@@ -82,6 +82,33 @@
       ],
       "precio_total": 61998,
       "envio_gratis": true
+    },
+    {
+      "ad_id": "120250725044170783",
+      "nombre": "21 · Combo Jean + Remera",
+      "productos": [
+        298859922,
+        136305274
+      ],
+      "precio_total": 54998,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120250725044650783",
+      "nombre": "22 · Jean en 5 Colores",
+      "productos": [
+        298859922
+      ],
+      "precio": 36999,
+      "descuento": 24
+    },
+    {
+      "ad_id": "120250725045800783",
+      "nombre": "23 · Alpargatas Rueda",
+      "productos": [
+        354993720
+      ],
+      "precio": 24999
     }
   ]
 }

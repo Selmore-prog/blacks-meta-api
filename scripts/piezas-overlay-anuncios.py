@@ -75,7 +75,7 @@ PISO_916 = 0.64  # un punto de aire sobre el 65%
 # 4:5 al centro y se comía la primera línea del titular. Con el texto dentro
 # del cuadrado central, el recorte no pierde nada.
 MARGEN_45 = 0.115
-CAMPOS = ("titular", "bajada", "chip", "beneficio", "posicion")
+CAMPOS = ("titular", "bajada", "chip", "beneficio", "posicion", "tam_titular")
 
 
 def fuente(ruta, tam, indice=0):
@@ -132,7 +132,10 @@ def maquetar(pieza, formato):
     margen = int(ancho * 0.075)
     ancho_max = ancho - margen * 2
 
-    f_tit = fuente(F_TITULAR, int(ancho * 0.115), 8)
+    # "tam_titular" (fracción del ancho, 0.115 por defecto) achica el titular en
+    # piezas donde el producto llena el cuadro y el texto tiene que entrar en una
+    # sola línea (la pila de los cinco jeans, 28-sep).
+    f_tit = fuente(F_TITULAR, int(ancho * float(pieza.get("tam_titular", 0.115))), 8)
     f_baj = fuente(F_TEXTO, int(ancho * 0.042), 0)
     f_chip = fuente(F_TITULAR, int(ancho * 0.040), 8)
     f_ben = fuente(F_TEXTO, int(ancho * 0.033), 0)

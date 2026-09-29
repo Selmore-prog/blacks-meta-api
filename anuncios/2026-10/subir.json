@@ -117,6 +117,42 @@
    "url": "https://blacksindumentaria.com.ar/urbano/",
    "texto_feed": "El combo de primavera: jean clásico recto ($36.999) + alpargatas Rueda de lona y yute con el sol bordado ($24.999). Juntos pasan los $45.000 y el envío es gratis. Hasta 6 cuotas sin interés.",
    "texto_vertical": "Jean clásico + alpargatas: $61.998 los dos, con envío gratis."
+  },
+  {
+   "nombre": "21 · Combo Jean + Remera",
+   "tipo": "imagen",
+   "feed": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 4.5/jean-remera_45.jpg",
+   "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 9.16/jean-remera_916.jpg",
+   "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 1.1/jean-remera_11.jpg",
+   "titulo": "Jean + remera: $54.998 los dos",
+   "descripcion": "Envío gratis a todo el país",
+   "url": "https://blacksindumentaria.com.ar/urbano/",
+   "texto_feed": "El básico de todos los días: jean clásico recto ($36.999) + remera lisa Pampero de jersey peinado ($17.999). Juntos pasan los $45.000 y el envío es gratis. Hasta 6 cuotas sin interés.",
+   "texto_vertical": "Jean clásico + remera lisa: $54.998 los dos, con envío gratis."
+  },
+  {
+   "nombre": "22 · Jean en 5 Colores",
+   "tipo": "imagen",
+   "feed": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 4.5/jean-cinco-colores_45.jpg",
+   "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 9.16/jean-cinco-colores_916.jpg",
+   "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 1.1/jean-cinco-colores_11.jpg",
+   "titulo": "Jean Vaquero Clásico — $36.999",
+   "descripcion": "10% OFF pagando por transferencia",
+   "url": "https://blacksindumentaria.com.ar/productos/pantalones-jean-vaquero-clasico-recto-original/",
+   "texto_feed": "El jean clásico recto en cinco colores: claro, medio, estático, azul oscuro y negro. Todos los talles del 40 al 54, 100% algodón y hecho en Argentina. 24% OFF y hasta 6 cuotas sin interés.",
+   "texto_vertical": "Jean clásico recto en 5 colores, del 40 al 54: $36.999."
+  },
+  {
+   "nombre": "23 · Alpargatas Rueda",
+   "tipo": "imagen",
+   "feed": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 4.5/alpargatas-vereda_45.jpg",
+   "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 9.16/alpargatas-vereda_916.jpg",
+   "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/fotos 1.1/alpargatas-vereda_11.jpg",
+   "titulo": "Alpargatas Rueda — $24.999",
+   "descripcion": "Hasta 6 cuotas sin interés",
+   "url": "https://blacksindumentaria.com.ar/productos/alpargatas-rueda-yute-clasica-argentina-original-lbbwl/",
+   "texto_feed": "Alpargatas Rueda de lona con suela de yute natural y el sol bordado con la bandera argentina. Del 4 al 12, en tostado, crudo y jean. Hasta 6 cuotas sin interés.",
+   "texto_vertical": "Alpargatas Rueda de lona y yute: $24.999, del 4 al 12."
   }
  ]
 }

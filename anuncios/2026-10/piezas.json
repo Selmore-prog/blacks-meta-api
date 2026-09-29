@@ -106,5 +106,56 @@
   ],
   "precio": 17999,
   "beneficio_45": null
+ },
+ {
+  "clave": "jean-remera",
+  "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/rem-vaq.4.5.png",
+  "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/rem+vaq 9.16.png",
+  "titular": "JEAN + REMERA",
+  "bajada": "El básico de todos los días, con envío gratis",
+  "chip": "$54.998 LOS DOS",
+  "beneficio": "Hasta 6 cuotas sin interés",
+  "recorte_11": 0.45,
+  "bajada_11": null,
+  "beneficio_11": null,
+  "productos": [
+   298859922,
+   136305274
+  ],
+  "precio_total": 54998,
+  "envio_gratis": true
+ },
+ {
+  "clave": "jean-cinco-colores",
+  "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/vaqueros4.5.png",
+  "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/vaqueros9.16.png",
+  "posicion": "arriba",
+  "titular": "JEAN EN 5 COLORES",
+  "tam_titular": 0.085,
+  "chip": "$36.999",
+  "recorte_11": 0.5,
+  "productos": [
+   298859922
+  ],
+  "precio": 36999
+ },
+ {
+  "clave": "alpargatas-vereda",
+  "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/alpargatas4.5.png",
+  "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/alpargatas 9.16",
+  "posicion": "arriba",
+  "titular": "ALPARGATAS|RUEDA",
+  "bajada": "Lona y yute, con el sol bordado",
+  "chip": "$24.999",
+  "beneficio": "Del 4 al 12, en tres colores",
+  "bajada_45": null,
+  "beneficio_45": null,
+  "recorte_11": 0.3,
+  "bajada_11": null,
+  "beneficio_11": null,
+  "productos": [
+   354993720
+  ],
+  "precio": 24999
  }
 ]
