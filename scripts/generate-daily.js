@@ -1924,7 +1924,7 @@ async function generateForSlot(slot, overrides = {}) {
       displayTitle: (product && product.name) || overlayTitle,
       title: overlayTitle,
       specs: (template === 'ficha' || campaign.isCampaign(template)) && storyDesc
-        ? extractSpecTags(storyDesc, campaign.isCampaign(template) ? 2 : 5, { productName: (product && product.name) || '' })
+        ? extractSpecTags(storyDesc, campaign.isCampaign(template) ? 4 : 5, { productName: (product && product.name) || '' })
         : null,
       deck: copy.deck || copy.subtitle || null,
       cutoutOk,

@@ -100,8 +100,8 @@
         <div class="calendar-title"><span class="studio-kicker">CANAL DE WHATSAPP</span><h2>Publicaciones del canal</h2>
           <div class="sub">Ideas diarias con stock y clima actualizados. Copiá el texto o cargá la encuesta en WhatsApp.</div></div>
       </div>
-      <div class="wa-composer panel">
-        <h3>Crear desde una idea</h3>
+      <details class="wa-composer panel">
+        <summary>Crear desde una idea <span>Nuevo mensaje a pedido</span></summary>
         <p class="hint">Escribí, por ejemplo, “reingresó este producto”. Elegí hasta cuatro artículos y la IA prepara uno o dos mensajes distintos.</p>
         <label class="field"><span>Tema o indicación</span><textarea class="input" id="wa-idea" rows="3" placeholder="Ej: Reingresaron las camperas. Avisá al canal y destacá para qué trabajos sirven."></textarea></label>
         <div class="field"><label for="wa-product-search">Productos de Tiendanube (opcional)</label>
@@ -115,14 +115,23 @@
           <button class="btn-primary" id="wa-generate-idea">Generar mensajes</button>
         </div>
         <p class="hint">El precio y los beneficios se toman del catálogo y la configuración al generar. Si planificás para otro día, revisalos antes de publicar. La publicación al canal se hace desde WhatsApp.</p>
-      </div>
+      </details>
       <div class="wa-controls">
-        <label>Desde <input class="input" type="date" id="wa-start" /></label>
+        <label>Fecha seleccionada <input class="input" type="date" id="wa-start" /></label>
         <button class="btn-primary" id="wa-day">Generar este día</button>
-        <button class="btn-primary" id="wa-week">Generar 7 días</button>
+        <button class="btn-primary" id="wa-week" title="Generar desde la fecha seleccionada">Generar 7 días</button>
         <button class="btn-ghost" id="wa-reload">Actualizar</button>
       </div>
-      <div id="wa-summary" class="wa-summary"></div>
+      <div class="wa-calendar-panel panel">
+        <div class="wa-calendar-toolbar">
+          <div class="wa-period-nav"><button class="btn-ghost btn-sm" id="wa-prev" aria-label="Mes anterior">‹</button><h3 id="wa-period"></h3><button class="btn-ghost btn-sm" id="wa-next" aria-label="Mes siguiente">›</button></div>
+          <div class="wa-view-switch"><button class="btn-ghost btn-sm" id="wa-today">Hoy</button><button class="btn-ghost btn-sm" data-wa-view="week" aria-pressed="false">Semana</button><button class="btn-ghost btn-sm" data-wa-view="month" aria-pressed="true">Mes</button></div>
+        </div>
+        <div id="wa-calendar" aria-label="Elegí un día para ver sus mensajes"></div>
+        <div class="wa-calendar-legend"><span><i class="pending"></i>Pendientes</span><span><i class="published"></i>Publicados</span><span>Elegí una fecha para ver o crear sus mensajes</span></div>
+      </div>
+      <div id="wa-summary" class="wa-summary" aria-live="polite"></div>
+      <div class="wa-selected-heading"><h3 id="wa-selected-title"></h3><span id="wa-selected-count"></span></div>
       <div id="wa-posts" class="wa-posts"><p class="loading">Cargando propuestas…</p></div>
     </section>
 

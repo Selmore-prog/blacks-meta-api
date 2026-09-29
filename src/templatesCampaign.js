@@ -98,11 +98,11 @@ function buildHtml(opts, g, head) {
   const height = g.h - g.safeTop - g.safeBottom;
   const width = g.w - g.padX * 2;
   const box = ([x,y,w,h]) => `left:${g.padX+x*width}px;top:${top+y*height}px;width:${w*width}px;height:${h*height}px;`;
-  const title = clean(opts.overlayTitle || opts.displayTitle);
+  const title = clean(opts.overlayTitle || opts.displayTitle).replace(/\bripstop\b/gi, word => word === 'RIPSTOP' ? word : 'Ripstop');
   // Las características vienen del brief validado, nunca se deducen de las fotos.
   const facts = Array.isArray(opts.specs) && opts.specs.length ? opts.specs : opts.storyPoints;
-  const specs = [...new Set((Array.isArray(facts) ? facts : []).map(clean).filter(Boolean))].slice(0,2);
-  const detail = clean(opts.deck) || specs.join((integrated ? plan.copy : layout.text)[2] < .45 ? '\n' : ' · ');
+  const specs = [...new Set((Array.isArray(facts) ? facts : []).map(clean).filter(Boolean))].slice(0,4);
+  const detail = specs.length ? specs.join((integrated ? plan.copy : layout.text)[2] < .45 ? '\n' : ' · ') : clean(opts.deck);
   const kicker = clean(opts.badgeText || opts.kicker);
   const textBox = integrated ? plan.copy : layout.text;
   const titleSize = textBox[2] < .45 ? 64 : 80;

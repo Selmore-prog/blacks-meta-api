@@ -142,7 +142,8 @@ body.nav-mini .side-tabs .tab .ic { width: 20px; height: 20px; }
 .wa-controls .input { min-width:170px; }
 .wa-summary { display:flex; flex-wrap:wrap; gap:8px 18px; align-items:center; padding:14px 18px; margin-bottom:16px; border:1px solid var(--line); border-radius:12px; background:var(--panel); }
 .wa-summary span { color:var(--muted); font-size:13px; }
-.wa-posts { display:grid; grid-template-columns:repeat(auto-fit,minmax(290px,1fr)); gap:14px; }
+.wa-posts { display:grid; grid-template-columns:repeat(auto-fit,minmax(min(100%,360px),1fr)); gap:14px; }
+.wa-body,.wa-prompt p { overflow-wrap:anywhere; }
 .wa-post { min-width:0; padding:18px; border:1px solid var(--line); border-radius:var(--radius); background:var(--panel); box-shadow:var(--shadow); }
 .wa-post-head { display:flex; justify-content:space-between; align-items:center; gap:8px; color:var(--muted); font-size:12px; text-transform:capitalize; }
 .wa-post h3 { margin:14px 0 9px; font-size:18px; }
@@ -167,6 +168,49 @@ body.nav-mini .side-tabs .tab .ic { width: 20px; height: 20px; }
 .wa-visual-caption textarea { display:block; width:100%; box-sizing:border-box; margin:8px 0; padding:10px; font:inherit; line-height:1.5; resize:vertical; }
 .wa-empty { box-shadow:none; border-style:dashed; }
 .wa-empty .wa-post-head { margin-bottom:18px; }
+.wa-composer > summary { cursor:pointer; font-weight:700; font-size:16px; }
+.wa-composer > summary span { font-weight:400; font-size:12px; color:var(--muted); margin-left:10px; }
+.wa-calendar-panel { padding:18px; margin-bottom:12px; }
+.wa-calendar-toolbar,.wa-period-nav,.wa-view-switch { display:flex; align-items:center; gap:8px; }
+.wa-calendar-toolbar { justify-content:space-between; flex-wrap:wrap; margin-bottom:16px; }
+.wa-period-nav { flex:1; }
+.wa-period-nav h3 { margin:0; font-size:18px; text-transform:capitalize; text-align:center; flex:1; }
+.wa-period-nav button { font-size:24px; line-height:1; min-width:34px; }
+.wa-view-switch { margin-left:auto; }
+.wa-view-switch [aria-pressed="true"] { background:var(--text); color:var(--panel); }
+.wa-weekdays,.wa-calendar-days { display:grid; grid-template-columns:repeat(7,minmax(0,1fr)); gap:5px; }
+.wa-weekdays { margin-bottom:7px; text-align:center; color:var(--muted); font-size:12px; }
+.wa-calendar-day { min-width:0; height:90px; border:1px solid var(--line); border-radius:9px; padding:9px; background:var(--panel); color:var(--text); font:inherit; text-align:left; cursor:pointer; display:flex; flex-direction:column; gap:5px; }
+.wa-calendar-day:hover { background:var(--panel-2); }
+.wa-calendar-day.outside { background:var(--panel-2); color:var(--muted); }
+.wa-calendar-day[aria-pressed="true"] { border:2px solid var(--orange); padding:8px; background:var(--panel-2); }
+.wa-calendar-day:focus-visible { outline:2px solid var(--text); outline-offset:2px; }
+.wa-date-number { font-size:13px; font-weight:700; }
+.wa-calendar-day.is-today .wa-date-number { color:var(--orange); text-decoration:underline; text-underline-offset:3px; }
+.wa-day-topic { overflow:hidden; white-space:nowrap; text-overflow:ellipsis; font-size:12px; width:100%; }
+.wa-day-empty { color:var(--muted); font-size:11px; }
+.wa-day-count { font-size:10px; display:flex; align-items:center; gap:3px; margin-top:auto; white-space:nowrap; overflow:hidden; }
+.wa-day-count i,.wa-calendar-legend i { width:6px; height:6px; border-radius:50%; flex-shrink:0; display:inline-block; }
+.wa-day-count.pending i,.wa-calendar-legend .pending { background:var(--orange); }
+.wa-day-count.published i,.wa-calendar-legend .published { background:#28764c; }
+.wa-calendar-legend { display:flex; flex-wrap:wrap; gap:8px 18px; color:var(--muted); font-size:11px; margin-top:13px; }
+.wa-calendar-legend span { display:flex; align-items:center; gap:5px; }
+.wa-selected-heading { display:flex; align-items:baseline; flex-wrap:wrap; gap:10px; margin:20px 0 12px; }
+.wa-selected-heading h3 { margin:0; font-size:18px; text-transform:capitalize; }
+.wa-selected-heading span { font-size:12px; color:var(--muted); }
+#wa-calendar[aria-busy="true"] { opacity:.5; }
+@media (max-width:1100px) { .wa-count-label { display:none; } }
+@media (max-width:640px) {
+  .wa-calendar-panel { padding:10px; }
+  .wa-calendar-toolbar { gap:12px; }
+  .wa-period-nav { flex-basis:100%; }
+  .wa-period-nav h3 { font-size:15px; }
+  .wa-calendar-day { height:62px; padding:6px; border-radius:6px; }
+  .wa-calendar-day[aria-pressed="true"] { padding:5px; }
+  .wa-calendar-day .wa-day-topic { display:none; }
+  .wa-calendar-days,.wa-weekdays { gap:3px; }
+  .wa-composer > summary span { display:none; }
+}
 @keyframes viewIn { from { opacity: 0; transform: translateY(8px); } to { opacity: 1; transform: none; } }
 .hidden { display: none !important; }
 

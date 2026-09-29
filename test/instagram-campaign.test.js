@@ -100,17 +100,21 @@ test('render feed/story: imagen entera, escena reutilizada, textos y oferta dent
   for(const mode of ['foto','escena']) for(const format of ['feed','story']) for(const template of campaign.NAMES) {
     const h=format==='story'?1920:1350;
     await page.setViewport({width:1080,height:h});
-    await page.setContent(buildHtml({template,format,variant:'cielo',overlayTitle:'Pantalón cargo ripstop antidesgarro',kicker:'Reposición de producto',specs:['Tejido ripstop','Bolsillos laterales'],...(mode==='escena'?{bgImageUrl:fixture(0),campaignSceneVersion:2}:{productImageUrl:fixture(0)}),productImageUrls:[fixture(1),fixture(2,true),fixture(3)],price:72399,promoPrice:59999,ctaLabel:'Hasta 6 cuotas sin interés'}),{waitUntil:'load'});
+    await page.setContent(buildHtml({template,format,variant:'cielo',overlayTitle:'Pantalón cargo ripstop antidesgarro',kicker:'Reposición de producto',deck:'Una opción para todos los días',specs:['Tejido Ripstop antidesgarro','Triple costura','Bolsillos con tapa y velcro','Cartera con cierre'],...(mode==='escena'?{bgImageUrl:fixture(0),campaignSceneVersion:2}:{productImageUrl:fixture(0)}),productImageUrls:[fixture(1),fixture(2,true),fixture(3)],price:72399,promoPrice:59999,ctaLabel:'Hasta 6 cuotas sin interés'}),{waitUntil:'load'});
     await campaign.fitText(page);
     const state=await page.evaluate(()=>({
       images:[...document.images].map(el=>({loaded:el.complete&&el.naturalWidth>0,fit:getComputedStyle(el).objectFit,transform:getComputedStyle(el).transform})),
       overflow:[...document.querySelectorAll('.copy,.footer,h1')].filter(el=>(el.tagName!=='H1'&&el.scrollHeight>el.clientHeight+1)||el.scrollWidth>el.clientWidth+1).map(el=>el.className||el.tagName),
+      title:document.querySelector('h1').textContent,
+      detail:document.querySelector('.detail').textContent,
       main:document.images[0].src,
       scene:document.querySelector('.scene-photo')?.getBoundingClientRect().toJSON(),
       text:[...document.querySelectorAll('.copy,.footer')].map(el=>({top:el.getBoundingClientRect().top,bottom:el.getBoundingClientRect().bottom})),
     }));
     assert.deepEqual(state.overflow,[],`${format}/${template}`);
     assert.equal(state.main,fixture(0));
+    assert.match(state.title,/Cargo Ripstop|cargo Ripstop/);
+    assert.match(state.detail,/Cartera con cierre/);
     if(mode==='escena') assert.deepEqual([state.scene.x,state.scene.y,state.scene.width,state.scene.height],[0,0,1080,h]);
     assert.equal(state.images.length,campaign.LAYOUTS[template].photos.length);
     assert.ok(state.images.every(i=>i.loaded&&i.fit==='contain'&&i.transform==='none'),template);
