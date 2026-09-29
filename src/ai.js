@@ -2826,6 +2826,66 @@ ${noTextNoLogoRule(strict)}
 }
 
 /**
+ * FOTO A PEDIDO, CON UN PROMPT YA ESCRITO.
+ *
+ * La usa la vidriera del home (src/photoIdeas.js): el prompt lo armó el panel
+ * con los datos reales de la prenda y el dueño lo eligió (o lo retocó) antes de
+ * gastar. Por eso acá no se reescribe nada: se adjuntan las fotos de catálogo
+ * como referencia y se pide la relación de aspecto por imageConfig, que es lo
+ * único que el modelo respeta (ver geminiGenerateContent).
+ *
+ * A diferencia de las piezas automáticas, TIRA el error en vez de devolver
+ * null: es una acción manual y el dueño tiene que saber por qué no salió
+ * ("sin crédito" y "demasiado rápido" se arreglan distinto). Un solo intento y
+ * sin control de calidad automático: el dueño ve la foto antes de usarla, y
+ * cada reintento es plata.
+ */
+async function generateImageFromPrompt({ prompt, referenceUrls = [], aspectRatio = '3:4', purpose = 'foto a pedido' } = {}) {
+  const falla = (msg, status = 400) => Object.assign(new Error(msg), { status });
+  if (!prompt || String(prompt).trim().length < 20) throw falla('Falta el prompt.');
+  if (!hasGemini()) throw falla('Falta la clave de Gemini (GEMINI_API_KEY): no se pueden generar fotos desde acá. Copiá el prompt y usalo en la app de Gemini o ChatGPT.');
+  if (isImageQuotaCoolingDown()) throw falla(`No se puede generar ahora: ${imageGenerationBlockedReason()}. Mientras tanto, copiá el prompt y usalo en la app de Gemini o ChatGPT con las fotos de referencia.`, 402);
+
+  const refs = [];
+  for (const u of referenceUrls.slice(0, 4)) {
+    try {
+      const r = await fetch(u);
+      if (!r.ok) continue;
+      let buf = Buffer.from(await r.arrayBuffer());
+      buf = await resizeImage(buf, 1024).catch(() => buf);
+      refs.push({ data: buf.toString('base64'), mimeType: 'image/jpeg' });
+    } catch (_) { /* seguimos con las que se pudieron bajar */ }
+  }
+
+  await tomarTurnoDeImagen();
+  try {
+    let data;
+    try {
+      data = await geminiGenerateContent(config.gemini.imageModel, {
+        contents: [{ role: 'user', parts: [{ text: String(prompt).slice(0, 6000) }, ...refs.map((r) => ({ inlineData: r }))] }],
+        generationConfig: { responseModalities: ['TEXT', 'IMAGE'] },
+        aspectRatio,
+      });
+    } catch (err) {
+      if (err.status === 429 || err.status === 402) {
+        markImageQuotaHit(err);
+        throw falla(`No se pudo generar: ${imageGenerationBlockedReason() || 'Gemini cortó por cuota'}. Mientras tanto, copiá el prompt y usalo en la app de Gemini o ChatGPT con las fotos de referencia.`, 402);
+      }
+      throw falla(`Gemini no pudo generar la foto (${err.status || 'error'}). Probá de nuevo o cambiá la idea.`, 502);
+    }
+    const img = await inlineImageClean(data);
+    if (!img) {
+      // Pasa cuando el modelo se niega (a veces con personas) y contesta sólo texto.
+      const motivo = textFromResponse(data).slice(0, 160);
+      throw falla(`El modelo no devolvió imagen${motivo ? `: "${motivo}"` : ''}. Probá con otra idea o sin modelo.`, 502);
+    }
+    img.costUsd = await logImageUsage(purpose);
+    img.referencias = refs.length;
+    return img;
+  } finally { soltarTurnoDeImagen(); }
+}
+
+/**
  * ESTUDIO: escena profesional con UNO O VARIOS productos reales (combo/outfit).
  * A diferencia de generateProductScene (pieza del calendario, 1 producto), acá se
  * mandan hasta 4 fotos de referencia y la escena tiene que integrarlos juntos de
@@ -3811,6 +3871,7 @@ module.exports = {
   planHeroShot,
   describeProductPhotos,
   generateStudioScene,
+  generateImageFromPrompt,
   buildStudioVideoPrompt,
   buildStudioVideoPromptSet,
   generateDiagram,

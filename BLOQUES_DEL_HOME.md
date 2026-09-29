@@ -27,7 +27,7 @@ la lista va al "◆ Bloque 1", el segundo al "◆ Bloque 2", y así.
 > secciones del home. Por eso el *lugar* se elige allá una vez, y el *contenido*
 > se cambia todas las veces que quieras desde acá, sin tocar el theme.
 
-## Los nueve tipos
+## Los diez tipos
 
 | Tipo | Para qué |
 |---|---|
@@ -40,6 +40,7 @@ la lista va al "◆ Bloque 1", el segundo al "◆ Bloque 2", y así.
 | **Cinta de texto** | Franja con frases que se desplazan. Corta entre dos secciones pesadas. |
 | **Preguntas frecuentes** | Las dudas que hoy llegan por WhatsApp. |
 | **¿Qué necesitás?** | Tarjetas por rubro (obra, industria, gastronomía…) a su categoría. |
+| **Vidriera de fotos** | Fotos producidas del tamaño de una tarjeta de producto, en carrusel o grilla. Cada foto lleva a sus prendas. Con ideas y prompts para la IA (ver abajo). |
 
 Cada tipo trae **textos sugeridos** escritos para esta tienda: se cargan con un
 clic y después los editás.
@@ -65,6 +66,54 @@ clic y después los editás.
   no salta cuando cargan las imágenes.
 - Sólo la foto de la **Portada puesta en el Bloque 1** se pide con prioridad, por
   si es lo primero que se ve.
+
+## Vidriera de fotos: ideas y prompts para la IA
+
+Para mostrar los productos de otra manera —con fondo, puestos, en conjunto— sin
+el tamaño de un banner. Cada foto se ata a **sus prendas del catálogo** (hasta
+cuatro): tocar la foto lleva a la primera; si son varias, se ve como conjunto con
+una miniatura de cada una, y cada miniatura lleva a su ficha.
+
+- **Tres diseños de placa**, los tres distintos de una tarjeta de producto a
+  propósito: *etiqueta* (foto + ficha flotante con la prenda y el precio),
+  *mini banner* (título grande sobre la foto) y *editorial* (marco, número
+  grande calado y texto abajo).
+- **Tamaño de tarjeta**: en celular se ven dos y asoma la tercera; en
+  computadora, cinco (o cuatro en "un poco más grande").
+- Sin foto propia, va **la de catálogo** entera sobre blanco: el bloque se puede
+  armar hoy y mejorar foto por foto.
+- Si la prenda principal **se agota**, esa foto deja de mostrarse sola.
+
+**✨ Ideas** (en cada campo de foto, con la prenda ya elegida) propone seis fotos
+—estudio con fondo de color, calle, donde se usa, aire libre, luz dura, detalle
+de tela, bodegón— cada una con el prompt listo. Salen de los **datos reales** de
+la prenda, no de la imaginación de un modelo:
+
+- el color, de las variantes **con stock** (nunca de mirar la foto);
+- las **fotos para adjuntar**, las de ese color (mezclar colores hace que el
+  generador promedie y la prenda salga de otro tono);
+- tipo de prenda, tela y rasgos, del nombre y la ficha;
+- la forma de la foto, la que tenga elegida el bloque (el prompt la pide al
+  final y en su propia oración).
+
+Por eso funcionan siempre, gratis y al instante, aunque Gemini esté sin crédito.
+Además:
+
+- **Tu idea**: escribís la escena en castellano y el motor le agrega la prenda,
+  el color y las referencias.
+- **Ideas nuevas con IA**: la IA de texto (Gemini o Groq) propone escenas; la
+  parte de la prenda la sigue poniendo el motor, así no puede cambiarle el color.
+- **Generar acá**: genera la foto con Gemini adjuntando las fotos reales y la
+  deja cargada en el campo (~US$0,04). Si la cuenta está sin crédito lo dice con
+  esas palabras; mientras tanto, se copia el prompt y se usa en la app.
+
+> **Antes de publicarla por primera vez** hay que subir por FTP
+> `snipplets/home/home-content-blocks-assets.tpl` (trae el diseño de la
+> vidriera). El motor lee el home en vivo y **no deja publicar una vidriera
+> prendida** mientras la tienda no tenga ese diseño: se vería sin estilo.
+
+Código: `src/photoIdeas.js` (ideas), `vidriera()` en `src/homeBlocksRender.js`,
+`generateImageFromPrompt()` en `src/ai.js`, `hbIdeasCaja()` en el panel.
 
 ---
 
@@ -107,6 +156,8 @@ tomaría como código y rompería el home en silencio.
 | POST | `/api/home/blocks` | Panel. Publicar. **Estricto**: no deja publicar un bloque incompleto. |
 | GET | `/api/home/blocks/search?q=` | Panel. Buscador del catálogo. |
 | POST | `/api/home/blocks/upload` | Panel. Foto o MP4 → Supabase Storage. |
+| POST | `/api/home/blocks/ideas` | Panel. Ideas de foto para las prendas de una placa de la vidriera. `ia: true` pide escenas nuevas a la IA de texto. |
+| POST | `/api/home/blocks/generate` | Panel. Genera la foto de una idea con Gemini + fotos reales de la prenda (sólo acepta fotos de catálogo de esas prendas). |
 
 ### Lo que se arregló de paso
 

@@ -521,7 +521,138 @@ function rubros(b) {
     + `<div class="hb-rubros hb-rubros--${conFoto ? 'foto' : 'texto'}" data-hb-cols="${items.length}">${cuerpo}</div>`;
 }
 
+/* ------------------------------------------------------------ VIDRIERA ---
+ * Fotos producidas del tamaño de una tarjeta de producto. Tres diseños de
+ * placa, los tres distintos de la ficha de catálogo a propósito: si la
+ * vidriera se pareciera a un riel, se leería como "más productos" y no como
+ * otra forma de verlos.
+ *
+ * TODA LA PLACA ES CLICKEABLE, PERO LAS MINIATURAS TAMBIÉN.
+ * Un <a> no puede tener otros <a> adentro, así que la placa NO es un link: es
+ * un <article> con un link estirado encima (.hb-vf-link, position absolute) y
+ * las miniaturas de cada prenda del conjunto por arriba de ese link. Tocar la
+ * foto lleva a la prenda principal; tocar una miniatura, a esa prenda.
+ * ------------------------------------------------------------------------ */
+
+function precioDe(p) {
+  if (!p || p.price == null) return '';
+  return p.promo_price
+    ? `<span class="hb-vf-final">${money(p.promo_price)}</span><s>${money(p.price)}</s>`
+    : `<span class="hb-vf-final">${money(p.price)}</span>`;
+}
+
+function miniaturas(prods, limite = 3) {
+  return prods.slice(0, limite).map((p) => (p.url
+    ? `<a class="hb-vf-mini" href="${esc(p.url)}" title="${esc(p.name)}"><img src="${esc(p.image)}" alt="${esc(p.name)}" loading="lazy" decoding="async" width="64" height="64"></a>`
+    : `<span class="hb-vf-mini"><img src="${esc(p.image)}" alt="${esc(p.name)}" loading="lazy" decoding="async" width="64" height="64"></span>`)).join('');
+}
+
+function placaVidriera(f, i, o) {
+  const prods = (f.product_ids || []).map((id) => o.porId.get(Number(id))).filter(Boolean);
+  const principal = prods[0] || null;
+  const conjunto = prods.length > 1;
+  const fotoPropia = f.image || '';
+  const fotoCatalogo = !fotoPropia && principal ? principal.image : '';
+  // Un conjunto sin título no se nombra con UNA de sus prendas: se leería
+  // como si la foto fuera sólo de esa.
+  const titulo = f.title || (conjunto ? 'Look completo' : (principal ? principal.name : ''));
+  const href = f.url || (principal && principal.url) || '';
+  const num = String(i + 1).padStart(2, '0');
+
+  const foto = fotoPropia || fotoCatalogo
+    ? imagen({ src: fotoPropia || fotoCatalogo, alt: titulo, ratio: o.ratio, sizes: o.sizes })
+    : '<div class="hb-poster-vacio" aria-hidden="true"></div>';
+  // La segunda foto sólo acompaña a una foto propia: sobre la de catálogo no tiene sentido.
+  const foto2 = fotoPropia && f.image_2
+    ? imagen({ src: f.image_2, alt: '', ratio: o.ratio, sizes: o.sizes, clase: 'bf-foto2' })
+    : '';
+  const etiqueta = f.kicker ? `<span class="hb-vf-tag">${esc(f.kicker)}</span>` : '';
+
+  const precio = o.mostrarPrecio && !conjunto ? precioDe(principal) : '';
+  const cuantas = conjunto ? `<span class="hb-vf-cuantas">${prods.length} prendas</span>` : '';
+
+  let extra = '';
+  let pie = '';
+  if (o.estilo === 'banner') {
+    extra = '<div class="hb-vf-over">'
+      + (titulo ? `<h3 class="hb-vf-tit">${esc(titulo)}</h3>` : '')
+      + `<span class="hb-vf-cta">${precio || cuantas || 'Ver'}<span class="hb-vf-flecha" aria-hidden="true">→</span></span>`
+      + '</div>';
+    if (conjunto) extra += `<div class="hb-vf-minis hb-vf-minis--arriba">${miniaturas(prods)}</div>`;
+  } else if (o.estilo === 'marco') {
+    extra = `<span class="hb-vf-num" aria-hidden="true">${num}</span>`;
+    pie = '<div class="hb-vf-pie">'
+      + (f.kicker ? `<span class="hb-vf-kick">${esc(f.kicker)}</span>` : '')
+      + (titulo ? `<h3 class="hb-vf-nombre">${esc(titulo)}</h3>` : '')
+      + ((precio || cuantas) ? `<div class="hb-vf-precio">${precio || cuantas}</div>` : '')
+      + (conjunto ? `<div class="hb-vf-minis">${miniaturas(prods, 4)}</div>` : '')
+      + '</div>';
+  } else {
+    // ETIQUETA: una ficha flotante que monta sobre el pie de la foto, con la
+    // foto de CATÁLOGO de la prenda en miniatura. El contraste entre la foto
+    // producida y la prenda sobre blanco es lo que hace que se lea "esto es
+    // lo que te llevás".
+    pie = !prods.length && !titulo ? '' : '<div class="hb-vf-ficha">'
+      + (prods.length ? `<span class="hb-vf-minis">${miniaturas(prods)}</span>` : '')
+      + '<span class="hb-vf-txt">'
+      + (titulo ? `<span class="hb-vf-nombre">${esc(titulo)}</span>` : '')
+      + ((precio || cuantas) ? `<span class="hb-vf-precio">${precio || cuantas}</span>` : '')
+      + '</span>'
+      + '<span class="hb-vf-flecha" aria-hidden="true">→</span>'
+      + '</div>';
+  }
+
+  // Las etiquetas de la foto van SOLO en "etiqueta" y "banner": en "marco" la
+  // volanta ya está en el pie y repetirla arriba ensucia.
+  const tag = o.estilo === 'marco' ? '' : etiqueta;
+  const link = href
+    ? `<a class="hb-vf-link" href="${esc(href)}"><span class="hb-sr">${esc(titulo || 'Ver')}</span></a>`
+    : '';
+
+  return `<article class="hb-vf${fotoCatalogo ? ' hb-vf--catalogo' : ''}${conjunto ? ' hb-vf--conjunto' : ''}">`
+    + `<div class="hb-vf-media"${foto2 ? ' data-foto-alterna' : ''}>${foto}${foto2}${tag}${extra}</div>`
+    + pie
+    + link
+    + '</article>';
+}
+
+function vidriera(b, ctx) {
+  const d = b.data;
+  const estilo = ['etiqueta', 'banner', 'marco'].includes(d.card_style) ? d.card_style : 'etiqueta';
+  const layout = d.layout === 'grilla' ? 'grilla' : 'carrusel';
+  const tam = d.size === 'grande' ? 'grande' : 'producto';
+  const ratio = RATIOS[d.ratio] ? d.ratio : '3-4';
+  const o = {
+    porId: ctx.porId || new Map(),
+    estilo,
+    ratio,
+    mostrarPrecio: d.show_price !== false,
+    // Lo que mide cada placa ANTES de bajar la foto: una tarjeta, no la pantalla.
+    sizes: tam === 'grande' ? '(min-width: 768px) 24vw, 62vw' : '(min-width: 768px) 19vw, 44vw',
+  };
+  const fotos = ctx.fotos || d.fotos || [];
+  const placas = fotos.map((f, i) => placaVidriera(f, i, o)).join('');
+  if (!placas) return '';
+
+  const carrusel = layout === 'carrusel';
+  const nav = carrusel
+    ? '<div class="hb-vid-nav">'
+      + '<button type="button" class="hb-vid-flecha" data-hb-dir="-1" aria-label="Anterior" disabled><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M15 5l-7 7 7 7"/></svg></button>'
+      + '<div class="hb-vid-barra" aria-hidden="true"><span></span></div>'
+      + '<button type="button" class="hb-vid-flecha" data-hb-dir="1" aria-label="Siguiente"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 5l7 7-7 7"/></svg></button>'
+      + '</div>'
+    : '';
+
+  return encabezado(d)
+    + `<div class="hb-vid hb-vid--${layout} hb-vid-e-${estilo} hb-vid-t-${tam}" data-hb-cols="${fotos.length}" style="${ratioStyle(ratio)}"${carrusel ? ' data-hb-carrusel' : ''}>`
+    + `<div class="hb-vid-pista"${carrusel ? ` tabindex="0" role="group" aria-label="${esc(d.title || 'Fotos')}"` : ''}>${placas}</div>`
+    + nav
+    + '</div>'
+    + botones(d);
+}
+
 const RENDERERS = {
+  vidriera,
   portada,
   media_texto: mediaTexto,
   atributos,

@@ -40,6 +40,7 @@ const metaPausa = require('./metaPausa');
 const homeBlocksAssets = require('./homeBlocksAssets');
 const homePlan = require('./homePlan');
 const homeCopy = require('./homeCopy');
+const photoIdeas = require('./photoIdeas');
 const searchAnalytics = require('./searchAnalytics');
 const storeHome = require('./storeHome');
 const storeCategories = require('./storeCategories');
@@ -1355,12 +1356,20 @@ app.post('/api/home/blocks/preview', wrap(async (req, res) => {
   // otros mientras completa uno.
   const cfg = homeBlocks.validateConfig(req.body, { lenient: true });
   const payload = await homeBlocks.buildPayload(cfg, { incluirApagados: true });
+  const sinEstilo = await homeBlocks.tiposSinEstiloEnLaTienda(req.body);
+  sinEstilo.forEach((t) => payload.avisos.push(`La tienda todavía no tiene el diseño de "${t}": falta subir el theme (snipplets/home/home-content-blocks-assets.tpl). Hasta entonces no te voy a dejar publicarlo prendido.`));
   res.json({ ...payload, faltantes: cfg.faltantes, css: homeBlocksAssets.CSS, js: homeBlocksAssets.JS });
 }));
 
 // Publicar: valida, guarda e invalida la caché. A partir de acá la tienda ya
 // sirve los bloques nuevos (hasta 30 s de caché de CDN).
 app.post('/api/home/blocks', wrap(async (req, res) => {
+  // Se lee la tienda en el momento (force): recién subido el theme, la copia de
+  // hace 20 minutos todavía diría que no.
+  const sinEstilo = await homeBlocks.tiposSinEstiloEnLaTienda(req.body, { force: true });
+  if (sinEstilo.length) {
+    return res.status(409).json({ error: `La tienda todavía no tiene el diseño de "${sinEstilo.join('", "')}": se vería sin estilo. Subí el theme (snipplets/home/home-content-blocks-assets.tpl) y volvé a publicar. Mientras tanto podés dejar ese bloque apagado como borrador y publicar el resto.` });
+  }
   const config = await homeBlocks.saveBlocksConfig(req.body);
   const payload = await homeBlocks.getBlocks({ force: true });
   res.json({ ok: true, config, avisos: payload.avisos || [] });
@@ -1507,6 +1516,57 @@ app.post('/api/home/blocks/prompt', wrap(async (req, res) => {
     campo: b.campo,
     instrucciones: b.instrucciones || '',
   }));
+}));
+
+/* ------------------ VIDRIERA DE FOTOS: ideas y fotos con IA -------------
+ * Ideas de foto para las prendas de una placa, con el prompt armado a partir
+ * de los datos reales (tipo, tela, colores con stock, rasgos de la ficha) y las
+ * fotos de catálogo del color elegido para adjuntar. Ver src/photoIdeas.js.
+ * `ia: true` pide además escenas nuevas a la IA de texto (Gemini o Groq).    */
+app.post('/api/home/blocks/ideas', wrap(async (req, res) => {
+  const b = req.body || {};
+  const opciones = {
+    productIds: Array.isArray(b.product_ids) ? b.product_ids : [],
+    ratio: String(b.ratio || '3-4'),
+    estilo: String(b.estilo || 'etiqueta'),
+    seed: Number(b.seed) || 0,
+    color: String(b.color || '').slice(0, 40),
+    idea: String(b.idea || '').slice(0, 400),
+  };
+  if (b.ia) {
+    const r = await photoIdeas.ideasDeFotoConIA({ ...opciones, recientes: Array.isArray(b.recientes) ? b.recientes.map(String) : [] });
+    res.json({ ...r, precioImagenUsd: require('./ai').currentImagePriceUsd() });
+    return;
+  }
+  res.json({ ...(await photoIdeas.ideasDeFoto(opciones)), precioImagenUsd: require('./ai').currentImagePriceUsd() });
+}));
+
+/* Genera la foto de una idea con Gemini, adjuntando las fotos REALES de la
+   prenda. Las referencias se aceptan sólo si son fotos de catálogo de esas
+   mismas prendas: el prompt viene del navegador y no se le deja al panel
+   mandarle al modelo una imagen cualquiera de internet. */
+app.post('/api/home/blocks/generate', wrap(async (req, res) => {
+  const { generateImageFromPrompt } = require('./ai');
+  const b = req.body || {};
+  const { filas, urls } = await photoIdeas.fotosPermitidas(Array.isArray(b.product_ids) ? b.product_ids : []);
+  if (!filas.length) return res.status(400).json({ error: 'Elegí la prenda de esta foto: sin sus fotos de referencia la IA inventa la prenda.' });
+  const referencias = (Array.isArray(b.referencias) ? b.referencias : []).map(String).filter((u) => urls.has(u)).slice(0, 4);
+  if (!referencias.length) referencias.push(...[...urls].slice(0, 2));
+  const aspectRatio = photoIdeas.RATIOS[String(b.ratio || '3-4')] || '3:4';
+
+  const img = await generateImageFromPrompt({
+    prompt: String(b.prompt || ''),
+    referenceUrls: referencias,
+    aspectRatio,
+    purpose: 'vidriera del home',
+  });
+  const ext = (img.mimeType || 'image/jpeg').split('/')[1] || 'jpg';
+  const url = await uploadAsset({
+    buffer: img.buffer,
+    filename: `home-blocks/ia-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`,
+    contentType: img.mimeType || 'image/jpeg',
+  });
+  res.json({ url, costUsd: img.costUsd || 0, referencias: img.referencias || 0 });
 }));
 
 app.post('/api/home/plan/copy', wrap(async (req, res) => {

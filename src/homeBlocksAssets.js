@@ -693,6 +693,178 @@ a.hb-rubro:hover .hb-rubro-media img { transform: scale(1.05); }
   .hb-cinta-item { font-size: 14px; padding: 0 28px; }
 }
 
+/* ===== VIDRIERA DE FOTOS ================================================
+   Placas del tamaño de una tarjeta de producto (medido en la tienda en vivo,
+   sep-2026: 145 px de ancho en un celular de 375, 230 px en escritorio). En
+   celular se ven dos y asoma la tercera, que es lo que avisa que se desliza.
+   El diseño se aparta de la ficha de catálogo a propósito: radio más
+   generoso, foto producida a sangre y la prenda en una etiqueta aparte. */
+.hb-vid { --vf-gap: 12px; --vf-w: 44%; --vf-radio: 10px; position: relative; }
+.hb-vid-t-grande { --vf-w: 64%; }
+.hb-vid-pista { display: grid; gap: var(--vf-gap); }
+.hb-vid--grilla .hb-vid-pista { grid-template-columns: repeat(2, minmax(0, 1fr)); row-gap: 20px; }
+.hb-vid--carrusel .hb-vid-pista {
+  grid-auto-flow: column; grid-auto-columns: var(--vf-w);
+  overflow-x: auto; overscroll-behavior-x: contain; scroll-snap-type: x mandatory;
+  margin: 0 calc(-1 * var(--hb-borde)); padding: 4px var(--hb-borde) 12px; scroll-padding: 0 var(--hb-borde);
+  scrollbar-width: none; -webkit-overflow-scrolling: touch;
+}
+.hb-vid--carrusel .hb-vid-pista::-webkit-scrollbar { display: none; }
+.hb-vid--carrusel .hb-vf { scroll-snap-align: start; }
+.hb-vid-pista:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: 2px; }
+/* A ancho completo no hay borde del bloque: el aire lo pone la pista. */
+.hb-w-completo .hb-vid--carrusel .hb-vid-pista { padding-left: 16px; padding-right: 16px; scroll-padding: 0 16px; }
+.hb-w-completo .hb-vid--grilla .hb-vid-pista, .hb-w-completo .hb-vid-nav { padding-left: 16px; padding-right: 16px; }
+
+.hb-vf { position: relative; display: flex; flex-direction: column; min-width: 0; color: inherit; }
+.hb-vf-media {
+  position: relative; overflow: hidden; isolation: isolate; border-radius: var(--vf-radio);
+  aspect-ratio: var(--hb-ratio, 3 / 4); background: rgba(127,127,127,.10);
+}
+.hb-vf-media .hb-pic { position: absolute; inset: 0; aspect-ratio: auto; }
+.hb-vf-media img { transition: transform .6s cubic-bezier(.2,.6,.2,1); }
+.hb-vf-media .bf-foto2 { opacity: 0; transition: opacity .3s ease; }
+@media (hover: hover) {
+  .hb-vf:hover .hb-vf-media img { transform: scale(1.045); }
+  .hb-vf:hover .bf-foto2 { opacity: 1; }
+}
+/* Sin foto propia todavía: va la de catálogo, entera y sobre blanco. Recortada
+   a 3:4 una foto cuadrada de catálogo perdía los costados de la prenda. */
+.hb-vf--catalogo .hb-vf-media { background: #fff; }
+.hb-vf--catalogo .hb-vf-media img { object-fit: contain; padding: 10% 8% 20%; }
+.hb-vf-tag {
+  position: absolute; z-index: 2; left: 8px; top: 8px; max-width: calc(100% - 16px);
+  background: var(--hb-accent); color: #fff; font-size: 10px; font-weight: 800; line-height: 1;
+  letter-spacing: .09em; text-transform: uppercase; padding: 5px 7px 4px; border-radius: 3px;
+  white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+}
+/* El link estirado: toda la placa lleva a la prenda principal. */
+.hb-vf-link { position: absolute; inset: 0; z-index: 3; border-radius: var(--vf-radio); }
+.hb-vf-link:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: 2px; }
+.hb-sr { position: absolute !important; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+/* Miniaturas: la foto de catálogo de cada prenda. Van POR ENCIMA del link
+   estirado (z-index 4) para que cada una lleve a su propia ficha. */
+.hb-vf-minis { display: flex; flex: none; }
+.hb-vf-minis > * + * { margin-left: -9px; }
+.hb-vf-mini {
+  position: relative; z-index: 4; flex: none; display: block; width: 30px; height: 30px;
+  border-radius: 6px; overflow: hidden; background: #fff;
+  border: 1px solid rgba(0,0,0,.10); box-shadow: 0 1px 3px rgba(0,0,0,.14);
+  transition: transform .15s ease;
+}
+.hb-vf-mini img { display: block; width: 100%; height: 100%; object-fit: contain; }
+a.hb-vf-mini:hover { transform: translateY(-2px); }
+.hb-vf-precio { display: flex; align-items: baseline; gap: 5px; flex-wrap: wrap; font-size: 12.5px; line-height: 1.2; }
+.hb-vf-final { font-weight: 800; }
+.hb-vf-precio s, .hb-vf-cta s { font-size: 11px; color: var(--hb-muted); }
+.hb-vf-cuantas { font-size: 10.5px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: var(--hb-muted); }
+.hb-vf-flecha { flex: none; font-size: 14px; line-height: 1; transition: transform .2s ease; }
+.hb-vf:hover .hb-vf-flecha { transform: translateX(3px); }
+
+/* --- diseño "etiqueta": ficha flotante que monta sobre el pie de la foto --- */
+.hb-vid-e-etiqueta .hb-vf-ficha {
+  position: relative; z-index: 2; display: flex; align-items: center; gap: 8px;
+  margin: -26px 7px 0; padding: 7px 8px 7px 7px;
+  background: var(--hb-bg); color: var(--hb-fg);
+  border: 1px solid var(--hb-line); border-radius: 8px; box-shadow: 0 6px 14px rgba(0,0,0,.12);
+}
+/* La sombra de la etiqueta cae ~20 px debajo de la placa: la pista, que corta
+   lo que se sale (overflow), necesita ese aire o la sombra termina en una
+   línea recta. */
+.hb-vid--carrusel.hb-vid-e-etiqueta .hb-vid-pista { padding-bottom: 22px; }
+.hb-vid-e-etiqueta .hb-vid-nav { margin-top: 2px; }
+.hb-vf-txt { flex: 1; min-width: 0; display: grid; gap: 2px; }
+.hb-vid-e-etiqueta .hb-vf-nombre {
+  font-size: 12px; font-weight: 700; line-height: 1.22;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.hb-vid-e-etiqueta .hb-vf-flecha { display: none; color: var(--hb-accent); }
+.hb-vid-e-etiqueta .hb-vf--conjunto .hb-vf-minis > * + * { margin-left: -14px; }
+
+/* --- diseño "banner": título grande sobre la foto, como un banner chico --- */
+.hb-vid-e-banner .hb-vf-media::after {
+  content: ""; position: absolute; inset: 0; z-index: 1; pointer-events: none;
+  background: linear-gradient(to top, rgba(0,0,0,.82) 0%, rgba(0,0,0,.36) 34%, rgba(0,0,0,0) 62%);
+}
+.hb-vf-over { position: absolute; z-index: 2; left: 0; right: 0; bottom: 0; padding: 12px 11px 11px; color: #fff; }
+.hb-vf-tit {
+  margin: 0; font-size: clamp(14px, 4.2vw, 17px); line-height: 1.02; font-weight: 900;
+  letter-spacing: -.005em; text-transform: uppercase; color: #fff; text-wrap: balance;
+  display: -webkit-box; -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+}
+.hb-vf-cta {
+  display: inline-flex; align-items: baseline; gap: 6px; margin-top: 8px; padding-bottom: 3px;
+  font-size: 12px; font-weight: 700; border-bottom: 2px solid var(--hb-accent);
+}
+.hb-vid-e-banner .hb-vf-cta s { color: rgba(255,255,255,.72); }
+.hb-vid-e-banner .hb-vf-cuantas { color: #fff; }
+.hb-vf-minis--arriba { position: absolute; z-index: 4; right: 8px; top: 8px; }
+
+/* --- diseño "marco": pieza editorial con número grande calado ------------ */
+.hb-vid-e-marco .hb-vf {
+  padding: 6px 6px 10px; border: 1px solid var(--hb-line); border-radius: 12px; background: var(--hb-bg);
+  transition: box-shadow .2s ease, border-color .2s ease;
+}
+.hb-vid-e-marco .hb-vf:hover { box-shadow: 0 10px 26px rgba(0,0,0,.12); }
+.hb-vid-e-marco .hb-vf-media { border-radius: 7px; }
+.hb-vf-num {
+  position: absolute; z-index: 2; right: 7px; bottom: 1px; pointer-events: none;
+  font-size: 46px; font-weight: 900; line-height: .9; letter-spacing: -.05em;
+  color: transparent; -webkit-text-stroke: 1.5px rgba(255,255,255,.95); text-shadow: 0 2px 14px rgba(0,0,0,.18);
+}
+/* Sobre la foto de catálogo (fondo blanco) el número blanco no se ve. */
+.hb-vf--catalogo .hb-vf-num { -webkit-text-stroke-color: var(--hb-accent); text-shadow: none; }
+.hb-vf-pie { padding: 10px 4px 0; display: grid; gap: 3px; }
+.hb-vf-kick { font-size: 10px; font-weight: 800; letter-spacing: .14em; text-transform: uppercase; color: var(--hb-accent); }
+.hb-t-acento .hb-vf-kick { color: currentColor; }
+.hb-vid-e-marco .hb-vf-nombre {
+  margin: 0; font-size: 13px; font-weight: 700; line-height: 1.25; color: inherit;
+  display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden;
+}
+.hb-vid-e-marco .hb-vf-minis { margin-top: 6px; }
+
+/* --- flechas y barra de avance del carrusel ------------------------------ */
+.hb-vid-nav { display: flex; align-items: center; gap: 12px; margin-top: 10px; }
+.hb-vid-barra { position: relative; flex: 1; height: 3px; border-radius: 3px; background: var(--hb-line); overflow: hidden; }
+.hb-vid-barra span {
+  position: absolute; top: 0; bottom: 0; left: var(--vid-x, 0%); width: var(--vid-ancho, 35%);
+  border-radius: 3px; background: var(--hb-fg); transition: left .12s linear;
+}
+.hb-vid-flecha {
+  display: none; flex: none; width: 38px; height: 38px; padding: 0; border-radius: 50%; cursor: pointer;
+  border: 1px solid var(--hb-line); background: var(--hb-bg); color: var(--hb-fg);
+  place-items: center; transition: border-color .15s ease, opacity .15s ease;
+}
+.hb-vid-flecha svg { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+.hb-vid-flecha:hover:not(:disabled) { border-color: currentColor; }
+.hb-vid-flecha:disabled { opacity: .3; cursor: default; }
+/* Si entran todas, no hay nada que deslizar: ni flechas ni barra. */
+.hb-vid.sin-desborde .hb-vid-nav { display: none; }
+
+@media (min-width: 768px) {
+  .hb-vid { --vf-gap: 16px; --vf-w: calc((100% - 4 * var(--vf-gap)) / 5); }
+  .hb-vid-t-grande { --vf-w: calc((100% - 3 * var(--vf-gap)) / 4); }
+  .hb-vid--carrusel .hb-vid-pista { margin: 0; padding: 4px 0 12px; scroll-padding: 0; }
+  .hb-vid--carrusel.hb-vid-e-etiqueta .hb-vid-pista { padding-bottom: 22px; }
+  .hb-w-completo .hb-vid--carrusel .hb-vid-pista, .hb-w-completo .hb-vid--grilla .hb-vid-pista,
+  .hb-w-completo .hb-vid-nav { padding-left: 32px; padding-right: 32px; scroll-padding: 0 32px; }
+  .hb-vid--grilla .hb-vid-pista { grid-template-columns: repeat(5, minmax(0, 1fr)); row-gap: 26px; }
+  .hb-vid--grilla.hb-vid-t-grande .hb-vid-pista { grid-template-columns: repeat(4, minmax(0, 1fr)); }
+  /* Pocas fotos: no se estiran a media pantalla cada una, quedan del tamaño de tarjeta. */
+  .hb-vid--grilla[data-hb-cols="2"] .hb-vid-pista { grid-template-columns: repeat(2, minmax(0, 250px)); }
+  .hb-vid--grilla[data-hb-cols="3"] .hb-vid-pista { grid-template-columns: repeat(3, minmax(0, 250px)); }
+  .hb-vid--grilla[data-hb-cols="4"]:not(.hb-vid-t-grande) .hb-vid-pista { grid-template-columns: repeat(4, minmax(0, 250px)); }
+  .hb-vid-flecha { display: grid; }
+  .hb-vf-mini { width: 34px; height: 34px; }
+  .hb-vid-e-etiqueta .hb-vf-ficha { margin: -30px 10px 0; padding: 8px 10px 8px 8px; gap: 10px; }
+  .hb-vid-e-etiqueta .hb-vf-nombre { font-size: 13px; }
+  .hb-vid-e-etiqueta .hb-vf-flecha { display: block; }
+  .hb-vf-tit { font-size: 19px; }
+  .hb-vf-over { padding: 16px 14px 14px; }
+  .hb-vf-num { font-size: 58px; }
+  .hb-vid-e-marco .hb-vf-nombre { font-size: 14px; }
+}
+
 /* Quien pidió menos movimiento en su sistema no ve la cinta desplazarse ni los
    zooms de las fotos. No es un detalle de accesibilidad: en algunos celulares
    el movimiento constante también gasta batería. */
@@ -801,15 +973,16 @@ const JS = `
       v.dataset.hbObs = '1';
       if (io) io.observe(v); else activarVideo(v);
     });
-    // Segunda foto que se muestra sola. Hoy la pide UN solo caso: las placas
-    // de rubro con dos imágenes cargadas a mano (por eso el atributo
-    // data-foto-alterna quedó sólo ahí, y no en las fichas de producto). Es
-    // una placa grande, elegida, y la segunda foto es contenido — no un tic de
-    // interfaz repetido en veinte fichas chicas.
+    // Segunda foto que se muestra sola. La piden las placas de rubro y las
+    // fotos de la vidriera con dos imágenes cargadas a mano (por eso el
+    // atributo data-foto-alterna está sólo ahí, y no en las fichas de
+    // producto): son piezas elegidas, y la segunda foto es contenido — no un
+    // tic de interfaz repetido en veinte fichas chicas.
     // El helper vive en el theme (snipplets/home/home-second-photo.tpl); en la
     // vista previa del panel no existe y no pasa nada: sin él las placas se
     // quedan en la primera foto y el hover anda igual.
     if (window.blacksFotoAlterna) window.blacksFotoAlterna(raiz || document);
+    pintarCarruseles(raiz);
   }
 
   function pintarToggle(btn, pausado) {
@@ -819,8 +992,69 @@ const JS = `
     btn.setAttribute('aria-label', pausado ? 'Reproducir video' : 'Pausar video');
   }
 
+  /* --- vidriera: barra de avance y flechas del carrusel ----------------- */
+  /* La barra mide lo que se ve sobre el total y avanza con el scroll. Las
+     flechas se apagan en las puntas. Si entran todas las fotos, la caja se
+     marca .sin-desborde y el CSS esconde las dos cosas. */
+  function pintarCarrusel(caja) {
+    var pista = caja.querySelector('.hb-vid-pista');
+    if (!pista) return;
+    var total = pista.scrollWidth;
+    var visible = pista.clientWidth;
+    var sobra = total - visible;
+    caja.classList.toggle('sin-desborde', sobra <= 4);
+    var ancho = total ? Math.max(0.12, Math.min(1, visible / total)) : 1;
+    var avance = sobra > 0 ? Math.min(1, Math.max(0, pista.scrollLeft / sobra)) : 0;
+    caja.style.setProperty('--vid-ancho', (ancho * 100).toFixed(2) + '%');
+    caja.style.setProperty('--vid-x', ((1 - ancho) * avance * 100).toFixed(2) + '%');
+    var bs = caja.querySelectorAll('[data-hb-dir]');
+    for (var i = 0; i < bs.length; i++) {
+      var dir = Number(bs[i].getAttribute('data-hb-dir'));
+      bs[i].disabled = dir < 0 ? pista.scrollLeft <= 2 : pista.scrollLeft >= sobra - 2;
+    }
+  }
+
+  function pintarCarruseles(raiz) {
+    (raiz || document).querySelectorAll('[data-hb-carrusel]').forEach(pintarCarrusel);
+  }
+
+  // El scroll de un elemento no burbujea, pero sí se captura desde el
+  // documento: así sirve para las vidrieras que se inyectan después.
+  var carruselPendiente = null;
+  document.addEventListener('scroll', function (ev) {
+    var t = ev.target;
+    if (!t || !t.classList || !t.classList.contains('hb-vid-pista')) return;
+    if (carruselPendiente) return;
+    carruselPendiente = t;
+    requestAnimationFrame(function () {
+      var caja = carruselPendiente && carruselPendiente.closest('[data-hb-carrusel]');
+      carruselPendiente = null;
+      if (caja) pintarCarrusel(caja);
+    });
+  }, true);
+
+  var timerCarruseles = null;
+  window.addEventListener('resize', function () {
+    clearTimeout(timerCarruseles);
+    timerCarruseles = setTimeout(function () { pintarCarruseles(document); }, 150);
+  });
+
   /* --- clics: play de fachada, pausa de cinta, botón de sonido ---------- */
   document.addEventListener('click', function (ev) {
+    var flecha = ev.target.closest ? ev.target.closest('.hb-vid-flecha[data-hb-dir]') : null;
+    if (flecha) {
+      var cajaV = flecha.closest('[data-hb-carrusel]');
+      var pistaV = cajaV && cajaV.querySelector('.hb-vid-pista');
+      if (!pistaV) return;
+      ev.preventDefault();
+      // Una "página" menos un poco, para que la última foto visible quede de
+      // referencia y se entienda cuánto se movió.
+      var paso = pistaV.clientWidth * 0.9 * Number(flecha.getAttribute('data-hb-dir'));
+      if (pistaV.scrollBy) pistaV.scrollBy({ left: paso, behavior: reduce ? 'auto' : 'smooth' });
+      else pistaV.scrollLeft += paso;
+      return;
+    }
+
     var play = ev.target.closest ? ev.target.closest('.hb-play') : null;
     if (play) {
       var caja = play.closest('.hb-media');

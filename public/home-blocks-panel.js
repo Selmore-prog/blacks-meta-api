@@ -57,6 +57,8 @@ const HB_ESQUEMAS = {
   cinta: '<rect x="1" y="17" width="78" height="14" rx="1" class="f"/><rect x="6" y="22" width="14" height="4" rx="1" class="w"/><rect x="26" y="22" width="18" height="4" rx="1" class="w"/><rect x="50" y="22" width="12" height="4" rx="1" class="w"/>',
   preguntas: '<rect x="1" y="6" width="78" height="10" rx="1"/><rect x="1" y="18" width="78" height="10" rx="1"/><rect x="1" y="30" width="78" height="10" rx="1"/><rect x="70" y="10" width="5" height="2" rx="1" class="f"/><rect x="70" y="22" width="5" height="2" rx="1" class="f"/><rect x="70" y="34" width="5" height="2" rx="1" class="f"/>',
   rubros: '<rect x="1" y="4" width="18" height="40" rx="2" class="f"/><rect x="21" y="4" width="18" height="40" rx="2" class="f"/><rect x="41" y="4" width="18" height="40" rx="2" class="f"/><rect x="61" y="4" width="18" height="40" rx="2" class="f"/>',
+  // Placas verticales con la etiqueta flotante y una cuarta asomando: se desliza.
+  vidriera: '<rect x="1" y="3" width="22" height="31" rx="3" class="f"/><rect x="27" y="3" width="22" height="31" rx="3" class="f"/><rect x="53" y="3" width="22" height="31" rx="3" class="f"/><rect x="77" y="3" width="10" height="31" rx="3" class="f"/><rect x="3" y="30" width="18" height="7" rx="1.5"/><rect x="29" y="30" width="18" height="7" rx="1.5"/><rect x="55" y="30" width="18" height="7" rx="1.5"/><rect x="1" y="43" width="40" height="2" rx="1" class="f"/>',
 };
 
 function hbEsquema(tipo, alto = 54) {
@@ -74,7 +76,8 @@ function hbNombre(b) {
   const d = b.data || {};
   const t = d.title || d.kicker
     || (Array.isArray(d.items) && d.items[0] && (d.items[0].title || d.items[0].q || d.items[0].text))
-    || (Array.isArray(d.tiles) && d.tiles[0] && d.tiles[0].title);
+    || (Array.isArray(d.tiles) && d.tiles[0] && d.tiles[0].title)
+    || (Array.isArray(d.fotos) && d.fotos[0] && d.fotos[0].title);
   const tipo = hbTipo(b.type);
   return t || (tipo ? tipo.label : b.type);
 }
@@ -311,7 +314,7 @@ function hbCampo(campo, valor, ruta, data) {
 
     case 'imagen':
     case 'video':
-      return hbCampoArchivo(campo, valor, ruta, lab, help);
+      return hbCampoArchivo(campo, valor, ruta, lab, help, data);
 
     case 'opciones':
       return `<label class="hb-f">${lab}
@@ -356,8 +359,15 @@ function hbNota(ruta, clave) {
     ${n.evitar ? `<span>Evitar: ${esc(n.evitar)}</span>` : ''}</div>`;
 }
 
-function hbCampoArchivo(campo, valor, ruta, lab, help) {
+function hbCampoArchivo(campo, valor, ruta, lab, help, data) {
   const esVideo = campo.type === 'video';
+  /* Campo con `ideas`: la foto sale de una prenda del catálogo (la vidriera).
+     En vez del prompt genérico, ideas armadas con los datos de ESA prenda. */
+  const conIdeas = !!campo.ideas;
+  const prendas = conIdeas && data ? (data[campo.ideas] || []) : [];
+  const botonIA = conIdeas
+    ? `<button class="hb-mini hb-mini--ia" onclick="hbPedirIdeas('${ruta}')" ${prendas.length ? '' : 'disabled title="Elegí primero la prenda de esta foto"'}>✨ Ideas</button>`
+    : `<button class="hb-mini" onclick="hbPrompt('${ruta}', '${hbAttr(campo.key)}')" title="Escribir el prompt para generar ${esVideo ? 'este video' : 'esta foto'} con IA">✨ Prompt</button>`;
   const previa = valor
     ? (esVideo && /\.(mp4|webm|mov)(\?|$)/i.test(valor)
       ? `<video src="${hbAttr(valor)}" class="hb-mini-prev" muted playsinline preload="metadata"></video>`
@@ -369,9 +379,205 @@ function hbCampoArchivo(campo, valor, ruta, lab, help) {
       <input type="text" value="${hbAttr(valor || '')}" placeholder="${esVideo ? 'Pegá el link o subí un MP4' : 'Pegá la URL o subí la foto'}"
              oninput="hbSet('${ruta}', this.value)">
       <button class="hb-mini" onclick="hbSubir('${ruta}', ${esVideo})">Subir</button>
-      <button class="hb-mini" onclick="hbPrompt('${ruta}', '${hbAttr(campo.key)}')" title="Escribir el prompt para generar ${esVideo ? 'este video' : 'esta foto'} con IA">✨ Prompt</button>
+      ${botonIA}
       ${valor ? `<button class="hb-mini rojo" onclick="hbSetYRedibuja('${ruta}', '')">Quitar</button>` : ''}
-    </span>${help}${valor ? '' : hbNota(ruta, campo.key)}${hbPromptCaja(ruta)}</label>`;
+    </span>${help}${valor ? '' : hbNota(ruta, campo.key)}${hbPromptCaja(ruta)}</label>${conIdeas ? hbIdeasCaja(ruta) : ''}`;
+}
+
+/* ============================================ IDEAS DE FOTO (vidriera) ====
+ * Las ideas las arma el motor con los datos reales de la prenda elegida: tipo,
+ * tela, colores CON STOCK y las fotos de catálogo de ese color para adjuntar
+ * (ver src/photoIdeas.js). Salen gratis y al instante, sin IA. La IA de texto
+ * se usa sólo si se piden "ideas nuevas", y la de imagen sólo al tocar
+ * "Generar acá" — las dos cosas que cuestan.
+ *
+ * El estado vive por RUTA del campo ("3.data.fotos.1.image"): cada foto de la
+ * vidriera tiene sus propias ideas abiertas.                                */
+
+function hbIdeasContexto(ruta) {
+  const partes = ruta.split('.');
+  const bloque = hbState.bloques[Number(partes[0])];
+  const campoKey = partes[partes.length - 1];
+  const tipo = hbTipo(bloque.type);
+  // El campo `productos` hermano: el que declara `ideas` en el catálogo.
+  let campoDef = null;
+  tipo.fields.forEach((f) => {
+    if (f.key === campoKey && f.ideas) campoDef = f;
+    (f.item || []).forEach((sub) => { if (sub.key === campoKey && sub.ideas) campoDef = sub; });
+  });
+  const padre = partes.slice(0, -1).join('.');
+  const ids = (campoDef && hbGet(`${padre}.${campoDef.ideas}`)) || [];
+  return { bloque, ids: Array.isArray(ids) ? ids : [] };
+}
+
+async function hbPedirIdeas(ruta, opciones = {}) {
+  hbState.ideas = hbState.ideas || {};
+  const previo = hbState.ideas[ruta] || {};
+  const { bloque, ids } = hbIdeasContexto(ruta);
+  if (!ids.length) { toast('Elegí primero la prenda de esta foto.', 'error'); return; }
+
+  const seed = opciones.seed != null ? opciones.seed : (previo.seed || 0);
+  const estado = {
+    ...previo,
+    seed,
+    color: opciones.color !== undefined ? opciones.color : (previo.color || ''),
+    cargando: true,
+    error: null,
+    abierta: null,
+  };
+  hbState.ideas[ruta] = estado;
+  hbRenderEditor();
+  try {
+    const r = await api('/api/home/blocks/ideas', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        product_ids: ids,
+        ratio: bloque.data.ratio || '3-4',
+        estilo: bloque.data.card_style || 'etiqueta',
+        seed,
+        color: estado.color,
+        idea: opciones.propia ? (estado.texto || '') : '',
+        ia: !!opciones.ia,
+        recientes: opciones.ia && previo.data ? previo.data.ideas.map((x) => x.titulo) : [],
+      }),
+    });
+    // Las de la IA se SUMAN arriba de las que ya había: no se pierde lo que gustó.
+    const ideas = opciones.ia && previo.data
+      ? r.ideas.concat(previo.data.ideas.filter((x) => !String(x.id).startsWith('ia_')))
+      : r.ideas;
+    hbState.ideas[ruta] = { ...estado, cargando: false, data: { ...r, ideas } };
+  } catch (err) {
+    hbState.ideas[ruta] = { ...estado, cargando: false, error: err.message };
+  }
+  hbRenderEditor();
+}
+
+function hbIdeasCaja(ruta) {
+  const st = (hbState.ideas || {})[ruta];
+  if (!st) return '';
+  if (st.cargando && !st.data) return '<div class="hb-ideas"><span class="loading">Armando ideas con los datos de la prenda…</span></div>';
+  if (st.error && !st.data) {
+    return `<div class="hb-ideas hb-prompt-error"><p>${esc(st.error)}</p>
+      <button class="hb-mini rojo" onclick="hbCerrarIdeas('${ruta}')">Cerrar</button></div>`;
+  }
+  const d = st.data;
+  const p = d.productos[0] || {};
+  const colorActual = (d.ideas[0] && d.ideas[0].color) || st.color || '';
+  const refs = (d.ideas[0] && d.ideas[0].referencias) || [];
+
+  const colores = (p.colores || []).length > 1
+    ? `<div class="hb-ideas-fila"><span class="hb-ideas-lab">${d.productos.length > 1 ? 'Color de la prenda principal' : 'Color de la foto'}</span>
+        ${p.colores.map((c) => `<button class="hb-chip ${c.nombre === colorActual ? 'on' : ''}" onclick="hbPedirIdeas('${ruta}', { color: '${hbAttr(c.nombre)}' })">
+          ${c.foto ? `<img src="${hbAttr(c.foto)}" alt="">` : ''}${esc(c.nombre)}</button>`).join('')}
+        <span class="hb-f-help">Sólo aparecen los colores con stock.</span></div>`
+    : '';
+
+  const referencias = refs.length
+    ? `<div class="hb-ideas-fila"><span class="hb-ideas-lab">Fotos para adjuntar</span>
+        <span class="hb-ideas-refs">${refs.map((x) => `<a href="${hbAttr(x.url)}" target="_blank" rel="noopener" title="Abrir para guardar${x.color ? ` · ${hbAttr(x.color)}` : ''}"><img src="${hbAttr(x.url)}" alt=""></a>`).join('')}</span>
+        <span class="hb-f-help">Si usás el prompt en Gemini o ChatGPT, adjuntá estas fotos: ${d.productos.length > 1 ? 'son de las prendas reales' : `son de la prenda real${colorActual ? ` en ${esc(colorActual.toLowerCase())}` : ''}`}, y el prompt le pide que las respete tal cual. "Generar acá" ya las manda solo.</span></div>`
+    : '';
+
+  const lista = d.ideas.map((x, k) => {
+    const abierta = st.abierta === k;
+    const generando = st.generando === k;
+    return `<div class="hb-idea ${abierta ? 'on' : ''} ${String(x.id).startsWith('ia_') ? 'hb-idea--ia' : ''}">
+      <div class="hb-idea-tit"><b>${esc(x.titulo)}</b>${String(x.id).startsWith('ia_') ? '<span class="hb-idea-tag">IA</span>' : ''}${x.id === 'propia' ? '<span class="hb-idea-tag">tuya</span>' : ''}</div>
+      <p class="hb-idea-que">${esc(x.que)}</p>
+      <p class="hb-idea-por">${esc(x.porQue)}</p>
+      <div class="hb-idea-acc">
+        <button class="hb-mini" onclick="hbCopiarIdea('${ruta}', ${k}, this)">Copiar prompt</button>
+        <button class="hb-mini" onclick="hbVerIdea('${ruta}', ${k})">${abierta ? 'Ocultar' : 'Ver y editar'}</button>
+        <button class="hb-mini hb-mini--ia" onclick="hbGenerarIdea('${ruta}', ${k})" ${st.generando != null ? 'disabled' : ''}
+                title="Genera la foto con Gemini adjuntando las fotos reales de la prenda, y la pone en este campo">${generando ? 'Generando… (20-60 s)' : `Generar acá · ~US$${Number(d.precioImagenUsd || 0.04).toFixed(2).replace('.', ',')}`}</button>
+      </div>
+      ${abierta ? `<textarea rows="8" oninput="hbEditarIdea('${ruta}', ${k}, this.value)">${esc(x.prompt)}</textarea>
+        <span class="hb-f-help">Lo que edites acá es lo que se copia y lo que se genera. Está en inglés porque los generadores de imagen responden mejor así.</span>` : ''}
+    </div>`;
+  }).join('');
+
+  return `<div class="hb-ideas">
+    <div class="hb-ideas-head">
+      <div><b>Ideas de foto para ${esc(d.productos.length > 1 ? 'el conjunto' : (p.name || 'esta prenda'))}</b>
+        <span class="hb-f-help">${d.fuente === 'ia' ? 'Escenas propuestas por la IA; la prenda, el color y las referencias los pone el motor.' : `Salen de los datos reales: ${esc([p.tipo, p.tela].filter(Boolean).join(', '))}, colores con stock y los rasgos de la ficha.`}</span></div>
+      <button class="hb-mini rojo" onclick="hbCerrarIdeas('${ruta}')">Cerrar</button>
+    </div>
+    ${colores}
+    ${referencias}
+    ${st.error ? `<p class="hb-aviso hb-aviso--falta">${esc(st.error)}</p>` : ''}
+    <div class="hb-ideas-lista">${lista}</div>
+    <div class="hb-ideas-pie">
+      <input type="text" maxlength="400" placeholder="¿Tenés una idea? Ej: en una terraza de Buenos Aires al atardecer" value="${hbAttr(st.texto || '')}"
+             oninput="hbIdeasTexto('${ruta}', this.value)" onkeydown="if(event.key==='Enter'){event.preventDefault(); hbPedirIdeas('${ruta}', { propia: true });}">
+      <button class="hb-mini" onclick="hbPedirIdeas('${ruta}', { propia: true })">Armar prompt con mi idea</button>
+      <button class="hb-mini" onclick="hbPedirIdeas('${ruta}', { seed: ${(st.seed || 0) + 1} })" ${st.cargando ? 'disabled' : ''}>Otras variantes</button>
+      <button class="hb-mini hb-mini--ia" onclick="hbPedirIdeas('${ruta}', { ia: true })" ${st.cargando ? 'disabled' : ''}>${st.cargando ? 'Pensando…' : '✨ Ideas nuevas con IA'}</button>
+    </div>
+  </div>`;
+}
+
+function hbIdeasTexto(ruta, valor) {
+  // Sin redibujar: se perdería el foco del campo mientras se escribe.
+  hbState.ideas[ruta].texto = valor;
+}
+
+function hbVerIdea(ruta, k) {
+  const st = hbState.ideas[ruta];
+  st.abierta = st.abierta === k ? null : k;
+  hbRenderEditor();
+}
+
+function hbEditarIdea(ruta, k, valor) {
+  hbState.ideas[ruta].data.ideas[k].prompt = valor;
+}
+
+function hbCerrarIdeas(ruta) {
+  if (hbState.ideas) delete hbState.ideas[ruta];
+  hbRenderEditor();
+}
+
+async function hbCopiarIdea(ruta, k, btn) {
+  const x = hbState.ideas[ruta].data.ideas[k];
+  try {
+    await navigator.clipboard.writeText(x.prompt);
+    const antes = btn.textContent;
+    btn.textContent = 'Copiado';
+    setTimeout(() => { btn.textContent = antes; }, 1600);
+  } catch (_) {
+    hbState.ideas[ruta].abierta = k;
+    hbRenderEditor();
+    toast('No pude copiar solo: seleccioná el texto del prompt y copialo a mano.', 'error');
+  }
+}
+
+async function hbGenerarIdea(ruta, k) {
+  const st = hbState.ideas[ruta];
+  const x = st.data.ideas[k];
+  const { bloque, ids } = hbIdeasContexto(ruta);
+  const costo = Number(st.data.precioImagenUsd || 0.04).toFixed(2).replace('.', ',');
+  if (!confirm(`Voy a generar "${x.titulo}" con Gemini (~US$${costo}), adjuntando ${x.referencias.length} foto${x.referencias.length === 1 ? '' : 's'} real${x.referencias.length === 1 ? '' : 'es'} de la prenda. Si sale bien, reemplaza la foto de este campo. ¿Seguimos?`)) return;
+  st.generando = k;
+  hbRenderEditor();
+  try {
+    const r = await api('/api/home/blocks/generate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        product_ids: ids,
+        prompt: x.prompt,
+        referencias: x.referencias.map((f) => f.url),
+        ratio: bloque.data.ratio || '3-4',
+      }),
+    });
+    hbSet(ruta, r.url);
+    toast(`Listo: foto generada (US$${Number(r.costUsd || 0).toFixed(3)}). Ya está en la vista previa; publicá cuando te guste.`, 'ok');
+  } catch (err) {
+    toast(err.message, 'error');
+  } finally {
+    st.generando = null;
+    hbRenderEditor();
+  }
 }
 
 /* PROMPT A PEDIDO PARA ESTE HUECO.
@@ -455,7 +661,7 @@ function hbCampoProductos(campo, ids, ruta, lab, help) {
   return `<div class="hb-f">${lab}
     <div class="hb-prods-elegidos">${chips || '<span class="hb-f-help">Todavía no elegiste ninguno.</span>'}</div>
     ${ids.length < (campo.max || 6) ? `
-      <input type="search" class="hb-buscar" placeholder="Buscar en el catálogo…" value="${hbAttr((hbState.buscando && hbState.buscando.ruta === ruta && hbState.buscando.q) || '')}"
+      <input type="search" class="hb-buscar" data-ruta="${hbAttr(ruta)}" placeholder="Buscar en el catálogo…" value="${hbAttr((hbState.buscando && hbState.buscando.ruta === ruta && hbState.buscando.q) || '')}"
              oninput="hbBuscarProductos('${ruta}', this.value)">
       ${lista.length ? `<div class="hb-result">${lista.map((p) => `
         <button class="hb-result-item" onclick="hbAgregarProducto('${ruta}', ${p.id})">
@@ -571,7 +777,10 @@ function hbAgregarItem(ruta) {
   const bloque = hbState.bloques[Number(partes[0])];
   const campo = hbTipo(bloque.type).fields.find((f) => f.key === clave);
   const nuevo = {};
-  (campo.item || []).forEach((sub) => { nuevo[sub.key] = sub.default !== undefined ? sub.default : (sub.type === 'switch' ? false : ''); });
+  (campo.item || []).forEach((sub) => {
+    nuevo[sub.key] = sub.default !== undefined ? sub.default
+      : (sub.type === 'switch' ? false : (sub.type === 'productos' || sub.type === 'lista' ? [] : ''));
+  });
   lista.push(nuevo);
   hbSet(ruta, lista);
   hbRenderEditor();
@@ -603,7 +812,8 @@ function hbBuscarProductos(ruta, q) {
       hbState.buscando = { ruta, q, resultados: r, elegidos };
       hbRenderEditor();
       // El input se redibujó: hay que devolverle el foco y el cursor al final.
-      const inp = document.querySelector('.hb-buscar');
+      // Con varias fotos en la vidriera hay un buscador por foto: el de ESTA ruta.
+      const inp = document.querySelector(`.hb-buscar[data-ruta="${ruta}"]`);
       if (inp) { inp.focus(); inp.setSelectionRange(inp.value.length, inp.value.length); }
     } catch (err) { toast(err.message, 'error'); }
   }, 300);
@@ -703,7 +913,7 @@ function hbCrear(tipoId) {
   tipo.fields.filter((c) => c.type === 'lista' && c.min).forEach((c) => {
     while ((data[c.key] || []).length < c.min) {
       const it = {};
-      (c.item || []).forEach((sub) => { it[sub.key] = sub.default !== undefined ? sub.default : ''; });
+      (c.item || []).forEach((sub) => { it[sub.key] = sub.default !== undefined ? sub.default : (sub.type === 'productos' ? [] : ''); });
       data[c.key] = (data[c.key] || []).concat([it]);
     }
   });

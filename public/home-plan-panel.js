@@ -163,6 +163,9 @@ function hpSilueta(id, tipo, bloque) {
       return `<div class="sk-faq">${rep(3, 'sk-faq-row')}</div>`;
     case 'rubros':
       return `<div class="sk-fila sk-fila--tiles">${rep(4, 'sk-tile')}</div>`;
+    // Vidriera: placas verticales que se deslizan, como un riel pero de fotos.
+    case 'vidriera':
+      return `<div class="sk-titulo"></div><div class="sk-fila sk-fila--tiles">${rep(4, 'sk-tile')}</div>`;
     case 'cinta':
       return `<div class="sk-cinta"></div>`;
     case 'lookbook':
@@ -277,6 +280,7 @@ const HP_BLOQUES = {
   portada: 'Portada', media_texto: 'Imagen y texto', atributos: 'Tira de atributos',
   editorial: 'Editorial', video: 'Video', productos: 'Productos elegidos',
   cinta: 'Cinta de texto', preguntas: 'Preguntas frecuentes', rubros: '¿Qué necesitás?',
+  vidriera: 'Vidriera de fotos',
 };
 const hpNombreBloque = (t) => HP_BLOQUES[t] || t;
 const hpNombreSeccion = (id) => ({

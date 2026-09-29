@@ -450,7 +450,10 @@ function recortarEnFrase(txt, max) {
  * que le faltan + las prohibiciones + la referencia del producto real.
  */
 function promptDeFoto(v) {
-  const base = recortarEnFrase(String(v.prompt_ia || v.que || '').trim(), 900);
+  /* `max` lo sube la vidriera (src/photoIdeas.js): su parte fija —la prenda
+     real con sus rasgos, el estilismo y la composición para placa chica— ya
+     ocupa unos 900 caracteres antes de la escena. */
+  const base = recortarEnFrase(String(v.prompt_ia || v.que || '').trim(), v.max || 900);
   if (!base) return '';
   const esVideo = String(v.tipo || '').toLowerCase() === 'video'
     || /\bvideo\b|\bclip\b|footage|seconds long/i.test(String(v.campo || '') + ' ' + base);

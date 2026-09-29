@@ -193,6 +193,12 @@ async function leerHome({ force = false } = {}) {
      cada snippet arma la URL a su manera. */
   const scrapers = (html.match(/parseFromString/g) || []).length;
   const usaMotor = html.includes('/api/home/rails');
+  /* Qué tipos de bloque sabe DIBUJAR el theme que está publicado. El CSS de los
+     bloques va embebido en el home (snipplets/home/home-content-blocks-assets.tpl),
+     así que alcanza con buscar una clase de cada tipo nuevo. Sirve para no
+     publicar un bloque que la tienda mostraría sin estilo porque el theme
+     todavía no se subió. */
+  const soporta = { vidriera: html.includes('.hb-vid-pista') };
 
   const data = {
     disponible: true,
@@ -207,6 +213,7 @@ async function leerHome({ force = false } = {}) {
     peso_kb: Math.round(Buffer.byteLength(html) / 1024),
     scrapers,
     usaMotor,
+    soporta,
   };
   cache = { at: Date.now(), data };
   return data;

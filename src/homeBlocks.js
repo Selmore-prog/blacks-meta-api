@@ -523,6 +523,87 @@ const BLOCK_TYPES = {
       },
     ],
   },
+
+  /* ------------------------------------------------------------------ */
+  /* VIDRIERA DE FOTOS — fotos producidas del tamaño de una tarjeta.
+     Nace de un pedido concreto (sep-2026): mostrar los productos "de otra
+     manera" —puestos, con fondo, en conjunto— pero sin el tamaño de un banner.
+     Cada placa se ata a sus prendas del catálogo, y eso es lo que permite dos
+     cosas que una foto suelta no puede: llevar a la ficha real (con el precio
+     del día) y que el panel proponga ideas de foto con el prompt armado a
+     partir de la prenda real (ver src/photoIdeas.js). */
+  vidriera: {
+    label: 'Vidriera de fotos',
+    resumen: 'Fotos producidas —con fondo, puestas, en conjunto— del tamaño de una tarjeta de producto, en carrusel o grilla. Cada una lleva a sus prendas.',
+    para: 'Mostrar los productos de otra manera sin ocupar lo que ocupa un banner. Elegís la prenda de cada foto y te propongo ideas con el prompt listo para la IA (o la genero desde acá).',
+    sketch: 'vidriera',
+    fields: [
+      { key: 'kicker', label: 'Volanta', type: 'texto', max: 40 },
+      { key: 'title', label: 'Título', type: 'texto', max: 70, placeholder: 'Así queda puesto' },
+      { key: 'text', label: 'Bajada (opcional)', type: 'textarea', max: 200 },
+      {
+        key: 'fotos', label: 'Fotos', type: 'lista', max: 12, min: 2,
+        item: [
+          {
+            key: 'product_ids', label: 'Prendas que aparecen', type: 'productos', max: 4,
+            help: 'La primera es la principal: a su ficha lleva la foto. Si elegís varias, se muestra como conjunto, con una miniatura de cada una. Con la prenda elegida, tocá "✨ Ideas" en la foto.',
+          },
+          {
+            key: 'image', label: 'Foto', type: 'imagen', ideas: 'product_ids',
+            help: 'Vertical, con la forma que elijas abajo (3:4 de fábrica). Si no cargás ninguna, va la foto de catálogo de la prenda.',
+          },
+          {
+            key: 'image_2', label: 'Segunda foto (opcional)', type: 'imagen', ideas: 'product_ids',
+            help: 'Se alterna con la primera: al pasar el mouse en la computadora, y sola una vez al entrar en pantalla en el celular. Un primer plano de la tela queda muy bien.',
+          },
+          { key: 'kicker', label: 'Etiqueta', type: 'texto', max: 22, placeholder: 'Look 01' },
+          { key: 'title', label: 'Título (opcional)', type: 'texto', max: 48, placeholder: 'Ripstop para la ciudad', help: 'Vacío = el nombre de la prenda.' },
+          { key: 'url', label: 'Link (opcional)', type: 'url', help: 'Vacío = la ficha de la primera prenda.' },
+        ],
+      },
+      {
+        key: 'card_style', label: 'Diseño de cada foto', type: 'opciones', default: 'etiqueta',
+        options: [
+          { value: 'etiqueta', label: 'Foto + etiqueta flotante con la prenda y el precio' },
+          { value: 'banner', label: 'Mini banner: título grande sobre la foto' },
+          { value: 'marco', label: 'Editorial: con marco, número y texto abajo' },
+        ],
+        help: 'Las tres se distinguen de las tarjetas de producto a propósito: esto es una vidriera, no otro riel.',
+      },
+      {
+        key: 'layout', label: 'Disposición', type: 'opciones', default: 'carrusel',
+        options: [
+          { value: 'carrusel', label: 'Carrusel que se desliza (con flechas en computadora)' },
+          { value: 'grilla', label: 'Grilla' },
+        ],
+      },
+      {
+        key: 'ratio', label: 'Forma de las fotos', type: 'opciones', default: '3-4',
+        options: [
+          { value: '3-4', label: 'Vertical 3:4 (recomendada)' },
+          { value: '4-5', label: 'Vertical 4:5' },
+          { value: '1-1', label: 'Cuadrada' },
+        ],
+        help: 'Las ideas y los prompts piden esta misma forma, así la foto no se recorta.',
+      },
+      {
+        key: 'size', label: 'Tamaño', type: 'opciones', default: 'producto',
+        options: [
+          { value: 'producto', label: 'Como una tarjeta de producto' },
+          { value: 'grande', label: 'Un poco más grande' },
+        ],
+        help: 'Como una tarjeta: en celular se ven dos y un poco de la tercera; en computadora, cinco. Más grande: una y media en celular, cuatro en computadora.',
+      },
+      { key: 'show_price', label: 'Mostrar el precio', type: 'switch', default: true },
+      { key: 'hide_out_of_stock', label: 'Ocultar las fotos de prendas agotadas', type: 'switch', default: true, help: 'Mira la primera prenda de cada foto. Una foto linda que lleva a algo que no se puede comprar es peor que no tenerla.' },
+      ...CTA_FIELDS('cta1', 'Botón "ver todo"'),
+    ],
+    sugerencias: [
+      { kicker: 'Puesto', title: 'Así queda puesto', text: 'La ropa del catálogo, fuera del catálogo.' },
+      { kicker: 'Looks', title: 'Armá el equipo completo', text: 'Prendas que se usan juntas en la jornada.' },
+      { kicker: 'Temporada', title: 'Lo que se usa esta primavera', text: '' },
+    ],
+  },
 };
 
 const TYPE_IDS = Object.keys(BLOCK_TYPES);
@@ -747,6 +828,56 @@ function validarMinimos(type, data, slot) {
       if (!t.title && !t.image) throw badRequest(`${donde}: la placa ${i + 1} está vacía (necesita al menos título o imagen).`);
     });
   }
+  if (type === 'vidriera') {
+    /* Una foto sin prenda y sin imagen no tiene nada que mostrar. Con prenda y
+       sin foto sí: sale con la foto de catálogo mientras se consigue la linda. */
+    data.fotos.forEach((f, i) => {
+      if (!f.image && !(f.product_ids || []).length) {
+        throw badRequest(`${donde}: la foto ${i + 1} está vacía. Cargale una imagen o elegí la prenda (sin imagen, va la foto de catálogo).`);
+      }
+    });
+    if (data.fotos.length < 2) throw badRequest(`${donde} necesita al menos 2 fotos.`);
+  }
+}
+
+/** Todos los productos que usa un bloque, también los que viven adentro de una
+    lista (las prendas de cada foto de la vidriera). */
+function idsDeProductos(b) {
+  const ids = [];
+  fieldsOf(b.type).forEach((c) => {
+    const v = b.data[c.key];
+    if (c.type === 'productos') ids.push(...(Array.isArray(v) ? v : []));
+    if (c.type === 'lista' && Array.isArray(v)) {
+      (c.item || []).filter((sub) => sub.type === 'productos').forEach((sub) => {
+        v.forEach((it) => { if (it && Array.isArray(it[sub.key])) ids.push(...it[sub.key]); });
+      });
+    }
+  });
+  return ids.map(Number).filter((n) => Number.isFinite(n) && n > 0);
+}
+
+/* -------------------------------------------------------------------------
+ * ¿EL THEME PUBLICADO SABE DIBUJAR ESTE BLOQUE?
+ * El HTML de los bloques sale del motor, pero el CSS vive embebido en el theme
+ * y se sube a mano. Un tipo nuevo publicado antes de subir el theme se vería
+ * en la tienda como fotos y textos sueltos, sin diseño. Se lee el home en vivo
+ * y se busca una clase del tipo (ver `soporta` en src/storeHome.js).
+ * Si la tienda no contesta no se traba nada: mejor publicar que quedar rehén.
+ * ----------------------------------------------------------------------- */
+async function tiposSinEstiloEnLaTienda(input, { force = false } = {}) {
+  const usados = [...new Set((Array.isArray(input && input.blocks) ? input.blocks : [])
+    .filter((b) => b && b.enabled !== false)
+    .map((b) => b.type)
+    .filter((t) => t === 'vidriera'))];
+  if (!usados.length) return [];
+  try {
+    const { leerHome } = require('./storeHome');
+    const home = await leerHome({ force });
+    if (!home.disponible || !home.soporta) return [];
+    return usados.filter((t) => home.soporta[t] === false).map((t) => BLOCK_TYPES[t].label);
+  } catch (_) {
+    return [];
+  }
 }
 
 async function saveBlocksConfig(input) {
@@ -911,7 +1042,7 @@ async function buildPayload(cfg, { incluirApagados = false } = {}) {
   const activos = cfg.blocks.filter((b) => incluirApagados || b.enabled);
 
   // Un solo viaje a la base para todos los productos de todos los bloques.
-  const idsNecesarios = [...new Set(activos.flatMap((b) => (b.data.product_ids || [])))];
+  const idsNecesarios = [...new Set(activos.flatMap(idsDeProductos))];
   const productos = await fetchProducts(idsNecesarios);
   const porId = new Map(productos.map((p) => [p.id, p]));
 
@@ -925,6 +1056,27 @@ async function buildPayload(cfg, { incluirApagados = false } = {}) {
       if (!ctx.products.length) {
         avisos.push(`El bloque "${BLOCK_TYPES[b.type].label}" (${b.slot}) no tiene ningún producto con stock: no se va a mostrar.`);
         return; // no se publica un bloque de productos vacío
+      }
+    }
+    if (b.type === 'vidriera') {
+      ctx.porId = porId;
+      /* Las fotos cuya prenda principal está agotada no se muestran: llevan a
+         una ficha donde no se puede comprar. Las que no tienen prenda (una foto
+         de ambiente con link a mano) quedan siempre. */
+      let ocultas = 0;
+      ctx.fotos = (b.data.fotos || []).filter((f) => {
+        const principal = porId.get(Number((f.product_ids || [])[0]));
+        // En la vista previa una foto a medio cargar se dibuja igual (rayada),
+        // para que se vea la forma del bloque mientras se arma.
+        if (!principal) return !!f.image || incluirApagados;
+        const agotada = b.data.hide_out_of_stock && principal.stock === 0;
+        if (agotada) ocultas += 1;
+        return !agotada;
+      });
+      if (ocultas) avisos.push(`La vidriera (${b.slot}) oculta ${ocultas} ${ocultas === 1 ? 'foto porque su prenda está agotada' : 'fotos porque sus prendas están agotadas'}.`);
+      if (!ctx.fotos.length) {
+        avisos.push(`La vidriera (${b.slot}) no tiene ninguna foto para mostrar: no se va a ver.`);
+        return;
       }
     }
     blocks[b.slot] = { type: b.type, borrador: b.enabled === false, html: renderBlock(b, ctx) };
@@ -978,6 +1130,7 @@ module.exports = {
   DEVICES,
   getBlocksConfig,
   saveBlocksConfig,
+  tiposSinEstiloEnLaTienda,
   validateConfig,
   buildPayload,
   getBlocks,
