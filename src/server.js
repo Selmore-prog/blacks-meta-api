@@ -675,6 +675,30 @@ app.post('/api/ai/improve-brief', wrap(async (req, res) => {
  * de gastar en la imagen, no después.
  *
  * Es texto: no gasta en imágenes. Ver planPieceFromText en src/ai.js. */
+/* VIDEO A PARTIR DE UNA IDEA: una frase ("quiero un video del ripstop") y sale el guion
+   grabable completo, con el producto real buscado en el catálogo. Sólo texto: no gasta
+   en imágenes ni guarda nada hasta que se manda al calendario. Ver src/reelBrief.js. */
+app.post('/api/ai/reel-from-idea', wrap(async (req, res) => {
+  const b = req.body || {};
+  res.json(await require('./reelBrief').briefFromIdea({
+    idea: String(b.idea || ''),
+    productIds: Array.isArray(b.product_ids) ? b.product_ids : [],
+    fecha: b.fecha || null,
+  }));
+}));
+
+app.post('/api/ai/reel-from-idea/create', wrap(async (req, res) => {
+  const b = req.body || {};
+  const slot = await require('./reelBrief').createReelFromIdea({
+    brief: b.brief,
+    fecha: b.fecha,
+    hora: b.hora || '18:00',
+    productIds: Array.isArray(b.product_ids) ? b.product_ids : [],
+    idea: String(b.idea || ''),
+  });
+  res.json({ ok: true, slot });
+}));
+
 app.post('/api/ai/piece-from-text', wrap(async (req, res) => {
   const { planPieceFromText } = require('./ai');
   const texto = String((req.body || {}).texto || '').trim().slice(0, 1200);

@@ -5,6 +5,8 @@ const { generateBackground, generateProductScene, generateDiagram } = require('.
 const { stripEmoji, fixSpelling, compactFact } = require('./textUtils');
 const modern = require('./templatesModern');
 const campaign = require('./templatesCampaign');
+const studio = require('./templatesStudio');
+const photoStage = require('./photoStage');
 const { cutoutFromUrl } = require('./productCutout');
 const panorama = require('./carouselPanorama');
 
@@ -104,7 +106,9 @@ function arrowSvg(color = '#fff', size = 22) {
 const TEMPLATES = ['fullbleed', 'minimal', 'promo', 'educativo', 'mayorista',
   'grid', 'overlap', 'specsheet', 'splitscreen', 'blueprint', 'magazine', 'stackedcards', 'polaroidstrip', 'poster',
   // Plantillas modernas basadas en el recorte de la prenda (ver templatesModern.js).
-  'recorte', 'ficha', 'editorial', ...campaign.NAMES];
+  'recorte', 'ficha', 'editorial', ...campaign.NAMES,
+  // El sistema visual vigente (sep-2026): ver src/templatesStudio.js.
+  ...studio.NAMES];
 
 // Las que dependen del recorte de la prenda (renderPostBuffer lo calcula solo).
 const MODERN_TEMPLATES = ['recorte', 'ficha', 'editorial'];
@@ -113,6 +117,7 @@ const MODERN_TEMPLATES = ['recorte', 'ficha', 'editorial'];
 // mejor le queda a la pieza según su mensaje/objetivo. Sólo texto informativo — la
 // disponibilidad real la filtra generate-daily (fotos/descripción que hay).
 const TEMPLATE_INFO = {
+  ...studio.INFO,
   ...campaign.INFO,
   // Las modernas van primeras y descritas con detalle A PROPÓSITO: el cerebro elige
   // sobre esta lista y, sin descripción, una plantilla es una opción vacía que nunca
@@ -144,6 +149,7 @@ const TEMPLATE_INFO = {
 // generate-daily y el director podía elegir una plantilla que el producto no
 // sostenía. Los clásicos sin zona de foto obligatoria no figuran: siempre valen.
 const TEMPLATE_REQUIREMENTS = {
+  ...studio.REQUIREMENTS,
   ...campaign.REQUIREMENTS,
   // Las modernas dependen del RECORTE de la prenda: sin una foto de catálogo sobre
   // fondo de estudio no hay silueta que poner delante del titular ni a la que
@@ -1865,6 +1871,7 @@ function buildPolaroidStripHtml(opts) {
 
 /** Despachador: elige el builder según opts.template (default: fullbleed, la clásica). */
 function buildHtml(opts) {
+  if (studio.isStudio(opts.template)) return studio.buildHtml(opts);
   if (campaign.isCampaign(opts.template)) {
     const g = sharedGeometry(opts.format);
     return campaign.buildHtml(opts, g, headHtml(g.w, g.h));
@@ -1921,14 +1928,18 @@ async function renderPostBuffer(options) {
   const skipAiScene = ['grid', 'overlap', 'specsheet', 'polaroidstrip', ...MODERN_TEMPLATES].includes(options.template);
 
   // 1) Si hay producto, intentamos meterlo en una escena profesional generada con IA.
-  if (!bgImageUrl && options.useAiProductScene && productImageUrl && !skipAiScene) {
+  const isStudio = studio.isStudio(options.template);
+  const lightBrief = campaign.isCampaign(options.template)
+    ? campaign.sceneDirection(options)
+    : (isStudio ? studio.sceneBrief(format) : null);
+  if (!bgImageUrl && options.useAiProductScene && productImageUrl && !skipAiScene && options.template !== 'estudio_linea' && options.template !== 'estudio_titular') {
     const scene = await generateProductScene({
       productImageUrl, productImageUrls: options.productImageUrls || [],
       productName: options.overlayTitle, theme: options.bgTheme,
-      brief: campaign.isCampaign(options.template) ? [options.bgBrief, campaign.sceneDirection(options)].filter(Boolean).join('\n') : options.bgBrief, occasion: options.bgOccasion, format,
+      brief: lightBrief ? [options.bgBrief, lightBrief].filter(Boolean).join('\n') : options.bgBrief, occasion: options.bgOccasion, format,
       seed: options.layoutSeed, // variedad de escenario/luz/cámara por pieza
       shotSpec: options.shotSpec || null, // director de arte: tipo de toma, foco, fondo
-      artStyle: campaign.isCampaign(options.template) ? 'light_campaign' : options.artStyle || null, // 'poster' = arte de afiche con zona libre para el texto
+      artStyle: lightBrief ? 'light_campaign' : options.artStyle || null, // 'poster' = arte de afiche con zona libre para el texto
     });
     if (scene) {
       bgImageUrl = `data:${scene.mimeType};base64,${scene.buffer.toString('base64')}`;
@@ -2007,26 +2018,50 @@ async function renderPostBuffer(options) {
     && options.showBrand !== false
     && (options.showBrand === true || options.pillar === 'marca' || options.template === 'mayorista');
 
-  const html = buildHtml({ ...options, campaignSceneVersion, showBrand, format, bgImageUrl, productImageUrl, cutoutUrl, cutoutBox });
+  /* SISTEMA ESTUDIO: las fotos se MIDEN antes de dibujar (fondo del estudio, caja de
+     la prenda, bordes cortados — ver src/photoStage.js) y se usa la original de
+     Tiendanube en 2000 px, no la de 1024. Una escena generada entra como foto a sangre. */
+  let photos = null;
+  let bgIsScene = false;
+  if (isStudio) {
+    const prep = async (u) => ({ url: /^https?:/i.test(u) ? await photoStage.hiResUrl(u) : u, analysis: await photoStage.analyzeUrl(u) });
+    if (bgImageUrl) {
+      photos = [await prep(bgImageUrl)];
+      bgIsScene = true;
+    } else {
+      const multi = ['estudio_linea', 'estudio_titular'].includes(options.template);
+      const urls = [...new Set([productImageUrl, ...(multi ? (options.productImageUrls || []) : [])].filter((u) => typeof u === 'string' && u))].slice(0, 4);
+      photos = await Promise.all(urls.map(prep));
+    }
+  }
+
+  const html = buildHtml({ ...options, campaignSceneVersion, showBrand, format, bgImageUrl, productImageUrl, cutoutUrl, cutoutBox, photos, bgIsScene });
 
   // Navegador compartido + a lo sumo 2 páginas a la vez (memoria de Render).
   await acquireRenderSlot();
   let buffer;
   let clippedText = [];
+  let studioComp = null;
   let page;
   try {
     const browser = await getBrowser();
     page = await browser.newPage();
     await page.setViewport({ width: w, height: h });
-    // Timeout acotado: si una imagen remota tarda/404ea, igual sacamos la captura.
-    try {
-      await page.setContent(html, { waitUntil: 'networkidle0', timeout: 15000 });
-    } catch (_) {
-      await page.setContent(html, { waitUntil: 'load' }).catch(() => {});
+    if (isStudio) {
+      // Dos pasadas: mide el texto con la tipografía real y le da a la foto el resto.
+      const done = await studio.renderOnPage(page, { ...options, campaignSceneVersion, showBrand, format, bgImageUrl, productImageUrl, photos, bgIsScene });
+      studioComp = done.comp;
+    } else {
+      // Timeout acotado: si una imagen remota tarda/404ea, igual sacamos la captura.
+      try {
+        await page.setContent(html, { waitUntil: 'networkidle0', timeout: 15000 });
+      } catch (_) {
+        await page.setContent(html, { waitUntil: 'load' }).catch(() => {});
+      }
+      // Esperar a que las tipografías (Anton/Inter) estén listas antes de capturar.
+      try { await page.evaluate(async () => { if (document.fonts && document.fonts.ready) await document.fonts.ready; }); } catch (_) {}
+      if (campaign.isCampaign(options.template)) await campaign.fitText(page);
     }
-    // Esperar a que las tipografías (Anton/Inter) estén listas antes de capturar.
-    try { await page.evaluate(async () => { if (document.fonts && document.fonts.ready) await document.fonts.ready; }); } catch (_) {}
-    if (campaign.isCampaign(options.template)) await campaign.fitText(page);
     clippedText = await measureClippedText(page, w).catch(() => []);
     buffer = await page.screenshot({ type: 'jpeg', quality: 90 });
   } finally {
@@ -2039,7 +2074,7 @@ async function renderPostBuffer(options) {
   // encima. Sirve para reusarla en otro slide (ej. el de precio) sin duplicar texto
   // "quemado" — reusar directamente `url` (que ya tiene chrome) genera doble cuadro/texto fantasma.
   const cleanImageUrl = bgImageUrl || productImageUrl || null;
-  return { url, buffer, costUsd, cleanImageUrl, clippedText, campaignSceneVersion };
+  return { url, buffer, costUsd, cleanImageUrl, clippedText, campaignSceneVersion, studioComp };
 }
 
 /**

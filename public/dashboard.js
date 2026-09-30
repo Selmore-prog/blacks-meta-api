@@ -1393,15 +1393,20 @@ function openSlideFix(item, index, carEl) {
    * En la tira continua la escena es UNA sola para los tres cuadros y ya se reusa sola.
    */
   const tieneEscena = Boolean(meta && meta[index] && meta[index].sceneUrl) || esTira;
+  // Cuadro de una GUÍA (paso o guía de talles): se redibuja con su número y la foto real
+  // de la prenda; no hay foto de IA que mantener o rehacer, y corregirlo no cuesta nada.
+  const esGuia = Boolean(meta && meta[index] && ['paso', 'talles'].includes(meta[index].shotType));
   const body = `
     <p class="hint" style="margin-top:0;">${esTira
     ? `Este es un <b>carrusel continuo</b>: los cuadros son recortes de una sola pieza. Vas a corregir el <b>cuadro ${index + 1}</b> y el sistema vuelve a dibujar la tira entera para que siga enganchando (los textos de los otros cuadros no se tocan).`
-    : `Corregís <b>sólo el cuadro ${index + 1}</b> (los demás quedan igual). Elegí abajo si la foto se mantiene o se rehace.`}</p>
+    : esGuia
+      ? `Corregís <b>sólo el cuadro ${index + 1}</b> de la guía: se vuelve a dibujar con el mismo diseño, su número y la foto real de la prenda. Sin costo.`
+      : `Corregís <b>sólo el cuadro ${index + 1}</b> (los demás quedan igual). Elegí abajo si la foto se mantiene o se rehace.`}</p>
     <div class="field"><label>Texto en la imagen (dejalo vacío para no poner texto)</label>
       <input class="input" id="sf-overlay" placeholder="Ej: Etiqueta argentina" /></div>
     <div class="field"><label>¿Qué querés que cambie en este cuadro? <span class="hint" style="font-weight:400;">(opcional)</span></label>
       <textarea class="input" id="sf-inst" placeholder="Ej: mostrá todos los colores disponibles · mostrá más de cerca el bolsillo"></textarea></div>
-    ${esTira ? '' : `
+    ${esTira || esGuia ? '' : `
     <div class="field">
       <label>La foto de este cuadro</label>
       <select class="input" id="sf-photo">
@@ -1431,7 +1436,7 @@ function openSlideFix(item, index, carEl) {
   const syncSummary = () => {
     const overlayText = ov.querySelector('#sf-overlay').value;
     const instructions = ov.querySelector('#sf-inst').value.trim();
-    const modo = esTira ? 'misma' : (selPhoto ? selPhoto.value : 'nueva');
+    const modo = esTira || esGuia ? 'misma' : (selPhoto ? selPhoto.value : 'nueva');
     const cambios = [];
     if (overlayText !== currentOverlay) {
       cambios.push(overlayText.trim()
@@ -2160,6 +2165,146 @@ function renderPieceProposal(overlay, out, r) {
   out.querySelector('#pft-solo').addEventListener('click', () => crear(false));
 }
 
+/* =========================================================================
+ * VIDEO DESDE UNA IDEA
+ * Una frase ("quiero un video del ripstop") y sale el guion grabable completo: la idea,
+ * el gancho, qué grabar en cada toma, qué decir, qué texto va en pantalla, la portada,
+ * el texto de la publicación y el cierre. El producto sale del catálogo real. No se
+ * guarda nada hasta "Agregar al calendario". Ver briefFromIdea en src/reelBrief.js.
+ * ========================================================================= */
+const EJEMPLOS_VIDEO = [
+  'Un video del pantalón cargo ripstop mostrando que la tela no se rompe',
+  'Cómo elegir el talle del botín de seguridad',
+  'Cómo preparamos y despachamos un pedido mayorista',
+];
+
+function openReelFromIdea() {
+  const body = `
+    <p class="hint" style="margin-top:0;">Escribí la idea como se la contarías a quien graba. Te devuelvo el guion completo: qué grabar en cada toma, qué decir y qué texto va en pantalla. <b>No se crea nada</b> hasta que lo mandes al calendario.</p>
+    <div class="field">
+      <label>¿De qué querés que sea el video?</label>
+      <textarea class="input" id="rfi-idea" rows="3" placeholder="Ej: quiero hacer un video del ripstop"></textarea>
+      <div class="chips-suggest" id="rfi-ejemplos" style="margin-top:8px;">
+        ${EJEMPLOS_VIDEO.map((e) => `<span class="chip-suggest" data-s="${esc(e)}">${esc(e)}</span>`).join('')}
+      </div>
+    </div>
+    <div id="rfi-out"></div>
+    <div style="display:flex; gap:8px; justify-content:flex-end;">
+      <button class="btn-discard" id="rfi-cancel">Cancelar</button>
+      <button class="btn-primary" id="rfi-go">${icon('sparkles')} Armar el guion</button>
+    </div>`;
+  const overlay = showInfoModal('Video desde una idea', body);
+  const out = overlay.querySelector('#rfi-out');
+  const ta = overlay.querySelector('#rfi-idea');
+  overlay.querySelectorAll('#rfi-ejemplos .chip-suggest').forEach((c) =>
+    c.addEventListener('click', () => { ta.value = c.dataset.s; ta.focus(); }));
+  overlay.querySelector('#rfi-cancel').addEventListener('click', () => overlay.remove());
+  let ultimo = null;
+
+  const pedir = async (productIds = null) => {
+    const idea = ta.value.trim();
+    if (idea.length < 6) { toast('Contame en una frase de qué querés que sea el video.', 'err'); return; }
+    const go = overlay.querySelector('#rfi-go');
+    go.disabled = true; go.innerHTML = `${icon('refresh', 'spin')} Escribiendo el guion…`;
+    hydrateIcons(go);
+    out.innerHTML = '<p class="hint">Buscando el producto en el catálogo y armando las tomas… (puede tardar un minuto)</p>';
+    try {
+      ultimo = await api('/api/ai/reel-from-idea', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ idea, ...(productIds ? { product_ids: productIds } : {}) }),
+      });
+      renderReelProposal(overlay, out, ultimo, { idea, pedir });
+    } catch (err) {
+      out.innerHTML = `<p class="hint">No pude armar el guion: ${esc(err.message)}</p>`;
+    } finally {
+      go.disabled = false; go.innerHTML = `${icon('sparkles')} Armar el guion`; hydrateIcons(go);
+    }
+  };
+  overlay.querySelector('#rfi-go').addEventListener('click', () => pedir());
+}
+
+/** Guion en texto plano, para copiar y pasárselo a quien graba por WhatsApp. */
+function reelBriefComoTexto(b) {
+  const tomas = (b.shots || []).map((s, i) => `${i + 1}) ${s.seconds} s — ${s.record}${s.say ? `\n   Decí: “${s.say}”` : ''}${s.on_screen ? `\n   En pantalla: ${s.on_screen}` : ''}`).join('\n');
+  return [
+    `🎬 ${b.title || 'Reel'} · ${b.duration_sec} s`,
+    `Idea: ${b.concept}`,
+    b.product_name ? `Producto: ${b.product_name}` : null,
+    `Prepará: ${b.preparation}`,
+    `Gancho: ${b.hook}`,
+    '',
+    tomas,
+    '',
+    `Portada: ${b.cover}`,
+    b.music ? `Música: ${b.music}` : null,
+    `Texto de la publicación: ${b.caption}`,
+    `Cierre: ${b.cta}`,
+  ].filter((x) => x !== null).join('\n');
+}
+
+function renderReelProposal(overlay, out, r, { idea, pedir }) {
+  const b = r.brief;
+  const prod = (r.productos || [])[0] || null;
+  out.innerHTML = `<div class="plan-improve reel-idea">
+    <div class="reel-idea-head">
+      <div><b>${esc(b.title || 'Reel')}</b><span>${esc(b.duration_sec)} s · ${esc(b.shots.length)} tomas · pilar ${esc(b.pillar || '')}</span></div>
+      ${prod ? `<div class="reel-idea-prod"><img src="${esc(prod.image_url || '')}" onerror="this.style.visibility='hidden'"/><span>${esc(prod.name)}</span>
+        ${(prod.alternativas || []).length ? `<select class="input" id="rfi-alt"><option value="">¿Otro producto?</option>${prod.alternativas.map((a) => `<option value="${a.id}">${esc(a.name)}</option>`).join('')}</select>` : ''}</div>`
+        : '<div class="hint">Sin producto puntual: el video es de marca o de un tema general.</div>'}
+    </div>
+    <p><b>La idea:</b> ${esc(b.concept)}</p>
+    <p class="hint" style="margin:4px 0 10px;">${esc(b.duration_reason || '')}</p>
+    <p><b>Prepará:</b> ${esc(b.preparation)}</p>
+    <p><b>Gancho (primeros 2 s):</b> ${esc(b.hook)}</p>
+    <div class="reel-shots">
+      <div class="reel-shot reel-shot-h"><span>Tiempo</span><span>Qué grabar</span><span>Qué decir</span><span>En pantalla</span></div>
+      ${(b.shots || []).map((s) => `<div class="reel-shot"><span class="reel-t">${esc(s.seconds)} s</span><span>${esc(s.record)}</span><span>${s.say ? `“${esc(s.say)}”` : '<i>sin voz</i>'}</span><span>${esc(s.on_screen || '—')}</span></div>`).join('')}
+    </div>
+    <p><b>Portada:</b> ${esc(b.cover)}</p>
+    ${b.music ? `<p><b>Música:</b> ${esc(b.music)}</p>` : ''}
+    <p><b>Texto de la publicación:</b> ${esc(b.caption)}</p>
+    <p><b>Cierre:</b> ${esc(b.cta)}</p>
+    <div class="plan-grid" style="margin-top:12px;">
+      <div class="field"><label>Fecha</label><input class="input" id="rfi-fecha" value="${esc(r.fecha)}" /></div>
+      <div class="field"><label>Hora ARG</label><input class="input" id="rfi-hora" value="${esc(r.hora || '18:00')}" /></div>
+    </div>
+    <div class="plan-improve-btns">
+      <button type="button" class="btn-primary btn-sm" id="rfi-crear">${icon('check')} Agregar al calendario</button>
+      <button type="button" class="btn-ghost btn-sm" id="rfi-copiar">${icon('copy')} Copiar guion</button>
+      <button type="button" class="btn-ghost btn-sm" id="rfi-otra">${icon('refresh')} Otra versión</button>
+    </div>
+  </div>`;
+  hydrateIcons(out);
+  const alt = out.querySelector('#rfi-alt');
+  if (alt) alt.addEventListener('change', () => { if (alt.value) pedir([Number(alt.value)]); });
+  out.querySelector('#rfi-otra').addEventListener('click', () => pedir(prod ? [prod.id] : null));
+  out.querySelector('#rfi-copiar').addEventListener('click', async () => {
+    try { await navigator.clipboard.writeText(reelBriefComoTexto(b)); toast('Guion copiado', 'ok'); }
+    catch (_) { toast('No pude copiar: seleccioná el texto a mano', 'err'); }
+  });
+  out.querySelector('#rfi-crear').addEventListener('click', async () => {
+    const btn = out.querySelector('#rfi-crear');
+    btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Creando…`; hydrateIcons(btn);
+    try {
+      await api('/api/ai/reel-from-idea/create', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          brief: b, idea,
+          fecha: out.querySelector('#rfi-fecha').value.trim(),
+          hora: out.querySelector('#rfi-hora').value.trim(),
+          product_ids: prod ? [prod.id] : [],
+        }),
+      });
+      overlay.remove();
+      toast('Reel agregado al calendario con su guion', 'ok');
+      loadCalendar();
+    } catch (err) {
+      toast(err.message, 'err');
+      btn.disabled = false; btn.innerHTML = `${icon('check')} Agregar al calendario`; hydrateIcons(btn);
+    }
+  });
+}
+
 function openPlanSlot(item = null) {
   const isNew = !item;
   /* PRODUCTOS ELEGIDOS A MANO (hasta 4). Elegirlos acá hace que el generador use
@@ -2474,7 +2619,16 @@ function openRegen(item) {
     <div class="field">
       <label>Plantilla visual</label>
       <select class="input" id="regen-template">
-        <option value="">Automática (según pilar)</option>
+        <option value="">Automática — la elige el director según la foto</option>
+        <optgroup label="Estudio BLACKS (el sistema actual)">
+          <option value="estudio_lado">Al costado — prenda grande, texto en columna</option>
+          <option value="estudio_abajo">Prenda arriba, texto abajo</option>
+          <option value="estudio_arriba">Titular arriba, prenda abajo (calzado, accesorios)</option>
+          <option value="estudio_escena">A sangre — escena o foto que llena el cuadro</option>
+          <option value="estudio_linea">Línea — colores, pack o varios productos juntos</option>
+          <option value="estudio_titular">Afiche — titular grande + fila de productos</option>
+        </optgroup>
+        <optgroup label="Plantillas anteriores">
         <option value="fullbleed">Full-bleed — foto a sangre + precio</option>
         <option value="minimal">Minimal — estudio claro, evergreen</option>
         <option value="promo">Promo — clara, oferta protagonista</option>
@@ -2488,9 +2642,10 @@ function openRegen(item) {
         <option value="magazine">Magazine — portada editorial</option>
         <option value="stackedcards">Bento cards — tarjetas apiladas</option>
         <option value="polaroidstrip">Polaroids — tira de instantáneas (historias)</option>
-        <option value="poster">Afiche — sin foto, con el descuento en grande</option>
+        <option value="poster">Afiche viejo — sin foto, con el descuento en grande</option>
+        </optgroup>
       </select>
-      <p class="hint" style="margin-top:6px;"><b>Para promos y fechas comerciales (Black Friday, liquidación) elegí “Afiche”:</b> es la única que trata el número del descuento como pieza gráfica gigante. Las que se apoyan en la foto (full-bleed, minimal, grid) quedan vacías si la pieza no tiene un producto puntual que mostrar.</p>
+      <p class="hint" style="margin-top:6px;">Las del <b>Estudio BLACKS</b> usan la foto real del catálogo puesta en escena (sin tarjetas ni fondos vacíos) y funcionan igual con o sin crédito en Gemini. Si la foto no sostiene la composición elegida (por ejemplo, un pantalón cortado en la cintura con el titular arriba), se usa la más parecida que sí.</p>
     </div>
     <div class="field">
       <label>Imagen de la pieza</label>

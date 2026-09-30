@@ -11,7 +11,7 @@ const { getCompanyFacts, companyFactsContext } = require('../src/companyInfo');
 const { getCommercialContextForDate } = require('../src/commercialDates');
 const { eligibleSQL, recentlyFeaturedIds } = require('../src/productScore');
 const config = require('../src/config');
-const { stripEmoji, fixSpelling, shortLabel, agreeWithProduct } = require('../src/textUtils');
+const { stripEmoji, fixSpelling, shortLabel, agreeWithProduct, capitalizarOraciones, desdeMayusculas } = require('../src/textUtils');
 const { uploadAsset } = require('../src/storage');
 
 // Retail (con precio y stock finito). 'mayorista' se maneja aparte con pickMayoristaProduct.
@@ -437,6 +437,8 @@ function descriptionImages(product) {
 const { TEMPLATES: VALID_TEMPLATES, TEMPLATE_INFO, TEMPLATE_REQUIREMENTS, extractSpecTags, extractBriefChips } = require('../src/imageRenderer');
 const { reviewPiece } = require('../src/pieceBrief');
 const campaign = require('../src/templatesCampaign');
+const studio = require('../src/templatesStudio');
+const photoStage = require('../src/photoStage');
 
 // Qué estilos tienen sentido para cada pilar — variedad real por pilar, filtrada
 // después por lo que el producto puede sostener (fotos/descripción disponibles).
@@ -448,17 +450,22 @@ const campaign = require('../src/templatesCampaign');
 // toda la tienda, fecha comercial, anuncio de marca). Faltaba en todos los pools, así que
 // el director creativo no podía elegirlo nunca: sólo se llegaba al afiche por el fallback
 // de fullbleed-sin-foto, y por eso "automático" daba siempre la versión pobre.
+/*
+ * SEP-2026: TODAS las piezas automáticas salen del sistema "Estudio BLACKS"
+ * (src/templatesStudio.js). Antes el pool mezclaba ~35 plantillas de estéticas
+ * distintas: la variedad salía, pero por azar, y el feed no tenía una estética
+ * reconocible (pedido del dueño: "que a largo plazo se mantenga toda una estética").
+ * Ahora la variedad es de COMPOSICIÓN dentro de un mismo sistema. Las plantillas
+ * viejas siguen existiendo para las piezas ya hechas y para elegirlas a mano.
+ */
 const PILLAR_TEMPLATE_POOL = {
-  // 'recorte' y 'ficha' van primeras en producto/promo a propósito: son las que sacan
-  // a la prenda del rectángulo de catálogo. 'editorial' reemplaza de hecho a
-  // 'educativo' (que dejaba dos tercios de la pieza en blanco liso).
-  producto: [...campaign.NAMES, 'recorte', 'ficha', 'fullbleed', 'minimal', 'grid', 'overlap', 'specsheet'],
-  promo: [...campaign.NAMES, 'recorte', 'promo', 'splitscreen', 'fullbleed', 'poster'],
-  educativo: ['aviso_derecha', 'aviso_izquierda', 'aviso_galeria', 'editorial', 'blueprint', 'educativo'],
-  mayorista: [...campaign.NAMES, 'mayorista', 'stackedcards', 'magazine', 'editorial'],
-  marca: [...campaign.NAMES, 'recorte', 'minimal', 'magazine', 'overlap', 'fullbleed', 'poster'],
-  ugc: [...campaign.NAMES, 'magazine', 'polaroidstrip', 'overlap', 'minimal'],
-  engagement: [...campaign.NAMES, 'recorte', 'fullbleed', 'splitscreen', 'minimal', 'poster'],
+  producto: ['estudio_lado', 'estudio_abajo', 'estudio_arriba', 'estudio_linea', 'estudio_escena'],
+  promo: ['estudio_lado', 'estudio_abajo', 'estudio_arriba', 'estudio_linea', 'estudio_titular', 'estudio_escena'],
+  educativo: ['estudio_titular', 'estudio_lado', 'estudio_abajo', 'estudio_arriba'],
+  mayorista: ['estudio_titular', 'estudio_abajo', 'estudio_lado', 'estudio_linea', 'estudio_arriba'],
+  marca: ['estudio_titular', 'estudio_lado', 'estudio_abajo', 'estudio_linea', 'estudio_escena'],
+  ugc: ['estudio_escena', 'estudio_lado', 'estudio_abajo', 'estudio_linea', 'estudio_titular'],
+  engagement: ['estudio_titular', 'estudio_lado', 'estudio_abajo', 'estudio_arriba'],
 };
 
 // Eyebrow (kicker) por pilar: la etiqueta chica en mayúscula que va ARRIBA del titular
@@ -482,7 +489,7 @@ const PILLAR_KICKER = {
  * seed como el cerebro (IA de copy), que elige entre estas la que mejor le queda.
  * Devuelve [] para reels (tienen tratamiento propio en chooseTemplate).
  */
-function templateCandidates(slot, { visualProduct, cutoutOk = null } = {}) {
+function templateCandidates(slot, { visualProduct, cutoutOk = null, photoAnalysis = null } = {}) {
   if (slot.post_type === 'reel') return [];
   const images = (visualProduct && Array.isArray(visualProduct.images) && visualProduct.images.length)
     ? visualProduct.images
@@ -503,8 +510,21 @@ function templateCandidates(slot, { visualProduct, cutoutOk = null } = {}) {
     // se descartan salvo que el recorte esté PROBADO (cutoutOk), no sólo supuesto.
     if (req.requiresCutout && cutoutOk !== true) return false;
     return true;
+  }).filter((t) => {
+    /* Las composiciones del estudio dependen de la GEOMETRÍA de la foto: un pantalón
+       cortado en la cintura no puede ir con el titular arriba (la línea del corte
+       quedaría flotando), una foto de ambiente no se puede "poner en estudio". Con la
+       foto ya medida, se ofrecen sólo las que esa foto sostiene. */
+    if (!studio.isStudio(t) || !photoAnalysis || ['estudio_titular', 'estudio_linea'].includes(t)) return true;
+    return studio.composiciones(photoAnalysis, isStudy(slot)).includes(t);
   });
-  return pool.length ? pool : ['fullbleed'];
+  if (!images.length) return ['estudio_titular'];
+  return pool.length ? pool : ['estudio_titular'];
+}
+
+/** El formato para las composiciones del estudio ('story' | 'feed'). */
+function isStudy(slot) {
+  return slot.format === 'story' ? 'story' : 'feed';
 }
 
 /**
@@ -534,17 +554,20 @@ async function probeCutout(visualProduct) {
  * En los tres caminos el menú viene ya filtrado por la memoria de diseño, así que
  * ninguno puede devolver la plantilla de la pieza anterior si hay alternativa.
  */
-function chooseTemplate(slot, { override, visualProduct, aiPick, recientes = [], cutoutOk = null } = {}) {
+function chooseTemplate(slot, { override, visualProduct, aiPick, recientes = [], cutoutOk = null, photoAnalysis = null } = {}) {
   if (VALID_TEMPLATES.includes(override)) return override;
   // La plantilla 'educativo' es una tarjeta tipográfica CON MUCHO texto y una foto
   // chica de apoyo: pensada para feed/carrusel estático. En un Reel (post_type='reel')
   // se ve casi vacía (el video ocupa toda la pantalla, no una tarjeta) — ahí conviene
   // una plantilla de foto a pantalla completa, sin importar el pilar.
   if (slot.post_type === 'reel') {
-    return slot.pillar === 'mayorista' ? 'mayorista' : (Number(slot.id) % 2 === 0 ? 'fullbleed' : 'promo');
+    // La imagen del Reel es la portada: la prenda grande arriba y el titular abajo,
+    // del mismo sistema que el resto del feed. Sin foto, el afiche tipográfico.
+    const hayFoto = visualProduct && (visualProduct.image_url || (visualProduct.images || []).length);
+    return hayFoto ? 'estudio_abajo' : 'estudio_titular';
   }
 
-  const candidates = templateCandidates(slot, { visualProduct, cutoutOk });
+  const candidates = templateCandidates(slot, { visualProduct, cutoutOk, photoAnalysis });
   // El cerebro eligió una plantilla entre las candidatas válidas: la respetamos.
   const frescas = artDirection.withoutRecent(candidates, recientes);
   if (aiPick && frescas.includes(aiPick)) return aiPick;
@@ -581,13 +604,177 @@ async function productosDelRanking(limite = 4) {
   return rows;
 }
 
+/*
+ * COHERENCIA PRODUCTO ↔ TEMA (verificada por código, sep-2026).
+ *
+ * Falla real: el slot "Ripstop: ¿Por qué es tan resistente?" salió con el Buzo Polar —
+ * el director creativo (IA) eligió mal, la auditoría factual después borró todas las
+ * menciones a ripstop "porque no correspondían al buzo", y la pieza terminó hablando de
+ * frisa y punta de acero. Es exactamente el tipo de pieza que el dueño tiene que
+ * corregir a mano. Regla: si el tema NOMBRA una prenda o una tela que existe en el
+ * catálogo, el producto de la pieza tiene que ser de eso. La IA propone; esto verifica.
+ */
+const PALABRAS_DE_PRODUCTO = ['ripstop', 'cargo', 'jean', 'vaquero', 'chomba', 'remera', 'campera', 'buzo', 'polar',
+  'softshell', 'botin', 'botines', 'borcegui', 'zapato', 'zapatilla', 'guante', 'faja', 'bermuda', 'camisa', 'chaleco',
+  'mameluco', 'gabardina', 'grafa', 'alpargata', 'ojota', 'gorra', 'anteojo', 'casco', 'trucker', 'jogger', 'pantalon',
+  'micropique', 'frisa', 'termica', 'impermeable', 'reflectivo'];
+
+function palabrasDeProductoEn(texto) {
+  const t = stripAccents(String(texto || '')).toLowerCase();
+  return PALABRAS_DE_PRODUCTO.filter((w) => new RegExp(`\\b${w}(es|s)?\\b`).test(t));
+}
+
+async function productoCoherenteConTema(slot, elegido) {
+  const tema = `${slot.theme_title || ''} ${slot.pillar_detail || ''}`;
+  const pedidas = palabrasDeProductoEn(tema);
+  if (!pedidas.length || !elegido) return null;
+  const nombre = stripAccents(String(elegido.name || '')).toLowerCase();
+  if (pedidas.some((w) => nombre.includes(w.slice(0, 5)))) return null; // ya es coherente
+  const alternativa = await pickRelevantVisualProduct(slot).catch(() => null);
+  if (!alternativa) return null;
+  const altNombre = stripAccents(String(alternativa.name || '')).toLowerCase();
+  return pedidas.some((w) => altNombre.includes(w.slice(0, 5))) ? alternativa : null;
+}
+
+/**
+ * PIEZAS DE COMPARACIÓN ("¿Jean o Cargo?", "remera vs chomba"). Falla real: la encuesta
+ * "¿Jean o Cargo?" salió con UNA campera softshell — ni jean ni cargo. Una pieza que
+ * pregunta "¿esto o aquello?" tiene que mostrar las dos cosas, numeradas, para que la
+ * respuesta sea "la 1" o "la 2". Se busca el producto real más vendido de cada palabra.
+ */
+async function productosDeComparacion(slot) {
+  const tema = `${slot.theme_title || ''} ${slot.pillar_detail || ''}`;
+  // Las palabras del TÍTULO, en el orden en que aparecen ("¿Jean o Cargo?" → 1 jean,
+  // 2 cargo); las del detalle sólo si el título no alcanza. Sin genéricas ("pantalón")
+  // ni atributos ("térmica"): un jean y un cargo son los dos pantalones.
+  const ordenar = (texto) => palabrasDeProductoEn(texto)
+    .filter((w) => !['termica', 'impermeable', 'reflectivo', 'frisa', 'pantalon'].includes(w))
+    .map((w) => ({ w, at: stripAccents(String(texto)).toLowerCase().search(new RegExp(`\\b${w}`)) }))
+    .sort((a, b) => a.at - b.at).map((x) => x.w);
+  const delTitulo = ordenar(slot.theme_title || '');
+  const palabras = delTitulo.length >= 2 ? delTitulo : ordenar(tema);
+  const t = stripAccents(tema).toLowerCase();
+  const esComparacion = palabras.length >= 2
+    && (slot.pillar === 'engagement' || /\b(vs\.?|versus|o|u|contra)\b/.test(t) || /cu[aá]l (eleg|prefer)/.test(t));
+  if (!esComparacion) return [];
+  const elegidos = [];
+  for (const w of palabras.slice(0, 3)) {
+    const { rows } = await pool.query(
+      `SELECT * FROM products_cache
+        WHERE ${eligibleSQL()} AND image_url IS NOT NULL
+          AND translate(lower(name), 'áéíóúñü', 'aeiounu') LIKE $1
+        ORDER BY sales_30d DESC NULLS LAST LIMIT 5`, [`%${w.slice(0, 5)}%`]
+    ).catch(() => ({ rows: [] }));
+    const libre = rows.find((r) => !elegidos.some((e) => e.id === r.id));
+    if (libre) elegidos.push(libre);
+  }
+  return elegidos.length >= 2 ? elegidos : [];
+}
+
+/**
+ * Fotos para la FILA de productos del afiche (estudio_titular) y la tapa de las guías.
+ *
+ * LO DEL TEMA, Y SÓLO ESO. Antes "relevante" era cualquier producto con alguna palabra
+ * del tema y la fila se completaba con los más vendidos: la guía "Ripstop: ¿por qué es
+ * tan resistente?" salió con un jean (por la palabra "pantalón"), un chaleco y un polar.
+ * Ahora manda la palabra de producto MÁS ESPECÍFICA que nombra el tema —la que menos
+ * productos tienen: "ripstop" antes que "cargo" y que "pantalón"; las del título antes
+ * que las del detalle— y, si no hay prendas suficientes, la fila se completa con OTRAS
+ * FOTOS de esas mismas prendas (colores, vistas), nunca con otro rubro. Los más vendidos
+ * quedan para los temas que no nombran ninguna prenda.
+ *
+ * Se MIDEN: sólo entran fotos de estudio que no llenan el cuadro y, de ésas, las que
+ * vienen cortadas igual que la primera (un pantalón cortado en la cintura al lado de un
+ * botín entero se ve despareja).
+ */
+async function fotosParaAfiche(slot, { excluir = null, cuantas = 3, cualquierCorte = false } = {}) {
+  const norm = (col) => `translate(lower(${col}), 'áéíóúñü', 'aeiounu')`;
+  let productos = [];
+  let delTema = false;
+  if (!isInstitutionalTopic(slot)) {
+    const delTitulo = palabrasDeProductoEn(slot.theme_title);
+    const palabras = delTitulo.length ? delTitulo : palabrasDeProductoEn(slot.pillar_detail);
+    const porPalabra = await Promise.all(palabras.map(async (w) => {
+      const { rows } = await pool.query(
+        `SELECT id, name, image_url, images FROM products_cache
+          WHERE ${eligibleSQL()} AND image_url IS NOT NULL AND ${norm('name')} LIKE $1
+          ORDER BY sales_30d DESC NULLS LAST LIMIT 40`, [`%${w.slice(0, 5)}%`]
+      ).catch(() => ({ rows: [] }));
+      return rows;
+    }));
+    const masEspecifica = porPalabra.filter((rows) => rows.length).sort((a, b) => a.length - b.length)[0];
+    if (masEspecifica) { productos = masEspecifica.slice(0, 4); delTema = true; }
+  }
+  if (!productos.length) {
+    ({ rows: productos } = await pool.query(
+      `SELECT id, name, image_url, images FROM products_cache
+        WHERE ${eligibleSQL()} AND image_url IS NOT NULL
+        ORDER BY sales_30d DESC NULLS LAST LIMIT 8`
+    ).catch(() => ({ rows: [] })));
+  }
+  // Primero la foto principal de cada prenda; si la fila es del tema, después sus otras fotos.
+  const fotosDe = (p) => [...new Set([p.image_url, ...(Array.isArray(p.images) ? p.images : [])].filter(Boolean))];
+  const principales = productos.map((p) => fotosDe(p)[0]).filter(Boolean);
+  const otras = delTema ? productos.flatMap((p) => fotosDe(p).slice(1, 4)) : [];
+  const candidatas = [...new Set([...principales, ...otras])].filter((u) => u !== excluir).slice(0, 14);
+  const medidas = await Promise.all(candidatas.map(async (url) => ({ url, a: await photoStage.analyzeUrl(url).catch(() => null) })));
+  // Para los pasos de una guía (una foto por cuadro) sirve cualquier foto medible, también
+  // un detalle que llena el cuadro: no se pone al lado de otra.
+  if (cualquierCorte) return medidas.filter((m) => m.a).slice(0, cuantas).map((m) => m.url);
+  const aptas = medidas.filter((m) => m.a && m.a.studio && !studio.llenaCuadro(m.a));
+  if (!aptas.length) return [];
+  const mismoCorte = aptas.filter((m) => Boolean(m.a.touches.top) === Boolean(aptas[0].a.touches.top));
+  return (mismoCorte.length >= 2 ? mismoCorte : aptas).slice(0, cuantas).map((m) => m.url);
+}
+
+/** Fotos para la LÍNEA de un producto: una por color con stock (la foto que Tiendanube
+    asigna a cada variante); si tiene un solo color, sus distintas vistas. */
+function fotosParaLinea(product) {
+  if (!product) return [];
+  try {
+    const { visualCatalog, catalogPhotos } = require('../src/channelVisualCatalog');
+    const vc = visualCatalog(product);
+    const fotos = catalogPhotos(product);
+    const porColor = [...new Set(vc.colors
+      .filter((c) => c.inStock || c.catalogOnly)
+      .map((c) => fotos[c.photoIndices[0]] && fotos[c.photoIndices[0]].url)
+      .filter(Boolean))];
+    if (porColor.length >= 2) return porColor.slice(0, 4);
+  } catch (_) { /* sin variantes legibles: se usan las vistas */ }
+  return [...new Set([product.image_url, ...(Array.isArray(product.images) ? product.images : [])].filter(Boolean))].slice(0, 3);
+}
+
 /**
  * Saca la numeración con la que la IA prefija los títulos de slide ("1. Resistencia al
  * desgarro"). La plantilla 'editorial' ya imprime su propio número de paso, así que sin
  * esto la pieza salía numerada dos veces: el índice de la portada decía "01 · 2. Comodidad".
  */
+/* Los cuadros de una guía vienen numerados por el modelo con la palabra que se le ocurra
+   según el tema: "Paso 2 —", pero también "Ventaja 3 —", "Consejo 1:", "Error 4.", "Mito 2 -".
+   El 29-sep la guía de ripstop salió con "VENTAJA 2 — DURABILIDAD" debajo del "01" del
+   diseño: numerada dos veces y corrida en uno. */
+const CONTADOS = 'paso|slide|cuadro|ventaja|beneficio|consejo|tip|punto|clave|raz[oó]n|motivo|error|mito|regla|secreto|truco|idea|dato|parte|etapa|lecci[oó]n|pregunta|diferencia|caracter[ií]stica|uso|ejemplo|caso|opci[oó]n|n[uú]mero';
+const PREFIJO_NUMERADO = new RegExp(`^\\s*(?:(?:${CONTADOS})\\s*)?(?:n[°º]\\s*|#\\s*)?(\\d{1,2}|uno|dos|tres|cuatro|cinco)\\s*(?:[—–:\\-.)·|]|\\/\\s*\\d{1,2}\\s*[—–:\\-.)·|]?)\\s*`, 'i');
+const NUMEROS = { uno: 1, dos: 2, tres: 3, cuatro: 4, cinco: 5 };
+
+/** El número con el que el modelo prefijó el título del cuadro ("Ventaja 1 — …" → 1), o null. */
+function numeroDeSlide(titulo) {
+  const m = String(titulo || '').match(PREFIJO_NUMERADO);
+  if (!m) return null;
+  return NUMEROS[m[1].toLowerCase()] || Number(m[1]);
+}
+
 function sinNumeroDeSlide(titulo) {
-  return String(titulo || '').replace(/^\s*\d{1,2}\s*[.)\-–:]\s*/, '').trim();
+  return String(titulo || '')
+    .replace(PREFIJO_NUMERADO, '')
+    /* El modelo también antepone el ROL del cuadro: "Portada — ¿Qué es ripstop?",
+       "Cierre — Beneficios". El número del paso ya lo imprime el diseño y la portada
+       no dice "portada". */
+    .replace(/^\s*(portada|tapa|intro(ducci[oó]n)?|cierre|final|conclusi[oó]n|cta)\s*[—–:\-.]\s*/i, '')
+    .trim()
+    // Recién ahora el título arranca en su primera palabra: ahí se corrige el voseo ("Elige
+    // tu línea" venía detrás de "Paso 1 —" y se imprimía en tuteo).
+    .replace(/^.+$/s, (t) => desdeMayusculas(t));
 }
 
 function interactionChip(slot, sticker = null) {
@@ -665,14 +852,72 @@ async function persistScene(cleanImageUrl, tag) {
  */
 async function renderCarouselShot(shot, i, ctx) {
   const { refImgs, visualImageUrl, sceneTheme, format, logos, occasion, couponCode, overlayTitle, badgeText, imageBrief, pillar, slotId, product, artMode } = ctx;
+
+  /* CUADROS DE UNA GUÍA (carrusel educativo/mayorista). Se dibujan desde su receta: la
+     tapa es el afiche oscuro con el índice y la fila de prendas; cada paso, el número
+     grande con el texto en columna y una foto real al costado (o la lámina de texto si
+     no hay foto). `shot.overlay` es el título del paso: si el dueño lo corrige, cambia
+     sólo eso. Ninguno paga IA. */
+  if (shot.shotType === 'paso') {
+    const p = shot.paso || {};
+    const titulo = shot.overlay || overlayTitle;
+    const conFoto = !p.tapa && Boolean(p.photo);
+    /* Prendas altas (un pantalón, alguien de cuerpo entero) van al costado del texto; las
+       anchas (dos remeras planas, un calzado) arriba, a todo el ancho: al costado quedaban
+       chicas, con medio cuadro de papel encima. */
+    let composicion = 'estudio_lado';
+    if (conFoto) {
+      const a = await photoStage.analyzeUrl(p.photo).catch(() => null);
+      const b = a && a.bbox;
+      if (b && ((b.x1 - b.x0) * a.aspect) / (b.y1 - b.y0) >= 0.85) composicion = 'estudio_abajo';
+    }
+    return renderPostBuffer({
+      format,
+      template: p.tapa || !conFoto ? 'estudio_titular' : composicion,
+      variant: p.tapa ? 'oscuro' : (conFoto ? 'izquierda' : 'claro'),
+      hasProduct: false,
+      overlayTitle: titulo,
+      title: titulo,
+      deck: p.text || null,
+      bodyText: p.text || null,
+      points: p.tapa ? (p.points || null) : null,
+      specs: p.tapa ? (p.points || []) : [],
+      stepNumber: p.stepNumber || null,
+      kicker: p.kicker || null,
+      badgeText: p.badgeText || null,
+      productImageUrl: conFoto ? p.photo : null,
+      productImageUrls: p.tapa ? (p.fila || []) : [],
+      logos,
+      showBrand: Boolean(p.tapa), // el logo sólo en la portada
+      layoutSeed: Number(slotId) + i,
+    });
+  }
+  if (shot.shotType === 'talles') {
+    return renderPostBuffer({
+      format, template: 'fullbleed', overlayTitle: null,
+      productImageUrl: (shot.paso && shot.paso.photo) || null,
+      logos, showBrand: false, bgTheme: 'guía de talles',
+    });
+  }
   // La receta del slide conserva composición y paleta al corregir textos.
   // Las escenas viejas siguen usando su plantilla original.
-  const lightTemplates = ['aviso_portada', 'aviso_derecha', 'aviso_pie', 'aviso_izquierda', 'aviso_esquina', 'aviso_contrapunto'];
-  const template = shot.template || (shot.sceneUrl ? 'fullbleed' : lightTemplates[(Math.abs(Number(slotId) || 0) + i) % lightTemplates.length]);
-  const variant = shot.variant || Object.keys(campaign.PALETTES)[Math.abs(Number(slotId) || 0) % Object.keys(campaign.PALETTES).length];
+  /* Cada cuadro sale del sistema estudio, alternando composición (costado, abajo,
+     arriba) para que al deslizar cambie el encuadre sin cambiar de estética. La foto
+     decide cuál sostiene (ver templatesStudio.composiciones). Los cuadros de piezas
+     viejas conservan su plantilla guardada. */
+  const rotacion = ['estudio_lado', 'estudio_abajo', 'estudio_arriba'];
+  const template = shot.template || (shot.sceneUrl ? 'estudio_escena' : rotacion[(Math.abs(Number(slotId) || 0) + i) % rotacion.length]);
+  const variant = shot.variant || (studio.isStudio(template)
+    ? (i % 2 ? 'derecha' : 'izquierda')
+    : Object.keys(campaign.PALETTES)[Math.abs(Number(slotId) || 0) % Object.keys(campaign.PALETTES).length]);
   shot.template = template;
   shot.variant = variant;
   const refUrl = refImgs.length ? (refImgs[shot.photoIndex] || refImgs[i % refImgs.length]) : visualImageUrl;
+  const enEstudio = studio.isStudio(template);
+  const marca = product ? studio.marcaDe(product.name) : null;
+  const nombreCorto = product ? studio.nombreCorto(product.name) : null;
+  // La receta guarda la composición que de verdad salió (la foto puede haber pedido otra).
+  const conReceta = (r) => { if (r && r.studioComp) shot.template = r.studioComp; return r; };
 
   /*
    * ESCENA YA APROBADA: se reusa en vez de generar. Entra como FONDO a sangre, que es
@@ -715,15 +960,21 @@ async function renderCarouselShot(shot, i, ctx) {
   if (shot.shotType === 'variantes') {
     const byIndex = [shot.photoIndex, ...(shot.extraPhotos || [])].map((idx) => refImgs[idx]).filter(Boolean);
     const bento = [...new Set([...byIndex, ...(shot.extraUrls || []).filter(Boolean)])].slice(0, MAX_BENTO);
-    const galleryTemplate = bento.length >= 4 ? 'aviso_mosaico' : bento.length >= 3 ? 'aviso_trio' : bento.length >= 2 ? 'aviso_duo' : 'aviso_portada';
+    const galleryTemplate = enEstudio
+      ? (bento.length >= 2 ? 'estudio_linea' : 'estudio_abajo')
+      : (bento.length >= 4 ? 'aviso_mosaico' : bento.length >= 3 ? 'aviso_trio' : bento.length >= 2 ? 'aviso_duo' : 'aviso_portada');
     shot.template = galleryTemplate;
-    return renderPostBuffer({
+    return conReceta(await renderPostBuffer({
       format, template: galleryTemplate, variant,
       overlayTitle: shot.overlay || 'También en otros colores',
+      kicker: KICKER_POR_TOMA.variantes,
+      displayTitle: nombreCorto,
+      productName: product ? product.name : null,
+      hasProduct: false,
       productImageUrls: bento.length ? bento : [refUrl],
       productImageUrl: bento[0] || refUrl,
       logos, showBrand: i === 0, layoutSeed: Number(slotId) + i * 13,
-    });
+    }));
   }
 
   // CIERRE CTA (feed): foto linda full-bleed + llamado a la acción y beneficios, SIN precio.
@@ -739,6 +990,23 @@ async function renderCarouselShot(shot, i, ctx) {
     const head = (shot.overlayByUser && overlayHead)
       ? overlayHead
       : agreeWithProduct(overlayHead || config.brand.ctaHeadline, (product && product.name) || sceneTheme);
+    if (enEstudio) {
+      /* CIERRE del sistema estudio: afiche claro con el llamado a la acción, los
+         beneficios y la fila de fotos reales del producto abajo. Sin escena IA: el
+         cierre no necesita pagar una foto para decir "está en la web". */
+      shot.template = 'estudio_titular';
+      shot.variant = 'claro';
+      return conReceta(await renderPostBuffer({
+        format, template: 'estudio_titular', variant: 'claro',
+        overlayTitle: head,
+        kicker: marca || KICKER_POR_TOMA.cta,
+        deck: (config.brand.ctaBenefits || []).join(' · '),
+        ctaLabel: pillar === 'mayorista' ? 'Consultas mayoristas' : 'Ver en la tienda',
+        productImageUrls: [...new Set([refUrl, ...otrasFotos])].filter(Boolean).slice(0, 3),
+        hasProduct: false,
+        logos, showBrand: false, layoutSeed: Number(slotId) + i * 13,
+      }));
+    }
     return renderPostBuffer({
       format, template, variant, campaignSceneVersion: shot.campaignSceneVersion,
       overlayTitle: head,
@@ -758,6 +1026,23 @@ async function renderCarouselShot(shot, i, ctx) {
   }
 
   // PRECIO (sólo historias): foto real full-bleed + bloque de precio.
+  if (shot.shotType === 'price' && enEstudio) {
+    return conReceta(await renderPostBuffer({
+      format, template, variant, overlayTitle: shot.overlay || null,
+      displayTitle: nombreCorto, productName: product ? product.name : null, hasProduct: true,
+      kicker: marca || KICKER_POR_TOMA.price,
+      price: product && product.price, promoPrice: product && product.promo_price,
+      ctaLabel: 'Comprá online',
+      productImageUrl: refUrl,
+      productImageUrls: otrasFotos,
+      logos, showBrand: false, couponCode,
+      useAiProductScene: generarEscena,
+      shotSpec: { shotType: 'hero', focus: 'el producto entero, listo para el bloque de precio', background: 'sutil' },
+      bgTheme: sceneTheme, bgBrief: imageBrief, bgOccasion: occasion,
+      layoutSeed: Number(slotId) + i * 13,
+      ...(reusar || {}),
+    }));
+  }
   if (shot.shotType === 'price') {
     return renderPostBuffer({
       format, template, variant, campaignSceneVersion: shot.campaignSceneVersion, overlayTitle: shot.overlay || null,
@@ -787,6 +1072,28 @@ async function renderCarouselShot(shot, i, ctx) {
   const overlay = shot.overlay || (i === 0 ? overlayTitle : null);
   const slideBrief = [imageBrief, shot.focus].filter(Boolean).join(' — ').slice(0, 500);
   const slideBadge = badgeText || shot.badge || null;
+  if (enEstudio) {
+    /* En la portada manda el producto (nombre corto + gancho); en los cuadros que
+       siguen, el texto propio de cada toma — repetir el nombre en cada cuadro es lo
+       que hacía que el carrusel se leyera como cuatro posteos pegados. */
+    return conReceta(await renderPostBuffer({
+      format, template, variant,
+      overlayTitle: overlay || (shot.focus ? String(shot.focus).split(/[.;]/)[0] : null) || nombreCorto,
+      displayTitle: i === 0 ? nombreCorto : null,
+      productName: product ? product.name : null,
+      hasProduct: i === 0 && Boolean(product),
+      kicker: i === 0 ? (marca || KICKER_POR_TOMA.hero) : (KICKER_POR_TOMA[shot.shotType] || marca),
+      badgeText: i === 0 ? slideBadge : null,
+      specs: i === 0 && product && product.description ? extractSpecTags(product.description, 3, { productName: product.name }) : [],
+      productImageUrl: refUrl,
+      productImageUrls: otrasFotos,
+      logos, showBrand: false, layoutSeed: Number(slotId) + i * 13,
+      useAiProductScene: generarEscena,
+      shotSpec: { shotType: shot.shotType, focus: shot.focus, background: shot.background },
+      bgTheme: sceneTheme, bgBrief: slideBrief, bgOccasion: occasion,
+      ...(reusar || {}),
+    }));
+  }
   return renderPostBuffer({
     format, template, variant, campaignSceneVersion: shot.campaignSceneVersion,
     overlayTitle: overlay,
@@ -1289,6 +1596,13 @@ async function generateForSlot(slot, overrides = {}) {
       });
       if (directorPlan) {
         console.log(`[generate-daily] Director creativo · slot #${slot.id}: focus=${directorPlan.focus} visual=${directorPlan.visual} producto=${directorPlan.product ? `#${directorPlan.product.id} "${directorPlan.product.name}"` : 'ninguno'} plantilla=${directorPlan.template || '(rota)'}${directorPlan.reason ? ` · ${directorPlan.reason}` : ''}`);
+        // El producto tiene que ser del tema que el slot nombra (ver productoCoherenteConTema).
+        const coherente = directorPlan.product ? await productoCoherenteConTema(effectiveSlot, directorPlan.product) : null;
+        if (coherente) {
+          console.warn(`[generate-daily] Slot #${slot.id}: el tema pide "${palabrasDeProductoEn(`${slot.theme_title || ''} ${slot.pillar_detail || ''}`).join(', ')}" y el director eligió "${directorPlan.product.name}". Uso "${coherente.name}".`);
+          directorPlan.product = { id: coherente.id, name: coherente.name };
+          if (directorPlan.visual === 'tarjeta_sin_foto') directorPlan.visual = 'foto_producto';
+        }
       }
     } catch (err) {
       console.warn(`[generate-daily] Director creativo no disponible (sigo con heurísticas): ${err.message}`);
@@ -1322,6 +1636,13 @@ async function generateForSlot(slot, overrides = {}) {
     }
   }
 
+  const productosComparados = (!idsElegidos.length && slot.post_type !== 'reel' && !isCarousel && !noProductBrief)
+    ? await productosDeComparacion(effectiveSlot).catch(() => []) : [];
+  if (productosComparados.length) {
+    console.log(`[generate-daily] Slot #${slot.id}: pieza de comparación — ${productosComparados.map((x, k) => `${k + 1}) ${x.name}`).join(' · ')}.`);
+    if (!PRODUCT_PILLARS.includes(slot.pillar)) product = null;
+  }
+
   // Ancla visual: qué foto acompaña la pieza.
   //  - director 'tarjeta_sin_foto' / 'ilustracion' / 'fondo_ambiental': SIN foto de
   //    producto (tarjeta limpia, dibujo didáctico o escena ambiental — nunca una
@@ -1329,7 +1650,9 @@ async function generateForSlot(slot, overrides = {}) {
   //  - director con producto para pilares de tema: esa foto como ilustración.
   //  - sin director: heurística clásica (match fuerte o nada).
   let visualProduct = null;
-  if (!noProductBrief) {
+  if (productosComparados.length) {
+    visualProduct = productosComparados[0];
+  } else if (!noProductBrief) {
     // Pilar de VENTA (producto/promo) con un producto concreto: SIEMPRE se muestra el
     // producto, aunque el director haya dicho tarjeta_sin_foto (defensa por si el plan
     // viene viejo o el director falla). Una historia/post de producto sin la prenda es
@@ -1371,7 +1694,10 @@ async function generateForSlot(slot, overrides = {}) {
     try {
       const { describeProductPhotos, planHeroShot } = require('../src/ai');
       photoDescriptions = await describeProductPhotos(refImgsAll.slice(0, 10)).catch(() => []);
-      if (!isCarousel) {
+      /* Sin la visión (Gemini sin crédito) el director de fotografía elegiría la foto a
+         ciegas: se usa la principal del catálogo y se ahorra una llamada de texto, que
+         con Groq (tope por minuto) es tiempo real de espera por pieza. */
+      if (!isCarousel && photoDescriptions.length) {
         heroShot = await planHeroShot({
           productName: (visualProduct && visualProduct.name) || null,
           productDescription: visualProduct && visualProduct.description,
@@ -1412,8 +1738,13 @@ async function generateForSlot(slot, overrides = {}) {
   const sonda = await probeCutout(visualProduct);
   const cutoutOk = Boolean(sonda && sonda.ok);
   const cutoutBox = sonda ? sonda.box : null;
+  /* LA FOTO PROTAGONISTA, MEDIDA (fondo de estudio, caja de la prenda, bordes por los
+     que viene cortada — src/photoStage.js). Decide qué composiciones del estudio se le
+     pueden ofrecer al director: gratis, local, ~50 ms. */
+  const heroUrlMedida = heroShot ? (refImgsAll[heroShot.photoIndex] || visualImageUrl) : visualImageUrl;
+  const heroAnalysis = heroUrlMedida ? await photoStage.analyzeUrl(heroUrlMedida).catch(() => null) : null;
   const templateOptions = canPickTemplate
-    ? artDirection.withoutRecent(templateCandidates(effectiveSlot, { visualProduct, cutoutOk }), design.recientes)
+    ? artDirection.withoutRecent(templateCandidates(effectiveSlot, { visualProduct, cutoutOk, photoAnalysis: heroAnalysis }), design.recientes)
       .map((t) => ({ name: t, desc: TEMPLATE_INFO[t] || '' }))
     : null;
 
@@ -1438,6 +1769,9 @@ async function generateForSlot(slot, overrides = {}) {
     // es A PEDIDO, el director no corre y las notas son las del dueño: qué productos
     // van juntos y qué pidió que se vea.
     directorNotes: [
+      productosComparados.length
+        ? `La pieza COMPARA estos productos reales, numerados en la imagen: ${productosComparados.map((x, k) => `${k + 1}) ${x.name}`).join(' · ')}. El texto invita a elegir entre ellos (por número) y no habla de ningún otro producto.`
+        : null,
       productosPedidos.length > 1
         ? `La pieza muestra JUNTOS estos productos reales: ${productosPedidos.map((x) => x.name).join(' + ')}. El texto tiene que hablar del conjunto, no de uno solo.`
         : null,
@@ -1467,7 +1801,11 @@ async function generateForSlot(slot, overrides = {}) {
       copy,
       // El ancla visual también cuenta: su descripción real es la fuente contra la
       // que se chequea cualquier característica que el copy le atribuya.
-      product: product || visualProduct,
+      // En una comparación, la fuente de verdad son TODOS los productos comparados: si
+      // no, la auditoría "corregía" como inventado el dato real del segundo producto.
+      product: productosComparados.length
+        ? { name: productosComparados.map((x) => x.name).join(' + '), description: productosComparados.map((x) => `${x.name}: ${x.description || ''}`).join('\n\n') }
+        : (product || visualProduct),
       wholesale,
       companyFacts,
       // El brief del slot es fuente de verdad: las promos que carga el dueño (descuentos,
@@ -1475,9 +1813,10 @@ async function generateForSlot(slot, overrides = {}) {
       brief: [pillarDetail, slot.theme_title].filter(Boolean).join(' — ') || null,
     });
     if (!audit.ok && audit.fixed) {
-      if (audit.fixed.caption) copy.caption = audit.fixed.caption;
-      if (audit.fixed.overlay) copy.overlay = audit.fixed.overlay;
-      if (audit.fixed.story_points) copy.story_points = audit.fixed.story_points;
+      // La corrección también la escribe un modelo: pasa por el mismo normalizador.
+      if (audit.fixed.caption) copy.caption = capitalizarOraciones(audit.fixed.caption);
+      if (audit.fixed.overlay) copy.overlay = capitalizarOraciones(audit.fixed.overlay);
+      if (audit.fixed.story_points) copy.story_points = audit.fixed.story_points.map(capitalizarOraciones);
       const note = `auditoría factual corrigió: ${(audit.issues || []).join(' · ') || 'afirmaciones sin respaldo'}`;
       copy.qa_notes = copy.qa_notes ? `${copy.qa_notes} · ${note}` : note;
       console.warn(`[generate-daily] ${note} (slot #${slot.id})`);
@@ -1514,8 +1853,8 @@ async function generateForSlot(slot, overrides = {}) {
   // cerebro del copy > pool del pilar filtrado por fotos reales > variedad por seed.
   // artMode 'tipografica' manda sobre todo: la pieza va sin foto, como afiche de diseño.
   let template = artMode === 'tipografica'
-    ? 'poster'
-    : chooseTemplate(effectiveSlot, { override: overrides.template, visualProduct, aiPick: (directorPlan && directorPlan.template) || copy.template, recientes: design.recientes, cutoutOk });
+    ? 'estudio_titular'
+    : chooseTemplate(effectiveSlot, { override: overrides.template, visualProduct, aiPick: (directorPlan && directorPlan.template) || copy.template, recientes: design.recientes, cutoutOk, photoAnalysis: heroAnalysis });
 
   // 'fullbleed' SIN NINGUNA FOTO ya se renderizaba como afiche por dentro (el propio
   // buildFullbleedHtml delega en buildPosterHtml: sin foto quedaba un degradado con el
@@ -1523,6 +1862,10 @@ async function generateForSlot(slot, overrides = {}) {
   // consecuencias: no se buscaba la foto de ambiente del afiche —la pieza salía con el
   // tercio superior vacío— y la memoria de diseño anotaba una plantilla que no era la
   // que se vio. Se resuelve el nombre acá, antes de todo lo que depende de él.
+  // Una composición de estudio sin foto no tiene qué poner en escena: pasa al afiche.
+  if (studio.isStudio(template) && template !== 'estudio_titular' && !visualImageUrl && !overrides.template) {
+    template = 'estudio_titular';
+  }
   if (template === 'fullbleed' && !visualImageUrl && !overrides.template) {
     template = 'poster';
     console.log(`[generate-daily] Slot #${slot.id}: la pieza quedó sin foto — la plantilla pasa de 'fullbleed' a 'poster' (que es como se renderiza igual, pero así consigue fondo de ambiente).`);
@@ -1544,6 +1887,16 @@ async function generateForSlot(slot, overrides = {}) {
   // de la tipografía, como atmósfera. Así que si la pieza terminó siendo un afiche y no
   // tiene foto, se busca una del catálogo sólo para el fondo. Nunca se paga IA por esto.
   // Con artMode 'tipografica' el dueño pidió explícitamente sin foto: se respeta.
+  /* LA FILA DE PRODUCTOS DEL AFICHE. Un afiche tipográfico solo, sin nada más, se
+     lee como un aviso institucional vacío. Con dos o tres prendas reales abajo —las
+     del tema si se nombra alguna, si no las más vendidas— la pieza muestra lo que se
+     vende y el feed no tiene "pozos". Sólo fotos de estudio (se miden: las de
+     ambiente o las que llenan el cuadro no se funden en la fila). */
+  let titularFotos = [];
+  if (template === 'estudio_titular' && artMode !== 'tipografica') {
+    titularFotos = await fotosParaAfiche(effectiveSlot, { excluir: visualImageUrl }).catch(() => []);
+    if (visualImageUrl) titularFotos = [visualImageUrl, ...titularFotos].slice(0, 3);
+  }
   let posterBackdrop = null;
   if (template === 'poster' && artMode !== 'tipografica' && !visualImageUrl) {
     try {
@@ -1580,69 +1933,84 @@ async function generateForSlot(slot, overrides = {}) {
   const slides = isCarousel && Array.isArray(copy.slides) && copy.slides.length >= 2
     ? copy.slides.slice(0, isStepCarousel ? 5 : 4) : null;
   if (slides && isStepCarousel) {
-    // Carrusel GUÍA (educativo/mayorista): pasos tipográficos SIN foto de producto
-    // (una guía no necesita mostrar el producto en cada slide), y si el tema es de
-    // talles/medidas y el producto tiene su guía real en Tiendanube, va como slide extra.
+    // Carrusel GUÍA (educativo/mayorista): la tapa con la fila de prendas del tema y un
+    // cuadro por paso; si el tema es de talles/medidas y el producto tiene su guía real
+    // en Tiendanube, va como cuadro extra.
     const topicText = `${pillarDetail || ''} ${slot.theme_title || ''} ${slides.map((s) => s.title).join(' ')}`;
     const sizeChart = /talle|medida|calce|guia|guía/i.test(topicText)
       ? descriptionImages(visualProduct)[0] || null : null;
 
     const urls = [];
-    for (let i = 0; i < slides.length; i += 1) {
-      const { url, costUsd, buffer } = await renderPostBuffer({
-        format,
-        // 'editorial' en vez de 'educativo': la vieja dejaba el slide con fondo blanco y
-        // dos tercios vacíos (se vio en la pieza real "Guía para elegir tu campera").
-        // Acá el número del paso llena el fondo y el texto tiene jerarquía de verdad.
-        template: 'editorial',
-        overlayTitle: sinNumeroDeSlide(slides[i].title) || overlayTitle,
-        title: sinNumeroDeSlide(slides[i].title) || overlayTitle,
-        // La bajada del slide es su propio texto: sin esto 'editorial' queda sólo con
-        // el titular y vuelve el hueco que se quiso eliminar.
-        deck: slides[i].text || null,
-        bodyText: slides[i].text || null,
-        // El número gigante de fondo ES el contador del paso. No hace falta el "N/total"
-        // impreso: Instagram ya muestra los puntitos del carrusel.
-        stepNumber: String(i + 1).padStart(2, '0'),
-        /*
-         * PORTADA: los títulos de los otros slides como índice de lo que viene.
-         * Sin esto la portada quedaba con el titular arriba y la mitad de abajo vacía
-         * (el mismo pozo que tenía la plantilla 'educativo' vieja, ahora en oscuro).
-         * Además funciona como gancho: el que ve la tapa sabe qué va a encontrar si
-         * desliza. En los slides siguientes no van: cada uno desarrolla SU paso.
-         */
-        points: i === 0 ? slides.slice(1).map((sl) => sinNumeroDeSlide(sl.title)).filter(Boolean).slice(0, 3) : null,
-        kicker: slot.pillar === 'mayorista' ? 'PARA EMPRESAS' : 'PARA SABER',
-        badgeText: i === 0 ? badgeText : null,
-        productImageUrl: i === 0 ? visualImageUrl : null, // pasos limpios, foto sólo en la portada
-        productImageUrls: i === 0 && visualImageUrl ? [visualImageUrl] : [],
-        logos,
-        showBrand: i === 0, // el logo sólo en la portada
-        layoutSeed: Number(slot.id) + i,
-        bgTheme: pillarDetail || slot.theme_title,
-      });
+    const recetas = [];
+    // La tapa de la guía lleva abajo la fila de prendas del tema: una guía sin ninguna
+    // prenda a la vista se lee como una lámina institucional.
+    const tipografica = artMode === 'tipografica';
+    const filaTapa = tipografica ? [] : await fotosParaAfiche(effectiveSlot, {}).catch(() => []);
+    /* ¿La tapa ES el paso 1? A veces el copy no escribe una tapa sino cinco pasos
+       ("Paso 1 — Definí la cantidad", "Paso 2 — …"). Si se numeraba igual que una guía
+       con tapa, los pasos quedaban corridos: el cuadro "01" decía "Paso 2". */
+    const tapaEsPaso = numeroDeSlide(slides[0].title) === 1;
+    /* CADA PASO CON UNA FOTO REAL AL COSTADO. Iban como láminas de texto sobre papel: una
+       frase a 150 px dejaba 300 px vacíos arriba y abajo, y cinco láminas iguales seguidas
+       se leen como una presentación. Primero las otras vistas de la prenda de la guía (el
+       costado, el detalle de la tela), después las de la tapa. Sin fotos (o con arte
+       "tipográfica") sigue la lámina, con el titular que crece hasta llenar el cuadro. */
+    const vistas = visualProduct && Array.isArray(visualProduct.images) ? visualProduct.images : [];
+    // Más fotos del tema que las de la tapa, para no repetir la misma foto en dos pasos.
+    const masDelTema = tipografica ? [] : await fotosParaAfiche(effectiveSlot, { cuantas: 8, cualquierCorte: true }).catch(() => []);
+    const fotosPasos = tipografica ? [] : [...new Set([
+      ...vistas.slice(1), ...masDelTema.filter((u) => !filaTapa.includes(u)), ...filaTapa, ...vistas.slice(0, 1),
+    ].filter(Boolean))];
+    /* Sin tapa escrita (el texto empieza en "Ventaja 1 —"), la guía se abría con el paso 1
+       en negro, sin decir de qué trata. Se le pone adelante la tapa con el gancho de la
+       pieza y el índice de los pasos, y los pasos se numeran 01, 02… desde el siguiente. */
+    const cuadros = tapaEsPaso
+      ? [{ title: overlayTitle || slot.theme_title, text: null }, ...slides.slice(0, 5)]
+      : slides;
+    const indice = cuadros.slice(1).map((sl) => sinNumeroDeSlide(sl.title)).filter(Boolean).slice(0, 3);
+    const ctxGuia = {
+      refImgs: vistas, visualImageUrl, sceneTheme: '', format, logos, occasion: null, couponCode: null,
+      overlayTitle, badgeText, imageBrief: '', pillar: slot.pillar, slotId: slot.id, product: visualProduct, artMode,
+    };
+    for (let i = 0; i < cuadros.length; i += 1) {
+      /* La RECETA del cuadro se guarda (slides_meta): así corregir el texto de un paso
+         desde el panel lo vuelve a dibujar igual, con su número y su foto. Antes la
+         guía no tenía receta y la corrección convertía el paso en una foto de producto. */
+      const shot = {
+        shotType: 'paso',
+        overlay: sinNumeroDeSlide(cuadros[i].title) || overlayTitle,
+        paso: {
+          tapa: i === 0,
+          text: cuadros[i].text || null,
+          // El número grande ES el contador del paso (la tapa no lleva: es el índice).
+          stepNumber: i === 0 ? null : String(i).padStart(2, '0'),
+          kicker: slot.pillar === 'mayorista' ? 'PARA EMPRESAS' : 'PARA SABER',
+          badgeText: i === 0 ? badgeText : null,
+          // La tapa lleva los títulos de los pasos como índice: es el gancho para deslizar.
+          points: i === 0 ? indice : null,
+          fila: i === 0 ? [visualImageUrl, ...filaTapa].filter(Boolean).filter((u, k, arr) => arr.indexOf(u) === k).slice(0, 3) : [],
+          photo: i > 0 && fotosPasos.length ? fotosPasos[(i - 1) % fotosPasos.length] : null,
+        },
+      };
+      const { url, costUsd, buffer } = await renderCarouselShot(shot, i, ctxGuia);
       urls.push(url);
+      recetas.push(shot);
       pieceCostUsd += costUsd || 0;
-      if (i === 0) { coverBuffer = buffer; coverOverlay = slides[0].title || overlayTitle; }
+      if (i === 0) { coverBuffer = buffer; coverOverlay = cuadros[0].title || overlayTitle; }
     }
 
-    // Slide final: la guía de talles REAL del producto (ya viene diseñada con la marca).
+    // Cuadro final: la guía de talles REAL del producto (ya viene diseñada con la marca).
     if (sizeChart) {
-      const { url, costUsd } = await renderPostBuffer({
-        format,
-        template: 'fullbleed',
-        overlayTitle: null,
-        productImageUrl: sizeChart,
-        logos,
-        showBrand: false,
-        bgTheme: 'guía de talles',
-      });
+      const shot = { shotType: 'talles', overlay: null, paso: { photo: sizeChart } };
+      const { url, costUsd } = await renderCarouselShot(shot, urls.length, ctxGuia);
       urls.push(url);
+      recetas.push(shot);
       pieceCostUsd += costUsd || 0;
     }
 
     imagePath = urls[0];
     slidesJson = JSON.stringify(urls);
+    slidesMetaJson = JSON.stringify(recetas);
   } else if (slides) {
     // Carrusel FOTOGRÁFICO (producto/promo/marca/ugc/engagement): un DIRECTOR DE ARTE
     // con IA (planCarouselShots) diseña primero qué muestra cada slide — tipo de toma
@@ -1891,10 +2259,15 @@ async function generateForSlot(slot, overrides = {}) {
     // elementos sueltos ("muy simplona"). Primero los del copy; si el cerebro no los
     // devolvió, se sacan de la descripción REAL de Tiendanube (nunca se inventa nada).
     const wantsChips = !isReel && (format === 'story' || !product);
+    /* Los datos de la FICHA sólo se imprimen cuando la pieza es sobre ese producto (o
+       sobre su tela, en las educativas). En una pieza de marca o de participación la
+       prenda es fondo: "Cuello redondo" impreso en "Así preparamos tu pedido" no tiene
+       sentido (pasó). Ahí van sólo los puntos que escribió el copy para ESA pieza. */
+    const fichaViene = PRODUCT_PILLARS.includes(slot.pillar) || ['educativo', 'mayorista'].includes(slot.pillar);
     const storyDesc = (product && product.description) || (visualProduct && visualProduct.description) || null;
     let storyPoints = wantsChips && Array.isArray(copy.story_points)
       ? copy.story_points.filter(Boolean).slice(0, 3) : null;
-    if (wantsChips && (!storyPoints || !storyPoints.length) && storyDesc) {
+    if (wantsChips && fichaViene && !productosComparados.length && (!storyPoints || !storyPoints.length) && storyDesc) {
       const fromSheet = extractSpecTags(storyDesc, 3, { productName: (product && product.name) || (visualProduct && visualProduct.name) || '' });
       if (fromSheet.length) {
         storyPoints = fromSheet;
@@ -1923,7 +2296,7 @@ async function generateForSlot(slot, overrides = {}) {
       product: product || visualProduct,
       displayTitle: (product && product.name) || overlayTitle,
       title: overlayTitle,
-      specs: (template === 'ficha' || campaign.isCampaign(template)) && storyDesc
+      specs: (template === 'ficha' || campaign.isCampaign(template) || (studio.isStudio(template) && fichaViene)) && storyDesc
         ? extractSpecTags(storyDesc, campaign.isCampaign(template) ? 4 : 5, { productName: (product && product.name) || '' })
         : null,
       deck: copy.deck || copy.subtitle || null,
@@ -1950,7 +2323,7 @@ async function generateForSlot(slot, overrides = {}) {
       const top = await productosDelRanking(4).catch(() => []);
       if (top.length >= 3) {
         rankingUrls = top.map((p) => p.image_url).filter(Boolean);
-        template = 'grid';
+        template = 'estudio_linea';
         variant = 'clasico';
         designTag = artDirection.encodeDesign(template, variant);
         console.log(`[generate-daily] Slot #${slot.id}: el tema es un ranking — la pieza pasa a una grilla con ${rankingUrls.length} productos reales (${top.map((p) => p.name.slice(0, 22)).join(', ')}).`);
@@ -1991,7 +2364,7 @@ async function generateForSlot(slot, overrides = {}) {
       if (!comboSceneUrl) {
         comboGridUrls = productosPedidos.map((x) => x.image_url).filter(Boolean);
         if (comboGridUrls.length >= 2) {
-          template = 'grid';
+          template = 'estudio_linea';
           variant = 'clasico';
           designTag = artDirection.encodeDesign(template, variant);
           console.log(`[generate-daily] Slot #${slot.id}: pieza combo en grilla con ${comboGridUrls.length} fotos reales.`);
@@ -2026,14 +2399,19 @@ async function generateForSlot(slot, overrides = {}) {
       // (2-4 palabras) el efecto de "texto por detrás de la prenda" se lee de una.
       // Los tres salen del brief, ya verificados (titular acortado, specs que de verdad
       // pueden ser ciertas para este producto).
-      displayTitle: brief.displayTitle,
+      // En el sistema estudio el titular es el nombre CORTO de la prenda ("Pantalón
+      // Cargo Ripstop"): el del catálogo es para el buscador, no para una pieza.
+      displayTitle: studio.isStudio(template) && (product || visualProduct)
+        ? studio.nombreCorto((product || visualProduct).name) : brief.displayTitle,
+      productName: (product || visualProduct) ? (product || visualProduct).name : null,
+      hasProduct: Boolean(product || (visualProduct && PRODUCT_PILLARS.includes(slot.pillar))),
       specs: brief.specs,
       deck: brief.deck,
       // Historias: puntos cortos con datos reales impresos SOBRE la imagen (el caption
       // de una historia casi no se ve — la info tiene que estar en la pieza).
       storyPoints,
       // LA foto elegida por el director de fotografía (no la primera a ciegas).
-      productImageUrl: realSizeChart || heroImageUrl || posterBackdrop,
+      productImageUrl: template === 'estudio_titular' ? null : (realSizeChart || heroImageUrl || posterBackdrop),
       // Fotos extra del mismo producto (otros ángulos) para anclar la fidelidad
       // de la escena IA: menos chance de que el modelo reinvente el producto.
       productImageUrls: refImgsAll.filter((u) => u !== heroImageUrl).slice(0, 4),
@@ -2106,6 +2484,46 @@ async function generateForSlot(slot, overrides = {}) {
       renderOpts.overlayTitle = stripEmoji(fixSpelling(slot.theme_title || overlayTitle));
       renderOpts.useAiProductScene = false; // la grilla muestra fotos REALES del catálogo
       renderOpts.useAiBackground = false;
+      renderOpts.hasProduct = false; // el titular es el del ranking, no el de UN producto
+      renderOpts.numerar = true; // "decinos el número": cada producto lleva el suyo
+    }
+    if (comboGridUrls) renderOpts.hasProduct = false;
+
+    // COMPARACIÓN ("¿Jean o Cargo?"): los productos, uno al lado del otro y numerados.
+    if (productosComparados.length && !overrides.template && artMode !== 'tipografica') {
+      template = 'estudio_linea';
+      variant = 'clasico';
+      designTag = artDirection.encodeDesign(template, variant);
+      renderOpts.template = template;
+      renderOpts.variant = variant;
+      renderOpts.productImageUrl = productosComparados[0].image_url;
+      renderOpts.productImageUrls = productosComparados.slice(1).map((x) => x.image_url);
+      renderOpts.useAiProductScene = false;
+      renderOpts.useAiBackground = false;
+      renderOpts.hasProduct = false;
+      renderOpts.numerar = true;
+      renderOpts.specs = [];
+      renderOpts.overlayTitle = stripEmoji(fixSpelling(copy.overlay || slot.theme_title || overlayTitle));
+    }
+
+    // AFICHE: sin foto de producto protagonista; abajo, la fila de prendas reales.
+    if (template === 'estudio_titular') {
+      renderOpts.productImageUrl = null;
+      renderOpts.productImageUrls = artMode === 'tipografica' ? [] : titularFotos;
+      renderOpts.useAiProductScene = false;
+      renderOpts.useAiBackground = false;
+      renderOpts.useAiDiagram = false;
+      renderOpts.coverImage = false;
+      renderOpts.hasProduct = false;
+    }
+    // LÍNEA de un producto: una foto por COLOR con stock (si hay uno solo, sus vistas).
+    if (template === 'estudio_linea' && !rankingUrls && !comboGridUrls && !productosComparados.length) {
+      const linea = fotosParaLinea(visualProduct || product);
+      if (linea.length >= 2) {
+        renderOpts.productImageUrls = linea.slice(1);
+        renderOpts.productImageUrl = linea[0];
+        renderOpts.useAiProductScene = false;
+      }
     }
 
     // El dueño eligió el modo desde el panel: pisa lo que decidió el director creativo.
@@ -2149,6 +2567,13 @@ async function generateForSlot(slot, overrides = {}) {
     let finalSeed = Number(slot.id);
     let render = await renderPostBuffer(renderOpts);
     pieceCostUsd += render.costUsd || 0;
+    // En el sistema estudio la composición final la decide la foto (una pedida que la
+    // foto no sostiene se resuelve a otra): la memoria y la receta guardan la real.
+    if (render.studioComp) {
+      template = render.studioComp;
+      finalTemplate = render.studioComp;
+      designTag = artDirection.encodeDesign(finalTemplate, finalVariant);
+    }
 
     // ============ QA VISUAL POST-RENDER + SELF-HEALING (fase final) ============
     // Hasta acá nadie miraba la pieza TERMINADA: si la plantilla truncó el título o
@@ -2188,10 +2613,15 @@ async function generateForSlot(slot, overrides = {}) {
           // roturas puramente geométricas conservamos la composición clásica probada.
           const darknessIssue = check.issues.some((issue) => /oscur|subexpuest|penumbra|apag|no se (?:distingue|reconoce)|pierde (?:el )?(?:color|detalle|textura|silueta)/i.test(issue));
           const safeVariant = darknessIssue ? 'marco' : 'clasico';
+          // Con el sistema estudio, el curado se queda en el sistema (una composición
+          // más simple) en vez de saltar a una plantilla de otra estética.
+          const safeTemplate = studio.isStudio(template)
+            ? (renderOpts.productImageUrl || aiScene ? 'estudio_abajo' : 'estudio_titular')
+            : 'fullbleed';
           const healed = await renderPostBuffer({
             ...renderOpts,
-            template: 'fullbleed', // la plantilla más robusta: se adapta con y sin foto
-            variant: safeVariant,
+            template: safeTemplate, // la plantilla más robusta: se adapta con y sin foto
+            variant: studio.isStudio(safeTemplate) ? finalVariant : safeVariant,
             layoutSeed: Number(slot.id) + 31, // otro layout, por si el problema era de posición
             ...(darknessIssue
               ? { bgImageUrl: null, coverImage: false }
@@ -2205,7 +2635,7 @@ async function generateForSlot(slot, overrides = {}) {
           );
           const keepHealed = recheck.ok || recheck.issues.length <= check.issues.length;
           if (keepHealed) {
-            render = healed; finalTemplate = 'fullbleed'; finalVariant = safeVariant; finalSeed = Number(slot.id) + 31;
+            render = healed; finalTemplate = healed.studioComp || safeTemplate; finalVariant = studio.isStudio(safeTemplate) ? finalVariant : safeVariant; finalSeed = Number(slot.id) + 31;
             designTag = artDirection.encodeDesign(finalTemplate, finalVariant);
           }
           if (!recheck.ok) {
@@ -2276,6 +2706,8 @@ async function generateForSlot(slot, overrides = {}) {
         productImageUrls: renderOpts.productImageUrls,
         referenceImageUrl: /^https?:/.test(renderOpts.productImageUrl || '') ? renderOpts.productImageUrl : null,
         displayTitle: renderOpts.displayTitle,
+        productName: renderOpts.productName,
+        hasProduct: renderOpts.hasProduct,
         specs: renderOpts.specs,
         deck: renderOpts.deck,
         layoutSeed: finalSeed,
@@ -2326,13 +2758,23 @@ async function generateForSlot(slot, overrides = {}) {
   let storyTeaserPath = null;
   if (config.meta.storyBoost && slot.post_type === 'feed' && slot.pillar !== 'repost') {
     try {
+      // Del mismo sistema que la pieza del feed: una historia de refuerzo con otra
+      // estética se leía como de otra marca.
+      const teaserTemplate = studio.isStudio(template) || slides
+        ? (visualImageUrl ? 'estudio_abajo' : 'estudio_titular')
+        : template;
       const { url, costUsd } = await renderPostBuffer({
         format: 'story',
-        template: slides ? 'educativo' : template,
+        template: teaserTemplate,
         overlayTitle,
+        displayTitle: (product || visualProduct) ? studio.nombreCorto((product || visualProduct).name) : null,
+        productName: (product || visualProduct) ? (product || visualProduct).name : null,
+        hasProduct: Boolean(product),
+        deck: slides ? 'Deslizá el nuevo post del feed' : null,
         bodyText: slides ? 'Deslizá el nuevo post del feed' : null,
         badgeText: 'NUEVO EN EL FEED',
         kicker: 'NUEVO EN EL FEED', // la plantilla educativa muestra esto en vez del badge
+        ctaLabel: 'Mirá el post',
         productImageUrl: visualImageUrl,
         logos,
         layoutSeed: Number(slot.id) + 7,
@@ -2358,7 +2800,7 @@ async function generateForSlot(slot, overrides = {}) {
     // Se guarda el diseño EFECTIVO ("plantilla:variante"): antes se guardaba la
     // plantilla elegida aunque el self-healing la hubiera cambiado, y esa columna es
     // justo la memoria que usa artDirection para no repetir el diseño de la próxima.
-    [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson, slides ? (isStepCarousel ? 'editorial' : carouselDesign) : designTag, storyTeaserPath, pieceCostUsd, copy.gen_model || null, copy.qa_notes || null, copy.sticker ? JSON.stringify(copy.sticker) : null, slidesMetaJson]
+    [slot.id, visualProduct ? visualProduct.id : null, copy.caption, copy.hashtags, copy.cta, imagePath, format, slidesJson, slides ? (isStepCarousel ? 'estudio_titular' : carouselDesign) : designTag, storyTeaserPath, pieceCostUsd, copy.gen_model || null, copy.qa_notes || null, copy.sticker ? JSON.stringify(copy.sticker) : null, slidesMetaJson]
   );
 
   // Si el slot ya tenía versiones encoladas para publicar (se está regenerando una
@@ -2517,6 +2959,15 @@ async function regenerateSlide({ assetId, index, overlay, instructions, photo })
       if (filled.note) notes.push(filled.note);
     }
   }
+  // Un cuadro de guía sigue siendo de guía: el cerebro de correcciones sólo conoce tomas
+  // de producto y lo convertía en una. Si pidió otra foto del producto, va ésa al costado.
+  if (['paso', 'talles'].includes(shotOriginal.shotType)) {
+    shot.shotType = shotOriginal.shotType;
+    if (shot.shotType === 'paso' && !(shot.paso && shot.paso.tapa) && shot.photoIndex !== shotOriginal.photoIndex && refImgs[shot.photoIndex]) {
+      shot.paso = { ...(shot.paso || {}), photo: refImgs[shot.photoIndex] };
+    }
+  }
+  const esGuia = ['paso', 'talles'].includes(shot.shotType);
   // El texto exacto tipeado en el panel gana sobre lo que haya decidido el cerebro.
   // El panel sólo manda `overlay` si el dueño EDITÓ el campo (viene precargado con el
   // texto actual): así, dejarlo como está no pisa la corrección escrita, y vaciarlo a
@@ -2546,7 +2997,7 @@ async function regenerateSlide({ assetId, index, overlay, instructions, photo })
     shot.sceneUrl = escenaPrevia;              // se reusa tal cual: $0 y misma foto
   } else {
     delete shot.sceneUrl;                      // se vuelve a decidir la imagen más abajo
-    if (modoFoto === 'misma' && !escenaPrevia) {
+    if (modoFoto === 'misma' && !escenaPrevia && !esGuia) {
       notes.push('Esta pieza es anterior al guardado de fotos, así que no tenía la foto original guardada: se generó una nueva y desde ahora sí queda guardada para las próximas correcciones.');
     }
   }
@@ -2632,7 +3083,7 @@ async function regenerateSlide({ assetId, index, overlay, instructions, photo })
    * Acá, si se pidió generar y no se generó, NO se pisa nada: se corta con el motivo y
    * el cuadro queda como estaba. */
   const seGenero = cleanImageUrl && String(cleanImageUrl).startsWith('data:');
-  if (modoFoto === 'nueva' && !seGenero && shot.shotType !== 'variantes') {
+  if (modoFoto === 'nueva' && !seGenero && shot.shotType !== 'variantes' && !esGuia) {
     const { imageGenerationBlockedReason } = require('../src/ai');
     const motivo = imageGenerationBlockedReason();
     // El consejo tiene que coincidir con el motivo: decir "probá en unos minutos" cuando
@@ -2664,7 +3115,9 @@ async function regenerateSlide({ assetId, index, overlay, instructions, photo })
     `UPDATE generated_assets SET slides = $2, image_path = $3, slides_meta = $4, updated_at = now() WHERE id = $1`,
     [assetId, JSON.stringify(urls), urls[0], JSON.stringify(meta)]
   );
-  const queCambio = mantenerFoto
+  const queCambio = esGuia
+    ? `Listo: el cuadro ${i + 1} de la guía se rehízo con el mismo diseño (sin costo).`
+    : mantenerFoto
     ? `Listo: cambió el texto del cuadro ${i + 1} y la foto quedó igual (sin costo).`
     : `Listo: el cuadro ${i + 1} se rehízo con ${modoFoto === 'real' ? 'la foto real del producto' : 'una foto nueva'}.`;
   return { slides: urls, image_path: urls[0], note: [queCambio, ...notes].join(' ').trim() };
@@ -2854,7 +3307,7 @@ async function correctPiece({ assetId, instruction, artMode: artModeIn, artBrief
     if (artBrief) base.bgBrief = [base.bgBrief, artBrief].filter(Boolean).join(' — ').slice(0, 600);
     if (artMode === 'tipografica') {
       // Afiche de diseño: se suelta la foto por completo.
-      renderInput = { ...base, template: 'poster', productImageUrl: null, productImageUrls: [], bgImageUrl: null, coverImage: false };
+      renderInput = { ...base, template: studio.isStudio(recipe.template) ? 'estudio_titular' : 'poster', productImageUrl: null, productImageUrls: [], bgImageUrl: null, coverImage: false };
     } else if (artMode === 'foto') {
       // Volver a la foto real del catálogo (descarta la escena IA que hubiera).
       const productPhoto = recipe.referenceImageUrl || await originalProductPhoto(asset);
@@ -2946,4 +3399,4 @@ async function originalProductPhoto(asset) {
   return (rows[0] && rows[0].image_url) || null;
 }
 
-module.exports = { templateCandidates, chooseTemplate, generateDaily, generateForSlot, pickRelevantVisualProduct, VALID_TEMPLATES, regenerateSlide, correctPiece, renderCarouselPanorama };
+module.exports = { templateCandidates, chooseTemplate, generateDaily, generateForSlot, pickRelevantVisualProduct, VALID_TEMPLATES, regenerateSlide, correctPiece, renderCarouselPanorama, fotosParaAfiche, productosDeComparacion, productoCoherenteConTema, sinNumeroDeSlide, numeroDeSlide };

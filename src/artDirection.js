@@ -31,6 +31,10 @@ const campaign = require('./templatesCampaign');
 /** Variantes implementadas: composición clásica o paleta de los avisos claros. */
 const TEMPLATE_VARIANTS = {
   ...Object.fromEntries(campaign.NAMES.map(name => [name, Object.keys(campaign.PALETTES)])),
+  // Sistema estudio (src/templatesStudio.js): del lado del texto y el tono del afiche.
+  // Las dos están implementadas en el renderer (buildEstudio / buildTitular).
+  estudio_lado: ['izquierda', 'derecha'],
+  estudio_titular: ['oscuro', 'claro'],
   fullbleed: [
     // La de siempre: scrim editorial y tarjeta de precio de vidrio abajo a la izquierda.
     'clasico',

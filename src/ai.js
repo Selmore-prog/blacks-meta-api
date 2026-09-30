@@ -1,6 +1,6 @@
 const config = require('./config');
 const { resizeImage, trimLetterbox, trimFlatEdges, trimBars, imageSize } = require('./imageUtils');
-const { stripEmoji, fixSpelling } = require('./textUtils');
+const { stripEmoji, fixSpelling, capitalizarOraciones } = require('./textUtils');
 
 const GEMINI_BASE = 'https://generativelanguage.googleapis.com/v1beta';
 
@@ -8,8 +8,21 @@ function hasGemini() {
   return Boolean(config.gemini.apiKey);
 }
 
+/* SIN CRÉDITO EN GEMINI, TAMPOCO PARA TEXTO. Cuando la cuenta se queda sin saldo, cada
+   llamada de texto fallaba con 402 y recién ahí caía a Groq: una generación diaria son
+   ~8 llamadas por pieza, todas pagando la ida y vuelta fallida y llenando el log. Con el
+   primer 402 de saldo se deja de intentar Gemini para texto por 30 minutos. */
+let geminiTextPausedUntil = 0;
+function pauseGeminiTextIfNoCredit(err) {
+  const msg = String((err && err.message) || '');
+  if ((err && (err.status === 402 || err.status === 429)) && /prepayment credits|credits are depleted|billing/i.test(msg)) {
+    if (Date.now() >= geminiTextPausedUntil) console.warn('[ai] Gemini sin crédito: el texto sale por Groq los próximos 30 minutos (cargá saldo en ai.studio/projects).');
+    geminiTextPausedUntil = Date.now() + 30 * 60 * 1000;
+  }
+}
+
 function preferGemini() {
-  return config.ai.provider === 'gemini' && hasGemini();
+  return config.ai.provider === 'gemini' && hasGemini() && Date.now() >= geminiTextPausedUntil;
 }
 
 /* =========================================================================
@@ -60,21 +73,23 @@ function sanitizeBurned(text) {
 }
 
 function sanitizeCopy(copy) {
+  // Mayúscula al empezar cada oración y voseo en los imperativos (ver textUtils).
+  const ok = (t) => capitalizarOraciones(t);
   return {
-    overlay: sanitizeBurned(copy.overlay),
-    caption: sanitizeText(copy.caption),
+    overlay: ok(sanitizeBurned(copy.overlay)),
+    caption: ok(sanitizeText(copy.caption)),
     hashtags: sanitizeText(copy.hashtags),
-    cta: sanitizeBurned(copy.cta),
-    slides: (copy.slides || []).map((s) => ({ title: sanitizeBurned(s.title), text: sanitizeBurned(s.text) })),
+    cta: ok(sanitizeBurned(copy.cta)),
+    slides: (copy.slides || []).map((s) => ({ title: ok(sanitizeBurned(s.title)), text: ok(sanitizeBurned(s.text)) })),
     sticker: copy.sticker
       ? {
           type: copy.sticker.type,
-          question: sanitizeBurned(copy.sticker.question),
-          options: (copy.sticker.options || []).map(sanitizeBurned),
+          question: ok(sanitizeBurned(copy.sticker.question)),
+          options: (copy.sticker.options || []).map((o) => ok(sanitizeBurned(o))),
           correct_index: copy.sticker.correct_index,
         }
       : null,
-    story_points: (copy.story_points || []).map(sanitizeBurned),
+    story_points: (copy.story_points || []).map((p) => ok(sanitizeBurned(p))),
     template: copy.template || null,
   };
 }
@@ -634,6 +649,10 @@ function isImageQuotaCoolingDown() {
   return Date.now() < imageQuotaHitUntil;
 }
 
+/* Gemini contesta "sin crédito" con 402 (desde fines de sep-2026; antes era 429 con
+   el mismo texto). Los generadores de imagen tratan los dos igual: pausan la
+   generación para todo el sistema en vez de reintentar cada pieza dos veces, que
+   con la cuenta vacía era tiempo perdido y un log lleno de errores. */
 function markImageQuotaHit(err) {
   const msg = String((err && err.message) || '');
   const sinSaldo = /prepayment credits|credits are depleted|billing/i.test(msg);
@@ -1112,7 +1131,7 @@ Si dudás, respondé false: sólo poné true cuando puedas decir DÓNDE está el
  * trabar el pipeline por un problema del verificador y no de la pieza.
  */
 async function reviewRenderedPiece({ buffer, mimeType = 'image/jpeg', overlayText = null } = {}) {
-  if (!buffer || !hasGemini()) return { ok: true, issues: [] };
+  if (!buffer || !hasGemini() || Date.now() < geminiTextPausedUntil) return { ok: true, issues: [] };
   try {
     let small = buffer;
     // 1024 y no menos: con 768 el texto chico (la URL del pie) se veía borroso y el
@@ -1148,7 +1167,8 @@ REGLA DE ORO: ante la MÍNIMA duda, ok=true. Un falso rechazo frena una pieza sa
     const issues = Array.isArray(obj.issues) ? obj.issues.map((i) => String(i).slice(0, 140)).filter(Boolean) : [];
     return { ok: obj.ok !== false, issues };
   } catch (err) {
-    console.warn(`[ai] QA visual de la pieza falló (sigo, asumo OK): ${err.message}`);
+    pauseGeminiTextIfNoCredit(err);
+    console.warn(`[ai] QA visual de la pieza falló (sigo, asumo OK): ${String(err.message).slice(0, 140)}`);
     return { ok: true, issues: [] };
   }
 }
@@ -1157,45 +1177,87 @@ REGLA DE ORO: ante la MÍNIMA duda, ok=true. Un falso rechazo frena una pieza sa
  * GROQ (fallback de copy)
  * ========================================================================= */
 
-/**
- * Llamada a Groq con UNA espera cuando pega contra el cupo por minuto.
+/*
+ * GROQ: EL RESPALDO DE TEXTO, CON TRES MODELOS EN CADENA.
  *
- * Groq (tier gratis) permite 8.000 tokens por minuto y los prompts de acá pesan 4-6k:
- * dos llamadas seguidas —el director de arte y el copy— se pasan y la segunda vuelve
- * 429 diciendo "probá de nuevo en 3 segundos". Sin esperar esos 3 segundos, la pieza
- * entera se caía... teniendo el texto a tres segundos de distancia.
- *
- * Es el ÚLTIMO recurso del sistema (se llega acá cuando Gemini ya falló), así que vale
- * la pena esperar. Una sola vez y con tope: si el cupo está realmente agotado, que falle
- * rápido en vez de dejar la generación diaria colgada.
+ * Es el último recurso del sistema (se llega acá cuando Gemini falla o no tiene crédito),
+ * y el tier gratis tiene dos topes POR MODELO: 8.000 tokens por minuto y ~200.000 por
+ * día. Una pieza gasta 20-40k entre director, copy, reintentos y auditoría, así que con
+ * un solo modelo el día se terminaba a la quinta o sexta pieza (29-sep-2026: la última
+ * pieza de la prueba falló con "cupo diario"). Cada modelo tiene su propio cupo, así que
+ * se encadenan: si el principal agotó el día, o está saturado por más de unos segundos,
+ * se pasa al siguiente. El principal sigue siendo el que mejor escribe.
  */
+const GROQ_MODELOS = ['openai/gpt-oss-120b', 'qwen/qwen3.8-27b', 'openai/gpt-oss-20b'];
+const groqAgotadoHasta = new Map(); // modelo → hasta cuándo no vale la pena pedirle (cupo diario)
+
+/** Cuánto pide esperar Groq: "try again in 202.5ms", "7.2s", "7m26.4s", "1h2m3s". */
+function segundosDeEspera(texto, retryAfter) {
+  const m = String(texto || '').match(/try again in (?:(\d+)h)?(?:(\d+)m(?!s))?(?:([\d.]+)s)?(?:([\d.]+)ms)?/i);
+  const seg = m ? (Number(m[1] || 0) * 3600) + (Number(m[2] || 0) * 60) + Number(m[3] || 0) + (Number(m[4] || 0) / 1000) : 0;
+  return seg || (Number(retryAfter) > 0 ? Number(retryAfter) : 0);
+}
+
+/** El mismo pedido adaptado a cada modelo: los que "piensan" gastan en eso lo justo. */
+function pedidoPara(model, body) {
+  const b = { ...body, model };
+  delete b.reasoning_effort;
+  if (/gpt-oss/.test(model)) b.reasoning_effort = 'low';
+  else if (/qwen3/.test(model)) b.reasoning_effort = 'none';
+  return b;
+}
+
 async function groqFetch(body) {
-  const pedir = () => fetch('https://api.groq.com/openai/v1/chat/completions', {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.groq.apiKey}` },
-    body: JSON.stringify(body),
-  });
-  let res = await pedir();
-  if (res.status === 429) {
-    const texto = await res.text().catch(() => '');
-    // Groq dice exactamente cuánto falta, en el header y en el mensaje.
-    const header = Number(res.headers.get('retry-after'));
-    const enMensaje = Number((texto.match(/try again in ([\d.]+)s/i) || [])[1]);
-    const esperaS = Math.min(30, header || enMensaje || 0);
-    if (esperaS > 0) {
-      console.warn(`[ai] Groq sin cupo por ${esperaS}s (tokens por minuto): espero y reintento una vez.`);
-      await new Promise((r) => setTimeout(r, Math.ceil(esperaS * 1000) + 500));
+  const principal = body.model || config.groq.model || GROQ_MODELOS[0];
+  const cadena = [principal, ...GROQ_MODELOS.filter((m) => m !== principal)]
+    .filter((m) => !(groqAgotadoHasta.get(m) > Date.now()));
+  if (!cadena.length) throw new Error('Groq API 429 (cupo diario): los tres modelos de respaldo agotaron su cupo del día.');
+  let ultimoError = null;
+  for (const model of cadena) {
+    const ultimo = model === cadena[cadena.length - 1];
+    const pedir = () => fetch('https://api.groq.com/openai/v1/chat/completions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${config.groq.apiKey}` },
+      body: JSON.stringify(pedidoPara(model, body)),
+    });
+    let res = await pedir();
+    for (let intento = 0; res && res.status === 429 && intento < 4; intento += 1) {
+      const texto = await res.text().catch(() => '');
+      const espera = segundosDeEspera(texto, res.headers.get('retry-after'));
+      if (/per day|TPD|RPD/i.test(texto)) {
+        // Cupo del DÍA: esperar no sirve; este modelo queda afuera hasta que se libere.
+        groqAgotadoHasta.set(model, Date.now() + Math.max(espera, 600) * 1000);
+        ultimoError = new Error(`Groq API 429 (cupo diario de ${model}): ${texto.slice(0, 200)}`);
+        console.warn(`[ai] Groq: ${model} agotó su cupo del día; sigo con otro modelo.`);
+        res = null;
+        break;
+      }
+      // Cupo por MINUTO: Groq dice cuánto esperar. Si es poco se espera; si es mucho y
+      // queda otro modelo, se usa ése en vez de dejar la pieza colgada.
+      if (espera > 12 && !ultimo) {
+        ultimoError = new Error(`Groq API 429 (${model}, cupo por minuto)`);
+        console.warn(`[ai] Groq: ${model} saturado por ${Math.round(espera)}s; pruebo con otro modelo.`);
+        res = null;
+        break;
+      }
+      const esperaS = Math.min(30, espera || 6);
+      console.warn(`[ai] Groq sin cupo por ${esperaS.toFixed(1)}s (tokens por minuto): espero y reintento (${intento + 1}/4).`);
+      await new Promise((r) => setTimeout(r, Math.ceil(esperaS * 1000) + 400));
       res = await pedir();
-    } else {
-      // Sin tiempo indicado: se devuelve el error original ya leído.
-      throw new Error(`Groq API 429: ${texto.slice(0, 300)}`);
     }
+    if (!res) continue;
+    if (!res.ok) {
+      const cuerpo = await res.text().catch(() => '');
+      ultimoError = new Error(`Groq API ${res.status} (${model}): ${cuerpo.slice(0, 300)}`);
+      if (res.status === 401) throw ultimoError; // la clave: ningún modelo va a andar
+      console.warn(`[ai] Groq ${model} respondió ${res.status}; pruebo con otro modelo.`);
+      continue;
+    }
+    const data = await res.json();
+    if (model !== principal) console.log(`[ai] Texto por Groq con el modelo de respaldo ${model}.`);
+    return data;
   }
-  if (!res.ok) {
-    const body2 = await res.text().catch(() => '');
-    throw new Error(`Groq API ${res.status}: ${body2.slice(0, 300)}`);
-  }
-  return res.json();
+  throw ultimoError || new Error('Groq no respondió.');
 }
 
 async function groqCopy(promptUser, wantSlides = false, wantSticker = false, wantStoryPoints = false) {
@@ -1292,7 +1354,8 @@ async function generateCopyOnce(opts, feedback = null) {
       }
       return { copy: sanitizeCopy(parsed), model: 'gemini' };
     } catch (err) {
-      console.warn(`[ai] Gemini copy falló, caigo a Groq: ${err.message}`);
+      pauseGeminiTextIfNoCredit(err);
+      console.warn(`[ai] Gemini copy falló, caigo a Groq: ${String(err.message).slice(0, 140)}`);
     }
   }
   return { copy: sanitizeCopy(await groqCopy(promptUser, Boolean(opts.carousel), Boolean(opts.wantSticker), wantStoryPoints)), model: 'groq' };
@@ -1377,7 +1440,8 @@ async function generateJson({ system, prompt, schema, maxTokens = 4000, temperat
       const text = textFromResponse(data);
       return JSON.parse(text.replace(/```json|```/g, '').trim());
     } catch (err) {
-      console.warn(`[ai] Gemini JSON falló, caigo a Groq: ${err.message}`);
+      pauseGeminiTextIfNoCredit(err);
+      console.warn(`[ai] Gemini JSON falló, caigo a Groq: ${String(err.message).slice(0, 140)}`);
     }
   }
   if (!config.groq.apiKey) throw new Error('No hay GROQ_API_KEY ni GEMINI_API_KEY para generar JSON.');
@@ -1880,7 +1944,7 @@ function briefBlock(brief, { allowScenery = true } = {}) {
  */
 async function describeProductPhotos(imageUrls = []) {
   const urls = [...new Set((imageUrls || []).filter(Boolean))].slice(0, 8);
-  if (!urls.length || !hasGemini() || isImageQuotaCoolingDown()) return [];
+  if (!urls.length || !hasGemini() || isImageQuotaCoolingDown() || Date.now() < geminiTextPausedUntil) return [];
   const parts = [{
     text: `Sos catalogador de producto. Te paso ${urls.length} fotos DEL MISMO producto (indexadas 0 a ${urls.length - 1}, en orden). Por cada foto decí:
 - "shows": QUÉ muestra en pocas palabras (ángulo: frontal/3-4/lateral/trasera/cenital, y si es DETALLE/zoom de una parte puntual como "detalle del sol bordado"/"suela de yute"/"etiqueta"/"puntera", o el producto entero).
@@ -1924,7 +1988,8 @@ Devolvé SOLO un JSON array alineado al orden: [{"i":0,"shows":"...","is_detail"
       };
     });
   } catch (err) {
-    console.warn(`[ai] describeProductPhotos falló (sigo sin descripciones): ${err.message}`);
+    pauseGeminiTextIfNoCredit(err);
+    console.warn(`[ai] describeProductPhotos falló (sigo sin descripciones): ${String(err.message).slice(0, 140)}`);
     return [];
   }
 }
@@ -2018,7 +2083,7 @@ ${noTextNoLogoRule(strict)}
       img.costUsd = spent;
       return img;
     } catch (err) {
-      if (err.status === 429) { markImageQuotaHit(err); console.warn(`[ai] Sin imágenes por ahora (${imageGenerationBlockedReason()}): la pieza sale con plantilla.`); return null; }
+      if (err.status === 429 || err.status === 402) { markImageQuotaHit(err); console.warn(`[ai] Sin imágenes por ahora (${imageGenerationBlockedReason()}): la pieza sale con plantilla.`); return null; }
       console.warn(`[ai] generateBackground falló (intento ${attempt + 1}/2): ${err.message}`);
     }
   }
@@ -2086,7 +2151,7 @@ ${noTextNoLogoRule(strict)}
       img.costUsd = spent;
       return img;
     } catch (err) {
-      if (err.status === 429) { markImageQuotaHit(err); console.warn(`[ai] Sin imágenes por ahora (${imageGenerationBlockedReason()}): la tira sale con fondo diseñado.`); return null; }
+      if (err.status === 429 || err.status === 402) { markImageQuotaHit(err); console.warn(`[ai] Sin imágenes por ahora (${imageGenerationBlockedReason()}): la tira sale con fondo diseñado.`); return null; }
       console.warn(`[ai] generatePanoramaBackdrop falló (intento ${attempt + 1}/2): ${err.message}`);
     }
   }
@@ -2350,7 +2415,7 @@ ${noTextNoLogoRule(strict)}
       img.aspect = medida ? medida.aspect : null;
       return img;
     } catch (err) {
-      if (err.status === 429) { markImageQuotaHit(err); console.warn(`[ai] Sin imágenes por ahora (${imageGenerationBlockedReason()}): la tira sale con los recortes sobre fondo diseñado.`); return null; }
+      if (err.status === 429 || err.status === 402) { markImageQuotaHit(err); console.warn(`[ai] Sin imágenes por ahora (${imageGenerationBlockedReason()}): la tira sale con los recortes sobre fondo diseñado.`); return null; }
       console.warn(`[ai] generatePanoramaScene falló (intento ${attempt + 1}/3): ${err.message}`);
     }
   }
@@ -2402,7 +2467,7 @@ Composición centrada con aire alrededor, formato ${format === 'story' ? 'vertic
       img.costUsd = spent;
       return img;
     } catch (err) {
-      if (err.status === 429) { markImageQuotaHit(err); console.warn(`[ai] Sin imágenes por ahora (${imageGenerationBlockedReason()}).`); return null; }
+      if (err.status === 429 || err.status === 402) { markImageQuotaHit(err); console.warn(`[ai] Sin imágenes por ahora (${imageGenerationBlockedReason()}).`); return null; }
       console.warn(`[ai] generateDiagram falló (intento ${attempt + 1}/2): ${err.message}`);
     }
   }
@@ -2816,7 +2881,7 @@ ${noTextNoLogoRule(strict)}
         img.costUsd = spent;
         return img;
       } catch (err) {
-        if (err.status === 429) { markImageQuotaHit(err); console.warn(`[ai] Sin imágenes por ahora (${imageGenerationBlockedReason()}): el cuadro sale con la foto del producto.`); return null; }
+        if (err.status === 429 || err.status === 402) { markImageQuotaHit(err); console.warn(`[ai] Sin imágenes por ahora (${imageGenerationBlockedReason()}): el cuadro sale con la foto del producto.`); return null; }
         console.warn(`[ai] generateProductScene falló (intento ${attempt + 1}/2): ${err.message}`);
       }
     }
@@ -2988,7 +3053,7 @@ Aire limpio y desenfocado arriba y abajo para futura superposición tipográfica
       img.prompt = prompt;
       return img;
     } catch (err) {
-      if (err.status === 429) { markImageQuotaHit(err); console.warn(`[ai] Sin imágenes por ahora en el estudio (${imageGenerationBlockedReason()}).`); return null; }
+      if (err.status === 429 || err.status === 402) { markImageQuotaHit(err); console.warn(`[ai] Sin imágenes por ahora en el estudio (${imageGenerationBlockedReason()}).`); return null; }
       console.warn(`[ai] generateStudioScene falló (intento ${attempt + 1}/2): ${err.message}`);
     }
   }

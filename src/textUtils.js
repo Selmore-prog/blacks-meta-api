@@ -22,16 +22,27 @@ function stripEmoji(s) {
 // (por si un slug/archivo se llamara "friza").
 const SPELL_FIXES = [
   { re: /\bfriza(s?)\b/gi, to: 'frisa' },
+  // La marca es argentina: "talla" es de España (salió en un caption por Groq, sep-2026).
+  { re: /\btalla(s?)\b/gi, to: 'talle' },
+  { re: /\bvolúmen\b()/gi, to: 'volumen' }, // "volúmenes" sí lleva tilde; el singular no
+  /* Nombres propios que el modelo escribe en minúscula ("escribinos por whatsapp", "la
+     ciudad de buenos aires"). El grupo vacío es para que el reemplazo no reciba la
+     posición como "cola". Nunca adentro de una dirección web. */
+  { re: /(?<![/.\w])whats ?app\b()/gi, to: 'WhatsApp' },
+  { re: /\bbuenos aires\b()/gi, to: 'Buenos Aires' },
+  { re: /\bmercado (pago|libre)\b/gi, to: 'Mercado ', cola: (x) => x[0].toUpperCase() + x.slice(1).toLowerCase() },
+  { re: /(?<![/.\w#])instagram\b()/g, to: 'Instagram' },
+  { re: /(?<![/.\w#])grafa 70\b()/g, to: 'Grafa 70' },
 ];
 
 function fixSpelling(s) {
   if (!s) return s;
   let out = String(s);
-  for (const { re, to } of SPELL_FIXES) {
+  for (const { re, to, cola } of SPELL_FIXES) {
     out = out.replace(re, (m, tail = '') => {
       const cased = m === m.toUpperCase() ? to.toUpperCase()
         : (m[0] === m[0].toUpperCase() ? to[0].toUpperCase() + to.slice(1) : to);
-      return cased + (tail || '');
+      return cased + (cola ? cola(tail) : (tail || ''));
     });
   }
   return out;
@@ -215,4 +226,113 @@ function agreeWithProduct(text, productName) {
   });
 }
 
-module.exports = { stripEmoji, fixSpelling, shortLabel, compactFact, agreeWithProduct, productGender };
+/* =========================================================================
+ * MAYÚSCULA AL EMPEZAR CADA ORACIÓN + VOSEO AL ARRANCAR
+ *
+ * Falla real (sep-2026, con el texto saliendo por Groq porque Gemini estaba sin
+ * crédito): los textos de los cuadros llegaban "…es ripstop. esa malla es la que…",
+ * "…agresivos. así preservás…" — oraciones que arrancaban en minúscula, impresas así
+ * en la pieza. El dueño lo resumió como "los textos todos en minúsculas". Y de paso
+ * se colaba el tuteo ("Lava la prenda") en una marca que habla de vos.
+ *
+ * Se arregla en el texto, no en el prompt: pedirle al modelo que no lo haga no
+ * alcanzó. Sólo se toca la PRIMERA letra de cada oración (lo demás queda como vino)
+ * y sólo imperativos conocidos al principio de una oración.
+ * ========================================================================= */
+/* Formas que en una pieza de la marca son SIEMPRE una indicación al lector, o que
+   llevan el pronombre pegado ("fíjate", "lávala"): se pasan a voseo sin más. */
+const VOSEO = {
+  lava: 'lavá', mira: 'mirá', revisa: 'revisá', elige: 'elegí', compra: 'comprá', aprovecha: 'aprovechá',
+  pide: 'pedí', consulta: 'consultá', escribe: 'escribí', encuentra: 'encontrá', visita: 'visitá', toca: 'tocá',
+  desliza: 'deslizá', vota: 'votá', comparte: 'compartí', pregunta: 'preguntá', recuerda: 'recordá',
+  observa: 'observá', comprueba: 'comprobá', presiona: 'presioná', verifica: 'verificá', 'evalúa': 'evaluá',
+  compara: 'compará', calcula: 'calculá', mide: 'medí', anota: 'anotá', cotiza: 'cotizá', solicita: 'solicitá',
+  contacta: 'contactá', llama: 'llamá', 'envía': 'enviá', agrega: 'agregá', suma: 'sumá', completa: 'completá',
+  confirma: 'confirmá', reserva: 'reservá', registra: 'registrá', conoce: 'conocé', aprende: 'aprendé',
+  descubre: 'conocé', decide: 'decidí', define: 'definí', planifica: 'planificá', organiza: 'organizá',
+  identifica: 'identificá', selecciona: 'seleccioná', analiza: 'analizá', piensa: 'pensá', controla: 'controlá',
+  ajusta: 'ajustá', chequea: 'chequeá', busca: 'buscá', ingresa: 'ingresá', haz: 'hacé', pon: 'poné',
+  ten: 'tené', ven: 'vení', 'mantén': 'mantené',
+  'llévate': 'llevate', 'cuéntanos': 'contanos', dinos: 'decinos', 'escríbenos': 'escribinos',
+  'contáctanos': 'contactanos', 'asegúrate': 'asegurate', 'fíjate': 'fijate', 'descúbrelo': 'miralo',
+  'sécala': 'secala', 'lávala': 'lavala', 'lávalo': 'lavalo', 'guárdala': 'guardala', 'guárdalo': 'guardalo',
+  'síguenos': 'seguinos', 'únete': 'unite', 'inscríbete': 'inscribite', 'suscríbete': 'suscribite',
+  'aprovéchalo': 'aprovechalo', 'pruébalo': 'probalo', 'pruébala': 'probala', 'elígelo': 'elegilo',
+  'elígela': 'elegila', 'pídelo': 'pedilo', 'pídela': 'pedila', 'cómpralo': 'compralo', 'cómprala': 'comprala',
+  'míralo': 'miralo', 'mírala': 'mirala', 'llévalo': 'llevalo', 'llévala': 'llevala', 'úsalo': 'usalo', 'úsala': 'usala',
+};
+
+/* Formas que TAMBIÉN son la 3ª persona que describe la prenda: "Usa tela ripstop",
+   "Lleva bolsillos laterales", "Seca rápido", "Protege del frío", "Evita el desgaste",
+   "Sigue firme después de 50 lavados". Pasarlas a voseo cambiaba el sentido ("Secá
+   rápido"), así que sólo se tocan si la oración le habla al lector: "Usa tu talle",
+   "Cuida tu ropa", "Lleva tu pedido". */
+const VOSEO_SI_LE_HABLA = {
+  usa: 'usá', lleva: 'llevá', seca: 'secá', protege: 'protegé', evita: 'evitá', guarda: 'guardá', deja: 'dejá',
+  sigue: 'seguí', cuida: 'cuidá', combina: 'combiná', equipa: 'equipá', prueba: 'probá', 'mantén': 'mantené',
+};
+
+/* Formas con el pronombre pegado: son siempre una orden al lector, así que se pasan a
+   voseo en cualquier lugar de la oración ("Votá y dinos por qué" → "decinos"). */
+const VOSEO_EN_CUALQUIER_LUGAR = [
+  'llévate', 'cuéntanos', 'dinos', 'escríbenos', 'contáctanos', 'asegúrate', 'fíjate', 'síguenos', 'únete',
+  'inscríbete', 'suscríbete', 'aprovéchalo', 'pruébalo', 'pruébala', 'elígelo', 'elígela', 'pídelo', 'pídela',
+  'cómpralo', 'cómprala', 'míralo', 'mírala', 'llévalo', 'llévala', 'úsalo', 'úsala', 'lávala', 'lávalo',
+  'guárdala', 'guárdalo', 'sécala', 'descúbrelo', 'cuéntame', 'déjanos', 'visítanos', 'llámanos', 'pregúntanos',
+];
+const VOSEO_EXTRA = { 'cuéntame': 'contame', 'déjanos': 'dejanos', 'visítanos': 'visitanos', 'llámanos': 'llamanos', 'pregúntanos': 'preguntanos' };
+const RE_VOSEO_EN_CUALQUIER_LUGAR = new RegExp(`(^|[^\\wáéíóúñü])(${VOSEO_EN_CUALQUIER_LUGAR.join('|')})(?![\\wáéíóúñü])`, 'gi');
+
+/* Palabras terminadas en -ar/-er/-ir que NO son un verbo: "Como primer paso" no es "Cómo". */
+const NO_SON_VERBOS = 'primer|tercer|mujer|taller|ayer|cualquier|lugar|hogar|par|mar|bar|polar|militar|escolar|particular|regular|popular|similar|familiar|solar|lunar|titular|auxiliar|dólar|azúcar|placer|ser|collar|pilar|super|súper|líder|láser|póster|carácter|chofer|chófer';
+
+/* Abreviaturas que terminan en punto sin terminar la oración: "10 und. y 20% desde 50
+   und." salía "…und. Y 20%". Después de una de éstas no se toca la mayúscula. */
+const ABREVIATURA_ANTES = /(?:^|[\s(])(?:und|unds|unid|u|aprox|etc|art|arts|min|máx|mín|max|cm|mm|mts|kg|kgs|gr|grs|lt|lts|pág|tel|cel|av|dto|depto|ej|nro|núm|nº|vs|sr|sra|dr|ing|lic|cía|oz|p)\.\s+$/i;
+
+function capitalizarOraciones(texto) {
+  if (texto == null) return texto;
+  const s0 = String(texto);
+  if (!s0.trim()) return s0;
+  const s = s0.replace(RE_VOSEO_EN_CUALQUIER_LUGAR, (m, pre, forma) => {
+    const v = VOSEO[forma.toLowerCase()] || VOSEO_EXTRA[forma.toLowerCase()];
+    if (!v) return m;
+    return pre + (forma[0] === forma[0].toUpperCase() ? v[0].toUpperCase() + v.slice(1) : v);
+  })
+    /* "Como comprar al por mayor" (tapa de una guía, sep-2026): al arrancar una oración o
+       una pregunta, "como" + infinitivo es siempre "cómo". En el medio de una oración no se
+       toca ("tan fácil como comprar online" es una comparación). */
+    .replace(new RegExp(`(^|[.!?…]\\s+|\\n+\\s*)([¿¡"“'(«]*)(C|c)omo(\\s+(?!(?:${NO_SON_VERBOS})\\b)[a-záéíóúñ]+(?:ar|er|ir)(?:lo|la|los|las|le|les|te|se|nos)?\\b)`, 'g'),
+      (m, pre, abre, c, resto) => `${pre}${abre}${c === 'C' ? 'Cómo' : 'cómo'}${resto}`);
+  // Al principio del texto, y después de . ! ? … o salto de línea (dejando pasar
+  // espacios, comillas y los signos de apertura ¿ ¡).
+  return s.replace(/(^|[.!?…]\s+|\n+\s*)([¿¡"“'(«]*)([a-záéíóúñü])/g, (m, pre, abre, letra, at, todo) => {
+    if (ABREVIATURA_ANTES.test(todo.slice(Math.max(0, at - 12), at + pre.length))) return m;
+    return pre + abre + letra.toUpperCase();
+  })
+    .replace(/(^|[.!?…]\s+|\n+\s*)([¿¡"“'(«]*)([A-ZÁÉÍÓÚÑ][a-záéíóúñü]+)(?=[\s,])/g, (m, pre, abre, palabra, at, todo) => {
+      const clave = palabra.toLowerCase();
+      // El resto de la oración decide los casos dudosos ("Mide 70 cm" es una medida).
+      const resto = todo.slice(at + m.length).split(/[.!?…\n]/)[0];
+      if (/^\s*\d/.test(resto)) return m;
+      const leHabla = /\b(tu|tus|te|vos|contigo)\b/i.test(resto);
+      const v = VOSEO[clave] || (leHabla ? VOSEO_SI_LE_HABLA[clave] : null);
+      if (!v) return m;
+      return pre + abre + v[0].toUpperCase() + v.slice(1);
+    });
+}
+
+/**
+ * Un texto que la IA escribió TODO EN MAYÚSCULA ("EVALÚA LA DURABILIDAD") no se puede
+ * corregir: las reglas de voseo y de arranque de oración miran las minúsculas. Se pasa a
+ * oración (conservando siglas conocidas) y recién ahí se corrige. En el diseño el titular
+ * se ve en mayúscula igual. El 29-sep un paso salió "EVALÚA" con el índice en "Evaluá".
+ */
+const SIGLAS = /\b(blacks|iram|epp|caba|amba|uv|afip|arca|dni|cuit)\b/gi;
+function desdeMayusculas(texto) {
+  const t = String(texto == null ? '' : texto);
+  const esGrito = t === t.toUpperCase() && /\p{Lu}{4,}/u.test(t);
+  return capitalizarOraciones(esGrito ? t.toLowerCase().replace(SIGLAS, (m) => m.toUpperCase()) : t);
+}
+
+module.exports = { stripEmoji, fixSpelling, shortLabel, compactFact, agreeWithProduct, productGender, capitalizarOraciones, desdeMayusculas };

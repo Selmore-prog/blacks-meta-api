@@ -44,9 +44,12 @@ test('el director y el fallback respetan material y rotación, incluso si la IA 
   const slot={id:7,pillar:'producto',post_type:'post',format:'feed'};
   const visualProduct={images:['https://example.com/one.jpg','https://example.com/one.jpg'],description:'Algodón'};
   const candidates=templateCandidates(slot,{visualProduct});
-  assert.ok(candidates.includes('aviso_derecha'));
-  assert.ok(!candidates.includes('aviso_duo'));
-  assert.notEqual(chooseTemplate(slot,{visualProduct,aiPick:'aviso_portada',recientes:[{template:'aviso_portada'}]}),'aviso_portada');
+  // Desde sep-2026 las piezas automáticas salen del sistema estudio; los avisos siguen
+  // disponibles a mano (override) y para las piezas viejas.
+  assert.ok(candidates.includes('estudio_lado'));
+  assert.ok(!candidates.includes('estudio_linea')); // una sola foto distinta: no hay línea
+  assert.ok(!candidates.some((t)=>campaign.isCampaign(t)));
+  assert.notEqual(chooseTemplate(slot,{visualProduct,aiPick:'estudio_lado',recientes:[{template:'estudio_lado'}]}),'estudio_lado');
   assert.equal(chooseTemplate(slot,{override:'aviso_portada',visualProduct,recientes:[{template:'aviso_portada'}]}),'aviso_portada');
   assert.notEqual(art.pickVariant('aviso_derecha',[{template:'aviso_portada',variant:'blanco'}]),'blanco');
   assert.equal(campaign.resolveLayout('aviso_mosaico',1),campaign.LAYOUTS.aviso_portada);
