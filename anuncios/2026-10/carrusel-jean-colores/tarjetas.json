@@ -1,0 +1,45 @@
+{
+  "salida": "tarjetas",
+  "tarjetas": [
+    {
+      "clave": "01-claro",
+      "foto": "https://acdn-us.mitiendanube.com/stores/339/112/products/vaqueroclasicorecto1-embellecedor-de-producto-cdd1c02acb8510ecdf17840413136080-1024-1024.webp",
+      "titular": "Jean Clásico|Claro",
+      "precio": 36999,
+      "off": 24,
+      "etiqueta": "DEL 40 AL 54"
+    },
+    {
+      "clave": "02-medio",
+      "foto": "https://acdn-us.mitiendanube.com/stores/339/112/products/medio1-8664ee688164e91c6817805823130941-1024-1024.webp",
+      "titular": "Jean Clásico|Medio",
+      "precio": 36999,
+      "off": 24,
+      "etiqueta": "DEL 40 AL 54"
+    },
+    {
+      "clave": "03-estatico",
+      "foto": "https://acdn-us.mitiendanube.com/stores/339/112/products/est1-9a9e3b8e1f3fabf1fb17805823131430-1024-1024.webp",
+      "titular": "Jean Clásico|Estático",
+      "precio": 36999,
+      "off": 24,
+      "etiqueta": "DEL 40 AL 54"
+    },
+    {
+      "clave": "04-azul-oscuro",
+      "foto": "https://acdn-us.mitiendanube.com/stores/339/112/products/azulosc1-339a589b735b1c144f17805823131057-1024-1024.webp",
+      "titular": "Jean Clásico|Azul Oscuro",
+      "precio": 36999,
+      "off": 24,
+      "etiqueta": "DEL 40 AL 54"
+    },
+    {
+      "clave": "05-negro",
+      "foto": "https://acdn-us.mitiendanube.com/stores/339/112/products/negro1-embellecedor-de-producto-b5a172d843722172f917840416006203-1024-1024.webp",
+      "titular": "Jean Clásico|Negro",
+      "precio": 36999,
+      "off": 24,
+      "etiqueta": "DEL 40 AL 54"
+    }
+  ]
+}

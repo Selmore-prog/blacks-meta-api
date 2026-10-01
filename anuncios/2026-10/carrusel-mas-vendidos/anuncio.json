@@ -1,0 +1,49 @@
+{
+  "adset": "120250621817500783",
+  "piezas": [
+    {
+      "nombre": "Carrusel · Los más vendidos · 2026-10",
+      "tipo": "carrusel",
+      "url": "https://blacksindumentaria.com.ar/eshop/",
+      "texto_feed": "Lo que más se llevan en Blacks este mes, con las fotos reales de la tienda. Envío gratis a todo el país desde $45.000 y hasta 6 cuotas sin interés. Deslizá y elegí el tuyo 👉",
+      "tarjetas": [
+        {
+          "imagen": "tarjetas/01-298859922.jpg",
+          "titulo": "Jean Clásico Recto — $36.999",
+          "descripcion": "24% OFF · Talles del 40 al 54",
+          "url": "https://blacksindumentaria.com.ar/productos/pantalones-jean-vaquero-clasico-recto-original/"
+        },
+        {
+          "imagen": "tarjetas/02-74186959.jpg",
+          "titulo": "Cargo Slim Fit Elastizado — $58.999",
+          "descripcion": "24% OFF · Talles del 38 al 54",
+          "url": "https://blacksindumentaria.com.ar/productos/pantalon-fit-cargo-elastizado-pampero/"
+        },
+        {
+          "imagen": "tarjetas/03-136305274.jpg",
+          "titulo": "Remera Lisa Pampero — $17.999",
+          "descripcion": "Talles del S al XXXL",
+          "url": "https://blacksindumentaria.com.ar/productos/remera-lisa-algodon-pampero/"
+        },
+        {
+          "imagen": "tarjetas/04-354993720.jpg",
+          "titulo": "Alpargatas Rueda — $24.999",
+          "descripcion": "Talles del 4 al 12 US",
+          "url": "https://blacksindumentaria.com.ar/productos/alpargatas-rueda-yute-clasica-argentina-original-lbbwl/"
+        },
+        {
+          "imagen": "tarjetas/05-353824358.jpg",
+          "titulo": "Pack x2 Remeras Pampero — $28.990",
+          "descripcion": "30% OFF · Talles del S al XXXL",
+          "url": "https://blacksindumentaria.com.ar/productos/pack-x2-remera-lisa-algodon-pampero/"
+        },
+        {
+          "imagen": "tarjetas/06-100696539.jpg",
+          "titulo": "Pantalón de Trabajo Clásico Pampero — $38.999",
+          "descripcion": "25% OFF · Talles del 38 al 58",
+          "url": "https://blacksindumentaria.com.ar/productos/pantalon-de-trabajo-clasico-pampero/"
+        }
+      ]
+    }
+  ]
+}

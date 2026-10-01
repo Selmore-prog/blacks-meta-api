@@ -1,0 +1,44 @@
+{
+  "adset": "120250621817500783",
+  "piezas": [
+    {
+      "nombre": "Carrusel · Jean en 5 colores · 2026-10",
+      "tipo": "carrusel",
+      "url": "https://blacksindumentaria.com.ar/productos/pantalones-jean-vaquero-clasico-recto-original/",
+      "ordenar_por_rendimiento": false,
+      "texto_feed": "El jean clásico recto en cinco colores: claro, medio, estático, azul oscuro y negro. 100% algodón, hecho en Argentina y del 40 al 54 en todos los colores. Envío gratis a todo el país desde $45.000 y hasta 6 cuotas sin interés.",
+      "tarjetas": [
+        {
+          "imagen": "tarjetas/01-claro.jpg",
+          "titulo": "Jean Clásico Claro — $36.999",
+          "descripcion": "24% OFF · Talles del 40 al 54",
+          "url": "https://blacksindumentaria.com.ar/productos/pantalones-jean-vaquero-clasico-recto-original/?variant=1333401814"
+        },
+        {
+          "imagen": "tarjetas/02-medio.jpg",
+          "titulo": "Jean Clásico Medio — $36.999",
+          "descripcion": "24% OFF · Talles del 40 al 54",
+          "url": "https://blacksindumentaria.com.ar/productos/pantalones-jean-vaquero-clasico-recto-original/?variant=1333401866"
+        },
+        {
+          "imagen": "tarjetas/03-estatico.jpg",
+          "titulo": "Jean Clásico Estático — $36.999",
+          "descripcion": "24% OFF · Talles del 40 al 54",
+          "url": "https://blacksindumentaria.com.ar/productos/pantalones-jean-vaquero-clasico-recto-original/?variant=1333401911"
+        },
+        {
+          "imagen": "tarjetas/04-azul-oscuro.jpg",
+          "titulo": "Jean Clásico Azul Oscuro — $36.999",
+          "descripcion": "24% OFF · Talles del 40 al 54",
+          "url": "https://blacksindumentaria.com.ar/productos/pantalones-jean-vaquero-clasico-recto-original/?variant=1524388589"
+        },
+        {
+          "imagen": "tarjetas/05-negro.jpg",
+          "titulo": "Jean Clásico Negro — $36.999",
+          "descripcion": "24% OFF · Talles del 40 al 54",
+          "url": "https://blacksindumentaria.com.ar/productos/pantalones-jean-vaquero-clasico-recto-original/?variant=1333401943"
+        }
+      ]
+    }
+  ]
+}

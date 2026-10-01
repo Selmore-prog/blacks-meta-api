@@ -109,6 +109,57 @@
         354993720
       ],
       "precio": 24999
+    },
+    {
+      "ad_id": "120250763100250783",
+      "nombre": "Carrusel · Los más vendidos · 2026-10",
+      "productos": [
+        298859922,
+        74186959,
+        136305274,
+        354993720,
+        353824358,
+        100696539
+      ],
+      "tarjetas": [
+        {
+          "producto": 298859922,
+          "precio": 36999,
+          "descuento": 24
+        },
+        {
+          "producto": 74186959,
+          "precio": 58999,
+          "descuento": 24
+        },
+        {
+          "producto": 136305274,
+          "precio": 17999
+        },
+        {
+          "producto": 354993720,
+          "precio": 24999
+        },
+        {
+          "producto": 353824358,
+          "precio": 28990,
+          "descuento": 30
+        },
+        {
+          "producto": 100696539,
+          "precio": 38999,
+          "descuento": 25
+        }
+      ]
+    },
+    {
+      "ad_id": "120250763105140783",
+      "nombre": "Carrusel · Jean en 5 colores · 2026-10",
+      "productos": [
+        298859922
+      ],
+      "precio": 36999,
+      "descuento": 24
     }
   ]
 }

@@ -1,0 +1,40 @@
+{
+  "salida": "tarjetas",
+  "tarjetas": [
+    {
+      "clave": "01-uniformes",
+      "foto": "https://acdn-us.mitiendanube.com/stores/339/112/products/240626_pampero_d1_7131-1536x1536-f71d4f9dc30fa9d61e17864805008937-1024-1024.webp",
+      "titular": "Ropa de trabajo|para tu empresa",
+      "pastilla": "Desde 10 unidades",
+      "etiqueta": "MAYORISTA"
+    },
+    {
+      "clave": "02-chombas-logo",
+      "foto": "https://acdn-us.mitiendanube.com/stores/339/112/products/271203_pampero_ecom_1494-b92a348b097250efcd17829237839906-1024-1024.jpg",
+      "titular": "Chombas con|el logo de tu empresa",
+      "pastilla": "Bordado o estampado",
+      "etiqueta": "MAYORISTA"
+    },
+    {
+      "clave": "03-camisas",
+      "foto": "https://acdn-us.mitiendanube.com/stores/339/112/products/ombu_mesa-de-trabajo-1-copia-41-027455cf2837946aee17201936289309-1024-1024.png",
+      "titular": "Camisas de trabajo|Ombú · Grafa 70 · Pampero",
+      "pastilla": "Factura A",
+      "etiqueta": "MAYORISTA"
+    },
+    {
+      "clave": "04-cargo",
+      "foto": "https://acdn-us.mitiendanube.com/stores/339/112/products/ombu_mesa-de-trabajo-1-copia-81-8da95c81a2027fd46d17201934188233-1024-1024.png",
+      "titular": "Pantalones cargo|de trabajo",
+      "pastilla": "Envíos a todo el país",
+      "etiqueta": "MAYORISTA"
+    },
+    {
+      "clave": "05-calzado",
+      "foto": "https://acdn-us.mitiendanube.com/stores/339/112/products/grafa0-embellecedor-de-producto-687767844dc781c58517875855159504-1024-1024.webp",
+      "titular": "Calzado de seguridad|con puntera de acero",
+      "pastilla": "Cotizá por WhatsApp",
+      "etiqueta": "MAYORISTA"
+    }
+  ]
+}

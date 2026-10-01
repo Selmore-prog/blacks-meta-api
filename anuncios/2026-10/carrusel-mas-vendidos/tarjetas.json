@@ -1,0 +1,51 @@
+{
+  "salida": "tarjetas",
+  "tarjetas": [
+    {
+      "clave": "01-298859922",
+      "foto": "https://acdn-us.mitiendanube.com/stores/339/112/products/vaqueroclasicorecto1-embellecedor-de-producto-cdd1c02acb8510ecdf17840413136080-1024-1024.webp",
+      "titular": "Jean Clásico Recto",
+      "precio": 36999,
+      "off": 24,
+      "etiqueta": "MÁS VENDIDO"
+    },
+    {
+      "clave": "02-74186959",
+      "foto": "https://acdn-us.mitiendanube.com/stores/339/112/products/b2-ab9d20725877b8463617567383733446-1024-1024.jpg",
+      "titular": "Cargo Slim Fit|Elastizado",
+      "precio": 58999,
+      "off": 24,
+      "etiqueta": "MÁS VENDIDO"
+    },
+    {
+      "clave": "03-136305274",
+      "foto": "https://acdn-us.mitiendanube.com/stores/339/112/products/271203_pampero_ecom_1807-13367f5df1125af96a17872646116059-1024-1024-dcf8e2083a652417ae17876834726482-1024-1024.jpg",
+      "titular": "Remera Lisa Pampero",
+      "precio": 17999,
+      "etiqueta": "MÁS VENDIDO"
+    },
+    {
+      "clave": "04-354993720",
+      "foto": "https://acdn-us.mitiendanube.com/stores/339/112/products/alpargatas26_29659-899b0780ca8072daf917837088867749-1024-1024.webp",
+      "titular": "Alpargatas Rueda",
+      "precio": 24999,
+      "etiqueta": "MÁS VENDIDO"
+    },
+    {
+      "clave": "05-353824358",
+      "foto": "https://acdn-us.mitiendanube.com/stores/339/112/products/remazulx2-427d60497cceb4d0d117830949254547-1024-1024.png",
+      "titular": "Pack x2|Remeras Pampero",
+      "precio": 28990,
+      "off": 30,
+      "etiqueta": "MÁS VENDIDO"
+    },
+    {
+      "clave": "06-100696539",
+      "foto": "https://acdn-us.mitiendanube.com/stores/339/112/products/v2-a540f97814f7e59c9d17567388999287-1024-1024.webp",
+      "titular": "Pantalón de Trabajo|Clásico Pampero",
+      "precio": 38999,
+      "off": 25,
+      "etiqueta": "MÁS VENDIDO"
+    }
+  ]
+}

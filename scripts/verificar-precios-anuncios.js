@@ -109,7 +109,7 @@ async function pausar(adId) {
   const umbral = Number(process.env.FREE_SHIPPING_MIN || man.envio_gratis_desde || 45000);
   const pausarErrores = process.argv.includes('--pausar');
 
-  const ids = [...new Set(man.anuncios.flatMap((a) => a.productos))];
+  const ids = [...new Set(man.anuncios.flatMap((a) => [...a.productos, ...(a.tarjetas || []).map((t) => t.producto)]))];
   const productos = {};
   for (const id of ids) productos[id] = await estadoProducto(id);
 
@@ -146,6 +146,15 @@ async function pausar(adId) {
     if (a.envio_gratis) {
       const total = ps.reduce((s, p) => s + p.final, 0);
       if (total < umbral) problemas.push(`promete envío gratis pero suma ${pesos(total)} (el mínimo es ${pesos(umbral)})`);
+    }
+    // Carrusel: cada tarjeta promete SU precio y SU descuento.
+    for (const t of a.tarjetas || []) {
+      const p = productos[t.producto];
+      if (t.precio != null && p.final > t.precio) problemas.push(`tarjeta ${p.nombre}: dice ${pesos(t.precio)} y la tienda cobra ${pesos(p.final)}`);
+      else if (t.precio != null && p.final < t.precio) notas.push(`tarjeta ${p.nombre}: dice ${pesos(t.precio)} y la tienda bajó a ${pesos(p.final)}`);
+      if (t.descuento != null && p.descuento + 1e-6 < t.descuento) {
+        problemas.push(`tarjeta ${p.nombre}: dice ${t.descuento}% OFF y el descuento real es ${p.descuento.toFixed(1)}%`);
+      }
     }
 
     const etiqueta = estado ? ` [${estado}]` : '';

@@ -24,6 +24,16 @@
  *     "texto_feed": "...", "texto_vertical": "...",
  *     "pausar": ["ad_id viejo que este anuncio reemplaza"] }] }
  *
+ * CARRUSEL (oct-2026, lo arma scripts/carrusel-mas-vendidos.js):
+ *   { "nombre", "tipo": "carrusel", "url": "destino del 'ver más'",
+ *     "texto_feed": "texto principal", "cta": "SHOP_NOW",
+ *     "ordenar_por_rendimiento": true   (Meta reordena las tarjetas según cuál
+ *                                       rinde; sólo en Facebook. false = el orden del spec),
+ *     "tarjetas": [{ "imagen": "1080x1080.jpg", "titulo", "descripcion", "url" }] }
+ *   Cada tarjeta lleva a SU producto. Va un solo texto para todas las ubicaciones:
+ *   el carrusel no admite reglas por ubicación (en historias Meta pone cada
+ *   tarjeta sobre su propio fondo, no hace falta versión 9:16).
+ *
  * LO QUE YA SE APRENDIÓ Y ESTÁ RESUELTO ACÁ (ver subir-piezas-motor.js):
  *  · Un solo anuncio con TRES formatos (`asset_customization_rules`), así no se
  *    parte la señal de aprendizaje y ninguna ubicación recorta el texto:
@@ -170,6 +180,40 @@ function creativo(p, activos) {
   };
 }
 
+function creativoCarrusel(p, hashes) {
+  const cta = p.cta || 'SHOP_NOW';
+  return {
+    name: `Pieza ${p.nombre}`,
+    object_story_spec: {
+      page_id: PAGINA,
+      instagram_user_id: IG_USER,
+      link_data: {
+        link: p.url,
+        message: p.texto_feed,
+        multi_share_optimized: p.ordenar_por_rendimiento !== false,
+        // Sin la tarjeta final con la foto de perfil: ocupa un lugar y no vende nada.
+        multi_share_end_card: false,
+        call_to_action: { type: cta, value: { link: p.url } },
+        child_attachments: p.tarjetas.map((t, i) => ({
+          link: t.url,
+          image_hash: hashes[i],
+          name: t.titulo,
+          ...(t.descripcion ? { description: t.descripcion } : {}),
+          call_to_action: { type: cta, value: { link: t.url } },
+        })),
+      },
+    },
+  };
+}
+
+const archivosDe = (p) => {
+  if (p.tipo === 'carrusel') return (p.tarjetas || []).map((t) => t.imagen);
+  if (p.tipo === 'video') {
+    return [p.feed, p.vertical, p.portada_feed, p.portada_vertical, ...(p.cuadrado ? [p.cuadrado, p.portada_cuadrado] : [])];
+  }
+  return [p.feed, p.vertical, ...(p.cuadrado ? [p.cuadrado] : [])];
+};
+
 /* ---------------------------------- Main ---------------------------------- */
 
 (async () => {
@@ -186,10 +230,10 @@ function creativo(p, activos) {
 
   const faltan = [];
   for (const p of spec.piezas) {
-    const archivos = p.tipo === 'video'
-      ? [p.feed, p.vertical, p.portada_feed, p.portada_vertical, ...(p.cuadrado ? [p.cuadrado, p.portada_cuadrado] : [])]
-      : [p.feed, p.vertical, ...(p.cuadrado ? [p.cuadrado] : [])];
-    for (const a of archivos) if (!a || !fs.existsSync(ruta(a))) faltan.push(`${p.nombre}: ${a}`);
+    if (p.tipo === 'carrusel' && !((p.tarjetas || []).length >= 2 && p.tarjetas.length <= 10)) {
+      faltan.push(`${p.nombre}: un carrusel lleva de 2 a 10 tarjetas (tiene ${(p.tarjetas || []).length})`);
+    }
+    for (const a of archivosDe(p)) if (!a || !fs.existsSync(ruta(a))) faltan.push(`${p.nombre}: ${a}`);
   }
   if (faltan.length) {
     console.error('Faltan archivos:\n  ' + faltan.join('\n  '));
@@ -200,6 +244,12 @@ function creativo(p, activos) {
   if (!aplicar) {
     for (const p of spec.piezas) {
       console.log(`  ${p.nombre} [${p.tipo}] → ${p.url}`);
+      if (p.tipo === 'carrusel') {
+        console.log(`     texto:     ${p.texto_feed}`);
+        p.tarjetas.forEach((t, i) => console.log(`     ${String(i + 1).padStart(2)}. ${t.titulo}${t.descripcion ? '  |  ' + t.descripcion : ''}\n         ${t.url}`));
+        console.log('');
+        continue;
+      }
       console.log(`     título:    ${p.titulo}${p.descripcion ? '  |  ' + p.descripcion : ''}`);
       console.log(`     feed:      ${p.texto_feed}`);
       console.log(`     vertical:  ${p.texto_vertical}`);
@@ -225,7 +275,12 @@ function creativo(p, activos) {
     }
     try {
       const activos = {};
-      if (p.tipo === 'video') {
+      let datos;
+      if (p.tipo === 'carrusel') {
+        const hashes = [];
+        for (const t of p.tarjetas) hashes.push(await subirImagen(ruta(t.imagen)));
+        datos = creativoCarrusel(p, hashes);
+      } else if (p.tipo === 'video') {
         activos.videoFeed = await subirVideo(ruta(p.feed));
         activos.videoVertical = await subirVideo(ruta(p.vertical));
         activos.portadaFeed = await subirImagen(ruta(p.portada_feed));
@@ -239,7 +294,7 @@ function creativo(p, activos) {
         activos.vertical = await subirImagen(ruta(p.vertical));
         if (p.cuadrado) activos.cuadrado = await subirImagen(ruta(p.cuadrado));
       }
-      const cr = await fbPost(`${CUENTA}/adcreatives`, creativo(p, activos));
+      const cr = await fbPost(`${CUENTA}/adcreatives`, datos || creativo(p, activos));
       if (ya) {
         await fbPost(ya.id, { creative: { creative_id: cr.id } });
         console.log(`↻ ${p.nombre} (${ya.id}) → creativo nuevo ${cr.id}`);

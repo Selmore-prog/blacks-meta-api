@@ -179,6 +179,33 @@ FRAMING: ONE single continuous photograph taken with one camera in one shot — 
 Lo intenté generar el 28-sep y la cuenta de Gemini estaba **sin saldo**: queda para cuando se cargue.
 Mientras tanto la remera sale sola, con las cuatro fotos reales de la tienda (anuncio 17).
 
+### C5-C7 · Repetir el formato ganador (agregado el 1-oct)
+Del 28-sep al 1-oct, **"22 · Jean en 5 Colores" se llevó el 60% del gasto con 3,9% de clics
+y 3 compras**: la pila de la misma prenda en todos sus colores funciona. Mismo bloque de
+blindaje, misma escena de taller, sólo cambia la prenda. Usá **sólo colores con stock**
+(revisados el 1-oct; verificalos el día que generes).
+
+**C5 · Cargo slim en tres colores** — fotos: beige, negro y azul (de cuerpo entero + detalle del bolsillo).
+```
+SCENE: The three slim-fit stretch cargo trousers from the references, folded neatly and stacked, seen from a three-quarter angle on a weathered wooden workbench in a sunlit workshop. From top to bottom: beige, navy blue, black. The side cargo pocket with its flap visible on the top one. Soft window light from the left, warm tones.
+FRAMING: ONE single continuous photograph — never a collage, no borders.
+```
+Texto que va arriba: **"CARGO SLIM EN 3 COLORES"** + pastilla **$58.999**.
+
+**C6 · Remera lisa en cuatro colores** — fotos: negro, blanco, azul y gris (una de frente de cada una).
+```
+SCENE: The four plain crew-neck cotton t-shirts from the references, folded neatly and stacked, seen from a three-quarter angle on a weathered wooden workbench in a sunlit workshop. From top to bottom: white, heather grey, navy blue, black. The rib collar of the top one visible. Soft window light from the left, warm tones.
+FRAMING: ONE single continuous photograph — never a collage, no borders.
+```
+Texto que va arriba: **"REMERA LISA · 4 COLORES"** + pastilla **$17.999**.
+
+**C7 · Alpargatas en tres colores** — fotos: tostado, crudo y jean (de costado, con el sol bordado).
+```
+SCENE: Three pairs of canvas espadrilles from the references lined up side by side on a weathered wooden workbench in a sunlit workshop, seen from a low three-quarter angle: tan, off-white and dark denim. The golden embroidered sun on the outer side and the jute soles clearly visible. Soft window light from the left, warm tones.
+FRAMING: ONE single continuous photograph — never a collage, no borders.
+```
+Texto que va arriba: **"ALPARGATAS RUEDA · 3 COLORES"** + pastilla **$24.999**.
+
 ---
 
 ## D · Textos base (verificar precios el día que se publica)
