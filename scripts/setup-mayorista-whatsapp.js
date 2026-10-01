@@ -139,12 +139,13 @@ async function buscar(edge, nombre) {
       promoted_object: { page_id: PAGINA, whatsapp_phone_number: WHATSAPP },
       targeting: {
         geo_locations: { countries: ['AR'], location_types: ['home', 'recent'] },
-        // Compradores de empresa: 25 es el mínimo que se puede FORZAR con
-        // Advantage+ audience; el rango 28-60 va como sugerencia.
+        // Edad FIJA 25-64, igual que el prospecting minorista desde el 1-oct:
+        // medido ese día, 65+ era el 19% de las visitas que llegaban desde Meta
+        // y no compró nunca. Con el público Advantage+ el máximo es sólo una
+        // sugerencia (queda fijo en 65), por eso va apagado.
         age_min: 25,
-        age_max: 65,
-        age_range: [28, 60],
-        targeting_automation: { advantage_audience: 1 },
+        age_max: 64,
+        targeting_automation: { advantage_audience: 0 },
         // Sin Marketplace ni columna derecha: recortan las tarjetas (medido el 28-sep).
         publisher_platforms: ['facebook', 'instagram'],
         facebook_positions: ['feed', 'story', 'facebook_reels'],

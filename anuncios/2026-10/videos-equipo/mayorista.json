@@ -1,0 +1,30 @@
+{
+  "_que_es": "Videos grabados por el equipo en el depósito (reels de IG del 8-ago y 21-ago-2026), recortados para la campaña mayorista que abre WhatsApp. Depósito: sin el arranque movido, sin la frase repetida ('conseguí todo en nuestro sitio web o por...') y sin el 'No te olvides' cortado. Pantalones: sin 'todos vienen en negro, beige, azul y verde' (el 1-oct el Ripstop no tenía verde, el Clásico de trabajo no tiene negro y el Cargo Cazador tenía 2-3 talles por color) ni 'entrá a nuestra web' (el botón lleva a WhatsApp). El mensaje precargado es el mismo del carrusel: Kommo lo reconoce como mayorista. Va un solo video, el 9:16, con video_data: con un video por ubicación (asset_feed_spec) Meta no mostraba el botón de WhatsApp. Los 4:5 quedan en la carpeta por si sirven para otra cosa.",
+  "adset": "120250763665960783",
+  "piezas": [
+    {
+      "nombre": "Video · Depósito · Toda la ropa de trabajo",
+      "tipo": "video",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/videos/para-pauta/mayorista-deposito_916.mp4",
+      "portada_vertical": "/Users/sebastianelmore/Desktop/piezas-motor/videos/para-pauta/mayorista-deposito_916.jpg",
+      "titulo": "Ropa de trabajo para tu empresa",
+      "texto_feed": "En BLACKS tenemos toda la ropa de trabajo para tu empresa: calzado, pantalones, camisas, remeras, buzos y camperas de Pampero, Ombú y Grafa 70. Desde 10 unidades con el logo bordado o estampado, y con Factura A. Escribinos por WhatsApp y te cotizamos.",
+      "whatsapp": {
+        "precargado": "Hola! Quiero cotizar ropa de trabajo para mi empresa.",
+        "saludo": "¡Hola! Contanos qué prendas y cuántas unidades necesitás, y te cotizamos."
+      }
+    },
+    {
+      "nombre": "Video · 4 pantalones de trabajo",
+      "tipo": "video",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/videos/para-pauta/mayorista-pantalones_916.mp4",
+      "portada_vertical": "/Users/sebastianelmore/Desktop/piezas-motor/videos/para-pauta/mayorista-pantalones_916.jpg",
+      "titulo": "4 pantalones de trabajo para tu equipo",
+      "texto_feed": "¿Comprás ropa de trabajo para tu empresa o tu comercio? Te mostramos 4 pantalones para distintos usos: cargo ripstop, cargo cazador, clásico de trabajo y cargo fit. Escribinos por WhatsApp, contanos cuántas unidades necesitás y te cotizamos.",
+      "whatsapp": {
+        "precargado": "Hola! Quiero cotizar ropa de trabajo para mi empresa.",
+        "saludo": "¡Hola! Contanos qué prendas y cuántas unidades necesitás, y te cotizamos."
+      }
+    }
+  ]
+}

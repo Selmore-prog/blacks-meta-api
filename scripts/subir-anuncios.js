@@ -11,6 +11,10 @@
  *   node scripts/subir-anuncios.js <spec.json> --actualizar → a los que YA existen
  *        (mismo nombre) les pone un creativo nuevo: mismo ID de anuncio, así el
  *        manifiesto de precios y los informes no se rompen. Vuelven a revisión.
+ *   node scripts/subir-anuncios.js <spec.json> --aplicar --en-pausa → los crea
+ *        EN PAUSA y no pausa los de "pausar" (si no, el conjunto se quedaría sin
+ *        nada andando). No gastan, pero Meta igual los revisa: al prenderlos
+ *        arrancan sin esperar la revisión (visto el 1-oct-2026).
  *
  * Spec:
  * { "adset": "1202...", "piezas": [{
@@ -23,6 +27,17 @@
  *     "url": "https://blacksindumentaria.com.ar/productos/...",
  *     "texto_feed": "...", "texto_vertical": "...",
  *     "pausar": ["ad_id viejo que este anuncio reemplaza"] }] }
+ *
+ * VIDEO QUE ABRE WHATSAPP (conjuntos que optimizan conversaciones, como el
+ * mayorista): la pieza lleva además
+ *   "whatsapp": { "precargado": "lo que el cliente manda", "saludo": "lo que ve primero" }
+ * y no lleva "url" ni "feed": va UN solo video, el 9:16 (los feeds lo
+ * muestran recortado a 4:5 al centro). Probado el 1-oct-2026: con
+ * asset_feed_spec (un video por ubicación) el anuncio se crea, pero las vistas
+ * previas salen SIN título y SIN botón de WhatsApp — el campo que lo arma
+ * (call_to_actions) es sólo para apps internas de Meta. Con video_data, igual
+ * que el carrusel mayorista (link_data), sale el botón y el mensaje precargado,
+ * que Kommo usa para mandar la charla al embudo mayorista.
  *
  * CARRUSEL (oct-2026, lo arma scripts/carrusel-mas-vendidos.js):
  *   { "nombre", "tipo": "carrusel", "url": "destino del 'ver más'",
@@ -135,6 +150,34 @@ const reglaFeed = (esVideo) => ({
 });
 const REGLA_RESTO = { publisher_platforms: ['facebook', 'instagram', 'audience_network', 'messenger'] };
 
+// Mismo formato que el carrusel mayorista (setup-mayorista-whatsapp.js).
+function creativoWhatsapp(p, activos) {
+  return {
+    name: `Pieza ${p.nombre}`,
+    object_story_spec: {
+      page_id: PAGINA,
+      instagram_user_id: IG_USER,
+      video_data: {
+        video_id: activos.videoVertical,
+        image_hash: activos.portadaVertical,
+        title: p.titulo,
+        message: p.texto_feed,
+        call_to_action: { type: 'WHATSAPP_MESSAGE', value: { app_destination: 'WHATSAPP' } },
+        page_welcome_message: {
+          type: 'VISUAL_EDITOR',
+          version: 2,
+          landing_screen_type: 'welcome_message',
+          media_type: 'text',
+          text_format: {
+            customer_action_type: 'autofill_message',
+            message: { text: p.whatsapp.saludo, autofill_message: { content: p.whatsapp.precargado } },
+          },
+        },
+      },
+    },
+  };
+}
+
 function creativo(p, activos) {
   const esVideo = p.tipo === 'video';
   const conCuadrado = Boolean(p.cuadrado);
@@ -148,15 +191,15 @@ function creativo(p, activos) {
     link_urls: [{ website_url: p.url }],
     call_to_action_types: [p.cta || 'SHOP_NOW'],
     ad_formats: [esVideo ? 'SINGLE_VIDEO' : 'SINGLE_IMAGE'],
-    // La ÚLTIMA regla siempre es el cajón de sastre sin posiciones.
+    // La ÚLTIMA regla siempre es el cajón de sastre sin posiciones. Los feeds
+    // van SIEMPRE con regla propia: con sólo vertical + cajón de sastre, la
+    // vista previa de INSTAGRAM_STANDARD falla con "0 reglas objetivo para el
+    // formato" (visto el 1-oct-2026 en los videos mayoristas). Sin cuadrado,
+    // el cajón de sastre repite el 4:5.
     asset_customization_rules: [
       { customization_spec: REGLA_VERTICAL, [etiqueta]: { name: 'vertical' }, body_label: { name: 'body_vertical' }, priority: 1 },
-      ...(conCuadrado
-        ? [
-          { customization_spec: reglaFeed(esVideo), [etiqueta]: { name: 'feed' }, body_label: { name: 'body_feed' }, priority: 2 },
-          { customization_spec: REGLA_RESTO, [etiqueta]: { name: 'cuadrado' }, body_label: { name: 'body_feed' }, priority: 3 },
-        ]
-        : [{ customization_spec: REGLA_RESTO, [etiqueta]: { name: 'feed' }, body_label: { name: 'body_feed' }, priority: 2 }]),
+      { customization_spec: reglaFeed(esVideo), [etiqueta]: { name: 'feed' }, body_label: { name: 'body_feed' }, priority: 2 },
+      { customization_spec: REGLA_RESTO, [etiqueta]: { name: conCuadrado ? 'cuadrado' : 'feed' }, body_label: { name: 'body_feed' }, priority: 3 },
     ],
   };
   if (p.descripcion) afs.descriptions = [{ text: p.descripcion }];
@@ -208,6 +251,7 @@ function creativoCarrusel(p, hashes) {
 
 const archivosDe = (p) => {
   if (p.tipo === 'carrusel') return (p.tarjetas || []).map((t) => t.imagen);
+  if (p.tipo === 'video' && p.whatsapp) return [p.vertical, p.portada_vertical];
   if (p.tipo === 'video') {
     return [p.feed, p.vertical, p.portada_feed, p.portada_vertical, ...(p.cuadrado ? [p.cuadrado, p.portada_cuadrado] : [])];
   }
@@ -220,6 +264,7 @@ const archivosDe = (p) => {
   const specPath = process.argv[2];
   const actualizar = process.argv.includes('--actualizar');
   const aplicar = process.argv.includes('--aplicar') || actualizar;
+  const enPausa = process.argv.includes('--en-pausa');
   if (!specPath) {
     console.error('Uso: node scripts/subir-anuncios.js <spec.json> [--aplicar]');
     process.exit(1);
@@ -240,10 +285,10 @@ const archivosDe = (p) => {
     process.exit(1);
   }
 
-  console.log(`\nConjunto ${spec.adset} · ${spec.piezas.length} piezas · ${aplicar ? 'APLICAR' : 'vista previa'}\n`);
+  console.log(`\nConjunto ${spec.adset} · ${spec.piezas.length} piezas · ${aplicar ? (enPausa ? 'APLICAR EN PAUSA' : 'APLICAR') : 'vista previa'}\n`);
   if (!aplicar) {
     for (const p of spec.piezas) {
-      console.log(`  ${p.nombre} [${p.tipo}] → ${p.url}`);
+      console.log(`  ${p.nombre} [${p.tipo}] → ${p.whatsapp ? `WhatsApp ("${p.whatsapp.precargado}")` : p.url}`);
       if (p.tipo === 'carrusel') {
         console.log(`     texto:     ${p.texto_feed}`);
         p.tarjetas.forEach((t, i) => console.log(`     ${String(i + 1).padStart(2)}. ${t.titulo}${t.descripcion ? '  |  ' + t.descripcion : ''}\n         ${t.url}`));
@@ -252,7 +297,7 @@ const archivosDe = (p) => {
       }
       console.log(`     título:    ${p.titulo}${p.descripcion ? '  |  ' + p.descripcion : ''}`);
       console.log(`     feed:      ${p.texto_feed}`);
-      console.log(`     vertical:  ${p.texto_vertical}`);
+      if (p.texto_vertical) console.log(`     vertical:  ${p.texto_vertical}`);
       if (p.pausar && p.pausar.length) console.log(`     pausa:     ${p.pausar.join(', ')}`);
       console.log('');
     }
@@ -280,6 +325,10 @@ const archivosDe = (p) => {
         const hashes = [];
         for (const t of p.tarjetas) hashes.push(await subirImagen(ruta(t.imagen)));
         datos = creativoCarrusel(p, hashes);
+      } else if (p.tipo === 'video' && p.whatsapp) {
+        activos.videoVertical = await subirVideo(ruta(p.vertical));
+        activos.portadaVertical = await subirImagen(ruta(p.portada_vertical));
+        datos = creativoWhatsapp(p, activos);
       } else if (p.tipo === 'video') {
         activos.videoFeed = await subirVideo(ruta(p.feed));
         activos.videoVertical = await subirVideo(ruta(p.vertical));
@@ -304,9 +353,10 @@ const archivosDe = (p) => {
         name: p.nombre,
         adset_id: spec.adset,
         creative: { creative_id: cr.id },
-        status: 'ACTIVE',
+        status: enPausa ? 'PAUSED' : 'ACTIVE',
       });
-      console.log(`✓ ${p.nombre} → ${ad.id}`);
+      console.log(`✓ ${p.nombre} → ${ad.id}${enPausa ? ' (en pausa)' : ''}`);
+      if (enPausa) continue;
       for (const viejo of p.pausar || []) {
         await fbPost(viejo, { status: 'PAUSED' });
         console.log(`   pausado ${viejo}`);
