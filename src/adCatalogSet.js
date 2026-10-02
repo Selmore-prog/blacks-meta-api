@@ -59,6 +59,14 @@ const MINIMO_SEGURIDAD = 10;  // si el conjunto quedaría más chico, no se apli
 const NOMBRE_CURADO = 'Motor · Curado';
 const NOMBRE_TOP = 'Motor · Curado TOP';
 const NOMBRE_REMARKETING = 'Motor · Remarketing';
+// Pedido de Sebastián (2-oct-2026): en el remarketing aparecían productos con
+// un solo talle y camperas de invierno, porque "Motor · Remarketing" toma todo
+// lo que tenga stock. Este cuarto conjunto son TODOS los talles con stock de
+// los productos curados, pero sólo de los que tienen curva de verdad (ver
+// curvaParaRemarketing). No reemplaza al otro por nombre: el anuncio de
+// catálogo exige que su conjunto sea el mismo del conjunto de anuncios, así
+// que va con un conjunto de anuncios propio.
+const NOMBRE_REMARKETING_CURADO = 'Motor · Remarketing curado';
 
 /* ------------------------------- temporada ------------------------------- */
 
@@ -96,6 +104,42 @@ const KW_TODO_EL_ANO = ['pantalon', 'jean', 'camisa', 'zapato', 'bota', 'borcego
 
 const sinAcentos = (s) => String(s || '').toLowerCase()
   .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+/* ----------------------- curva para el remarketing ----------------------- */
+
+// Talles "del medio": los que m\u00e1s se piden. Pantal\u00f3n 40-48, calzado 39-43, M-XL.
+function esTalleCentral(talle) {
+  const t = String(talle || '').trim().toUpperCase();
+  if (['M', 'L', 'XL'].includes(t)) return true;
+  const m = t.match(/^(\d{2})/);
+  if (!m) return false;
+  const n = Number(m[1]);
+  return (n >= 40 && n <= 48) || (n >= 39 && n <= 43);
+}
+
+/**
+ * \u00bfEl producto tiene talles suficientes para pagar por mostrarlo a alguien
+ * que ya visit\u00f3 la tienda? Cuenta TALLES distintos (no combinaciones con el
+ * color): con 4 o m\u00e1s talles en la curva, exige 4 con stock y adem\u00e1s 2 del
+ * medio o el 75% de la curva (la alpargata viene en "7 US" y no matchea
+ * n\u00fameros de pantal\u00f3n). Los de talle \u00fanico (guantes, faja) pasan siempre.
+ */
+function curvaParaRemarketing(raw) {
+  const attrs = ((raw && raw.attributes) || []).map((a) => sinAcentos(a && typeof a === 'object' ? a.es : a));
+  const iTalle = attrs.findIndex((a) => a.startsWith('talle') || a.startsWith('numero'));
+  const total = new Set();
+  const conStock = new Set();
+  for (const v of (raw && raw.variants) || []) {
+    const valores = (v.values || []).map((x) => (x && typeof x === 'object' ? x.es : x));
+    const talle = iTalle >= 0 ? valores[iTalle] : '\u00fanico';
+    total.add(talle);
+    if (v.stock === null || v.stock === undefined || Number(v.stock) > 0) conStock.add(talle);
+  }
+  const centrales = [...conStock].filter(esTalleCentral).length;
+  const cobertura = total.size ? conStock.size / total.size : 0;
+  const ok = total.size < 4 || (conStock.size >= 4 && (centrales >= 2 || cobertura >= 0.75));
+  return { ok, talles: `${conStock.size}/${total.size}`, centrales };
+}
 
 /**
  * Clasifica el producto en verano / invierno / media / todo.
@@ -314,9 +358,11 @@ async function buildAdSet({ apply = false, days = 28, fecha = new Date() } = {})
   // Producto -> sus variantes que EXISTEN en el catálogo de Meta. Es el cruce
   // clave: de nada sirve meter en el conjunto un id que Meta no conoce.
   const candidatos = [];
+  const rawPorId = new Map();
   for (const row of productos.rows) {
     let raw = row.raw;
     if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch (_) { raw = null; } }
+    rawPorId.set(Number(row.id), raw);
     const variantes = ((raw && raw.variants) || [])
       .map((v) => {
         const item = enMeta.get(String(v.id));
@@ -427,6 +473,11 @@ async function buildAdSet({ apply = false, days = 28, fecha = new Date() } = {})
   const porMotivo = {};
   for (const f of fuera) porMotivo[f.detalle.replace(/\s*\(.*/, '')] = (porMotivo[f.detalle.replace(/\s*\(.*/, '')] || 0) + 1;
 
+  // Remarketing curado: de los curados, sólo los que tienen curva (todos sus
+  // talles con stock, para que exista el item exacto que la persona miró).
+  for (const d of dentro) d.curva_remarketing = curvaParaRemarketing(rawPorId.get(d.id));
+  const remarketingCurado = dentro.filter((d) => d.curva_remarketing.ok);
+
   const resumen = {
     catalogId,
     fecha: fecha.toISOString().slice(0, 10),
@@ -442,6 +493,12 @@ async function buildAdSet({ apply = false, days = 28, fecha = new Date() } = {})
     en_gracia: dentro.filter((d) => d.en_gracia).length,
     excluidos: fuera.length,
     excluidos_por_motivo: Object.fromEntries(Object.entries(porMotivo).sort((a, b) => b[1] - a[1])),
+    remarketing_curado: {
+      productos: remarketingCurado.length,
+      variantes: remarketingCurado.reduce((a, d) => a + d.todas_las_variantes.length, 0),
+      sin_curva: dentro.filter((d) => !d.curva_remarketing.ok)
+        .map((d) => ({ id: d.id, name: d.name, talles: d.curva_remarketing.talles })),
+    },
     interes_ga4: interes.ok,
     productos: dentro,
     fuera: fuera.sort((a, b) => a.motivo.localeCompare(b.motivo)),
@@ -470,10 +527,22 @@ async function buildAdSet({ apply = false, days = 28, fecha = new Date() } = {})
     { product_type: { i_not_contains: 'mayorista' } },
   ] };
 
+  // Tiene que repetir las dos condiciones del remarketing amplio: así Meta lo
+  // reconoce como SUBCONJUNTO de aquel.
+  const idsRemarketingCurado = remarketingCurado.flatMap((d) => d.todas_las_variantes.map(String));
+  const filtroRemarketingCurado = { and: [
+    ...filtroRemarketing.and,
+    { retailer_id: { is_any: idsRemarketingCurado } },
+  ] };
+
   resumen.sets = {
     curado: { id: await upsertProductSet(catalogId, NOMBRE_CURADO, filtroCurado), items: idsCurado.length },
     top: { id: await upsertProductSet(catalogId, NOMBRE_TOP, filtroTop), items: idsTop.length },
     remarketing: { id: await upsertProductSet(catalogId, NOMBRE_REMARKETING, filtroRemarketing), items: null },
+    remarketing_curado: {
+      id: await upsertProductSet(catalogId, NOMBRE_REMARKETING_CURADO, filtroRemarketingCurado),
+      items: idsRemarketingCurado.length,
+    },
   };
   resumen.applied = true;
 
@@ -483,7 +552,7 @@ async function buildAdSet({ apply = false, days = 28, fecha = new Date() } = {})
 }
 
 module.exports = {
-  buildAdSet, clasificarTemporada, seasonFit, evaluar, calcularScore,
+  buildAdSet, clasificarTemporada, seasonFit, evaluar, calcularScore, curvaParaRemarketing,
   MIN_STOCK, MIN_SIZES_IN_STOCK, MIN_COVERAGE, MIN_SEASON_FIT,
-  NOMBRE_CURADO, NOMBRE_TOP, NOMBRE_REMARKETING,
+  NOMBRE_CURADO, NOMBRE_TOP, NOMBRE_REMARKETING, NOMBRE_REMARKETING_CURADO,
 };

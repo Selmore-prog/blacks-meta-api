@@ -165,6 +165,153 @@
       "ad_id": "120250765626250783",
       "nombre": "24 · Video · Temporada · Donde estés",
       "productos": []
+    },
+    {
+      "ad_id": "120250779713630783",
+      "nombre": "Carrusel · Los más vendidos · 2026-10",
+      "productos": [
+        298859922,
+        74186959,
+        136305274,
+        354993720,
+        353824358,
+        100696539
+      ],
+      "tarjetas": [
+        {
+          "producto": 298859922,
+          "precio": 36999,
+          "descuento": 24
+        },
+        {
+          "producto": 74186959,
+          "precio": 58999,
+          "descuento": 24
+        },
+        {
+          "producto": 136305274,
+          "precio": 17999
+        },
+        {
+          "producto": 354993720,
+          "precio": 24999
+        },
+        {
+          "producto": 353824358,
+          "precio": 28990,
+          "descuento": 30
+        },
+        {
+          "producto": 100696539,
+          "precio": 38999,
+          "descuento": 25
+        }
+      ]
+    },
+    {
+      "ad_id": "120250779713360783",
+      "nombre": "24 · Video · Temporada · Donde estés",
+      "productos": []
+    },
+    {
+      "ad_id": "120250779712810783",
+      "nombre": "20 · Video · Jean + Alpargatas",
+      "productos": [
+        298859922,
+        354993720
+      ],
+      "precio_total": 61998,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120250779712290783",
+      "nombre": "18 · Video · Jean Clásico Recto",
+      "productos": [
+        298859922
+      ],
+      "precio": 36999,
+      "descuento": 24
+    },
+    {
+      "ad_id": "120250779711600783",
+      "nombre": "23 · Alpargatas Rueda",
+      "productos": [
+        354993720
+      ],
+      "precio": 24999
+    },
+    {
+      "ad_id": "120250779711280783",
+      "nombre": "17 · Remera Lisa Pampero",
+      "productos": [
+        136305274
+      ],
+      "precio": 17999
+    },
+    {
+      "ad_id": "120250779711050783",
+      "nombre": "16 · Chomba Micropique",
+      "productos": [
+        203561925
+      ],
+      "precio": 26999
+    },
+    {
+      "ad_id": "120250779710770783",
+      "nombre": "15 · Cargo Slim Fit",
+      "productos": [
+        74186959
+      ],
+      "precio": 58999,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120250779710520783",
+      "nombre": "21 · Combo Jean + Remera",
+      "productos": [
+        298859922,
+        136305274
+      ],
+      "precio_total": 54998,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120250779710090783",
+      "nombre": "13 · Combo Jean + Alpargatas",
+      "productos": [
+        298859922,
+        354993720
+      ],
+      "precio_total": 61998,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120250779709920783",
+      "nombre": "12 · Jean Clásico Recto",
+      "productos": [
+        298859922
+      ],
+      "precio": 36999,
+      "descuento": 24
+    },
+    {
+      "ad_id": "120250779709530783",
+      "nombre": "22 · Jean en 5 Colores",
+      "productos": [
+        298859922
+      ],
+      "precio": 36999,
+      "descuento": 24
+    },
+    {
+      "ad_id": "120250779653700783",
+      "nombre": "Catálogo · Banner envío gratis (remarketing curado)",
+      "productos": []
+    },
+    {
+      "ad_id": "120250779654550783",
+      "nombre": "Catálogo · Portada automática (remarketing curado)",
+      "productos": []
     }
   ]
 }
