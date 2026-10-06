@@ -29,7 +29,10 @@ const CSS = `
 .hb-host { --hb-css: 1; }
 .hb {
   --hb-radio: 4px;
-  --hb-max: 1240px;
+  /* Columna del home: la misma que el resto de las secciones de la tienda
+     (tokens --hr-* de snipplets/home/home-ritmo.tpl). Los valores de respaldo
+     son los de la vista previa del panel, que no tiene esa capa. */
+  --hb-max: calc(var(--hr-max, 1270px) + 2 * var(--hb-borde));
   --hb-gap: 14px;
   --hb-accent: var(--accent-color, #E2571F);
   --hb-bg: #ffffff;
@@ -42,7 +45,7 @@ const CSS = `
   /* Aire lateral del bloque. Es una variable porque los carruseles se salen del
      contenedor con un margen negativo del mismo tamaño: si estuviera fijo en
      16px, un bloque a ancho completo (sin aire) se comería 16px de cada lado. */
-  --hb-borde: 16px;
+  --hb-borde: var(--hr-pad, 16px);
   position: relative;
   display: block;
   box-sizing: border-box;
@@ -113,8 +116,10 @@ const CSS = `
 .hb-w-completo .hb-rubros,
 .hb-w-completo .hb-editorial:not(.hb-m-scroll),
 .hb-w-completo .hb-prods:not(.hb-prods--scroll) {
-  padding-left: 16px;
-  padding-right: 16px;
+  /* --hr-col (del theme) = el borde de la columna del home: el texto de un
+     bloque a sangre arranca en la misma línea que el resto de la página. */
+  padding-left: var(--hr-col, 16px);
+  padding-right: var(--hr-col, 16px);
 }
 /* Las pistas que se deslizan ya usan margen negativo contra un borde de 16px.
    Sin borde, ese margen las empujaba fuera de la pantalla: se neutraliza. */
@@ -128,18 +133,28 @@ const CSS = `
 .hb-solo-desktop { display: none; }
 
 /* --- tipografía --------------------------------------------------------- */
-.hb-head { margin: 0 0 20px; max-width: 62ch; }
-.hb-head--centro { margin-left: auto; margin-right: auto; text-align: center; }
+/* TÍTULOS ALINEADOS A LA IZQUIERDA, SIEMPRE (oct-2026). Antes algunos tipos
+   (atributos, editorial, rubros, video solo) salían centrados y el resto a la
+   izquierda: en el home se veía un título centrado, el siguiente no. La clase
+   hb-head--centro se sigue escribiendo en el HTML pero ya no centra. */
+.hb-head { margin: 0 0 var(--hr-head-gap, 20px); max-width: 62ch; }
 .hb-kicker {
   margin: 0 0 10px; font-size: 11px; font-weight: 700; letter-spacing: .16em;
   text-transform: uppercase; color: var(--hb-accent); display: flex; align-items: center; gap: 8px;
 }
 .hb-t-acento .hb-kicker, .hb-t-oscuro .hb-portada-body .hb-kicker { color: currentColor; opacity: .9; }
 .hb-kicker::before { content: ""; width: 18px; height: 2px; background: currentColor; flex: none; }
-.hb-head--centro .hb-kicker { justify-content: center; }
 .hb-title {
-  margin: 0; font-size: clamp(24px, 6.2vw, 40px); line-height: 1.06;
-  letter-spacing: -.02em; font-weight: 700; color: inherit; text-transform: none;
+  /* Mismo tamaño que los títulos de las demás secciones del home (--hr-h2).
+     600 y no 700: el theme carga Manrope en 400 y 600, así que un 700 se
+     dibujaba igual en 600. */
+  margin: 0; font-size: var(--hr-h2, clamp(24px, 16px + 1.6vw, 34px)); line-height: 1.1;
+  letter-spacing: -.025em; font-weight: 600; color: inherit; text-transform: none;
+}
+/* Las piezas grandes (imagen y texto, portada) llevan el titular un escalón
+   más grande que un título de sección: son un "momento", no un encabezado. */
+.hb-split-body .hb-title, .hb-portada-body .hb-title {
+  font-size: var(--hr-display, clamp(28px, 18px + 2.2vw, 44px)); line-height: 1.06;
 }
 .hb-text { margin: 14px 0 0; color: var(--hb-muted); font-size: 15px; line-height: 1.6; }
 .hb-text p { margin: 0 0 10px; }
@@ -147,7 +162,6 @@ const CSS = `
 
 /* --- botones ------------------------------------------------------------ */
 .hb-ctas { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 22px; }
-.hb-head--centro + .hb-ctas, .hb-ctas.hb-ctas--centro { justify-content: center; }
 .hb-btn {
   display: inline-flex; align-items: center; justify-content: center; gap: 8px;
   min-height: 46px; padding: 12px 22px; border-radius: var(--hb-radio);
@@ -277,7 +291,9 @@ const CSS = `
     rgba(0,0,0,calc(var(--hb-velo,.45) * .72));
 }
 .hb-portada-body {
-  position: relative; z-index: 2; width: 100%; max-width: var(--hb-max);
+  position: relative; z-index: 2; width: 100%;
+  /* Con la foto a sangre (--hb-borde 0) el texto igual cae en la columna. */
+  max-width: calc(var(--hr-max, 1240px) + 2 * max(16px, var(--hb-borde)));
   margin: 0 auto; padding: 28px max(16px, var(--hb-borde)) 32px; color: #fff;
 }
 .hb-portada-body .hb-head { margin-bottom: 0; max-width: 20ch; }
@@ -328,6 +344,8 @@ const CSS = `
   .hb-split.hb-u-superpuesto .hb-kicker { margin-bottom: 8px; }
   .hb-split.hb-u-superpuesto .hb-ctas { margin-top: 16px; }
   .hb-split.hb-u-superpuesto .hb-btn { width: 100%; }
+  /* A ancho completo la tarjeta se alinea con la columna del home. */
+  .hb-w-completo .hb-split.hb-u-superpuesto .hb-split-body { margin-left: var(--hr-pad, 14px); margin-right: var(--hr-pad, 14px); }
 }
 .hb-bullets { list-style: none; margin: 18px 0 0; padding: 0; display: grid; gap: 10px; }
 .hb-bullets li { position: relative; padding-left: 26px; font-size: 15px; line-height: 1.45; }
@@ -357,6 +375,9 @@ a.hb-attr:hover { border-color: currentColor; }
 .hb-attrs.hb-m-scroll {
   grid-auto-flow: column; grid-auto-columns: 74%; overflow-x: auto; scroll-snap-type: x mandatory;
   margin: 0 calc(-1 * var(--hb-borde)); padding: 0 var(--hb-borde) 4px; scrollbar-width: none;
+  /* Sin esto el snap alinea la primera placa contra el canto de la pista y no
+     contra el padding: la fila arrancaba corrida y pegada al borde. */
+  scroll-padding-inline: var(--hb-borde);
 }
 .hb-attrs.hb-m-scroll::-webkit-scrollbar { display: none; }
 .hb-attrs.hb-m-scroll > * { scroll-snap-align: start; }
@@ -384,6 +405,7 @@ a.hb-tile:hover .hb-tile-media img { transform: scale(1.04); }
 .hb-editorial.hb-m-scroll {
   grid-auto-flow: column; grid-auto-columns: 82%; overflow-x: auto; scroll-snap-type: x mandatory;
   margin: 0 calc(-1 * var(--hb-borde)); padding: 0 var(--hb-borde) 4px; scrollbar-width: none;
+  scroll-padding-inline: var(--hb-borde);
 }
 .hb-editorial.hb-m-scroll::-webkit-scrollbar { display: none; }
 .hb-editorial.hb-m-scroll > * { scroll-snap-align: start; }
@@ -451,6 +473,7 @@ a.hb-tile:hover .hb-tile-media img { transform: scale(1.04); }
 .hb-prods--scroll {
   grid-auto-flow: column; grid-auto-columns: 46%; grid-template-columns: none; overflow-x: auto;
   scroll-snap-type: x mandatory; margin: 0 calc(-1 * var(--hb-borde)); padding: 0 var(--hb-borde) 4px; scrollbar-width: none;
+  scroll-padding-inline: var(--hb-borde);
 }
 .hb-prods--scroll::-webkit-scrollbar { display: none; }
 .hb-prods--scroll > * { scroll-snap-align: start; }
@@ -531,7 +554,7 @@ a.hb-rubro:hover .hb-rubro-media img { transform: scale(1.05); }
   .hb-sp-compacto { --hb-pad: 36px; }
   .hb-sp-normal   { --hb-pad: 64px; }
   .hb-sp-amplio   { --hb-pad: 96px; }
-  .hb { --hb-borde: 32px; }
+  .hb { --hb-borde: var(--hr-pad, 32px); }
   .hb-w-completo { --hb-borde: 0px; }
   .hb-w-completo > .hb-wrap > .hb-head,
   .hb-w-completo > .hb-wrap > .hb-ctas,
@@ -539,20 +562,26 @@ a.hb-rubro:hover .hb-rubro-media img { transform: scale(1.05); }
   .hb-w-completo .hb-attrs:not(.hb-m-scroll),
   .hb-w-completo .hb-rubros,
   .hb-w-completo .hb-editorial:not(.hb-m-scroll),
-  .hb-w-completo .hb-prods:not(.hb-prods--scroll) { padding-left: 32px; padding-right: 32px; }
+  .hb-w-completo .hb-prods:not(.hb-prods--scroll) { padding-left: var(--hr-col, 32px); padding-right: var(--hr-col, 32px); }
   /* La columna de texto de un split ya tiene su propio aire por el gap y, si
      está superpuesta, su propio padding: se le da sólo el borde exterior. */
-  .hb-w-completo .hb-split--izquierda .hb-split-body { padding-left: 0; padding-right: 32px; }
-  .hb-w-completo .hb-split--derecha .hb-split-body { padding-left: 32px; padding-right: 0; }
+  /* El borde de la columna lo pone la GRILLA del split y no la columna de
+     texto: un % dentro de una celda se resuelve contra la celda (~670 px) y
+     no contra la pantalla, así que --hr-col ahí daría cualquier cosa. Con el
+     padding en el split, la foto sigue llegando al canto del lado de afuera y
+     el texto (o la tarjeta superpuesta) termina justo en la columna. */
+  .hb-w-completo .hb-split--izquierda { padding-right: var(--hr-col, 32px); }
+  .hb-w-completo .hb-split--derecha { padding-left: var(--hr-col, 32px); }
+  .hb-w-completo .hb-split--izquierda .hb-split-body,
+  .hb-w-completo .hb-split--derecha .hb-split-body { padding-left: 0; padding-right: 0; }
   .hb-w-completo .hb-split--izquierda .hb-media { border-top-left-radius: 0; border-bottom-left-radius: 0; }
   .hb-w-completo .hb-split--derecha .hb-media { border-top-right-radius: 0; border-bottom-right-radius: 0; }
   .hb-solo-mobile { display: none; }
   .hb-solo-desktop { display: block; }
 
-  .hb-title { font-size: clamp(30px, 3.4vw, 46px); }
-  .hb-head { margin-bottom: 28px; }
+  .hb-head { margin-bottom: var(--hr-head-gap, 28px); }
   /* Un título de sección no se lee mejor por medir 1240 px de ancho. */
-  .hb-head:not(.hb-head--centro) { max-width: 46ch; }
+  .hb-head { max-width: 46ch; }
 
   .hb-portada { min-height: 460px; }
   .hb-portada--compacta { min-height: 320px; }
@@ -638,8 +667,11 @@ a.hb-rubro:hover .hb-rubro-media img { transform: scale(1.05); }
   .hb-attrs[data-hb-cols="4"] { grid-template-columns: repeat(4, 1fr); }
   /* Dos o tres atributos no tienen que ocupar media pantalla cada uno: es un
      ícono y dos renglones. */
-  .hb-attrs[data-hb-cols="3"] { grid-template-columns: repeat(3, minmax(0, 340px)); }
-  .hb-attrs[data-hb-cols="2"] { grid-template-columns: repeat(2, minmax(0, 340px)); }
+  /* Pocos ítems: llenan la fila (oct-2026). Topeados a 340 px dejaban un
+     hueco a la derecha que, al lado de secciones que sí llegan al borde de la
+     columna, se leía como un error. */
+  .hb-attrs[data-hb-cols="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .hb-attrs[data-hb-cols="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 
   .hb-editorial, .hb-editorial.hb-m-scroll {
     grid-auto-flow: row; overflow: visible; margin: 0; padding: 0;
@@ -674,8 +706,12 @@ a.hb-rubro:hover .hb-rubro-media img { transform: scale(1.05); }
   }
 
   .hb-prods { grid-template-columns: repeat(4, 1fr); justify-content: start; }
-  .hb-prods[data-hb-cols="3"] { grid-template-columns: repeat(3, minmax(0, 320px)); }
-  .hb-prods[data-hb-cols="2"] { grid-template-columns: repeat(2, minmax(0, 320px)); }
+  /* Tres o dos productos llenan la fila (antes 320 px y un hueco a la
+     derecha). Con dos, la foto pasa a 4:3 para que la tarjeta no quede de
+     600 px de alto. */
+  .hb-prods[data-hb-cols="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .hb-prods[data-hb-cols="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hb-prods[data-hb-cols="2"] .hb-p-foto { aspect-ratio: 4 / 3; }
   .hb-prods[data-hb-cols="1"] { grid-template-columns: minmax(0, 360px); }
   .hb-prods--scroll { grid-auto-flow: row; overflow: visible; margin: 0; padding: 0; }
   .hb-prods--destacado { grid-template-columns: 1.15fr 1fr; align-items: start; }
@@ -685,8 +721,9 @@ a.hb-rubro:hover .hb-rubro-media img { transform: scale(1.05); }
   /* Mismo problema que los productos: la foto de un rubro es 3:4, así que dos
      columnas estiradas daban placas de 600 x 800. */
   .hb-rubros { justify-content: start; }
-  .hb-rubros[data-hb-cols="3"] { grid-template-columns: repeat(3, minmax(0, 300px)); }
-  .hb-rubros[data-hb-cols="2"] { grid-template-columns: repeat(2, minmax(0, 300px)); }
+  .hb-rubros[data-hb-cols="3"] { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .hb-rubros[data-hb-cols="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .hb-rubros[data-hb-cols="2"] .hb-pic { aspect-ratio: 4 / 3; }
   .hb-rubros--texto .hb-rubro-body { min-height: 132px; }
 
   .hb-faq-q { font-size: 17px; padding: 20px 0; }
@@ -713,8 +750,8 @@ a.hb-rubro:hover .hb-rubro-media img { transform: scale(1.05); }
 .hb-vid--carrusel .hb-vf { scroll-snap-align: start; }
 .hb-vid-pista:focus-visible { outline: 2px solid var(--hb-accent); outline-offset: 2px; }
 /* A ancho completo no hay borde del bloque: el aire lo pone la pista. */
-.hb-w-completo .hb-vid--carrusel .hb-vid-pista { padding-left: 16px; padding-right: 16px; scroll-padding: 0 16px; }
-.hb-w-completo .hb-vid--grilla .hb-vid-pista, .hb-w-completo .hb-vid-nav { padding-left: 16px; padding-right: 16px; }
+.hb-w-completo .hb-vid--carrusel .hb-vid-pista { padding-left: var(--hr-pad, 16px); padding-right: var(--hr-pad, 16px); scroll-padding: 0 var(--hr-pad, 16px); }
+.hb-w-completo .hb-vid--grilla .hb-vid-pista, .hb-w-completo .hb-vid-nav { padding-left: var(--hr-pad, 16px); padding-right: var(--hr-pad, 16px); }
 
 .hb-vf { position: relative; display: flex; flex-direction: column; min-width: 0; color: inherit; }
 .hb-vf-media {
@@ -847,13 +884,18 @@ a.hb-vf-mini:hover { transform: translateY(-2px); }
   .hb-vid--carrusel .hb-vid-pista { margin: 0; padding: 4px 0 12px; scroll-padding: 0; }
   .hb-vid--carrusel.hb-vid-e-etiqueta .hb-vid-pista { padding-bottom: 22px; }
   .hb-w-completo .hb-vid--carrusel .hb-vid-pista, .hb-w-completo .hb-vid--grilla .hb-vid-pista,
-  .hb-w-completo .hb-vid-nav { padding-left: 32px; padding-right: 32px; scroll-padding: 0 32px; }
+  .hb-w-completo .hb-vid-nav { padding-left: var(--hr-col, 32px); padding-right: var(--hr-col, 32px); scroll-padding: 0 var(--hr-col, 32px); }
+  /* Menos placas que lugares en la fila: se reparten la fila entera en vez de
+     dejar un hueco a la derecha. Con dos quedan del ancho de tres (una placa
+     3:4 a media pantalla mediría ~840 px de alto). */
+  .hb-vid--carrusel[data-hb-cols="4"] { --vf-w: calc((100% - 3 * var(--vf-gap)) / 4); }
+  .hb-vid--carrusel[data-hb-cols="3"], .hb-vid--carrusel[data-hb-cols="2"] { --vf-w: calc((100% - 2 * var(--vf-gap)) / 3); }
   .hb-vid--grilla .hb-vid-pista { grid-template-columns: repeat(5, minmax(0, 1fr)); row-gap: 26px; }
   .hb-vid--grilla.hb-vid-t-grande .hb-vid-pista { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   /* Pocas fotos: no se estiran a media pantalla cada una, quedan del tamaño de tarjeta. */
   .hb-vid--grilla[data-hb-cols="2"] .hb-vid-pista { grid-template-columns: repeat(2, minmax(0, 250px)); }
-  .hb-vid--grilla[data-hb-cols="3"] .hb-vid-pista { grid-template-columns: repeat(3, minmax(0, 250px)); }
-  .hb-vid--grilla[data-hb-cols="4"]:not(.hb-vid-t-grande) .hb-vid-pista { grid-template-columns: repeat(4, minmax(0, 250px)); }
+  .hb-vid--grilla[data-hb-cols="3"] .hb-vid-pista { grid-template-columns: repeat(3, minmax(0, 1fr)); }
+  .hb-vid--grilla[data-hb-cols="4"]:not(.hb-vid-t-grande) .hb-vid-pista { grid-template-columns: repeat(4, minmax(0, 1fr)); }
   .hb-vid-flecha { display: grid; }
   .hb-vf-mini { width: 34px; height: 34px; }
   .hb-vid-e-etiqueta .hb-vf-ficha { margin: -30px 10px 0; padding: 8px 10px 8px 8px; gap: 10px; }

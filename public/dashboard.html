@@ -29,6 +29,7 @@
       <button class="tab" data-view="home" onclick="switchTab('home')"><span data-ic="grid"></span><span class="tl">Home de la tienda</span></button>
       <button class="tab" data-view="ads" onclick="switchTab('ads')"><span data-ic="bolt"></span><span class="tl">Pauta</span></button>
       <button class="tab" data-view="stats" onclick="switchTab('stats')"><span data-ic="chart"></span><span class="tl">Estadísticas</span></button>
+      <button class="tab" data-view="carritos" onclick="switchTab('carritos')"><span data-ic="cart"></span><span class="tl">Carritos</span></button>
       <button class="tab" data-view="metrics" onclick="switchTab('metrics')"><span data-ic="list"></span><span class="tl">Métricas</span></button>
       <button class="tab" data-view="analysis" onclick="switchTab('analysis')"><span data-ic="search"></span><span class="tl">Análisis web</span></button>
       <button class="tab" data-view="access" onclick="switchTab('access')"><span data-ic="user"></span><span class="tl">Accesos</span></button>
@@ -491,6 +492,32 @@
       <div id="stats-body"><p class="loading">Cargando estadísticas…</p></div>
     </section>
 
+    <!-- ===== CARRITOS ABANDONADOS: avisos por WhatsApp y lo que vuelve =====
+         Los avisos los manda el Worker de Cloudflare desde el número de la
+         empresa; acá se ve cuántos llegan, cuántos responden y cuántos compran.
+         Lo dibuja public/carritos-panel.js (src/cartRecovery.js). -->
+    <section id="view-carritos" class="view hidden">
+      <div class="toolbar">
+        <div>
+          <h2>Carritos abandonados</h2>
+          <div class="sub">Avisos por WhatsApp desde el número de la empresa: cuántos llegan, cuántos responden y cuántos terminan comprando.</div>
+        </div>
+        <div style="display:flex; gap:8px; align-items:center; flex-wrap:wrap;">
+          <select class="input" id="cr-periodo" style="width:auto;" onchange="carritosCargar()">
+            <option value="7">Últimos 7 días</option>
+            <option value="15">Últimos 15 días</option>
+            <option value="30" selected>Últimos 30 días</option>
+            <option value="60">Últimos 60 días</option>
+            <option value="90">Últimos 90 días</option>
+            <option value="mes_actual">Este mes</option>
+            <option value="mes_pasado">Mes pasado</option>
+          </select>
+          <button class="btn-ghost" onclick="carritosCargar()" title="Volver a pedir los datos"><span data-ic="refresh"></span></button>
+        </div>
+      </div>
+      <div id="carritos-body"><p class="loading">Cargando…</p></div>
+    </section>
+
     <!-- ===== PAUTA: Meta Ads vs Google Ads con la misma vara ===== -->
     <section id="view-ads" class="view hidden">
       <div class="toolbar">
@@ -624,6 +651,7 @@
     <button class="tab" data-view="home" onclick="switchTab('home')"><span data-ic="grid"></span><span class="tl">Home</span></button>
     <button class="tab" data-view="ads" onclick="switchTab('ads')"><span data-ic="bolt"></span><span class="tl">Pauta</span></button>
     <button class="tab" data-view="stats" onclick="switchTab('stats')"><span data-ic="chart"></span><span class="tl">Estadísticas</span></button>
+    <button class="tab" data-view="carritos" onclick="switchTab('carritos')"><span data-ic="cart"></span><span class="tl">Carritos</span></button>
     <button class="tab" data-view="metrics" onclick="switchTab('metrics')"><span data-ic="list"></span><span class="tl">Métricas</span></button>
     <button class="tab" data-view="analysis" onclick="switchTab('analysis')"><span data-ic="search"></span><span class="tl">Análisis</span></button>
     <button class="tab" data-view="access" onclick="switchTab('access')"><span data-ic="user"></span><span class="tl">Accesos</span></button>
@@ -694,6 +722,8 @@
   <script src="/benefits-panel.js"></script>
   <!-- % del Combo frecuente. Usa los helpers de dashboard.js, igual que nav-panel. -->
   <script src="/combo-panel.js"></script>
+  <!-- Carritos abandonados. Usa los helpers de dashboard.js (api, esc, toast, tip, icon). -->
+  <script src="/carritos-panel.js"></script>
   <!-- Esquema ideal del home. Va después de home-blocks-panel.js: para crear un
        bloque desde el plan usa su estado (hbState) y sus funciones. -->
   <script src="/home-plan-panel.js"></script>

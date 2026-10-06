@@ -3065,3 +3065,26 @@ button .cost-tag { margin-left: 8px; }
   .reel-shot { grid-template-columns: 1fr; gap: 3px; }
   .reel-shot-h { display: none; }
 }
+
+/* ---- Carritos abandonados (public/carritos-panel.js) ----
+   Reusa las tarjetas, el gráfico y las tablas de Estadísticas (.st-*); acá
+   sólo lo propio: la franja de estado y las etiquetas de pago/error. */
+.cr-estado { display: flex; align-items: center; justify-content: space-between; gap: 14px; flex-wrap: wrap; margin-bottom: 18px; }
+.cr-estado-txt { display: flex; align-items: flex-start; gap: 11px; min-width: 0; flex: 1 1 320px; }
+.cr-estado-txt b { display: inline-flex; align-items: center; gap: 6px; font-size: 14.5px; }
+.cr-estado-txt .hint { display: block; margin: 3px 0 0; }
+.cr-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; margin-top: 5px; }
+.cr-dot.on { background: var(--green); box-shadow: 0 0 0 4px rgba(34, 197, 94, .18); }
+.cr-h { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 8px; }
+.cr-table { min-width: 760px; }
+.cr-table td { vertical-align: top; }
+.cr-table a, .cr-nowrap { white-space: nowrap; }
+.cr-sub { display: block; margin-top: 2px; }
+.cr-muted { color: var(--muted); }
+.cr-filtro { width: auto; padding-top: 6px; padding-bottom: 6px; font-size: 12.5px; }
+.badge.cr-pend { background: var(--orange-dim); color: var(--orange); }
+.badge.cr-err { background: rgba(239, 68, 68, .14); color: #ef4444; cursor: help; }
+.cr-err-txt { color: #ef4444; max-width: 260px; white-space: normal; }
+/* 9 tarjetas: en el celular van de a dos (las de Estadísticas, de a una, acá
+   obligaban a scrollear 9 pantallas antes de llegar a la tabla). */
+#view-carritos .st-kpis { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }

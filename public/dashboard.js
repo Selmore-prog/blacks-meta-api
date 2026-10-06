@@ -38,6 +38,7 @@ const ICONS = {
   bookmark: '<path d="M19 21l-7-5-7 5V5a2 2 0 0 1 2-2h10a2 2 0 0 1 2 2z"/>',
   search: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
   route: '<circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/>',
+  cart: '<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>',
 };
 function icon(name, extra = '') {
   const fill = name === 'play' ? 'currentColor' : 'none';
@@ -158,6 +159,8 @@ function switchTab(view) {
   if (view === 'whatsapp' && window.loadWhatsAppChannel) window.loadWhatsAppChannel();
   if (view === 'metrics') loadMetrics();
   if (view === 'stats' && !statsData) loadStoreStats();
+  // Se carga la primera vez que se entra; después, con el selector o el botón.
+  if (view === 'carritos' && window.carritosCargar && !window.crCargado) window.carritosCargar();
   if (view === 'products') switchProductsPane(productsPaneGuardado());
   if (view === 'home') switchHomePane(homePaneGuardado());
 

@@ -32,6 +32,7 @@ const { getRails, getRailsConfig, saveRailsConfig, validateConfig, buildPayload,
   invalidate: invalidateRails, RULES, SPECIAL_RULES, SLOT_IDS, LAYOUTS } = require('./homeRails');
 const flashSale = require('./flashSale');
 const comboDiscount = require('./comboDiscount');
+const cartRecovery = require('./cartRecovery');
 const homeBlocks = require('./homeBlocks');
 const navMenu = require('./navMenu');
 const navAssets = require('./navAssets');
@@ -1648,6 +1649,18 @@ app.get('/api/combo-discount', wrap(async (req, res) => {
 
 app.post('/api/combo-discount', wrap(async (req, res) => {
   res.json(await comboDiscount.setPercent((req.body || {}).percent));
+}));
+
+// ---- CARRITOS ABANDONADOS (avisos por WhatsApp) --------------------------
+// Pasamanos hacia el Worker de Cloudflare, que manda los avisos y guarda el
+// registro. Ver src/cartRecovery.js. Sin sección en el portal del equipo:
+// trae nombres y teléfonos de clientes, y el modo prende envíos reales.
+app.get('/api/carritos/stats', wrap(async (req, res) => {
+  res.json(await cartRecovery.getStats({ desde: req.query.desde, hasta: req.query.hasta }));
+}));
+
+app.post('/api/carritos/modo', wrap(async (req, res) => {
+  res.json(await cartRecovery.setModo((req.body || {}).modo));
 }));
 
 /* ======================= TRABAJOS REALIZADOS (bordados) ===================

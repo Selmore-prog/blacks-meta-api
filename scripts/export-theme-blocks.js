@@ -57,10 +57,11 @@ const HOST = `${CABECERA('snipplets/home/home-content-blocks.tpl')}
  * salta.                                                                     */
 const ASSETS = `${CABECERA('snipplets/home/home-content-blocks-assets.tpl')}
 <style>
-/* Los bloques traen su propio espaciado: sin esto se suma al margen que el
-   theme le pone a .home-section-wrapper y quedan 88 px de aire de más en
-   celular. */
-.home-section-wrapper[class*="section-block_"] { margin-bottom: 0; }
+/* El aire ENTRE secciones lo maneja snipplets/home/home-ritmo.tpl, igual para
+   todas (oct-2026): los bloques claros van sin relleno vertical propio y el
+   wrapper lleva el mismo margen que el resto. Antes acá se anulaba ese margen
+   y cada bloque ponía su relleno según "espaciado": de ahí los huecos
+   distintos entre una sección y la siguiente. */
 
 /* AOS deja todo [data-aos] en opacity:0 hasta que entra en pantalla, y si se
    scrollea rápido las secciones quedan invisibles. Los bloques ya tienen su
