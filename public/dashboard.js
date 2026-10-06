@@ -4656,6 +4656,23 @@ async function openCatalogSync(btn) {
  * el catálogo lo sigue manejando Tiendanube, acá sólo se arma la lista del
  * conjunto contra la que corren los anuncios.
  */
+/* Lo que muestran los anuncios de catálogo: los más vendidos con stock. */
+function masVendidosHtml(mv) {
+  if (!mv) return '';
+  if (!mv.ranking_ok) return '<p class="hint" style="margin-top:14px; color:var(--orange)">No pude leer los pedidos: los anuncios de catálogo siguen con la lista anterior.</p>';
+  const filas = (mv.productos || []).map((p, i) => `<div class="dl-row">
+      <span title="${esc(p.name)}"><b>${i + 1}</b> · ${esc(String(p.name).slice(0, 40))}</span>
+      <span class="hint" style="margin:0; white-space:nowrap;">
+        ${p.pedidos} pedido${p.pedidos === 1 ? '' : 's'} · ${p.talles} talles${p.con_anuncio_propio ? ' · sólo remarketing' : ''}
+      </span>
+    </div>`).join('');
+  const afuera = (mv.afuera_por_talle || []).slice(0, 5)
+    .map((p) => `${esc(p.name)} (sin ${esc(p.sin_talles.join(', '))})`).join(' · ');
+  return `<p class="hint" style="margin-top:14px;"><b>Anuncios de catálogo: los ${(mv.productos || []).length} más vendidos</b> — pedidos pagos de los últimos ${mv.dias} días, con stock y sin talles del medio agotados. Los de «sólo remarketing» ya tienen anuncio propio para gente nueva.</p>
+    ${filas}
+    ${afuera ? `<p class="hint">Venden pero hoy quedan afuera por talle agotado en todos los colores: ${afuera}. Vuelven solos cuando entra el talle.</p>` : ''}`;
+}
+
 async function openAdSet(btn) {
   btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Calculando… (20-40 s)`;
   let d;
@@ -4692,8 +4709,9 @@ async function openAdSet(btn) {
     <p class="hint" style="margin-top:14px;"><b>Los 12 primeros del conjunto</b> — puntaje = ventas 30 d + interés en la web + curva de talles + profundidad de stock + temporada.</p>
     ${(d.productos || []).slice(0, 12).map(fila).join('')}
     ${d.en_el_conjunto > 12 ? `<p class="hint">…y ${d.en_el_conjunto - 12} más.</p>` : ''}
+    ${masVendidosHtml(d.mas_vendidos)}
     ${d.aviso ? `<p class="hint" style="color:var(--orange)">${esc(d.aviso)}</p>` : ''}
-    <p class="hint">Se escriben tres conjuntos en Meta: <b>Motor · Curado</b> (uno por producto, para campañas de venta), <b>Motor · Curado TOP</b> (sólo los tier A) y <b>Motor · Remarketing</b> (todo lo comprable, sin deduplicar, para que el anuncio de recuperación pueda mostrar el talle exacto que la persona miró). Se rearman solos cada 6 h.</p>
+    <p class="hint">Se escriben cinco conjuntos en Meta: <b>Motor · Curado</b> (uno por producto, para campañas de venta), <b>Motor · Curado TOP</b> (sólo los tier A), <b>Motor · Remarketing</b> (todo lo comprable, sin deduplicar), <b>Motor · Remarketing curado</b> (los más vendidos, para los anuncios de catálogo del remarketing) y <b>Motor · Más vendidos · Prospecting</b> (los mismos para gente nueva, sin los que ya tienen anuncio propio). Se rearman solos cada 6 h.</p>
     <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:6px;">
       <button class="btn-discard" id="as-cancel">Ahora no</button>
       <button class="btn-primary" id="as-apply">${icon('check')} Actualizar los conjuntos en Meta</button>

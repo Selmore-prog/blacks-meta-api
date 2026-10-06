@@ -30,6 +30,10 @@
  *                   Acá el duplicado es deseable: si alguien miró el cargo
  *                   azul talle 42, ese item exacto tiene que existir o el
  *                   anuncio de recuperación no lo puede mostrar.
+ *  Y desde oct-2026 dos más con los MÁS VENDIDOS (pedidos pagos de 60 días)
+ *  que hoy tienen stock y ningún talle del medio agotado, con todos sus talles:
+ *  REMARKETING CURADO (los anuncios de catálogo del remarketing) y MÁS
+ *  VENDIDOS · PROSPECTING (lo mismo sin los que ya tienen anuncio propio).
  *
  * HISTÉRESIS
  * Un producto no entra y sale del conjunto todos los días: para salir por un
@@ -59,14 +63,28 @@ const MINIMO_SEGURIDAD = 10;  // si el conjunto quedaría más chico, no se apli
 const NOMBRE_CURADO = 'Motor · Curado';
 const NOMBRE_TOP = 'Motor · Curado TOP';
 const NOMBRE_REMARKETING = 'Motor · Remarketing';
-// Pedido de Sebastián (2-oct-2026): en el remarketing aparecían productos con
-// un solo talle y camperas de invierno, porque "Motor · Remarketing" toma todo
-// lo que tenga stock. Este cuarto conjunto son TODOS los talles con stock de
-// los productos curados, pero sólo de los que tienen curva de verdad (ver
-// curvaParaRemarketing). No reemplaza al otro por nombre: el anuncio de
-// catálogo exige que su conjunto sea el mismo del conjunto de anuncios, así
-// que va con un conjunto de anuncios propio.
+// El conjunto del remarketing de catálogo ("Remarketing 90d · Talles OK ·
+// Compra"). Historia: el 2-oct-2026 pasó de "todo lo que tenga stock" a "los
+// curados con curva", pero los de talle único pasaban siempre y el 6-oct
+// tenía 34 productos con 7 guantes, tops deportivos, ojotas de bebé, casco y
+// anteojos. Sebastián pidió que muestre sólo los más vendidos con stock: hoy
+// son los MAS_VENDIDOS_N primeros del ranking (ver masVendidos). Conserva el
+// nombre porque Meta no deja cambiarle el conjunto de productos a un conjunto
+// de anuncios publicado: lo que cambia es el contenido, no el conjunto.
 const NOMBRE_REMARKETING_CURADO = 'Motor · Remarketing curado';
+// Los mismos más vendidos para gente que todavía no visitó la tienda, menos
+// los que ya tienen anuncio propio (CON_ANUNCIO_PROPIO).
+const NOMBRE_MAS_VENDIDOS = 'Motor · Más vendidos · Prospecting';
+
+/* ---------------------------- los más vendidos ---------------------------- */
+
+const MAS_VENDIDOS_N = 10;     // cuántos productos entran
+const MAS_VENDIDOS_DIAS = 60;  // ventana del ranking: pedidos pagos de la tienda
+const MAS_VENDIDOS_MINIMO = 5; // con menos, se deja la lista que había
+// El jean clásico tiene sus propios anuncios en el prospecting y se llevó el
+// 80% del gasto del 3 al 6-oct-2026. En el catálogo para gente nueva sobra:
+// ese conjunto existe para que vendan los otros.
+const CON_ANUNCIO_PROPIO = new Set([298859922]);
 
 /* ------------------------------- temporada ------------------------------- */
 
@@ -105,40 +123,65 @@ const KW_TODO_EL_ANO = ['pantalon', 'jean', 'camisa', 'zapato', 'bota', 'borcego
 const sinAcentos = (s) => String(s || '').toLowerCase()
   .normalize('NFD').replace(/[\u0300-\u036f]/g, '');
 
-/* ----------------------- curva para el remarketing ----------------------- */
+/* ------------------------- talles del medio agotados ------------------------ */
 
-// Talles "del medio": los que m\u00e1s se piden. Pantal\u00f3n 40-48, calzado 39-43, M-XL.
+// Talles "del medio": los que m\u00e1s se piden. Pantal\u00f3n 40-48, calzado 39-43 o
+// 7-10 US (la alpargata), M a XL.
 function esTalleCentral(talle) {
   const t = String(talle || '').trim().toUpperCase();
   if (['M', 'L', 'XL'].includes(t)) return true;
+  const us = t.match(/^(\d{1,2})\s*US$/);
+  if (us) return Number(us[1]) >= 7 && Number(us[1]) <= 10;
   const m = t.match(/^(\d{2})/);
   if (!m) return false;
   const n = Number(m[1]);
-  return (n >= 40 && n <= 48) || (n >= 39 && n <= 43);
+  return n >= 39 && n <= 48;
 }
 
 /**
- * \u00bfEl producto tiene talles suficientes para pagar por mostrarlo a alguien
- * que ya visit\u00f3 la tienda? Cuenta TALLES distintos (no combinaciones con el
- * color): con 4 o m\u00e1s talles en la curva, exige 4 con stock y adem\u00e1s 2 del
- * medio o el 75% de la curva (la alpargata viene en "7 US" y no matchea
- * n\u00fameros de pantal\u00f3n). Los de talle \u00fanico (guantes, faja) pasan siempre.
+ * Talles del medio que no tienen stock en NING\u00daN color. Si el 44 est\u00e1 agotado
+ * en todos, el que usa 44 hace clic, no encuentra su talle y se va: es un clic
+ * pagado que no puede terminar en compra. Pas\u00f3 con el cargo slim fit el
+ * 6-oct-2026 (sin 44 ni 48), el segundo m\u00e1s vendido de los 60 d\u00edas anteriores.
+ * Cuando entra el talle, el producto vuelve solo en la corrida siguiente.
  */
-function curvaParaRemarketing(raw) {
+function tallesCentralesAgotados(raw) {
   const attrs = ((raw && raw.attributes) || []).map((a) => sinAcentos(a && typeof a === 'object' ? a.es : a));
   const iTalle = attrs.findIndex((a) => a.startsWith('talle') || a.startsWith('numero'));
-  const total = new Set();
-  const conStock = new Set();
+  if (iTalle < 0) return [];
+  const stockPorTalle = new Map();
   for (const v of (raw && raw.variants) || []) {
     const valores = (v.values || []).map((x) => (x && typeof x === 'object' ? x.es : x));
-    const talle = iTalle >= 0 ? valores[iTalle] : '\u00fanico';
-    total.add(talle);
-    if (v.stock === null || v.stock === undefined || Number(v.stock) > 0) conStock.add(talle);
+    const talle = valores[iTalle];
+    // stock null = sin control de stock: cuenta como disponible.
+    const stock = v.stock === null || v.stock === undefined ? 1 : Math.max(0, Number(v.stock) || 0);
+    stockPorTalle.set(talle, (stockPorTalle.get(talle) || 0) + stock);
   }
-  const centrales = [...conStock].filter(esTalleCentral).length;
-  const cobertura = total.size ? conStock.size / total.size : 0;
-  const ok = total.size < 4 || (conStock.size >= 4 && (centrales >= 2 || cobertura >= 0.75));
-  return { ok, talles: `${conStock.size}/${total.size}`, centrales };
+  return [...stockPorTalle].filter(([t, n]) => n === 0 && esTalleCentral(t)).map(([t]) => t);
+}
+
+/**
+ * Pedidos, unidades y facturaci\u00f3n por producto en los \u00faltimos `dias`, de los
+ * pedidos PAGOS de la tienda (orders_cache), entren por el canal que entren.
+ * Si la tabla falla devuelve null y los conjuntos de m\u00e1s vendidos no se tocan.
+ */
+async function ventasPorProducto(dias) {
+  try {
+    const { rows } = await pool.query(
+      `SELECT (x->>'product_id')::bigint AS id, count(DISTINCT o.id) AS pedidos,
+              sum((x->>'quantity')::int) AS unidades,
+              sum((x->>'price')::numeric * (x->>'quantity')::int) AS facturado
+         FROM orders_cache o, jsonb_array_elements(o.products) x
+        WHERE o.created_at >= now() - ($1 || ' days')::interval
+          AND o.payment_status = 'paid' AND o.cancelled_at IS NULL
+        GROUP BY 1`, [String(dias)]);
+    return new Map(rows.map((r) => [Number(r.id), {
+      pedidos: Number(r.pedidos), unidades: Number(r.unidades), facturado: Math.round(Number(r.facturado)),
+    }]));
+  } catch (err) {
+    console.warn(`[adSet] Sin ranking de ventas (orders_cache): ${err.message}. No toco los m\u00e1s vendidos.`);
+    return null;
+  }
 }
 
 /**
@@ -342,13 +385,14 @@ async function buildAdSet({ apply = false, days = 28, fecha = new Date() } = {})
   if (!catalogId) throw new Error('Falta META_CATALOG_ID.');
   if (!config.meta.adsAccessToken) throw new Error('Falta el token de Meta con permiso catalog_management.');
 
-  const [items, productos, interes, previo] = await Promise.all([
+  const [items, productos, interes, previo, ventas] = await Promise.all([
     fetchAllCatalogItems(catalogId, 'retailer_id,name,availability,price,product_type'),
     pool.query(`SELECT id, name, brand, category, price, promo_price, stock, sizes_total, sizes_in_stock,
                        size_coverage, image_url, published, sales_30d, raw
                   FROM products_cache WHERE published IS NOT FALSE`),
     interesPorProducto(days),
     estadoAnterior(),
+    ventasPorProducto(MAS_VENDIDOS_DIAS),
   ]);
 
   // retailer_id -> item del catálogo de Meta.
@@ -473,10 +517,29 @@ async function buildAdSet({ apply = false, days = 28, fecha = new Date() } = {})
   const porMotivo = {};
   for (const f of fuera) porMotivo[f.detalle.replace(/\s*\(.*/, '')] = (porMotivo[f.detalle.replace(/\s*\(.*/, '')] || 0) + 1;
 
-  // Remarketing curado: de los curados, sólo los que tienen curva (todos sus
-  // talles con stock, para que exista el item exacto que la persona miró).
-  for (const d of dentro) d.curva_remarketing = curvaParaRemarketing(rawPorId.get(d.id));
-  const remarketingCurado = dentro.filter((d) => d.curva_remarketing.ok);
+  // Los más vendidos: de los curados (publicados, con precio, stock, curva y
+  // en temporada), los que más pedidos pagos tuvieron, sin talles del medio
+  // agotados. Entran con TODOS sus talles con stock: en el remarketing tiene
+  // que existir el item exacto que la persona miró. Los que están "en gracia"
+  // fallaron esta corrida: al catálogo no entran.
+  const sinVentas = { pedidos: 0, unidades: 0, facturado: 0 };
+  for (const d of dentro) {
+    d.ventas_ranking = (ventas && ventas.get(d.id)) || sinVentas;
+    d.centrales_agotados = tallesCentralesAgotados(rawPorId.get(d.id));
+  }
+  const masVendidos = ventas ? dentro
+    .filter((d) => !d.en_gracia && !d.centrales_agotados.length && d.todas_las_variantes.length)
+    .sort((a, b) => b.ventas_ranking.pedidos - a.ventas_ranking.pedidos
+      || b.ventas_ranking.unidades - a.ventas_ranking.unidades
+      || b.ventas_ranking.facturado - a.ventas_ranking.facturado
+      || b.score - a.score)
+    .slice(0, MAS_VENDIDOS_N) : [];
+  const masVendidosProspecting = masVendidos.filter((d) => !CON_ANUNCIO_PROPIO.has(d.id));
+  const resumenProducto = (d) => ({
+    id: d.id, name: d.name, pedidos: d.ventas_ranking.pedidos, unidades: d.ventas_ranking.unidades,
+    talles: `${d.sizes_in_stock}/${d.sizes_total}`, variantes: d.todas_las_variantes.length,
+    con_anuncio_propio: CON_ANUNCIO_PROPIO.has(d.id),
+  });
 
   const resumen = {
     catalogId,
@@ -493,11 +556,16 @@ async function buildAdSet({ apply = false, days = 28, fecha = new Date() } = {})
     en_gracia: dentro.filter((d) => d.en_gracia).length,
     excluidos: fuera.length,
     excluidos_por_motivo: Object.fromEntries(Object.entries(porMotivo).sort((a, b) => b[1] - a[1])),
-    remarketing_curado: {
-      productos: remarketingCurado.length,
-      variantes: remarketingCurado.reduce((a, d) => a + d.todas_las_variantes.length, 0),
-      sin_curva: dentro.filter((d) => !d.curva_remarketing.ok)
-        .map((d) => ({ id: d.id, name: d.name, talles: d.curva_remarketing.talles })),
+    mas_vendidos: {
+      dias: MAS_VENDIDOS_DIAS,
+      ranking_ok: Boolean(ventas),
+      productos: masVendidos.map(resumenProducto),
+      variantes: masVendidos.reduce((a, d) => a + d.todas_las_variantes.length, 0),
+      // Venden pero hoy no entran porque falta un talle del medio en todos los colores.
+      afuera_por_talle: dentro
+        .filter((d) => d.centrales_agotados.length && d.ventas_ranking.pedidos > 0)
+        .sort((a, b) => b.ventas_ranking.pedidos - a.ventas_ranking.pedidos)
+        .map((d) => ({ id: d.id, name: d.name, pedidos: d.ventas_ranking.pedidos, sin_talles: d.centrales_agotados })),
     },
     interes_ga4: interes.ok,
     productos: dentro,
@@ -527,23 +595,33 @@ async function buildAdSet({ apply = false, days = 28, fecha = new Date() } = {})
     { product_type: { i_not_contains: 'mayorista' } },
   ] };
 
-  // Tiene que repetir las dos condiciones del remarketing amplio: así Meta lo
-  // reconoce como SUBCONJUNTO de aquel.
-  const idsRemarketingCurado = remarketingCurado.flatMap((d) => d.todas_las_variantes.map(String));
-  const filtroRemarketingCurado = { and: [
-    ...filtroRemarketing.and,
-    { retailer_id: { is_any: idsRemarketingCurado } },
-  ] };
-
   resumen.sets = {
     curado: { id: await upsertProductSet(catalogId, NOMBRE_CURADO, filtroCurado), items: idsCurado.length },
     top: { id: await upsertProductSet(catalogId, NOMBRE_TOP, filtroTop), items: idsTop.length },
     remarketing: { id: await upsertProductSet(catalogId, NOMBRE_REMARKETING, filtroRemarketing), items: null },
-    remarketing_curado: {
-      id: await upsertProductSet(catalogId, NOMBRE_REMARKETING_CURADO, filtroRemarketingCurado),
-      items: idsRemarketingCurado.length,
-    },
   };
+
+  // Más vendidos: el remarketing de catálogo (con el jean) y el de gente nueva
+  // (sin los que tienen anuncio propio). Repiten las dos condiciones del
+  // remarketing amplio, así Meta los reconoce como SUBCONJUNTOS de aquel.
+  if (masVendidos.length >= MAS_VENDIDOS_MINIMO) {
+    const filtroMasVendidos = (lista) => ({ and: [
+      ...filtroRemarketing.and,
+      { retailer_id: { is_any: lista.flatMap((d) => d.todas_las_variantes.map(String)) } },
+    ] });
+    resumen.sets.remarketing_curado = {
+      id: await upsertProductSet(catalogId, NOMBRE_REMARKETING_CURADO, filtroMasVendidos(masVendidos)),
+      productos: masVendidos.length,
+      items: resumen.mas_vendidos.variantes,
+    };
+    resumen.sets.mas_vendidos = {
+      id: await upsertProductSet(catalogId, NOMBRE_MAS_VENDIDOS, filtroMasVendidos(masVendidosProspecting)),
+      productos: masVendidosProspecting.length,
+      items: masVendidosProspecting.reduce((a, d) => a + d.todas_las_variantes.length, 0),
+    };
+  } else {
+    resumen.aviso = `Sólo ${masVendidos.length} productos califican como más vendidos con stock (mínimo ${MAS_VENDIDOS_MINIMO}): dejé los conjuntos de catálogo como estaban.`;
+  }
   resumen.applied = true;
 
   await guardarEstado(filasEstado);
@@ -552,7 +630,7 @@ async function buildAdSet({ apply = false, days = 28, fecha = new Date() } = {})
 }
 
 module.exports = {
-  buildAdSet, clasificarTemporada, seasonFit, evaluar, calcularScore, curvaParaRemarketing,
+  buildAdSet, clasificarTemporada, seasonFit, evaluar, calcularScore, tallesCentralesAgotados,
   MIN_STOCK, MIN_SIZES_IN_STOCK, MIN_COVERAGE, MIN_SEASON_FIT,
-  NOMBRE_CURADO, NOMBRE_TOP, NOMBRE_REMARKETING, NOMBRE_REMARKETING_CURADO,
+  NOMBRE_CURADO, NOMBRE_TOP, NOMBRE_REMARKETING, NOMBRE_REMARKETING_CURADO, NOMBRE_MAS_VENDIDOS,
 };
