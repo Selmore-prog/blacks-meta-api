@@ -1,0 +1,18 @@
+{
+  "clave": "video-jean-clasico",
+  "titular": "JEAN CLÁSICO RECTO",
+  "bajada": "Del 40 al 54, en cinco colores",
+  "chip": "20% OFF",
+  "beneficio": "Hasta 6 cuotas sin interés",
+  "entra_titular": 0.3,
+  "entra_chip": 2.6,
+  "recorte_45": 0.45,
+  "productos": [
+    298859922
+  ],
+  "descuento": 20,
+  "recorte_11": 0.5,
+  "bajada_11": null,
+  "beneficio_11": null,
+  "clip": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/veo-jean-sin-texto.mp4"
+}

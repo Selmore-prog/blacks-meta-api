@@ -22,9 +22,12 @@
  *    historias de Facebook: del 21-sep al 6-oct el feed de Facebook se llevó
  *    $37.297 del prospecting con 0 compras (del 3 al 6-oct, 27% del gasto del
  *    02, 136 clics, 4 carritos, 0 compras) y las historias $5.238 con 0.
- *  · Gasto mínimo diario (por defecto $3.000) dentro del presupuesto de la
+ *  · Gasto mínimo diario (por defecto $2.500) dentro del presupuesto de la
  *    campaña: sin piso, el CBO le daría todo al 02 como pasó con los otros
- *    productos. No suma presupuesto: sale de los mismos $14.400.
+ *    productos. No suma presupuesto: sale de los mismos $14.400. Con $3.000
+ *    Meta lo rechaza (100/1885648, "el gasto mínimo combinado es superior al
+ *    presupuesto de la campaña") aunque el presupuesto sea $14.400; $2.500
+ *    pasa (probado con validate_only el 6-oct-2026).
  *  · Un anuncio de catálogo con formato automático (carrusel o colección) y
  *    portada automática. La portada con banner muestra una pila de jeans, y
  *    este conjunto existe para que se vean los otros productos.
@@ -32,7 +35,7 @@
  *   node scripts/setup-catalogo-mas-vendidos.js              → vista previa
  *   node scripts/setup-catalogo-mas-vendidos.js --aplicar    → crea todo EN PAUSA
  *   node scripts/setup-catalogo-mas-vendidos.js --activar    → lo prende
- *   ... --minimo 3000 → gasto mínimo diario en pesos (0 = sin piso)
+ *   ... --minimo 2500 → gasto mínimo diario en pesos (0 = sin piso)
  * ========================================================================= */
 
 require('dotenv').config();
@@ -51,7 +54,7 @@ const CONJUNTO_02 = '120250779709150783'; // 02 · Prospecting amplio · Compra 
 const PRODUCT_SET = 'Motor · Más vendidos · Prospecting';
 
 const arg = (n, d) => { const i = process.argv.indexOf(`--${n}`); return i > -1 ? process.argv[i + 1] : d; };
-const MINIMO = Number(arg('minimo', 3000));
+const MINIMO = Number(arg('minimo', 2500));
 
 const CONJUNTO = '03 · Catálogo · Más vendidos · Compra';
 const ANUNCIO = 'Catálogo · Más vendidos · Automático';

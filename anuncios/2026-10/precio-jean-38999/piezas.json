@@ -1,0 +1,70 @@
+[
+  {
+    "clave": "jean-clasico",
+    "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/nuevas 4.5/jean-vaquero.png",
+    "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/nuevas 9.16/jean vaquero.png",
+    "titular": "JEAN CLÁSICO RECTO",
+    "bajada": "Del 40 al 54, en cinco colores",
+    "chip": "20% OFF",
+    "beneficio": "Hasta 6 cuotas sin interés",
+    "recorte_11": 0.5,
+    "bajada_11": null,
+    "beneficio_11": null,
+    "productos": [
+      298859922
+    ],
+    "precio": 38999,
+    "descuento": 20
+  },
+  {
+    "clave": "jean-alpargatas",
+    "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/jean-alpargatas_4x5_v2.png",
+    "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/jean-alpargatas_9x16_v2.png",
+    "posicion": "arriba",
+    "titular": "JEAN + ALPARGATAS",
+    "bajada": "El combo de primavera, con envío gratis",
+    "chip": "$63.998 LOS DOS",
+    "beneficio": "Hasta 6 cuotas sin interés",
+    "recorte_11": 1.0,
+    "bajada_11": null,
+    "beneficio_11": null,
+    "productos": [
+      298859922,
+      354993720
+    ],
+    "precio_total": 63998,
+    "envio_gratis": true
+  },
+  {
+    "clave": "jean-remera",
+    "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/rem-vaq.4.5.png",
+    "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/rem+vaq 9.16.png",
+    "titular": "JEAN + REMERA",
+    "bajada": "El básico de todos los días, con envío gratis",
+    "chip": "$56.998 LOS DOS",
+    "beneficio": "Hasta 6 cuotas sin interés",
+    "recorte_11": 0.45,
+    "bajada_11": null,
+    "beneficio_11": null,
+    "productos": [
+      298859922,
+      136305274
+    ],
+    "precio_total": 56998,
+    "envio_gratis": true
+  },
+  {
+    "clave": "jean-cinco-colores",
+    "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/vaqueros4.5.png",
+    "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/vaqueros9.16.png",
+    "posicion": "arriba",
+    "titular": "JEAN EN 5 COLORES",
+    "tam_titular": 0.085,
+    "chip": "$38.999",
+    "recorte_11": 0.5,
+    "productos": [
+      298859922
+    ],
+    "precio": 38999
+  }
+]

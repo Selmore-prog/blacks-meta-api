@@ -171,7 +171,6 @@
       "nombre": "Carrusel · Los más vendidos · 2026-10",
       "productos": [
         298859922,
-        74186959,
         136305274,
         354993720,
         353824358,
@@ -180,13 +179,8 @@
       "tarjetas": [
         {
           "producto": 298859922,
-          "precio": 36999,
-          "descuento": 24
-        },
-        {
-          "producto": 74186959,
-          "precio": 58999,
-          "descuento": 24
+          "precio": 38999,
+          "descuento": 20
         },
         {
           "producto": 136305274,
@@ -220,7 +214,7 @@
         298859922,
         354993720
       ],
-      "precio_total": 61998,
+      "precio_total": 63998,
       "envio_gratis": true
     },
     {
@@ -229,8 +223,8 @@
       "productos": [
         298859922
       ],
-      "precio": 36999,
-      "descuento": 24
+      "precio": 38999,
+      "descuento": 20
     },
     {
       "ad_id": "120250779711600783",
@@ -272,7 +266,7 @@
         298859922,
         136305274
       ],
-      "precio_total": 54998,
+      "precio_total": 56998,
       "envio_gratis": true
     },
     {
@@ -282,7 +276,7 @@
         298859922,
         354993720
       ],
-      "precio_total": 61998,
+      "precio_total": 63998,
       "envio_gratis": true
     },
     {
@@ -291,8 +285,8 @@
       "productos": [
         298859922
       ],
-      "precio": 36999,
-      "descuento": 24
+      "precio": 38999,
+      "descuento": 20
     },
     {
       "ad_id": "120250779709530783",
@@ -300,8 +294,8 @@
       "productos": [
         298859922
       ],
-      "precio": 36999,
-      "descuento": 24
+      "precio": 38999,
+      "descuento": 20
     },
     {
       "ad_id": "120250779653700783",
