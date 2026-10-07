@@ -65,7 +65,8 @@ function completeMessage(body, products, audience, benefitsConfig, wholesale, pr
   const lines = [];
   if (audience === 'mayorista') {
     const contact = String(wholesale?.contact || '').trim();
-    lines.push(contact ? `🏢 Consultas mayoristas: ${contact}` : '🏢 Consultanos por disponibilidad y condiciones mayoristas');
+    // Oct-2026: el público mayorista que se busca son empresas, no revendedores.
+    lines.push(contact ? `🏢 Cotizaciones para empresas: ${contact}` : '🏢 Cotizamos la ropa de trabajo de tu empresa, con tu logo');
     for (const product of products) {
       const url = productUrl(product);
       if (url) lines.push(`🔗 ${products.length > 1 ? `${product.name}: ` : 'Ver producto: '}${url}`);

@@ -1,0 +1,30 @@
+{
+  "_que_es": "Anuncios NUEVOS para el conjunto mayorista. Público corporativo (pedido de Sebastián, 7-oct-2026): llegaban muchos revendedores pidiendo 10-20 prendas. Los textos hablan de 'tu empresa' y 'tu equipo', nombran la Factura A y la muestra digital (company_facts), no dicen 'mayorista', 'ofertas' ni 'desde 10 unidades', y el saludo de WhatsApp pide el nombre de la empresa y la cantidad de personas: el revendedor se filtra solo y el comercial arranca con la consulta calificada. El precargado no cambia: Kommo lo usa para mandar la charla al embudo mayorista.",
+  "adset": "120250763665960783",
+  "piezas": [
+    {
+      "nombre": "Video · Chombas para tu empresa",
+      "tipo": "video",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/videos/para-pauta/mayorista-chomba-empresas_916.mp4",
+      "portada_vertical": "/Users/sebastianelmore/Desktop/piezas-motor/videos/para-pauta/mayorista-chomba-empresas_916.jpg",
+      "titulo": "Chombas con el logo de tu empresa",
+      "texto_feed": "Chombas Pampero de micropiqué para el equipo de tu empresa, con tu logo bordado o estampado. Antes de producir te mandamos una muestra digital para aprobar, y emitimos Factura A. Escribinos por WhatsApp, contanos para cuántas personas son y te cotizamos.",
+      "whatsapp": {
+        "precargado": "Hola! Quiero cotizar ropa de trabajo para mi empresa.",
+        "saludo": "¡Hola! Gracias por escribirnos. Para cotizarte, contanos de qué empresa nos escribís, qué prendas necesitás y para cuántas personas."
+      }
+    },
+    {
+      "nombre": "Video · 90 chombas bordadas para un cliente",
+      "tipo": "video",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/videos/para-pauta/mayorista-90-chombas_916.mp4",
+      "portada_vertical": "/Users/sebastianelmore/Desktop/piezas-motor/videos/para-pauta/mayorista-90-chombas_916.jpg",
+      "titulo": "Uniformes con el logo de tu empresa",
+      "texto_feed": "Así quedó un pedido de 90 chombas para un cliente: logos bordados y cinta reflectiva en frente y espalda. Hacemos los uniformes de tu equipo con el logo de tu empresa, bordado o estampado, con muestra digital para aprobar antes de producir. Emitimos Factura A. Escribinos por WhatsApp y te cotizamos.",
+      "whatsapp": {
+        "precargado": "Hola! Quiero cotizar ropa de trabajo para mi empresa.",
+        "saludo": "¡Hola! Gracias por escribirnos. Para cotizarte, contanos de qué empresa nos escribís, qué prendas necesitás y para cuántas personas."
+      }
+    }
+  ]
+}

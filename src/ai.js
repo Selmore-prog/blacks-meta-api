@@ -181,6 +181,11 @@ function buildCopyPrompt({ pillar, pillarDetail, postType, format, product, visu
   const wholesaleInfo = (pillar === 'mayorista' && wholesale)
     ? `\nCONDICIONES MAYORISTAS (metelas en el copy, tono B2B, sin precio unitario, cerrá con "pedí tu presupuesto"): ${wholesale}`
     : '';
+  // Oct-2026: por WhatsApp entraban sobre todo revendedores pidiendo 10-20 prendas, y el
+  // público que le sirve a BLACKS son empresas que visten a su equipo.
+  const corporativo = pillar === 'mayorista'
+    ? `\nA QUIÉN LE HABLÁS: a EMPRESAS que visten a su equipo (dueños de pymes con personal, RRHH, compras, seguridad e higiene), no a revendedores ni emprendedores. Decí "tu empresa", "tu equipo", "tu personal". NO uses "precio mayorista", "comprá por mayor", "reventa", "revendé", "emprendé", "para tu local" ni pongas el mínimo de unidades como gancho. Si están en los datos verificados, destacá la personalización con logo (bordado o estampado), la Factura A y la muestra digital antes de producir.`
+    : '';
 
   let voice = '';
   if (brandProfile && brandProfile.voice_guide) {
@@ -225,7 +230,7 @@ La pregunta y las opciones tienen que ser concretas y fáciles de contestar en 2
   // de la promo de liquidación, que llegó al render con story_points en null.
   const wantStoryPoints = (format === 'story' || !product) && postType !== 'reel';
   const storyPointsSpec = wantStoryPoints
-    ? `\n\nDATOS IMPRESOS EN LA PIEZA (obligatorio): devolvé también "story_points": 2 o 3 puntos CORTÍSIMOS (máx ~4 palabras cada uno) que se imprimen SOBRE la imagen como chips. Son la información clave que el espectador tiene que llevarse en 3 segundos: beneficios/condiciones/datos REALES tomados SOLO del contexto de esta pieza (producto, condiciones de la promo, condiciones mayoristas, datos verificados). Ej: ["Mínimo 10 unidades", "Personalización con logo", "Envío gratis al país"] o, en una promo, ["10% OFF en la segunda unidad", "6 cuotas sin interés"]. PROHIBIDO inventar datos y PROHIBIDO repetir textual el overlay. SIN emojis ni íconos (se imprimen como texto y los emojis no se ven).`
+    ? `\n\nDATOS IMPRESOS EN LA PIEZA (obligatorio): devolvé también "story_points": 2 o 3 puntos CORTÍSIMOS (máx ~4 palabras cada uno) que se imprimen SOBRE la imagen como chips. Son la información clave que el espectador tiene que llevarse en 3 segundos: beneficios/condiciones/datos REALES tomados SOLO del contexto de esta pieza (producto, condiciones de la promo, condiciones mayoristas, datos verificados). Ej: ["Logo bordado o estampado", "Factura A", "Muestra digital previa"] o, en una promo, ["10% OFF en la segunda unidad", "6 cuotas sin interés"]. PROHIBIDO inventar datos y PROHIBIDO repetir textual el overlay. SIN emojis ni íconos (se imprimen como texto y los emojis no se ven).`
     : '';
   const commercial = commercialContext
     ? `\n\nCALENDARIO COMERCIAL CERCANO:\n${commercialContext}\nSi alguna fecha encaja con el producto/pilar, usala como ángulo de venta natural. Si queda forzada, ignorala.`
@@ -295,7 +300,7 @@ La pregunta y las opciones tienen que ser concretas y fáciles de contestar en 2
 
 Pilar de contenido: ${pillar}${OBJECTIVE_GUIDE[objective] ? `\n${OBJECTIVE_GUIDE[objective]}` : ''}
 Ángulo/detalle: ${pillarDetail || 'sin detalle adicional'}${director}${imageCtx}
-${productInfo}${wholesaleInfo}${educationalGuard}${facts}
+${productInfo}${wholesaleInfo}${corporativo}${educationalGuard}${facts}
 Temporada: ${seasonLine}${commercial}${winners}${noRepeat}${noRepeatOpeners}${lessons || ''}${numbersRule}${interaction}${stickerSpec}${storyPointsSpec}${templates}${voice}
 
 ${carousel ? (['educativo', 'mayorista'].includes(pillar)
@@ -893,6 +898,34 @@ const URBAN_SCENE_POOL = {
   ],
 };
 
+// Escenarios CORPORATIVOS para las piezas mayoristas. Pedido de Sebastián (7-oct-2026):
+// le escribían sobre todo revendedores y el público es empresas; quería piezas "más
+// relacionadas a lo corporativo, con algún fondo, que no sea tan obvio que es IA". Un taller
+// o una obra dicen "oficio"; esto dice "empresa con personal". La receta anti-IA es la de un
+// reporte anual: lugares reales y ordenados, gente de fondo desenfocada, logos ilegibles.
+const CORPORATE_SCENE_POOL = {
+  escenario: [
+    'planta industrial moderna y ordenada: piso epoxi gris, líneas de producción, señalización de seguridad amarilla, operarios uniformados desenfocados al fondo',
+    'centro logístico corporativo: pasillo de racks altos prolijos, pallets envueltos en film, autoelevador estacionado, iluminación LED de nave',
+    'recepción de una empresa mediana: mostrador de madera clara, pared con un logo genérico e ilegible desenfocado, plantas y luz natural',
+    'oficina operativa junto a la nave: escritorios con monitores, ventanal hacia el depósito, un equipo conversando de fondo, fuera de foco',
+    'entrada de personal de una fábrica a la mañana: casilleros metálicos, cartelera de seguridad e higiene, piso de hormigón limpio',
+    'sala de reuniones vidriada con vista al depósito: mesa larga, carpetas y uniformes doblados sobre la mesa como muestra',
+    'playa de la flota de una empresa: utilitarios blancos alineados sin marcas legibles, mañana despejada',
+  ],
+  luz: [
+    'luz natural de oficina entrando por ventanales amplios, tono neutro y sombras suaves',
+    'iluminación LED pareja de nave industrial combinada con luz de día de tragaluces',
+    'mañana despejada, luz suave y limpia, colores fieles',
+    'día nublado de luz difusa, look documental corporativo',
+  ],
+  camara: [
+    'cámara a la altura del pecho, plano medio, foto documental corporativa como la de un reporte anual',
+    'plano general con profundidad: sujeto nítido y el entorno de la empresa suavemente desenfocado',
+    'lente de 35 mm, encuadre natural y sin poses forzadas, grano de sensor real',
+  ],
+};
+
 function sceneFromPool(pool, seed = null) {
   const n = seed !== null && Number.isFinite(Number(seed))
     ? Math.abs(Math.trunc(Number(seed)))
@@ -909,8 +942,8 @@ function sceneFromPool(pool, seed = null) {
   return v;
 }
 
-function sceneVariation(seed = null) {
-  return sceneFromPool(SCENE_POOL, seed);
+function sceneVariation(seed = null, pillar = null) {
+  return sceneFromPool(pillar === 'mayorista' ? CORPORATE_SCENE_POOL : SCENE_POOL, seed);
 }
 
 // Sólo la indumentaria claramente LABORAL/de seguridad va en escena de obra/industria
@@ -2018,7 +2051,7 @@ function composicionParaFormato(format) {
     : `- COMPOSICIÓN VERTICAL 4:5: el producto ocupa la zona central-baja del cuadro y arriba queda una franja de aire (fondo o superficie) para el titular. No lo pegues al borde superior.`;
 }
 
-async function generateBackground({ theme, brief, occasion, format = 'feed', referenceImages = [], seed = null, artStyle = null } = {}) {
+async function generateBackground({ theme, brief, occasion, format = 'feed', referenceImages = [], seed = null, artStyle = null, pillar = null } = {}) {
   if (!config.ai.useAiImages || !hasGemini() || isImageQuotaCoolingDown()) return null;
   if (await imageBudgetExceeded()) return null; // tope diario: sigue con plantilla (gratis)
 
@@ -2028,7 +2061,7 @@ async function generateBackground({ theme, brief, occasion, format = 'feed', ref
     ? 'La escena ocupa TODO el aviso. Respetá las zonas de sujeto y texto indicadas en el brief: la tipografía irá integrada SOBRE el entorno continuo, nunca por fuera en una tarjeta. Producto completo y grande dentro de su zona.'
     : composicionParaFormato(format);
   const brandStyle = await brandStyleForImages();
-  const scene = sceneVariation(seed);
+  const scene = sceneVariation(seed, pillar);
   const hasRefs = referenceImages.slice(0, 3).some((r) => r && r.data && r.mimeType);
   const buildPrompt = (strict) => `Actuás como DIRECTOR DE ARTE SENIOR y ESPECIALISTA EN PROMPT ENGINEERING de una agencia creativa premium. Generá la fotografía de fondo ${ratio} para una pieza comercial clara, contemporánea y minimalista de BLACKS, marca argentina de indumentaria de trabajo y calzado de seguridad.
 
@@ -2502,7 +2535,10 @@ async function planCarouselShots({ productName, productDescription, brief, pilla
     marca: 'Aspiracional: mezclá 1 hero de estudio con 1-2 tomas en CONTEXTO real de trabajo (más lifestyle), transmitiendo identidad, no venta directa.',
     ugc: 'Cercano y real: predominan tomas en contexto/uso, como fotos genuinas, menos "de estudio perfecto".',
     engagement: 'Simple y claro: 1-2 tomas limpias que inviten a opinar/comparar.',
-    mayorista: 'Serio y corporativo: tomas de estudio prolijas que muestren durabilidad y terminación para empresas.',
+    // Oct-2026: el público mayorista que importa son EMPRESAS que visten a su equipo, no
+    // revendedores (que llegaban pidiendo 10-20 prendas). Estudio vacío no dice "empresa":
+    // la prenda va en el lugar donde trabaja ese equipo.
+    mayorista: 'Corporativo y real: 1 hero limpio de la prenda + tomas en CONTEXTO de empresa (planta ordenada, depósito con racks, recepción, oficina operativa), como fotos de un reporte anual. Transmití equipo, orden y escala, nunca moda individual.',
   };
   const strategy = PILLAR_STRATEGY[pillar] || PILLAR_STRATEGY.producto;
   const system = 'Sos DIRECTOR DE ARTE de una agencia premium de indumentaria de trabajo (BLACKS). Diseñás carruseles de Instagram que se ven como catálogo profesional real (tipo lookbook Nike/Zara), NO como plantilla repetida. Pensás cada toma como un fotógrafo de producto. Respondés SOLO con JSON válido.';
@@ -2622,7 +2658,7 @@ CÓMO DECIDIR (pensalo como un profesional, en este orden):
 2. ¿El ángulo es de uso/contexto (obra, taller, clima)? → "contexto" con la foto más natural.
 3. ¿Es presentación/venta general? → "hero" con la foto que mejor presenta el producto ENTERO (frontal o 3/4, el color con mejor foto). Si es una PRENDA y hay una foto donde se ve PUESTA/con caída real, preferila (queda más editorial y con vida que la prenda colgada plana).
 4. ENCUADRE (regla firme para las tomas 'hero'): entre dos fotos parecidas, elegí SIEMPRE la de encuadre "entero" antes que una marcada [OJO: la persona sale CORTADA]. Una hero con el modelo cortado por el torso se lee como error de recorte y es exactamente el problema que hay que evitar. Sólo usá una foto de encuadre parcial como hero si NINGUNA otra muestra el producto entero, o si el ángulo pide expresamente ese recorte.
-5. "background": "limpio" (estudio) para producto/promo/mayorista; "sutil" para detalle; "contexto" sólo si el ángulo lo pide.
+5. "background": "limpio" (estudio) para producto/promo; "sutil" para detalle; "contexto" si el ángulo lo pide y en mayorista (salvo el hero): ahí el fondo es lo que dice "empresa".
 6. "overlay": QUÉ diría un titular de máx ~5 palabras sobre LO QUE SE VE en esa foto, con datos reales (voseo argentino). Es un respaldo: si no aporta, null.
 7. "badge": "OFERTA" sólo si el ángulo habla de una oferta real; "NUEVO" sólo si habla de lanzamiento; si no, null.
 REGLA DE ORO: el focus tiene que estar RESPALDADO por la ficha real y VISIBLE en la foto elegida. Prohibido inventar materiales o características.
@@ -2765,7 +2801,7 @@ ${scene.describe()}
 ${bgLine}`;
 }
 
-async function generateProductScene({ productImageUrl, productImageUrls = [], productName, theme, brief, occasion, format = 'feed', seed = null, shotSpec = null, artStyle = null } = {}) {
+async function generateProductScene({ productImageUrl, productImageUrls = [], productName, theme, brief, occasion, format = 'feed', seed = null, shotSpec = null, artStyle = null, pillar = null } = {}) {
   if (!config.ai.useAiImages || !hasGemini() || isImageQuotaCoolingDown() || (!productImageUrl && !productImageUrls.length)) return null;
   // Tope diario de gasto: la pieza sale con la foto real del catálogo (gratis).
   // NOTA: el Estudio (generateStudioScene) NO pasa por el tope — es una acción manual
@@ -2804,7 +2840,7 @@ async function generateProductScene({ productImageUrl, productImageUrls = [], pr
     ? 'La escena ocupa TODO el aviso. Respetá las zonas de sujeto y texto indicadas en el brief: la tipografía irá integrada SOBRE el entorno continuo, nunca por fuera en una tarjeta. Producto completo y grande dentro de su zona.'
     : composicionParaFormato(format);
   const brandStyle = await brandStyleForImages();
-  const scene = sceneVariation(seed);
+  const scene = sceneVariation(seed, pillar);
   // Tomas de DETALLE/macro: nada de escenografía (bandera, ambiente, composición de
   // marca) — sólo el detalle sobre estudio liso. Evita que el zoom "sol bordado" salga
   // con una bandera de fondo o el producto entero.

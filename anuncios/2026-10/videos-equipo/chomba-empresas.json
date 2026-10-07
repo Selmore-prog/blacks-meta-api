@@ -1,0 +1,130 @@
+{
+  "_que_es": "Video del equipo 'chomba v2' (7-oct-2026, 720x1280, sin subtítulos ni música) para la campaña mayorista, con el ángulo corporativo que pidió Sebastián: llegan muchas consultas de revendedores (10-20 remeras) y el público es empresas. Afuera: 'si te gustan las chombas como a mí' (gancho de consumidor), '100% algodón' (la micropiqué es microfibra con algodón), 'podés encontrarlas en nuestra web o también' (el botón lleva a WhatsApp) y 'así como él y confío en Blacks'. Factura A, bordado o estampado y muestra digital salen de company_facts.",
+  "clave": "mayorista-chomba-empresas",
+  "cortes": [
+    [
+      1.84,
+      5.22
+    ],
+    [
+      6.3,
+      23.9
+    ],
+    [
+      26.14,
+      28.36
+    ],
+    [
+      31.0,
+      32.9
+    ]
+  ],
+  "titular": "CHOMBAS PARA|TU EMPRESA",
+  "bajada": "Con tu logo bordado o estampado",
+  "chip": "EMITIMOS FACTURA A",
+  "posicion": "arriba",
+  "entra_titular": 0.15,
+  "entra_chip": 1.0,
+  "sale": 7.8,
+  "portada_seg": 2.6,
+  "recorte_45": 0.35,
+  "recorte_11": 0.4,
+  "productos": [],
+  "subtitulos": [
+    {
+      "texto": "Te presento esta chomba",
+      "desde": 0.0,
+      "hasta": 1.0
+    },
+    {
+      "texto": "de la marca Pampero",
+      "desde": 1.0,
+      "hasta": 2.54
+    },
+    {
+      "texto": "Tela micropiqué",
+      "desde": 2.54,
+      "hasta": 3.54
+    },
+    {
+      "texto": "que a diferencia de otras",
+      "desde": 3.54,
+      "hasta": 4.74
+    },
+    {
+      "texto": "son mucho más suaves",
+      "desde": 4.74,
+      "hasta": 6.46
+    },
+    {
+      "texto": "mucho más livianas",
+      "desde": 6.46,
+      "hasta": 7.16
+    },
+    {
+      "texto": "y menos calurosas",
+      "desde": 7.16,
+      "hasta": 8.64
+    },
+    {
+      "texto": "Ideal para el calor",
+      "desde": 8.64,
+      "hasta": 9.46
+    },
+    {
+      "texto": "que se viene",
+      "desde": 9.46,
+      "hasta": 10.46
+    },
+    {
+      "texto": "Estas vienen",
+      "desde": 10.46,
+      "hasta": 10.74
+    },
+    {
+      "texto": "en color negro",
+      "desde": 10.74,
+      "hasta": 11.77
+    },
+    {
+      "texto": "vienen en color",
+      "desde": 12.36,
+      "hasta": 13.04
+    },
+    {
+      "texto": "azul marino",
+      "desde": 13.04,
+      "hasta": 14.11
+    },
+    {
+      "texto": "blanco y también en gris",
+      "desde": 14.9,
+      "hasta": 16.9
+    },
+    {
+      "texto": "Podemos también hacer",
+      "desde": 16.9,
+      "hasta": 18.12
+    },
+    {
+      "texto": "la personalización de tu logo",
+      "desde": 18.12,
+      "hasta": 19.4
+    },
+    {
+      "texto": "a partir de las 10 unidades",
+      "desde": 19.4,
+      "hasta": 21.04
+    },
+    {
+      "texto": "Podés hablarnos al WhatsApp",
+      "desde": 21.04,
+      "hasta": 21.94
+    },
+    {
+      "texto": "y pedir tu cotización",
+      "desde": 21.94,
+      "hasta": 23.19
+    }
+  ]
+}

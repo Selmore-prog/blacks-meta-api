@@ -1,0 +1,22 @@
+{
+  "_que_es": "Reel de IG del 15-sep-2026 (18151754416525932, 720x1280, bajado de media_url: ~/Desktop/piezas-motor/videos/mayorista/90-chombas-bordadas-ig.mp4): un pedido real de 90 chombas para un cliente, con dos logos bordados al frente, dos en las mangas y cinta reflectiva. Es la prueba de trabajo corporativo que buscan las empresas. Trae subtítulos quemados (con el error de las minúsculas acentuadas) y música; Instagram lo marca eligible_to_boost. Muestra logos de clientes reales: Sebastián lo aprobó para pauta el 7-oct. Se corta el final negro (21,1 a 23 s).",
+  "clave": "mayorista-90-chombas",
+  "cortes": [
+    [
+      0.0,
+      21.1
+    ]
+  ],
+  "titular": "UNIFORMES PARA|TU EMPRESA",
+  "bajada": "90 chombas con logos bordados para un cliente",
+  "chip": "EMITIMOS FACTURA A",
+  "posicion": "arriba",
+  "entra_titular": 0.15,
+  "entra_chip": 1.0,
+  "sale": 5.5,
+  "portada_seg": 2.4,
+  "recorte_45": 0.4,
+  "recorte_11": 0.45,
+  "productos": [],
+  "tam_titular": 0.098
+}

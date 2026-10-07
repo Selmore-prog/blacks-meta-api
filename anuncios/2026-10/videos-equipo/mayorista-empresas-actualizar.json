@@ -1,0 +1,30 @@
+{
+  "_que_es": "Anuncios que YA existen en el conjunto mayorista, con creativo nuevo (mismo ID: --actualizar). Público corporativo (pedido de Sebastián, 7-oct-2026): llegaban muchos revendedores pidiendo 10-20 prendas. Los textos hablan de 'tu empresa' y 'tu equipo', nombran la Factura A y la muestra digital (company_facts), no dicen 'mayorista', 'ofertas' ni 'desde 10 unidades', y el saludo de WhatsApp pide el nombre de la empresa y la cantidad de personas: el revendedor se filtra solo y el comercial arranca con la consulta calificada. El precargado no cambia: Kommo lo usa para mandar la charla al embudo mayorista.",
+  "adset": "120250763665960783",
+  "piezas": [
+    {
+      "nombre": "Video · 4 pantalones de trabajo",
+      "tipo": "video",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/videos/para-pauta/mayorista-pantalones-empresas_916.mp4",
+      "portada_vertical": "/Users/sebastianelmore/Desktop/piezas-motor/videos/para-pauta/mayorista-pantalones-empresas_916.jpg",
+      "titulo": "Pantalones de trabajo para tu equipo",
+      "texto_feed": "Ropa de trabajo para el equipo de tu empresa: cuatro pantalones Pampero para distintos usos (cargo ripstop, cargo cazador, clásico de trabajo y cargo fit). Personalizamos con el logo de tu empresa, bordado o estampado, y emitimos Factura A. Escribinos por WhatsApp, contanos cuántas personas son y te cotizamos.",
+      "whatsapp": {
+        "precargado": "Hola! Quiero cotizar ropa de trabajo para mi empresa.",
+        "saludo": "¡Hola! Gracias por escribirnos. Para cotizarte, contanos de qué empresa nos escribís, qué prendas necesitás y para cuántas personas."
+      }
+    },
+    {
+      "nombre": "Video · Depósito · Toda la ropa de trabajo",
+      "tipo": "video",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/videos/para-pauta/mayorista-deposito_916.mp4",
+      "portada_vertical": "/Users/sebastianelmore/Desktop/piezas-motor/videos/para-pauta/mayorista-deposito_916.jpg",
+      "titulo": "Ropa de trabajo para tu empresa",
+      "texto_feed": "En BLACKS tenemos toda la ropa de trabajo para tu empresa: calzado, pantalones, camisas, remeras, buzos y camperas de Pampero, Ombú y Grafa 70. Con el logo de tu empresa bordado o estampado, y con Factura A. Escribinos por WhatsApp y te cotizamos.",
+      "whatsapp": {
+        "precargado": "Hola! Quiero cotizar ropa de trabajo para mi empresa.",
+        "saludo": "¡Hola! Gracias por escribirnos. Para cotizarte, contanos de qué empresa nos escribís, qué prendas necesitás y para cuántas personas."
+      }
+    }
+  ]
+}

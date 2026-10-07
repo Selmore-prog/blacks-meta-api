@@ -1,0 +1,33 @@
+{
+  "_que_es": "Video del equipo 'chombas con logo' (subido el 7-oct-2026 a ~/Desktop/piezas-motor/videos/, 576x1024, 33 s, con subtítulos quemados y música de fondo) recortado para la campaña mayorista. Afuera: 'Si te gustan las chombas como a mí' (el subtítulo decía CHOMPAS), '100% algodón' (la ficha de la tienda dice microfibra y la chomba piqué oficial de Pampero es 80/20: sin verificar no va), 'podés encontrarlas en nuestra web o también' (el botón lleva a WhatsApp) y 'así como él y confío en Blacks'. Gancho mayorista arriba los primeros 6 s porque el video recién habla de logo en el segundo 20. 'Desde 10 unidades' y 'bordado o estampado' salen de company_facts.",
+  "_cortes_del_original": [
+    [
+      1.93,
+      5.1
+    ],
+    [
+      7.8,
+      24.0
+    ],
+    [
+      26.12,
+      28.66
+    ],
+    [
+      30.97,
+      33.0
+    ]
+  ],
+  "clave": "mayorista-chombas-logo",
+  "titular": "CHOMBAS CON|TU LOGO",
+  "bajada": "Bordadas o estampadas, para tu empresa",
+  "chip": "DESDE 10 UNIDADES",
+  "posicion": "arriba",
+  "entra_titular": 0.15,
+  "entra_chip": 1.0,
+  "sale": 6.3,
+  "portada_seg": 2.6,
+  "recorte_45": 0.35,
+  "recorte_11": 0.4,
+  "productos": []
+}

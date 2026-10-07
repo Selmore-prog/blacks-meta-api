@@ -23,7 +23,19 @@ Spec (una pieza, mismos campos que las fotos + tiempos):
     "recorte_45": 0.5,            // qué franja del vertical queda en el 4:5 (0 arriba, 1 abajo)
     "recorte_11": 0.5,            // ídem para el 1:1 (columna derecha, Marketplace, etc.)
     "portada_seg": 3.2,           // de qué segundo sale la miniatura (por defecto, el final)
+    "sale": 6.2,                  // opcional: el texto se va a los 6,2 s (sólo gancho)
+    "cortes": [[1.84, 5.22], [6.30, 23.90]],   // opcional: tramos del original que quedan
+    "subtitulos": [{"texto": "Te presento", "desde": 0.0, "hasta": 0.6}, ...],
+                                  // opcional: tiempos del video YA cortado; sólo en el 9:16
     "productos": [298859922], "descuento": 24 }
+
+Videos del equipo (oct-2026): llegan con frases para sacar (lo que no se puede
+afirmar, "entrá a la web" cuando el botón lleva a WhatsApp). "cortes" deja sólo
+esos tramos, unidos con un fundido de audio de 30-40 ms para que no haga clic,
+y "subtitulos" los escribe con la letra de la marca, en mayúsculas bien
+acentuadas y dentro de la zona segura de Reels. Los que traen subtítulos
+quemados de CapCut no sirven: errores ("CHOMPAS", "MáS") y a la altura que tapa
+Reels. Se le pide al equipo el archivo sin subtítulos ni música.
 
 Salida: <clave>_916.mp4, <clave>_45.mp4, <clave>_11.mp4 y sus portadas .jpg
 (el último cuadro, con todo el texto, para `thumbnail_hash`).
@@ -75,6 +87,44 @@ def capas(pieza, formato, carpeta):
     return ruta_a, ruta_b, techo, piso
 
 
+def cortar(video, cortes, destino):
+    """Deja sólo los tramos de `cortes` (segundos del original) y los une. Se
+    recodifica casi sin pérdida (crf 12): el render final vuelve a comprimir."""
+    partes, entradas = [], ""
+    for i, (a, b) in enumerate(cortes):
+        d = float(b) - float(a)
+        # El último tramo cierra con un fundido más largo: es el final del video.
+        fin = f"afade=t=out:st={d - 0.30:.2f}:d=0.30" if i == len(cortes) - 1 else f"afade=t=out:st={d - 0.04:.2f}:d=0.04"
+        partes.append(f"[0:v]trim=start={a}:end={b},setpts=PTS-STARTPTS[v{i}]")
+        partes.append(f"[0:a]atrim=start={a}:end={b},asetpts=PTS-STARTPTS,afade=t=in:st=0:d=0.03,{fin}[a{i}]")
+        entradas += f"[v{i}][a{i}]"
+    partes.append(f"{entradas}concat=n={len(cortes)}:v=1:a=1[v][a]")
+    subprocess.run([FFMPEG, "-y", "-loglevel", "error", "-i", video, "-filter_complex", ";".join(partes),
+                    "-map", "[v]", "-map", "[a]", "-c:v", "libx264", "-crf", "12", "-preset", "slow", "-r", "30",
+                    "-c:a", "aac", "-b:a", "192k", destino], check=True)
+    return destino
+
+
+def capa_subtitulo(texto, carpeta, n):
+    """Un subtítulo en un PNG transparente de 1080x1920: mayúsculas de la marca,
+    blanco con borde oscuro, centrado a lo ancho y con el renglón de abajo por
+    encima del 64% del alto (debajo, Reels lo tapa con su interfaz)."""
+    ancho, alto = overlay.FORMATOS["916"]
+    img = Image.new("RGBA", (ancho, alto), (0, 0, 0, 0))
+    draw = ImageDraw.Draw(img)
+    fnt = overlay.fuente(overlay.F_TITULAR, int(ancho * 0.07), 8)
+    renglones = overlay.partir(texto.upper(), fnt, draw, int(ancho * 0.80))
+    paso = int(ancho * 0.07 * 1.12)
+    y = int(alto * overlay.PISO_916) - paso * len(renglones)
+    for r in renglones:
+        draw.text((ancho // 2, y), r, font=fnt, fill=(255, 255, 255), anchor="mt",
+                  stroke_width=7, stroke_fill=(15, 15, 15))
+        y += paso
+    ruta = os.path.join(carpeta, f"sub_{n:03d}.png")
+    img.save(ruta)
+    return ruta
+
+
 def duracion(video):
     salida = subprocess.run([FFMPEG, "-hide_banner", "-i", video], capture_output=True, text=True).stderr
     for linea in salida.splitlines():
@@ -90,6 +140,10 @@ def renderizar(video, pieza, formato, destino, carpeta):
     dur = duracion(video)
     t1 = float(pieza.get("entra_titular", 0.3))
     t2 = float(pieza.get("entra_chip", 2.8))
+    # "sale": el texto se va a esa altura del video. Sirve cuando el texto es
+    # sólo el gancho y después el video habla por sí mismo: en los videos del
+    # equipo vienen primeros planos de la prenda que el texto taparía.
+    sale = f",fade=t=out:st={float(pieza['sale'])}:d=0.35:alpha=1" if pieza.get("sale") is not None else ""
 
     # Siempre se lleva a 1080x1920 primero (cubrir y recortar al centro) y el
     # 4:5 sale de una franja de ese vertical: así los dos formatos son el
@@ -100,13 +154,23 @@ def renderizar(video, pieza, formato, destino, carpeta):
         base += f",crop=1080:{alto}:0:{y}"
     filtro = (
         f"[0:v]{base}[v];"
-        f"[1:v]format=rgba,fade=t=in:st={t1}:d=0.35:alpha=1[a];"
-        f"[2:v]format=rgba,fade=t=in:st={t2}:d=0.35:alpha=1[b];"
-        f"[v][a]overlay=0:0:shortest=1[va];[va][b]overlay=0:0:shortest=1,format=yuv420p[out]"
+        f"[1:v]format=rgba,fade=t=in:st={t1}:d=0.35:alpha=1{sale}[a];"
+        f"[2:v]format=rgba,fade=t=in:st={t2}:d=0.35:alpha=1{sale}[b];"
+        f"[v][a]overlay=0:0:shortest=1[va];[va][b]overlay=0:0:shortest=1[vb]"
     )
+    # Subtítulos: sólo en el 9:16, que es el que va a Reels e Historias (y el
+    # único que usa el anuncio a WhatsApp). Cada uno es un PNG que se muestra
+    # entre su "desde" y su "hasta".
+    subs = (pieza.get("subtitulos") or []) if formato == "916" else []
+    extra, previo = [], "vb"
+    for i, s in enumerate(subs):
+        extra += ["-loop", "1", "-t", f"{dur:.2f}", "-i", capa_subtitulo(s["texto"], carpeta, i)]
+        filtro += f";[{previo}][{3 + i}:v]overlay=0:0:enable='between(t,{float(s['desde']):.2f},{float(s['hasta']):.2f})'[s{i}]"
+        previo = f"s{i}"
+    filtro += f";[{previo}]format=yuv420p[out]"
     cmd = [FFMPEG, "-y", "-loglevel", "error", "-i", video,
            "-loop", "1", "-t", f"{dur:.2f}", "-i", ruta_a,
-           "-loop", "1", "-t", f"{dur:.2f}", "-i", ruta_b,
+           "-loop", "1", "-t", f"{dur:.2f}", "-i", ruta_b, *extra,
            "-filter_complex", filtro, "-map", "[out]", "-map", "0:a?",
            "-c:v", "libx264", "-preset", "slow", "-crf", "18", "-profile:v", "high",
            "-c:a", "aac", "-b:a", "128k", "-movflags", "+faststart", destino]
@@ -130,6 +194,9 @@ def main():
     pieza = json.load(open(spec_path))
     os.makedirs(out, exist_ok=True)
     with tempfile.TemporaryDirectory() as tmp:
+        if pieza.get("cortes"):
+            video = cortar(video, pieza["cortes"], os.path.join(tmp, "cortado.mp4"))
+            print(f"  · cortado: {len(pieza['cortes'])} tramos, {duracion(video):.1f}s")
         for formato in ("916", "45", "11"):
             destino = os.path.join(out, f"{pieza['clave']}_{formato}.mp4")
             renderizar(video, overlay.para_formato(pieza, formato), formato, destino, tmp)

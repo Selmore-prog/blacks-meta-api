@@ -99,7 +99,7 @@ function arrowSvg(color = '#fff', size = 22) {
  *  - minimal   : estudio claro, producto flotando, titular oscuro. Feed evergreen/marca.
  *  - promo     : oscura y agresiva, % OFF gigante. Ofertas y fechas comerciales.
  *  - educativo : tipográfica clara, titular primero, foto de apoyo. Tips/carruseles.
- *  - mayorista : corporativa oscura, badge MAYORISTA + CTA presupuesto. B2B.
+ *  - mayorista : corporativa, badge EMPRESAS + CTA presupuesto. B2B (oct-2026: el público son empresas, no revendedores).
  * Todas comparten dims, zonas seguras de IG y footer con dominio.
  * ========================================================================= */
 
@@ -1425,7 +1425,7 @@ function buildMayoristaHtml(opts) {
   const chrome = `
       <div style="position:absolute; top:0; left:0; right:0; height:12px; background:#E85D1B; z-index:4;"></div>
       ${cornerBrand(opts.logos, { showBrand: opts.showBrand, dark: true, heightPx: logoHeightPx(g.isStory), top: g.wmTop, left: g.padX })}
-      <div style="position:absolute; top:${g.wmTop}px; right:${g.padX}px; color:${accent}; font-weight:800; font-size:18px; text-transform:uppercase; letter-spacing:3px; z-index:4;">MAYORISTA</div>`;
+      <div style="position:absolute; top:${g.wmTop}px; right:${g.padX}px; color:${accent}; font-weight:800; font-size:18px; text-transform:uppercase; letter-spacing:3px; z-index:4;">EMPRESAS</div>`;
   const ctaBtn = `<div style="display:inline-flex; align-items:center; gap:14px; background:#E85D1B; color:#fff; font-weight:800; font-size:${g.isStory ? 32 : 28}px; letter-spacing:2px; padding:18px 38px; border-radius:8px; text-transform:uppercase;">PEDÍ TU PRESUPUESTO <span style="font-size:26px;">→</span></div>`;
 
   // SIN FOTO (pieza institucional): nada de hueco en el medio — el título va arriba y
@@ -1939,6 +1939,7 @@ async function renderPostBuffer(options) {
       brief: lightBrief ? [options.bgBrief, lightBrief].filter(Boolean).join('\n') : options.bgBrief, occasion: options.bgOccasion, format,
       seed: options.layoutSeed, // variedad de escenario/luz/cámara por pieza
       shotSpec: options.shotSpec || null, // director de arte: tipo de toma, foco, fondo
+      pillar: options.pillar || null, // mayorista → escenas corporativas (ai.js CORPORATE_SCENE_POOL)
       artStyle: lightBrief ? 'light_campaign' : options.artStyle || null, // 'poster' = arte de afiche con zona libre para el texto
     });
     if (scene) {
@@ -1965,6 +1966,7 @@ async function renderPostBuffer(options) {
       brief: campaign.isCampaign(options.template) ? [options.bgBrief, campaign.sceneDirection(options)].filter(Boolean).join('\n') : options.bgBrief, occasion: options.bgOccasion, format,
       seed: options.layoutSeed,
       artStyle: campaign.isCampaign(options.template) ? 'light_campaign' : options.artStyle || null,
+      pillar: options.pillar || null,
     });
     if (bg) {
       bgImageUrl = `data:${bg.mimeType};base64,${bg.buffer.toString('base64')}`;

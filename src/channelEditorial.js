@@ -1,7 +1,7 @@
 const WEATHER_HOOK = /\b(lluvia|lluvioso|lluviosa|llueve|mojad[oa]s?|clima inestable|cualquier clima|d[ií]as? grises?)\b/i;
 const WEATHER_PRODUCT = /impermeable|repelente al agua|resistente al agua|piloto|paraguas|bota(?:s)? de lluvia|rompeviento/i;
 const GENERIC_COPY = /\b(?:sin[oó]nimo de|d[ií]a a d[ií]a|uso diario|excelente opci[oó]n|ideal(?:es)? para (?:el d[ií]a a d[ií]a|cualquier)|comodidad y estilo|resistencia y comodidad|acompa[ñn]arte|te acompa[ñn]a|siempre suma|(?:es )?tu aliad[oa]|aliad[oa] para tu d[ií]a a d[ií]a|compa[ñn]er[oa] perfect[oa]|tradici[oó]n con calidad|se adapta al ritmo|vers[aá]til es clave|no (?:puede|pueden) faltar|para cualquier (?:momento|actividad|ocasi[oó]n|jornada)|durabilidad excepcional|una opci[oó]n vers[aá]til|prenda infaltable|cualquier outfit|confort es prioridad)\b/i;
-const COMMERCE_LINE = /^(?:💰|💳|🚚|🛒|🔗|🏢|Precio:|Comprá acá:|Ver producto:|Consultas mayoristas:)/iu;
+const COMMERCE_LINE = /^(?:💰|💳|🚚|🛒|🔗|🏢|Precio:|Comprá acá:|Ver producto:|Consultas mayoristas:|Cotizaciones para empresas:)/iu;
 
 function dateKey(value) {
   return String(value instanceof Date ? value.toISOString() : value || '').slice(0, 10);
