@@ -123,6 +123,38 @@ async function gaql(query) {
   return rows;
 }
 
+/**
+ * Escribe en la cuenta (GoogleAdsService.Mutate). `operations` = mutateOperations de la
+ * API, con nombres temporales negativos para lo que se crea en el mismo pedido. Todo o
+ * nada: si una operación falla, no se aplica ninguna. Con validateOnly Google revisa el
+ * pedido completo (políticas incluidas) sin crear nada: se prueba así antes de aplicar.
+ */
+async function mutate(operations, { validateOnly = false } = {}) {
+  const g = config.googleAds;
+  const headers = {
+    Authorization: `Bearer ${await accessToken()}`,
+    'developer-token': g.developerToken,
+    'Content-Type': 'application/json',
+  };
+  if (g.loginCustomerId) headers['login-customer-id'] = g.loginCustomerId;
+  const res = await fetch(`https://googleads.googleapis.com/${API_VERSION}/customers/${g.customerId}/googleAds:mutate`, {
+    method: 'POST', headers, body: JSON.stringify({ mutateOperations: operations, validateOnly }),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    const errores = ((data.error && data.error.details) || [])
+      .flatMap((d) => d.errors || [])
+      .map((e) => {
+        // Rechazo por política: el mensaje no dice cuál, el detalle sí (ej. "CAPITALIZATION").
+        const politicas = ((((e.details || {}).policyFindingDetails || {}).policyTopicEntries) || [])
+          .map((p) => `${p.topic}${(p.evidences || []).length ? ` → ${JSON.stringify(p.evidences).slice(0, 160)}` : ''}`);
+        return `${e.message}${politicas.length ? ` [${politicas.join('; ')}]` : ''}${e.location ? ` (${JSON.stringify(e.location.fieldPathElements || [])})` : ''}`;
+      });
+    throw new Error(`Google Ads no aplicó el cambio: ${errores.join(' · ') || (data.error && data.error.message) || res.status}`);
+  }
+  return data.mutateOperationResponses || [];
+}
+
 // Los importes vienen en "micros": 1.000.000 de micros = 1 peso.
 const money = (micros) => Math.round((Number(micros || 0) / 1e6) * 100) / 100;
 const pct = (v) => Math.round((Number(v || 0) * 100) * 10) / 10;
@@ -271,6 +303,6 @@ async function adsReport({ current, previous } = {}) {
 }
 
 module.exports = {
-  isEnabled, missingConfig, adsReport, campaignSpend, searchTerms, productSpend, gaql,
+  isEnabled, missingConfig, adsReport, campaignSpend, searchTerms, productSpend, gaql, mutate,
   API_VERSION,
 };
