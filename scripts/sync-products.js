@@ -12,6 +12,20 @@ async function syncProducts() {
   const products = await fetchAllProducts();
   console.log(`[sync] ${products.length} productos encontrados. Guardando...`);
 
+  // KITS: si esta vez no se pudo leer el descuento de la página del kit (ver
+  // withKitPrice en src/tiendanube.js), se conserva el precio final que quedó
+  // de la corrida anterior. Sin esto, un timeout de la tienda devolvía el kit
+  // a su precio de lista sin descuento hasta el sync siguiente.
+  const kitsSinDato = products.filter((p) => p.raw && p.raw.is_kit === true && p.kit_discount_pct === null);
+  if (kitsSinDato.length) {
+    const { rows } = await pool.query('SELECT id, promo_price FROM products_cache WHERE id = ANY($1::bigint[])', [kitsSinDato.map((p) => p.id)]);
+    const anterior = new Map(rows.map((r) => [Number(r.id), r.promo_price]));
+    for (const p of kitsSinDato) {
+      if (anterior.get(Number(p.id)) != null) p.promo_price = Number(anterior.get(Number(p.id)));
+    }
+    console.warn(`[sync] ${kitsSinDato.length} kit(s) sin descuento legible: se mantiene el precio anterior.`);
+  }
+
   for (const p of products) {
     await pool.query(
       `INSERT INTO products_cache (id, name, brand, category, price, promo_price, stock, sizes_total, sizes_in_stock, size_coverage, image_url, images, description, permalink, raw, synced_at)

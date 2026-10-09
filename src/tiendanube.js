@@ -89,6 +89,75 @@ function normalizeProduct(product) {
   };
 }
 
+/* =========================================================================
+ * KITS DE TIENDANUBE (oct-2026)
+ *
+ * Un kit ("Kit X3 Remeras Pampero") llega de la API con el precio de lista
+ * —la suma de sus componentes, $59.997— y SIN precio promocional. Pero la
+ * tienda lo vende con un descuento propio del kit (5% hoy) que la API de
+ * productos no devuelve: Tiendanube lo aplica al dibujar la página y sólo lo
+ * deja escrito ahí, como `LS.kit_discount_percent = 5;`. Resultado medido: el
+ * bloque "Tendencias" y los rieles mostraban $59.997 sin tachado mientras la
+ * ficha decía $59.997 tachado, $56.997,15 y "5% OFF".
+ *
+ * Por eso, sólo para los productos con `is_kit`, se lee ese porcentaje de la
+ * página pública y se guarda el precio final como `promo_price`: así todo lo
+ * que ya sabe mostrar una oferta (rieles, bloques, buscador, piezas) muestra
+ * el kit igual que la tienda, sin tocar a ninguno de ellos.
+ *
+ * Son dos o tres páginas por sync y se cortan apenas aparece el dato (está en
+ * los primeros ~110 KB de una página de 3,8 MB).
+ * ========================================================================= */
+
+const KIT_PAGE_MAX_BYTES = 600 * 1024;
+
+/**
+ * Porcentaje de descuento del kit, leído de su página pública.
+ * Devuelve el número (0 si el kit no tiene descuento) o null si no se pudo
+ * leer — null NO es "sin descuento": quien llama decide qué hacer con la duda.
+ */
+async function fetchKitDiscountPct(url) {
+  if (!url) return null;
+  try {
+    const res = await fetch(url, { signal: AbortSignal.timeout(15_000) });
+    if (!res.ok || !res.body) return null;
+    const decoder = new TextDecoder();
+    let html = '';
+    for await (const chunk of res.body) {
+      html += decoder.decode(chunk, { stream: true });
+      const m = html.match(/LS\.kit_discount_percent\s*=\s*([\d.]+)\s*;/);
+      if (m) {
+        res.body.cancel().catch(() => {});
+        return Number(m[1]);
+      }
+      if (html.length > KIT_PAGE_MAX_BYTES) break;
+    }
+    res.body.cancel().catch(() => {});
+    // La página es de un kit pero no declara porcentaje: no tiene descuento.
+    return /LS\.kit_id\s*=/.test(html) ? 0 : null;
+  } catch (err) {
+    console.warn(`[tiendanube] No pude leer el descuento del kit ${url}: ${err.message}`);
+    return null;
+  }
+}
+
+/**
+ * Producto normalizado → mismo producto con el precio final del kit en
+ * `promo_price` y el porcentaje en `kit_discount_pct` (null = no se pudo leer).
+ * Los productos que no son kit pasan sin cambios y sin pedir nada.
+ */
+async function withKitPrice(p) {
+  if (!p || !p.raw || p.raw.is_kit !== true) return p;
+  const pct = await fetchKitDiscountPct(p.raw.canonical_url);
+  p.kit_discount_pct = pct;
+  if (!(pct > 0) || !p.price) return p;
+  // Mismo cálculo que la tienda: 59997 × 0,95 = 56997,15, con centavos.
+  const base = p.promo_price || p.price;
+  const final = Math.round(base * (1 - pct / 100) * 100) / 100;
+  if (final > 0 && final < p.price) p.promo_price = final;
+  return p;
+}
+
 /**
  * COLORES REALES del producto, leídos de las variantes de Tiendanube.
  *
@@ -175,7 +244,7 @@ async function fetchProduct(id) {
       headers: { ...buildAuthHeader(), 'User-Agent': config.tiendanube.userAgent, 'Content-Type': 'application/json' },
     });
     if (!res.ok) return null;
-    return normalizeProduct(await res.json());
+    return withKitPrice(normalizeProduct(await res.json()));
   } catch (err) {
     console.warn(`[tiendanube] No pude refrescar el producto ${id}: ${err.message}`);
     return null;
@@ -219,6 +288,9 @@ async function fetchAllProducts() {
     if (batch.length < 200) break; // ultima pagina
     page += 1;
   }
+
+  // De a uno: son pocos kits y no hace falta golpear la tienda en paralelo.
+  for (const p of all) await withKitPrice(p);
 
   return all;
 }
