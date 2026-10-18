@@ -166,8 +166,10 @@ function iaKpis(s) {
       'Charlas en las que el asistente armó el carrito con stock real. "Tocaron Agregar" = la persona tocó el botón que suma los productos a su carrito (el monto es el de esos carritos; la compra se ve en Tiendanube).'),
     iaKpi('Al WhatsApp mayorista', iaNum(s.mayorista), s.clic_mayorista ? `${iaNum(s.clic_mayorista)} lo tocaron` : 'nadie lo tocó todavía',
       'Charlas en las que pidió el mínimo mayorista o más, logo o reventa, y el asistente le pasó el botón del WhatsApp mayorista con su pedido escrito.'),
+    iaKpi('Consultas de pedidos', iaNum(s.pedidos), 'con número de pedido y mail',
+      'Preguntaron por una compra (estado, envío, seguimiento). El asistente sólo muestra el pedido si coinciden el número y el mail con el que se hizo.'),
     iaKpi('Cambios', iaNum(s.cambios), 'plataforma + WhatsApp minorista',
-      'Quisieron cambiar o devolver una compra: se les pasó la plataforma de cambios y el WhatsApp minorista.'),
+      'Quisieron cambiar o devolver una compra: con el número de pedido y el mail verificados, se les pasó la plataforma de cambios y el WhatsApp minorista.'),
     iaKpi('Pidieron una persona', iaNum(s.persona), 'incluye reclamos',
       'Pidieron hablar con alguien, hicieron un reclamo o insultaron: se les pasó el WhatsApp.'),
     iaKpi('No supo', iaNum(s.no_supo), s.no_supo ? 'enseñale la respuesta en el bot' : '&nbsp;',
@@ -187,6 +189,7 @@ const IA_FILTROS = {
   carrito: 'Le armó el carrito',
   clic_carrito: 'Tocó "Agregar al carrito"',
   mayorista: 'WhatsApp mayorista',
+  pedido: 'Consultas de pedidos',
   cambios: 'Cambios',
   persona: 'Pidió una persona',
   reclamo: 'Reclamos',
@@ -200,6 +203,7 @@ const IA_FILTROS = {
 const IA_ETIQUETAS = {
   carrito: ['Carrito', 'ok'], clic_carrito: ['Tocó Agregar', 'ok'],
   mayorista: ['Mayorista', 'naranja'], clic_mayorista: ['Fue al WhatsApp', 'naranja'],
+  pedido: ['Pedido', ''], clic_seguimiento: ['Siguió el envío', 'ok'],
   cambios: ['Cambios', ''], persona: ['Pidió persona', ''], clic_minorista: ['WhatsApp minorista', ''],
   reclamo: ['Reclamo', 'rojo'], insulto: ['Insultos', 'rojo'], fuera_de_tema: ['Fuera de tema', ''],
   no_supo: ['No supo', 'rojo'], tope: ['Tope', 'rojo'], error: ['Error', 'rojo'],
@@ -242,6 +246,10 @@ function iaBloques(b) {
       ? `${l.cantidad} × ${esc(l.nombre)} (${esc(l.opciones)}) · ${iaPlata(l.precio * l.cantidad)}`
       : `${esc(l.nombre)}: ${l.problema === 'mayorista' ? 'por cantidad, mayorista' : l.problema === 'sin stock' ? 'sin stock' : 'faltó elegir'}${l.hay && l.hay.length ? ` (hay ${esc(l.hay.join(', '))})` : ''}`)).join('<br>');
     partes.push(`<div class="ia-bloque"><span>Carrito${b.carrito.total ? ` · ${iaPlata(b.carrito.total)}` : ''}</span>${lineas}${b.carrito.link ? `<br><a href="${esc(iaUrl(b.carrito.link))}" target="_blank" rel="noopener">Link del carrito ↗</a>` : ''}</div>`);
+  }
+  if (b.pedido) {
+    const p = b.pedido;
+    partes.push(`<div class="ia-bloque"><span>Pedido #${esc(p.numero)} (verificado)</span>${esc(p.estado)}${p.pago ? ` · ${esc(p.pago)}` : ''}${p.metodo ? `<br><small>${esc(p.metodo)}${p.seguimiento ? ` · seguimiento ${esc(p.seguimiento)}` : ''}</small>` : ''}${p.productos && p.productos.length ? `<br><small>${p.productos.map((x) => `${x.cantidad} × ${esc(x.nombre)}`).join(' · ')}</small>` : ''}</div>`);
   }
   if (b.botones && b.botones.length) {
     partes.push(`<div class="ia-bloque"><span>Botones</span>${b.botones.map((x) => `<a href="${esc(iaUrl(x.url))}" target="_blank" rel="noopener">${esc(x.texto)} ↗</a>`).join('<br>')}</div>`);
