@@ -146,6 +146,7 @@ async function saveAjustes(cambios = {}) {
 // Lo que guarda el cotizador en `resultado`, con el nombre que ve el dueño.
 const RESULTADOS = {
   carrito: 'Le armó el carrito',
+  talle: 'Le recomendó un talle',
   clic_carrito: 'Tocó "Agregar al carrito"',
   mayorista: 'Lo pasó al WhatsApp mayorista',
   clic_mayorista: 'Tocó el WhatsApp mayorista',

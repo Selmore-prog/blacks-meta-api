@@ -188,6 +188,7 @@ const IA_FILTROS = {
   sin_revisar: 'Sin revisar',
   carrito: 'Le armó el carrito',
   clic_carrito: 'Tocó "Agregar al carrito"',
+  talle: 'Le recomendó un talle',
   mayorista: 'WhatsApp mayorista',
   pedido: 'Consultas de pedidos',
   cambios: 'Cambios',
@@ -201,7 +202,7 @@ const IA_FILTROS = {
 
 // Las etiquetas que importan para auditar, con color.
 const IA_ETIQUETAS = {
-  carrito: ['Carrito', 'ok'], clic_carrito: ['Tocó Agregar', 'ok'],
+  carrito: ['Carrito', 'ok'], clic_carrito: ['Tocó Agregar', 'ok'], talle: ['Talle', ''],
   mayorista: ['Mayorista', 'naranja'], clic_mayorista: ['Fue al WhatsApp', 'naranja'],
   pedido: ['Pedido', ''], clic_seguimiento: ['Siguió el envío', 'ok'],
   cambios: ['Cambios', ''], persona: ['Pidió persona', ''], clic_minorista: ['WhatsApp minorista', ''],
