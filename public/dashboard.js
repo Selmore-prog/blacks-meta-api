@@ -161,6 +161,7 @@ function switchTab(view) {
   if (view === 'stats' && !statsData) loadStoreStats();
   // Se carga la primera vez que se entra; después, con el selector o el botón.
   if (view === 'carritos' && window.carritosCargar && !window.crCargado) window.carritosCargar();
+  if (view === 'asistente' && window.asistenteCargar && !window.iaCargado) window.asistenteCargar();
   if (view === 'products') switchProductsPane(productsPaneGuardado());
   if (view === 'home') switchHomePane(homePaneGuardado());
 

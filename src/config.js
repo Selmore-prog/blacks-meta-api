@@ -12,6 +12,9 @@ function bool(name, fallback = false) {
 }
 
 const geminiKey = required('GEMINI_API_KEY', process.env.GOOGLE_API_KEY);
+// Clave aparte para TEXTO y VISIÓN (gratis en Google AI Studio). Las imágenes
+// y el video (pagos) siguen con GEMINI_API_KEY. Sin ella, todo usa GEMINI_API_KEY.
+const geminiTextKey = required('GEMINI_TEXT_API_KEY', geminiKey);
 
 module.exports = {
   port: process.env.PORT || 8080,
@@ -50,17 +53,19 @@ module.exports = {
 
   gemini: {
     apiKey: geminiKey,
-    // gemini-2.5-flash: texto/visión GRATIS en el tier de Google AI Studio.
-    textModel: required('GEMINI_TEXT_MODEL', 'gemini-2.5-flash'),
+    textApiKey: geminiTextKey,
+    // gemini-3.5-flash: texto/visión GRATIS en el tier de Google AI Studio.
+    // (gemini-2.5-flash ya no está disponible para claves nuevas: da 404, oct-2026.)
+    textModel: required('GEMINI_TEXT_MODEL', 'gemini-3.5-flash'),
     // gemini-2.5-flash-image (Nano Banana): generación de imágenes. OJO: NO es gratis
     // (da 429 en el tier gratuito). Sólo se usa si AI_IMAGES=true y activaste facturación.
     imageModel: required('GEMINI_IMAGE_MODEL', 'gemini-2.5-flash-image'),
-    visionModel: required('GEMINI_VISION_MODEL', 'gemini-2.5-flash'),
+    visionModel: required('GEMINI_VISION_MODEL', 'gemini-3.5-flash'),
   },
 
   ai: {
     // 'gemini' usa Gemini si hay key y cae a Groq si falla; 'groq' fuerza Groq.
-    provider: required('AI_PROVIDER', geminiKey ? 'gemini' : 'groq'),
+    provider: required('AI_PROVIDER', geminiKey || geminiTextKey ? 'gemini' : 'groq'),
     // Generar imágenes con IA (paga en Gemini). Por defecto APAGADO para no incurrir en costo:
     // las piezas se arman con la plantilla profesional (gratis). Activá AI_IMAGES=true sólo
     // si habilitaste facturación en Google y querés escenas generadas con IA.

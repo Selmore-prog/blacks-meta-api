@@ -33,6 +33,7 @@ const { getRails, getRailsConfig, saveRailsConfig, validateConfig, buildPayload,
 const flashSale = require('./flashSale');
 const comboDiscount = require('./comboDiscount');
 const cartRecovery = require('./cartRecovery');
+const asistenteWeb = require('./asistenteWeb');
 const homeBlocks = require('./homeBlocks');
 const navMenu = require('./navMenu');
 const navAssets = require('./navAssets');
@@ -1661,6 +1662,30 @@ app.get('/api/carritos/stats', wrap(async (req, res) => {
 
 app.post('/api/carritos/modo', wrap(async (req, res) => {
   res.json(await cartRecovery.setModo((req.body || {}).modo));
+}));
+
+// ---- ASISTENTE IA DE LA TIENDA (el globito ✦) -----------------------------
+// Las charlas las guarda el cotizador (cotizador-blacks, /api/ia-web) en
+// Supabase; acá se leen y se cambian los ajustes. Ver src/asistenteWeb.js. Sin
+// sección en el portal del equipo: las charlas pueden traer datos de clientes.
+app.get('/api/asistente/charlas', wrap(async (req, res) => {
+  res.json(await asistenteWeb.listar({ desde: req.query.desde, hasta: req.query.hasta, filtro: req.query.filtro, q: req.query.q }));
+}));
+
+app.get('/api/asistente/charla/:id', wrap(async (req, res) => {
+  res.json(await asistenteWeb.detalle(req.params.id));
+}));
+
+app.post('/api/asistente/charla/:id/revisada', wrap(async (req, res) => {
+  res.json(await asistenteWeb.marcarRevisada(req.params.id, (req.body || {}).revisada !== false));
+}));
+
+app.get('/api/asistente/ajustes', wrap(async (req, res) => {
+  res.json(await asistenteWeb.getAjustes());
+}));
+
+app.post('/api/asistente/ajustes', wrap(async (req, res) => {
+  res.json(await asistenteWeb.saveAjustes(req.body || {}));
 }));
 
 /* ======================= TRABAJOS REALIZADOS (bordados) ===================

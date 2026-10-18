@@ -507,6 +507,12 @@ function parseCopyJson(text) {
 
 // Las keys nuevas (AQ.) y las viejas (AIza) funcionan igual con este header en el
 // endpoint nativo. Usamos x-goog-api-key (recomendado) en vez de ?key=.
+// Dos claves: las imágenes (Imagen, *-image) van con GEMINI_API_KEY (paga) y el
+// texto y la visión con GEMINI_TEXT_API_KEY (gratis), si está cargada.
+const esModeloDeImagen = (m) => /^imagen-|image/i.test(String(m || ''));
+const claveGemini = (m) => (esModeloDeImagen(m) ? config.gemini.apiKey : config.gemini.textApiKey || config.gemini.apiKey);
+// Si el modelo de texto pedido ya no existe para la clave (404), se reintenta con éste.
+const TEXTO_RESPALDO = 'gemini-3.5-flash';
 async function geminiGenerateContent(model, body) {
   let targetModel = model || 'gemini-2.5-flash-image';
   const hasInlineData = body?.contents?.some(c => c?.parts?.some(p => p.inlineData));
@@ -527,7 +533,7 @@ async function geminiGenerateContent(model, body) {
       const negativePrompt = 'text, letters, words, numbers, typography, title, banner, sign, coupon code, price tag, watermark, logo, wordmark, emblem, badge, invented brand mark';
       const predictRes = await fetch(`${GEMINI_BASE}/models/${targetModel}:predict`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.gemini.apiKey },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': claveGemini(targetModel) },
         body: JSON.stringify({
           instances: [{ prompt: promptText }],
           parameters: { sampleCount: 1, aspectRatio, negativePrompt },
@@ -569,7 +575,7 @@ async function geminiGenerateContent(model, body) {
 
   let res = await fetch(`${GEMINI_BASE}/models/${targetModel}:generateContent`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.gemini.apiKey },
+    headers: { 'Content-Type': 'application/json', 'x-goog-api-key': claveGemini(targetModel) },
     body: JSON.stringify(sendBody),
   });
   // Si la versión de la API no acepta imageConfig, se reintenta sin él (mejor una
@@ -581,17 +587,27 @@ async function geminiGenerateContent(model, body) {
       const { imageConfig, ...restCfg } = sendBody.generationConfig;
       res = await fetch(`${GEMINI_BASE}/models/${targetModel}:generateContent`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.gemini.apiKey },
+        headers: { 'Content-Type': 'application/json', 'x-goog-api-key': claveGemini(targetModel) },
         body: JSON.stringify({ ...sendBody, generationConfig: restCfg }),
       });
     }
   }
-  if (res.status === 404 && targetModel !== 'gemini-2.5-flash-image') {
+  if (res.status === 404 && !esModeloDeImagen(targetModel) && targetModel !== TEXTO_RESPALDO) {
+    // Un modelo de texto que ya no está disponible para la clave ("no longer
+    // available to new users"): mismo pedido con el de respaldo.
+    console.warn(`[ai] Modelo ${targetModel} dio 404, reintentando con ${TEXTO_RESPALDO}...`);
+    targetModel = TEXTO_RESPALDO;
+    res = await fetch(`${GEMINI_BASE}/models/${targetModel}:generateContent`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': claveGemini(targetModel) },
+      body: JSON.stringify(sendBody),
+    });
+  } else if (res.status === 404 && targetModel !== 'gemini-2.5-flash-image') {
     console.warn(`[ai] Modelo ${targetModel} dio 404 en v1beta generateContent, reintentando con gemini-2.5-flash-image...`);
     targetModel = 'gemini-2.5-flash-image';
     res = await fetch(`${GEMINI_BASE}/models/${targetModel}:generateContent`, {
       method: 'POST',
-      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': config.gemini.apiKey },
+      headers: { 'Content-Type': 'application/json', 'x-goog-api-key': claveGemini(targetModel) },
       body: JSON.stringify(sendBody),
     });
   }
