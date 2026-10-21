@@ -27,6 +27,7 @@ const pool = require('./db');
 const { getSetting, setSetting } = require('./settings');
 const { renderBlock } = require('./homeBlocksRender');
 const { productPath } = require('./homeRails');
+const storeMedia = require('./storeMedia');
 
 /* Los huecos NO son libres: el theme declara exactamente seis posiciones
    (block_1..block_6 en el orden de la página de inicio). Un bloque con otro
@@ -1039,7 +1040,11 @@ function resumenTexto(html, largo) {
  *   borrador que no se ve no se puede terminar de escribir. La tienda no.
  */
 async function buildPayload(cfg, { incluirApagados = false } = {}) {
-  const activos = cfg.blocks.filter((b) => incluirApagados || b.enabled);
+  // Las fotos y videos que estaban en Supabase salen del Worker de Cloudflare
+  // (ver src/storeMedia.js). Con Supabase cortado, lo que no se mudó llega vacío.
+  const { bloques: activos, sinMedia } = await storeMedia.aplicarMudanza(
+    cfg.blocks.filter((b) => incluirApagados || b.enabled)
+  );
 
   // Un solo viaje a la base para todos los productos de todos los bloques.
   const idsNecesarios = [...new Set(activos.flatMap(idsDeProductos))];
@@ -1050,6 +1055,13 @@ async function buildPayload(cfg, { incluirApagados = false } = {}) {
   const avisos = [];
 
   activos.forEach((b) => {
+    /* Supabase cortó los archivos (cuota de tráfico) y esta foto o este video
+       todavía no se mudó: un cuadro roto en la tienda es peor que no mostrar el
+       bloque. La vidriera sí sale: sin su foto usa la de catálogo. */
+    if (sinMedia.has(b.slot) && b.type !== 'vidriera') {
+      avisos.push(`El bloque "${BLOCK_TYPES[b.type].label}" (${b.slot}) no se muestra: su foto o su video está en Supabase, que está cortado, y todavía no se mudó a Cloudflare.`);
+      return;
+    }
     const ctx = { products: (b.data.product_ids || []).map((id) => porId.get(Number(id))).filter(Boolean) };
     if (b.type === 'productos') {
       if (b.data.hide_out_of_stock) ctx.products = ctx.products.filter((p) => p.stock == null || p.stock > 0);
@@ -1091,6 +1103,11 @@ async function buildPayload(cfg, { incluirApagados = false } = {}) {
   return { blocks, avisos, productos: fichas, generado: new Date().toISOString() };
 }
 
+/** Que la próxima visita rearme los bloques (p. ej. después de mudar fotos). */
+function invalidate() {
+  cache = { at: 0, payload: null };
+}
+
 /** Lo que consume la tienda. Cacheado en memoria: el home lo pide en cada visita. */
 async function getBlocks({ force = false } = {}) {
   if (!force && cache.payload && Date.now() - cache.at < CACHE_TTL_MS) return cache.payload;
@@ -1130,6 +1147,7 @@ module.exports = {
   DEVICES,
   getBlocksConfig,
   saveBlocksConfig,
+  invalidate,
   tiposSinEstiloEnLaTienda,
   validateConfig,
   buildPayload,

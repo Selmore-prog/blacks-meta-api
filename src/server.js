@@ -35,6 +35,7 @@ const comboDiscount = require('./comboDiscount');
 const cartRecovery = require('./cartRecovery');
 const asistenteWeb = require('./asistenteWeb');
 const homeBlocks = require('./homeBlocks');
+const storeMedia = require('./storeMedia');
 const navMenu = require('./navMenu');
 const navAssets = require('./navAssets');
 const benefits = require('./benefits');
@@ -1493,9 +1494,10 @@ app.get('/api/home/blocks/search', wrap(async (req, res) => {
   res.json(await homeBlocks.searchProducts(req.query.q));
 }));
 
-/* Subida de la foto o el video de un bloque. Va a Supabase Storage, igual que
-   las piezas generadas. El límite grande (uploadVideo) es para los MP4: una
-   foto de 10 MB ya es enorme, pero un video de 20 s pesa 15-40 MB. */
+/* Subida de la foto o el video de un bloque. Desde el 21-oct-2026 va achicada
+   al Worker de Cloudflare y no a Supabase, cuyo plan gratis corta todo al pasar
+   los 5 GB de tráfico del mes (ver src/storeMedia.js). El límite grande
+   (uploadVideo) es para los MP4; al Worker entran hasta 24 MB. */
 app.post('/api/home/blocks/upload', uploadVideo.single('file'), wrap(async (req, res) => {
   if (!req.file) return res.status(400).json({ error: 'No llegó ningún archivo.' });
   const tipo = String(req.file.mimetype || '');
@@ -1507,13 +1509,24 @@ app.post('/api/home/blocks/upload', uploadVideo.single('file'), wrap(async (req,
   if (esImagen && req.file.size > 10 * 1024 * 1024) {
     return res.status(400).json({ error: 'La imagen pesa más de 10 MB. Achicala antes de subirla.' });
   }
-  const ext = (req.file.originalname.split('.').pop() || (esVideo ? 'mp4' : 'jpg')).toLowerCase().replace(/[^a-z0-9]/g, '');
-  const url = await uploadAsset({
+  const { url, bytes } = await storeMedia.subirParaLaTienda({
     buffer: req.file.buffer,
-    filename: `home-blocks/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`,
     contentType: req.file.mimetype,
+    nombre: `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
   });
-  res.json({ url, kind: esVideo ? 'video' : 'imagen', size: req.file.size });
+  res.json({ url, kind: esVideo ? 'video' : 'imagen', size: bytes });
+}));
+
+/* Muda a Cloudflare las fotos de los bloques que siguen en Supabase. Sin
+   archivo: las baja de Supabase (si contesta). Con `file` + `original`: usa ese
+   archivo para reemplazar esa dirección (sirve con Supabase cortado, si se
+   tiene el original a mano). La mudanza también corre sola al armar el home. */
+app.post('/api/home/media/mudar', uploadVideo.single('file'), wrap(async (req, res) => {
+  const r = req.file
+    ? { hechas: [await storeMedia.mudarArchivo({ original: req.body.original, buffer: req.file.buffer, contentType: req.file.mimetype })], fallidas: [] }
+    : await storeMedia.mudarPendientes();
+  homeBlocks.invalidate();
+  res.json(r);
 }));
 
 /* -------------------- PLAN DEL HOME (esquema ideal) -------------------- *
@@ -1586,11 +1599,10 @@ app.post('/api/home/blocks/generate', wrap(async (req, res) => {
     aspectRatio,
     purpose: 'vidriera del home',
   });
-  const ext = (img.mimeType || 'image/jpeg').split('/')[1] || 'jpg';
-  const url = await uploadAsset({
+  const { url } = await storeMedia.subirParaLaTienda({
     buffer: img.buffer,
-    filename: `home-blocks/ia-${Date.now()}-${Math.random().toString(36).slice(2, 7)}.${ext}`,
     contentType: img.mimeType || 'image/jpeg',
+    nombre: `ia-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
   });
   res.json({ url, costUsd: img.costUsd || 0, referencias: img.referencias || 0 });
 }));
