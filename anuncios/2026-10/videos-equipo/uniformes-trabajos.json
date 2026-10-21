@@ -1,0 +1,107 @@
+{
+  "_que_es": "Video del equipo 'uniformes para tu empresa' (reel IG 18344565694283678, 20-oct-2026, 720x1280) para la campaña mayorista: arranca con 'Si estás buscando hacer los uniformes para tu empresa' y muestra trabajos reales con logos de clientes (chomba de algodón bordada, micropiqué bordada y con DTF, polar bordada, trucker con réflex y bordado). El reel trae la canción 'Golden Era' (coincidencia de derechos de SADAIC en Argentina en los 46 s) y subtítulos quemados a la altura que tapa Reels. La base que entra acá ya viene limpia: voz separada de la música (demucs), sin música en el muestrario, recortada al 70% de arriba para sacar los textos quemados, muestrario de 26 a 15 s (sin el cargo con réflex, que no muestra logo). Los tiempos son los del video ya armado.",
+  "clave": "mayorista-uniformes-trabajos",
+  "titular": "UNIFORMES|CON TU LOGO",
+  "bajada": "Bordados o estampados, con muestra digital",
+  "chip": "EMITIMOS FACTURA A",
+  "posicion": "arriba",
+  "entra_titular": 0.15,
+  "entra_chip": 1.0,
+  "sale": 7.2,
+  "portada_seg": 3.0,
+  "recorte_45": 0.5,
+  "recorte_11": 0.4,
+  "productos": [],
+  "subtitulos": [
+    {
+      "texto": "Si estás buscando hacer",
+      "desde": 0.15,
+      "hasta": 1.13
+    },
+    {
+      "texto": "los uniformes para tu empresa",
+      "desde": 1.13,
+      "hasta": 2.59
+    },
+    {
+      "texto": "quedate, que te voy a mostrar",
+      "desde": 2.59,
+      "hasta": 3.35
+    },
+    {
+      "texto": "algunos trabajos que hicimos",
+      "desde": 3.35,
+      "hasta": 4.33
+    },
+    {
+      "texto": "en distintas prendas",
+      "desde": 4.33,
+      "hasta": 5.35
+    },
+    {
+      "texto": "con distintas técnicas de impresión",
+      "desde": 5.35,
+      "hasta": 7.23
+    },
+    {
+      "texto": "Chomba de algodón · Bordado",
+      "desde": 7.23,
+      "hasta": 10.63,
+      "arriba": true
+    },
+    {
+      "texto": "Chomba micropiqué · Bordado",
+      "desde": 10.63,
+      "hasta": 13.33,
+      "arriba": true
+    },
+    {
+      "texto": "Chomba micropiqué · Estampado DTF",
+      "desde": 13.33,
+      "hasta": 16.23,
+      "arriba": true
+    },
+    {
+      "texto": "Campera polar · Bordado",
+      "desde": 16.23,
+      "hasta": 18.93,
+      "arriba": true
+    },
+    {
+      "texto": "Campera trucker · Réflex + bordado",
+      "desde": 18.93,
+      "hasta": 23.33,
+      "arriba": true
+    },
+    {
+      "texto": "Después de lo que viste",
+      "desde": 23.43,
+      "hasta": 24.73
+    },
+    {
+      "texto": "no pierdas más el tiempo",
+      "desde": 24.73,
+      "hasta": 25.87
+    },
+    {
+      "texto": "Hablanos al WhatsApp",
+      "desde": 25.87,
+      "hasta": 26.81
+    },
+    {
+      "texto": "pedinos tu cotización",
+      "desde": 26.81,
+      "hasta": 27.47
+    },
+    {
+      "texto": "a partir de las 10 unidades",
+      "desde": 27.47,
+      "hasta": 28.87
+    },
+    {
+      "texto": "y hacé tu pedido en Blacks",
+      "desde": 28.87,
+      "hasta": 30.9
+    }
+  ]
+}

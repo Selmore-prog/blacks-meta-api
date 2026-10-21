@@ -1,0 +1,18 @@
+{
+  "_que_es": "Video 'Uniformes con tu logo' (reel IG del 20-oct-2026, limpio de música y textos quemados: ver uniformes-trabajos.json) para el conjunto mayorista de WhatsApp. Mismo criterio de textos que mayorista-empresas-nuevos.json: tu empresa / tu equipo, Factura A y muestra digital (company_facts), sin 'mayorista' ni 'ofertas'. El precargado no cambia: Kommo lo usa para mandar la charla al embudo mayorista. Se crea EN PAUSA hasta que Sebastián confirme que puede mostrar los logos de sus clientes en pauta.",
+  "adset": "120250763665960783",
+  "piezas": [
+    {
+      "nombre": "Video · Uniformes con tu logo · Trabajos",
+      "tipo": "video",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/videos/para-pauta/mayorista-uniformes-trabajos_916.mp4",
+      "portada_vertical": "/Users/sebastianelmore/Desktop/piezas-motor/videos/para-pauta/mayorista-uniformes-trabajos_916.jpg",
+      "titulo": "Uniformes con el logo de tu empresa",
+      "texto_feed": "Algunos trabajos que hicimos para empresas: chombas y camperas con el logo de cada una, bordado o estampado, y cinta reflectiva donde hace falta. Hacemos los uniformes de tu equipo con tu logo, con una muestra digital para aprobar antes de producir. Emitimos Factura A. Escribinos por WhatsApp, contanos para cuántas personas son y te cotizamos.",
+      "whatsapp": {
+        "precargado": "Hola! Quiero cotizar ropa de trabajo para mi empresa.",
+        "saludo": "¡Hola! Gracias por escribirnos. Para cotizarte, contanos de qué empresa nos escribís, qué prendas necesitás y para cuántas personas."
+      }
+    }
+  ]
+}

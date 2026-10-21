@@ -27,6 +27,7 @@ Spec (una pieza, mismos campos que las fotos + tiempos):
     "cortes": [[1.84, 5.22], [6.30, 23.90]],   // opcional: tramos del original que quedan
     "subtitulos": [{"texto": "Te presento", "desde": 0.0, "hasta": 0.6}, ...],
                                   // opcional: tiempos del video YA cortado; sólo en el 9:16
+                                  // ("arriba": true lo pone arriba, para no tapar un logo)
     "productos": [298859922], "descuento": 24 }
 
 Videos del equipo (oct-2026): llegan con frases para sacar (lo que no se puede
@@ -105,17 +106,19 @@ def cortar(video, cortes, destino):
     return destino
 
 
-def capa_subtitulo(texto, carpeta, n):
+def capa_subtitulo(texto, carpeta, n, arriba=False):
     """Un subtítulo en un PNG transparente de 1080x1920: mayúsculas de la marca,
     blanco con borde oscuro, centrado a lo ancho y con el renglón de abajo por
-    encima del 64% del alto (debajo, Reels lo tapa con su interfaz)."""
+    encima del 64% del alto (debajo, Reels lo tapa con su interfaz). Con
+    `arriba` va debajo de la franja que tapa Reels arriba: para rotular una
+    toma de producto sin pisar el logo, que suele estar en el medio."""
     ancho, alto = overlay.FORMATOS["916"]
     img = Image.new("RGBA", (ancho, alto), (0, 0, 0, 0))
     draw = ImageDraw.Draw(img)
     fnt = overlay.fuente(overlay.F_TITULAR, int(ancho * 0.07), 8)
     renglones = overlay.partir(texto.upper(), fnt, draw, int(ancho * 0.80))
     paso = int(ancho * 0.07 * 1.12)
-    y = int(alto * overlay.PISO_916) - paso * len(renglones)
+    y = int(alto * (overlay.REELS_TOP + 0.02)) if arriba else int(alto * overlay.PISO_916) - paso * len(renglones)
     for r in renglones:
         draw.text((ancho // 2, y), r, font=fnt, fill=(255, 255, 255), anchor="mt",
                   stroke_width=7, stroke_fill=(15, 15, 15))
@@ -164,7 +167,7 @@ def renderizar(video, pieza, formato, destino, carpeta):
     subs = (pieza.get("subtitulos") or []) if formato == "916" else []
     extra, previo = [], "vb"
     for i, s in enumerate(subs):
-        extra += ["-loop", "1", "-t", f"{dur:.2f}", "-i", capa_subtitulo(s["texto"], carpeta, i)]
+        extra += ["-loop", "1", "-t", f"{dur:.2f}", "-i", capa_subtitulo(s["texto"], carpeta, i, s.get("arriba", False))]
         filtro += f";[{previo}][{3 + i}:v]overlay=0:0:enable='between(t,{float(s['desde']):.2f},{float(s['hasta']):.2f})'[s{i}]"
         previo = f"s{i}"
     filtro += f";[{previo}]format=yuv420p[out]"
