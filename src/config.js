@@ -11,6 +11,17 @@ function bool(name, fallback = false) {
   return ['1', 'true', 'yes', 'si', 'sí', 'on'].includes(String(v).toLowerCase());
 }
 
+// Claves pegadas desde un panel web: suelen venir con un espacio o un salto de línea.
+function trimmed(name) {
+  return String(process.env[name] ?? '').trim();
+}
+
+// "pub-xxxx.r2.dev" sin https:// también vale; sin barra al final.
+function httpsUrl(value) {
+  if (!value) return '';
+  return (/^https?:\/\//i.test(value) ? value : `https://${value}`).replace(/\/+$/, '');
+}
+
 const geminiKey = required('GEMINI_API_KEY', process.env.GOOGLE_API_KEY);
 // Clave aparte para TEXTO y VISIÓN (gratis en Google AI Studio). Las imágenes
 // y el video (pagos) siguen con GEMINI_API_KEY. Sin ella, todo usa GEMINI_API_KEY.
@@ -85,6 +96,24 @@ module.exports = {
     url: required('SUPABASE_URL'),
     key: required('SUPABASE_SERVICE_ROLE_KEY', process.env.SUPABASE_ANON_KEY),
     bucket: required('SUPABASE_STORAGE_BUCKET', 'blacks-assets'),
+  },
+
+  // Cloudflare R2: donde se guardan las piezas, los reels, las referencias, los
+  // logos y los trabajos (ver src/storage.js). Reemplaza a Supabase Storage, cuyo
+  // plan gratis corta TODO al pasar 5 GB de tráfico en el mes (jul-2026 y
+  // 20-oct-2026). Con las cinco variables, lo nuevo va a R2 y se lee directo de
+  // la dirección pública del bucket (no pasa por el Worker). Sin ellas, Supabase.
+  r2: {
+    accountId: trimmed('R2_ACCOUNT_ID'),
+    accessKeyId: trimmed('R2_ACCESS_KEY_ID'),
+    secretAccessKey: trimmed('R2_SECRET_ACCESS_KEY'),
+    bucket: trimmed('R2_BUCKET'),
+    // "Public R2.dev Bucket URL" del bucket (https://pub-xxxx.r2.dev) o un dominio
+    // propio conectado al bucket. Es la que se guarda en la base y la que baja Meta.
+    publicUrl: httpsUrl(trimmed('R2_PUBLIC_URL')),
+    // Opcional: sólo para un bucket en la jurisdicción europea o para pruebas.
+    // Por defecto https://<R2_ACCOUNT_ID>.r2.cloudflarestorage.com
+    endpoint: trimmed('R2_ENDPOINT').replace(/\/+$/, ''),
   },
 
   cronSecret: required('CRON_SECRET', 'secret-dev'),
