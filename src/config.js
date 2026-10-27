@@ -204,7 +204,9 @@ module.exports = {
     // Slide de CIERRE (CTA) de los carruseles de feed: en vez de precio (que envejece)
     // va un llamado a la acción con los beneficios. Editables por variable de entorno.
     ctaHeadline: required('BRAND_CTA_HEADLINE', 'Conseguilas en la web'),
-    ctaBenefits: required('BRAND_CTA_BENEFITS', '6 cuotas sin interés · Envío gratis a todo el país')
+    // "Hasta": desde el 27-oct-2026 Pago Nube da 6 cuotas sólo en compras desde $65.000,
+    // y el envío es gratis desde $45.000 (no en cualquier compra).
+    ctaBenefits: required('BRAND_CTA_BENEFITS', 'Hasta 6 cuotas sin interés · Envío gratis desde $45.000')
       .split(/·|\|/).map((s) => s.trim()).filter(Boolean),
     colors: {
       black: '#0A0A0A',
