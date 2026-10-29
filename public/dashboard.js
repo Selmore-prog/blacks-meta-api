@@ -6098,6 +6098,7 @@ let homeState = {
   rules: [], slots: [], layouts: [], config: null, preview: null,
   ocultos: null,  // fichas de los productos ocultos/bloqueados (para poder devolverlos)
   menu: null,     // { rail, id } del menú de miniatura abierto
+  fichas: {},     // id → { name, image, stock } de los "Elegidos a mano" (pastillas)
   dirty: false,   // hay cambios que la tienda todavía no vio
 };
 
@@ -6109,7 +6110,7 @@ async function loadHomeRails() {
     homeState = {
       rules: d.rules || [], slots: d.slots || [], layouts: d.layouts || [],
       config: d.config, preview: null, catalogo: d.catalogo || {},
-      ocultos: null, menu: null, dirty: false,
+      ocultos: null, menu: null, dirty: false, fichas: homeState.fichas || {},
     };
     renderHomeRails();
     previewHomeRails({ silent: true });
@@ -6135,9 +6136,11 @@ function renderHomeRails() {
     const layouts = homeState.layouts
       .map((l) => `<option value="${l}" ${l === r.layout ? 'selected' : ''}>${l === 'grid' ? 'Grilla' : 'Carrusel'}</option>`).join('');
     const fijos = r.rule === 'fijos'
-      ? `<div class="field"><label>Productos elegidos (ids separados por coma)</label>
-           <input class="input" data-hr="product_ids" data-i="${i}" value="${esc((r.product_ids || []).join(', '))}"
-                  placeholder="ej: 12345, 67890" /></div>` : '';
+      ? `<div class="field"><label>Productos elegidos</label>
+           <div class="hb-prods-elegidos" id="hr-fijos-${i}">${hrChipsFijos(r, i)}</div>
+           <input type="search" class="input hr-buscar" data-i="${i}" placeholder="Buscar en el catálogo por nombre…"
+                  autocomplete="off" oninput="hrBuscarFijos(${i}, this.value)" />
+           <div id="hr-fijos-res-${i}"></div></div>` : '';
 
     return `<div class="hr-card" draggable="true" data-i="${i}">
       <div class="hr-head">
@@ -6214,6 +6217,7 @@ function renderHomeRails() {
   hydrateIcons(body);
   bindHomeRailInputs();
   bindHomeRailDrag();
+  hrCargarFichasFijos();
 }
 
 /** Lee los inputs y actualiza homeState.config sin re-renderizar (no perder foco). */
@@ -6225,9 +6229,7 @@ function bindHomeRailInputs() {
       const campo = el.dataset.hr;
       const rail = homeState.config.rails[i];
       if (campo === 'limit') rail.limit = Number(el.value) || 12;
-      else if (campo === 'product_ids') {
-        rail.product_ids = el.value.split(',').map((s) => Number(s.trim())).filter(Number.isFinite);
-      } else rail[campo] = el.value;
+      else rail[campo] = el.value;
       // Cambiar la regla cambia la ayuda y puede sumar el campo de productos fijos.
       // El orden a mano se descarta: apuntaba a los productos de la regla anterior.
       // Los ocultos se conservan: "no quiero ver esto acá" sigue valiendo.
@@ -6266,6 +6268,106 @@ function bindHomeRailDrag() {
       previewHomeRails({ silent: true });
     });
   });
+}
+
+/* ---- Carruseles "Elegidos a mano": buscador en vez de ids separados por coma.
+   Mismo buscador y mismas pastillas que los bloques de contenido
+   (/api/home/blocks/search). Se redibujan sólo las pastillas y la lista de
+   resultados, nunca el input: así no se pierde el foco mientras se tipea. */
+
+function hrChipsFijos(rail, i) {
+  const ids = rail.product_ids || [];
+  if (!ids.length) return '<span class="hint">Todavía no elegiste ninguno: buscalos abajo.</span>';
+  const fichas = homeState.fichas || {};
+  return ids.map((id, k) => {
+    const p = fichas[id];
+    return `<span class="hb-prod-chip">
+      ${p && p.image ? `<img src="${esc(p.image)}" alt="">` : ''}
+      <span>${k + 1}. ${esc(p ? p.name : `Producto #${id}`)}</span>
+      ${p && p.stock === 0 ? '<b class="hb-sin">sin stock</b>' : ''}
+      ${k > 0 ? `<button onclick="hrMoverFijo(${i}, ${k}, -1)" title="Mover antes">‹</button>` : ''}
+      <button onclick="hrQuitarFijo(${i}, ${k})" title="Sacar">✕</button>
+    </span>`;
+  }).join('');
+}
+
+function hrPintarFijos(i) {
+  const cont = document.getElementById(`hr-fijos-${i}`);
+  if (cont) cont.innerHTML = hrChipsFijos(homeState.config.rails[i], i);
+}
+
+// Nombre y foto de los ya elegidos (al abrir una config guardada sólo hay ids).
+async function hrCargarFichasFijos() {
+  const faltan = [...new Set(homeState.config.rails
+    .filter((r) => r.rule === 'fijos').flatMap((r) => r.product_ids || []))]
+    .filter((id) => !(homeState.fichas || {})[id]);
+  if (!faltan.length) return;
+  try {
+    const lista = await api(`/api/home/blocks/search?ids=${faltan.join(',')}`);
+    lista.forEach((p) => { homeState.fichas[p.id] = p; });
+    homeState.config.rails.forEach((r, i) => { if (r.rule === 'fijos') hrPintarFijos(i); });
+  } catch (_) { /* quedan como "Producto #id": se pueden sacar y volver a elegir igual */ }
+}
+
+let hrBuscarTimer = null;
+function hrBuscarFijos(i, q) {
+  clearTimeout(hrBuscarTimer);
+  const res = document.getElementById(`hr-fijos-res-${i}`);
+  if (!q.trim()) { if (res) res.innerHTML = ''; return; }
+  hrBuscarTimer = setTimeout(async () => {
+    try {
+      const lista = await api(`/api/home/blocks/search?q=${encodeURIComponent(q.trim())}`);
+      const elegidos = homeState.config.rails[i].product_ids || [];
+      lista.forEach((p) => { homeState.fichas[p.id] = p; });
+      const caja = document.getElementById(`hr-fijos-res-${i}`);
+      if (!caja) return;
+      caja.innerHTML = lista.length
+        ? `<div class="hb-result">${lista.map((p) => {
+          const ya = elegidos.includes(p.id);
+          return `<button class="hb-result-item" ${ya ? 'disabled' : ''} onclick="hrAgregarFijo(${i}, ${p.id})">
+            ${p.image ? `<img src="${esc(p.image)}" alt="">` : '<span class="hb-result-nofoto"></span>'}
+            <span class="hb-result-txt"><b>${esc(p.name)}</b><small>${ya ? 'ya está en este carrusel'
+              : p.stock === null ? 'sin dato de stock' : p.stock === 0 ? 'sin stock: no se va a ver' : `${p.stock} en stock`}</small></span>
+          </button>`;
+        }).join('')}</div>`
+        : '<p class="hint" style="margin:6px 0 0;">Ningún producto con ese nombre.</p>';
+    } catch (err) { toast(err.message, 'error'); }
+  }, 250);
+}
+
+function hrAgregarFijo(i, id) {
+  const rail = homeState.config.rails[i];
+  rail.product_ids = [...new Set([...(rail.product_ids || []), Number(id)])];
+  // Elegir uno más de los que entran no sirve: el riel mostraría sólo los primeros.
+  if (rail.product_ids.length > (rail.limit || 0) && rail.product_ids.length <= 24) {
+    rail.limit = rail.product_ids.length;
+    const lim = document.querySelector(`[data-hr="limit"][data-i="${i}"]`);
+    if (lim) lim.value = rail.limit;
+  }
+  hrPintarFijos(i);
+  marcarCambioHome();
+  const inp = document.querySelector(`.hr-buscar[data-i="${i}"]`);
+  if (inp) { inp.value = ''; inp.focus(); }
+  const res = document.getElementById(`hr-fijos-res-${i}`);
+  if (res) res.innerHTML = '';
+  previewHomeRails({ silent: true });
+}
+
+function hrQuitarFijo(i, k) {
+  homeState.config.rails[i].product_ids.splice(k, 1);
+  hrPintarFijos(i);
+  marcarCambioHome();
+  previewHomeRails({ silent: true });
+}
+
+function hrMoverFijo(i, k, paso) {
+  const ids = homeState.config.rails[i].product_ids;
+  const j = k + paso;
+  if (j < 0 || j >= ids.length) return;
+  [ids[k], ids[j]] = [ids[j], ids[k]];
+  hrPintarFijos(i);
+  marcarCambioHome();
+  previewHomeRails({ silent: true });
 }
 
 function addHomeRail() {

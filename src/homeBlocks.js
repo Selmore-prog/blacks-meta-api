@@ -957,6 +957,17 @@ async function searchProducts(q) {
   }));
 }
 
+/**
+ * Nombre, foto y stock de productos ya elegidos (por id, en ese orden), para
+ * las pastillas del panel al abrir una config guardada. Los que ya no están en
+ * el catálogo no vuelven: el panel los muestra como "Producto #id".
+ */
+async function productCards(ids) {
+  const limpios = [...new Set((ids || []).map(Number).filter((n) => Number.isInteger(n) && n > 0))].slice(0, 60);
+  const fichas = await fetchProducts(limpios);
+  return fichas.map((p) => ({ id: p.id, name: p.name, price: p.price, stock: p.stock, image: p.image || null }));
+}
+
 /* -------------------------------------------------------------------------
  * PRODUCTOS POR HANDLE (para los layouts viejos del theme)
  *
@@ -1155,5 +1166,6 @@ module.exports = {
   getCatalog,
   fetchProducts,
   searchProducts,
+  productCards,
   productsByHandle,
 };

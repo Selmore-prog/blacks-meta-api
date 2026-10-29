@@ -24,7 +24,7 @@ function errorCon(status, mensaje) {
   return err;
 }
 
-async function llamarWorker(ruta) {
+async function llamarWorker(ruta, { method = 'GET', body } = {}) {
   const { url, adminKey } = config.discountsWorker;
   if (!adminKey) {
     throw errorCon(503, 'Falta DISCOUNTS_WORKER_KEY en las variables del motor (Render y .env). '
@@ -34,7 +34,9 @@ async function llamarWorker(ruta) {
   let res;
   try {
     res = await fetch(`${url.replace(/\/+$/, '')}${ruta}`, {
-      headers: { 'X-Admin-Key': adminKey },
+      method,
+      headers: { 'X-Admin-Key': adminKey, ...(body ? { 'Content-Type': 'application/json' } : {}) },
+      body: body ? JSON.stringify(body) : undefined,
       signal: AbortSignal.timeout(TIMEOUT_MS),
     });
   } catch (e) {
@@ -47,7 +49,7 @@ async function llamarWorker(ruta) {
   if (res.status === 401) {
     throw errorCon(502, 'El Worker rechazó la clave: DISCOUNTS_WORKER_KEY no coincide con la ADMIN_KEY de Cloudflare.');
   }
-  if (!res.ok) throw errorCon(502, (data && data.error) || `El Worker respondió ${res.status}.`);
+  if (!res.ok) throw errorCon(res.status === 400 ? 400 : 502, (data && data.error) || `El Worker respondió ${res.status}.`);
   return data;
 }
 
@@ -79,4 +81,38 @@ async function setModo(modo) {
   return data;
 }
 
-module.exports = { getStats, setModo };
+/* Un Worker anterior a estas rutas responde {ok, service} a todo: se nota
+   porque no trae lo que se pidió. */
+const SIN_WORKER_NUEVO = 'El Worker de Cloudflare todavía no tiene esta función: hay que pegar el worker.js '
+  + 'actualizado (repo del theme, backend/lookbook-discounts) y desplegarlo.';
+
+// Horario de envío, 2º aviso y aviso de pago rechazado. El Worker valida y
+// devuelve la config completa.
+async function setConfig(cambios) {
+  const body = {};
+  if (cambios && cambios.horario) body.horario = cambios.horario;
+  if (cambios && cambios.segundo) body.segundo = cambios.segundo;
+  if (cambios && cambios.pago) body.pago = cambios.pago;
+  if (!Object.keys(body).length) throw errorCon(400, 'No llegó ningún ajuste para guardar.');
+  const data = await llamarWorker('/carritos-config', { method: 'POST', body });
+  if (!data || !data.config) throw errorCon(502, SIN_WORKER_NUEVO);
+  return data;
+}
+
+// Manda a revisión de Meta la plantilla del 2º aviso o la de pago rechazado.
+async function crearPlantilla(cual) {
+  if (cual !== 'segundo' && cual !== 'pago') throw errorCon(400, 'La plantilla tiene que ser "segundo" o "pago".');
+  const data = await llamarWorker('/carritos-plantillas', { method: 'POST', body: { cual } });
+  if (!data || !data.estado) throw errorCon(502, SIN_WORKER_NUEVO);
+  return data;
+}
+
+// Suscribe la app de WhatsApp del Worker a la cuenta para recibir el
+// entregado/leído de cada aviso. No toca la suscripción de Kommo.
+async function conectarLecturas() {
+  const data = await llamarWorker('/wa-webhook-setup', { method: 'POST', body: {} });
+  if (!data || !data.apps) throw errorCon(502, SIN_WORKER_NUEVO);
+  return data;
+}
+
+module.exports = { getStats, setModo, setConfig, crearPlantilla, conectarLecturas };

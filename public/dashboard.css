@@ -2245,6 +2245,11 @@ button .cost-tag { margin-left: 8px; }
 
 /* productos elegidos a mano */
 .hb-prods-elegidos { display: flex; flex-wrap: wrap; gap: 6px; }
+/* Carruseles "Elegidos a mano" (Home → Carruseles automáticos): mismas pastillas. */
+.hr-buscar { margin-top: 8px; }
+.hr-buscar + div .hb-result { margin-top: 6px; }
+.hr-card .hb-result-item { justify-content: flex-start; } /* los botones del riel vienen centrados */
+.hb-result-item:disabled { opacity: .55; cursor: default; }
 .hb-prod-chip { display: inline-flex; align-items: center; gap: 7px; background: var(--panel-2);
   border: 1px solid var(--line); border-radius: 999px; padding: 4px 9px 4px 4px; font-size: 12px; max-width: 100%; }
 .hb-prod-chip img { width: 24px; height: 24px; border-radius: 50%; object-fit: cover; }
@@ -3076,7 +3081,7 @@ button .cost-tag { margin-left: 8px; }
 .cr-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); flex: none; margin-top: 5px; }
 .cr-dot.on { background: var(--green); box-shadow: 0 0 0 4px rgba(34, 197, 94, .18); }
 .cr-h { font-size: 12px; text-transform: uppercase; letter-spacing: .05em; color: var(--muted); margin: 0 0 8px; }
-.cr-table { min-width: 760px; }
+.cr-table { min-width: 880px; }
 .cr-table td { vertical-align: top; }
 .cr-table a, .cr-nowrap { white-space: nowrap; }
 .cr-sub { display: block; margin-top: 2px; }
@@ -3085,6 +3090,37 @@ button .cost-tag { margin-left: 8px; }
 .badge.cr-pend { background: var(--orange-dim); color: var(--orange); }
 .badge.cr-err { background: rgba(239, 68, 68, .14); color: #ef4444; cursor: help; }
 .cr-err-txt { color: #ef4444; max-width: 260px; white-space: normal; }
+.badge.cr-pago { background: rgba(239, 68, 68, .1); color: #dc2626; font-size: 10.5px; margin-left: 4px; white-space: nowrap; }
+.cr-tick { font-size: 11.5px; color: var(--muted); white-space: nowrap; }
+.cr-tick.leido { color: #2563eb; }
+.cr-tick.err { color: #ef4444; white-space: normal; }
+
+/* Ajustes de envío (horario, 2º aviso, pago rechazado, lectura por mensaje).
+   Reusa el <details> plegable de los ajustes del asistente (.ia-ajustes). */
+.cr-ajustes { margin-bottom: 18px; }
+.cr-ajustes .cr-resumen { margin: 4px 0 0; }
+.cr-ajustes[open] .cr-resumen { display: none; }
+.cr-aj-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 14px; }
+.cr-aj { border: 1px solid var(--line); border-radius: 12px; padding: 13px 14px; display: flex; flex-direction: column; gap: 9px; min-width: 0; }
+.cr-aj h4 { margin: 0; font-size: 13.5px; display: flex; align-items: center; gap: 6px; }
+.cr-aj .hint { margin: 0; }
+.cr-horas { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; font-size: 13.5px; }
+.cr-horas .input { width: auto; padding-top: 6px; padding-bottom: 6px; }
+.cr-dias { display: flex; gap: 5px; flex-wrap: wrap; }
+.cr-dia { border: 1px solid var(--line); background: var(--panel); color: var(--muted); border-radius: 999px;
+  padding: 5px 11px; font: inherit; font-size: 12.5px; cursor: pointer; min-height: 32px; }
+.cr-dia.on { background: var(--orange-dim); border-color: var(--orange); color: var(--orange); font-weight: 600; }
+.cr-plantilla { display: flex; flex-direction: column; gap: 7px; }
+.cr-plantilla-top { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.cr-plantilla-top code, .cr-cat { font-size: 11.5px; color: var(--muted); }
+.cr-burbuja { background: #e7f6dd; color: #1b1b1f; border-radius: 4px 12px 12px 12px; padding: 9px 11px 0; font-size: 12.5px;
+  line-height: 1.45; white-space: pre-line; max-width: 420px; overflow: hidden; }
+.cr-burbuja-btn { display: flex; align-items: center; justify-content: center; gap: 6px; margin: 9px -11px 0;
+  padding: 8px; border-top: 1px solid rgba(0, 0, 0, .08); color: #027eb5; font-weight: 600; white-space: normal; }
+.cr-burbuja-btn .ic { width: 14px; height: 14px; }
+.cr-manual > summary { cursor: pointer; font-size: 12.5px; color: var(--muted); }
+.cr-manual code { word-break: break-all; }
+.cr-aj-pie { display: flex; justify-content: flex-end; margin-top: 14px; }
 /* 9 tarjetas: en el celular van de a dos (las de Estadísticas, de a una, acá
    obligaban a scrollear 9 pantallas antes de llegar a la tabla). */
 #view-carritos .st-kpis { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }

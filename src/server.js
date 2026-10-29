@@ -1489,8 +1489,11 @@ app.post('/api/nav/menu/preview', wrap(async (req, res) => {
   res.json({ style: navMenu.buildPayload(cfg), faltantes: cfg.faltantes });
 }));
 
-// Buscador de productos para el bloque "Productos elegidos".
+// Buscador de productos para el bloque "Productos elegidos" y los carruseles
+// "Elegidos a mano". Con ?ids=1,2,3 devuelve esas fichas (nombre y foto de las
+// pastillas al abrir una config ya guardada) en vez de buscar.
 app.get('/api/home/blocks/search', wrap(async (req, res) => {
+  if (req.query.ids) return res.json(await homeBlocks.productCards(String(req.query.ids).split(',')));
   res.json(await homeBlocks.searchProducts(req.query.q));
 }));
 
@@ -1674,6 +1677,18 @@ app.get('/api/carritos/stats', wrap(async (req, res) => {
 
 app.post('/api/carritos/modo', wrap(async (req, res) => {
   res.json(await cartRecovery.setModo((req.body || {}).modo));
+}));
+
+app.post('/api/carritos/config', wrap(async (req, res) => {
+  res.json(await cartRecovery.setConfig(req.body || {}));
+}));
+
+app.post('/api/carritos/plantillas', wrap(async (req, res) => {
+  res.json(await cartRecovery.crearPlantilla((req.body || {}).cual));
+}));
+
+app.post('/api/carritos/lecturas', wrap(async (req, res) => {
+  res.json(await cartRecovery.conectarLecturas());
 }));
 
 // ---- ASISTENTE IA DE LA TIENDA (el globito ✦) -----------------------------
