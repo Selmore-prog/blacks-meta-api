@@ -7888,6 +7888,7 @@ function stBars(filas, { vacio = 'Sin datos en este período.' } = {}) {
       <div class="lead-bar-top"><span>${esc(f.nombre)}</span><b>${stNum(f.total)}<i>${stPct(f.pct)}</i></b></div>
       <div class="lead-bar-track"><i style="width:${Math.max(1.5, (f.total / max) * 100)}%"></i></div>
       ${f.campanas && f.campanas.length ? `<span class="lead-bar-sub">campañas: ${f.campanas.map(esc).join(' · ')}</span>` : ''}
+      ${f.detalle ? `<span class="lead-bar-sub">${esc(f.detalle)}</span>` : ''}
     </div>`).join('')}</div>`;
 }
 
@@ -7911,6 +7912,8 @@ async function abrirDetalleConsultas(tipo) {
     ? `el período anterior no se puede comparar: el sitio empezó a registrar las consultas el ${esc(d.midiendoDesde)}`
     : `antes ${stNum(d.previo)} ${stDelta(d.delta)}`}</div>`}
       </div>
+      ${d.fueraDelSitio && d.fueraDelSitio.total ? `<p class="hint" style="margin:-4px 0 14px;">${icon('info')} Además, <b>${stNum(d.fueraDelSitio.total)}</b> que Meta mandó directo a WhatsApp o a su formulario sin pasar por la web (${stNum(d.fueraDelSitio.conversaciones)} conversaciones · ${stNum(d.fueraDelSitio.formularios)} formularios). Con eso son <b>${stNum(d.totalConTodo)}</b>. Lo de abajo (botón, página, producto, hora) es sólo lo que pasó por la web.</p>` : ''}
+      ${d.fueraDelSitio && d.fueraDelSitio.error ? `<p class="hint" style="margin:-4px 0 14px;">${icon('alert')} No pude leer las consultas que Meta manda directo a WhatsApp: ${esc(d.fueraDelSitio.error)}</p>` : ''}
 
       <h4 class="lead-h">${icon('route')} De qué botón salió</h4>
       <p class="hint" style="margin:0 0 8px;">Es lo primero que hay que mirar: dice en qué parte del sitio la gente decide escribir.</p>
@@ -7923,6 +7926,9 @@ async function abrirDetalleConsultas(tipo) {
         </div>
         <div>
           <h4 class="lead-h">${icon('bolt')} De dónde venía</h4>
+          ${d.origenesConTodo ? `<p class="hint" style="margin:0 0 8px;">Contando lo que Meta manda directo a WhatsApp o a su formulario:</p>
+          ${stBars(d.origenesConTodo)}
+          <p class="hint" style="margin:14px 0 8px;">Sólo las que pasaron por la web:</p>` : ''}
           ${stBars(d.origenes)}
         </div>
       </div>

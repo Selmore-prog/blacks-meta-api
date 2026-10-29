@@ -462,6 +462,43 @@ async function leadDetail({ preset, from, to, tipo = 'todos', compare = 'previo'
     porOrigen.set(clave, acc);
   }
 
+  /* Meta también trae consultas que NO pasan por la web: anuncios que abren
+   * WhatsApp directo y formularios de Facebook/Instagram. lead_clicks no las
+   * puede ver, y sin ellas Meta parecía no traer casi nada. Van aparte (no se
+   * mezclan con los botones, páginas y horarios del sitio) y en una cuenta "con
+   * todo" para ver el peso real de cada canal. El tipo sale del nombre de la
+   * campaña, igual que se arman ("Motor | Mayorista | WhatsApp"). */
+  const { metaConsultasDirectas } = require('./adsPerformance');
+  const idsMeta = origenes.rows
+    .filter((r) => r.campaign && /meta|fb|face|ig|insta/i.test(r.source || ''))
+    .map((r) => r.campaign);
+  const md = await metaConsultasDirectas({ since: rango.from, until: rango.to, idsVistos: idsMeta });
+  const directas = md.campanas
+    .map((c) => ({ ...c, tipo: /mayorista|empresa|corporativ|b2b/i.test(c.nombre || '') ? 'mayorista' : 'minorista' }))
+    .filter((c) => !filtroTipo || c.tipo === filtroTipo);
+  const conversaciones = directas.reduce((a, c) => a + c.conversaciones, 0);
+  const formularios = directas.reduce((a, c) => a + c.formularios, 0);
+  const fueraDelSitio = md.enabled
+    ? { conversaciones, formularios, total: conversaciones + formularios, campanas: directas.map((c) => c.nombre) }
+    : { conversaciones: 0, formularios: 0, total: 0, campanas: [], error: md.reason };
+  const META_ORIGEN = 'Meta (Instagram / Facebook)';
+  if (fueraDelSitio.total && !porOrigen.has(META_ORIGEN)) porOrigen.set(META_ORIGEN, { nombre: META_ORIGEN, total: 0, campanas: new Set() });
+  const totalConTodo = total + fueraDelSitio.total;
+  const origenesConTodo = fueraDelSitio.total ? [...porOrigen.values()].map((o) => {
+    const esMeta = o.nombre === META_ORIGEN;
+    const t = o.total + (esMeta ? fueraDelSitio.total : 0);
+    return {
+      nombre: o.nombre,
+      total: t,
+      pct: totalConTodo ? r2((t / totalConTodo) * 100) : 0,
+      detalle: esMeta ? [
+        o.total ? `${o.total} desde la web` : '',
+        conversaciones ? `${conversaciones} por WhatsApp directo` : '',
+        formularios ? `${formularios} por formulario` : '',
+      ].filter(Boolean).join(' · ') : null,
+    };
+  }).sort((a, b) => b.total - a.total) : null;
+
   // La hora importa: son consultas por WhatsApp y alguien las tiene que contestar.
   const franja = (h) => (h < 9 ? 'Antes de las 9' : h < 13 ? '9 a 13' : h < 18 ? '13 a 18' : h < 21 ? '18 a 21' : 'Después de las 21');
   const porFranja = new Map();
@@ -487,8 +524,12 @@ async function leadDetail({ preset, from, to, tipo = 'todos', compare = 'previo'
     rutas: conPct(rutas.rows),
     productos: conPct(productos.rows),
     origenes: [...porOrigen.values()]
+      .filter((o) => o.total > 0)
       .map((o) => ({ nombre: o.nombre, total: o.total, pct: total ? r2((o.total / total) * 100) : 0, campanas: [...o.campanas].slice(0, 4) }))
       .sort((a, b) => b.total - a.total),
+    fueraDelSitio,
+    totalConTodo,
+    origenesConTodo,
     porDia: porDia.rows.map((r) => ({ fecha: r.fecha, total: n0(r.total) })),
     franjas: [...porFranja.entries()].map(([nombre, t]) => ({ nombre, total: t, pct: total ? r2((t / total) * 100) : 0 }))
       .sort((a, b) => b.total - a.total),

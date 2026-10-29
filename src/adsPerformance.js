@@ -422,6 +422,39 @@ async function metaCampaigns({ since, until, gaIds = [] }) {
   }
 }
 
+/**
+ * Consultas que Meta trae SIN pasar por la web: conversaciones de los anuncios
+ * que abren WhatsApp directo y formularios de Facebook/Instagram. El sitio no
+ * las puede registrar (nadie toca un botón de la tienda), así que en el detalle
+ * de consultas Meta parecía traer casi nada: 8 contra las ~244 reales de
+ * oct-2026. `idsVistos` son IDs de campaña de Meta que el sitio sí registró:
+ * sirven para encontrar la cuenta aunque META_AD_ACCOUNT_ID apunte a otra.
+ */
+async function metaConsultasDirectas({ since, until, idsVistos = [] }) {
+  if (!config.meta.adsAccessToken) return { enabled: false, reason: 'Falta META_ADS_ACCESS_TOKEN.', campanas: [] };
+  try {
+    const vistas = await fbByIds(idsVistos.filter(esIdMeta), 'account_id');
+    const actIds = [...new Set([config.meta.adAccountId, ...Object.values(vistas).map((c) => c.account_id && `act_${c.account_id}`)].filter(Boolean))];
+    const filas = (await Promise.all(actIds.map((act) => fbGetAll(`${act}/insights`, {
+      level: 'campaign',
+      fields: 'campaign_id,campaign_name,actions',
+      time_range: JSON.stringify({ since, until }),
+      limit: 200,
+    }).catch(() => [])))).flat();
+    const campanas = filas.map((r) => ({
+      id: r.campaign_id,
+      nombre: r.campaign_name,
+      conversaciones: metaMessages(r),
+      // Sólo los formularios de Facebook/Instagram: `lead` a secas también suma el
+      // evento Lead del píxel, que es el mismo clic que el sitio ya registró.
+      formularios: actionOf(r.actions, 'onsite_conversion.lead_grouped'),
+    })).filter((c) => c.conversaciones || c.formularios);
+    return { enabled: true, campanas };
+  } catch (err) {
+    return { enabled: false, reason: err.message, campanas: [] };
+  }
+}
+
 /* ------------------------------- Google Ads (API) ------------------------------- */
 
 /**
@@ -1284,4 +1317,4 @@ function normalizeAnalysis(a = {}) {
   };
 }
 
-module.exports = { paidPerformance, analyzePaidPerformance, digest };
+module.exports = { paidPerformance, analyzePaidPerformance, digest, metaConsultasDirectas };
