@@ -1368,7 +1368,27 @@ button .cost-tag { margin-left: 8px; }
 .seg-tag.mayorista { color: #a78bfa; border-color: rgba(139, 92, 246, .45); }
 .seg-tag.mixta { color: #e8a33d; border-color: rgba(232, 163, 61, .4); }
 .c-type-sub { display: block; font-size: 11px; color: var(--muted); }
+.ads-table .c-name .c-type-sub { font-weight: 400; }
 .ads-table .roas .na { color: var(--muted); font-weight: 600; font-size: 12px; cursor: help; }
+
+/* Estado de hoy en la plataforma: lo que no corre va al final, apagado, y no se compara. */
+.estado-tag {
+  display: inline-block; font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 100px;
+  border: 1px solid var(--line); color: var(--muted); vertical-align: middle; cursor: help;
+}
+.estado-tag.on { color: var(--green); border-color: rgba(34,197,94,.4); }
+.estado-tag.off { color: #ff6b6b; border-color: rgba(255,107,107,.4); }
+.ads-table tr.fuera td { opacity: .55; }
+.ads-table tr.fuera-sep td {
+  padding: 14px 8px 6px; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .05em;
+  color: var(--muted); border-bottom: 1px solid var(--line);
+}
+.verd.no-corre { color: var(--muted); border-style: dashed; }
+.ads-alerta {
+  display: flex; gap: 10px; align-items: flex-start; font-size: 13.5px; line-height: 1.55; font-weight: 600;
+  border-color: rgba(255,107,107,.45); background: rgba(255,107,107,.07);
+}
+.ads-alerta .ic { color: #ff6b6b; flex: none; margin-top: 2px; }
 
 /* Consultas de WhatsApp: origen sin campaña (directo/orgánico). */
 .lead-org { color: var(--muted); font-size: 12.5px; }

@@ -30,6 +30,9 @@ const num = (v) => Number(v || 0);
 const round = (v, d = 2) => Math.round(num(v) * 10 ** d) / 10 ** d;
 const div = (a, b) => (num(b) ? round(num(a) / num(b)) : null);
 
+/** AAAA-MM-DD de hace `n` días en hora argentina (la de la tienda y la de Analytics). */
+const fechaAR = (n) => new Date(Date.now() - n * 864e5).toLocaleDateString('en-CA', { timeZone: 'America/Argentina/Buenos_Aires' });
+
 /* ----------------------------- Google Analytics ----------------------------- */
 
 const rowsOf = (rep) => (rep && rep.rows) || [];
@@ -89,7 +92,9 @@ async function gaByCampaign(days) {
     dimensions: [{ name: 'sessionCampaignName' }, { name: 'sessionSourceMedium' }, { name: 'sessionDefaultChannelGroup' }],
     metrics: GA_METRICS,
     orderBys: [{ metric: { metricName: 'advertiserAdCost' }, desc: true }],
-    limit: 100,
+    // Las filas de Meta tienen costo 0 (GA no ve ese gasto) y quedan al final:
+    // con un límite chico se cortaban justo ésas y el cruce por ID fallaba.
+    limit: 2000,
   });
   return rowsOf(rep).map((r) => ({
     campana: dv(r, 0),
@@ -228,6 +233,66 @@ async function fbGet(path, params = {}) {
   return data;
 }
 
+/** Igual que fbGet pero siguiendo `paging.next` hasta el final (con tope). */
+async function fbGetAll(path, params = {}) {
+  const out = [];
+  let page = await fbGet(path, params);
+  for (let i = 0; i < 20; i += 1) {
+    out.push(...(page.data || []));
+    const next = page.paging && page.paging.next;
+    if (!next) break;
+    const res = await fetch(next);
+    page = await res.json().catch(() => ({}));
+    if (!res.ok || page.error) throw new Error(`Meta ${path}: ${(page.error && page.error.message) || res.status}`);
+  }
+  return out;
+}
+
+/**
+ * Varios objetos de Meta por ID en pocas llamadas (`?ids=`, de a 50). Si un
+ * lote falla porque el token no ve alguno, se reintenta de a uno para no
+ * perder los demás. Devuelve { id: objeto } sólo con los que se pudieron leer.
+ */
+async function fbByIds(ids, fields) {
+  const out = {};
+  const list = [...new Set(ids.map(String))];
+  for (let i = 0; i < list.length; i += 50) {
+    const lote = list.slice(i, i + 50);
+    try {
+      Object.assign(out, await fbGet('', { ids: lote.join(','), fields }));
+    } catch {
+      const sueltos = await Promise.all(lote.map((id) => fbGet(id, { fields }).catch(() => null)));
+      sueltos.forEach((o, j) => { if (o) out[lote[j]] = o; });
+    }
+  }
+  return out;
+}
+
+/* ESTADO DE CADA CAMPAÑA, en las mismas palabras para las dos plataformas.
+ * "vigente" = sigue corriendo hoy. Sólo las vigentes entran en la comparación:
+ * una campaña eliminada (las de Milbrands, por ejemplo) puede seguir apareciendo
+ * en el período por los días que gastó antes de que la borraran, o por gente
+ * que vuelve meses después con el link viejo — y eso no dice nada de cómo rinde
+ * hoy cada canal. Se muestran aparte, marcadas, para que no se escondan. */
+const ESTADO_META = {
+  ACTIVE: 'activa', IN_PROCESS: 'activa', WITH_ISSUES: 'activa',
+  PAUSED: 'pausada', ARCHIVED: 'archivada', DELETED: 'eliminada',
+};
+const estadoMeta = (effectiveStatus) => {
+  const estado = ESTADO_META[effectiveStatus] || null;
+  return { estado, vigente: !estado || estado === 'activa' };
+};
+const esIdMeta = (s) => /^\d{9,20}$/.test(String(s || ''));
+
+/** Último día con gasto de una campaña de Meta (para decir "gastó hasta el 30-sep"). */
+async function ultimoGastoMeta(campaignId, since, until) {
+  const dias = await fbGetAll(`${campaignId}/insights`, {
+    fields: 'spend', time_increment: 1, time_range: JSON.stringify({ since, until }), limit: 100,
+  }).catch(() => []);
+  const conGasto = dias.filter((d) => num(d.spend) > 0).map((d) => d.date_start).sort();
+  return conGasto.length ? conGasto[conGasto.length - 1] : null;
+}
+
 const actionOf = (arr, type) => {
   const f = (arr || []).find((a) => a.action_type === type);
   return f ? num(f.value) : 0;
@@ -240,44 +305,83 @@ const metaMessages = (r) => actionOf(r.actions, 'onsite_conversion.messaging_con
  * Campañas de Meta con gasto real + lo que Meta se atribuye. Detecta si la
  * campaña usa CATÁLOGO (product_set_id en el conjunto) y si optimiza a mensajes
  * de WhatsApp en vez de compras — son negocios distintos y no se comparan igual.
+ *
+ * DE QUÉ CUENTAS SE LEE EL GASTO (acá estaba el ROAS de 79x): la pauta de Blacks
+ * pasó por tres cuentas publicitarias (la de Red Hook Data, la que usaba
+ * Milbrands y la propia desde sep-2026). Leer sólo META_AD_ACCOUNT_ID dejaba el
+ * gasto cortado cada vez que se cambiaba de cuenta, mientras Analytics seguía
+ * contando TODAS las ventas de Meta: con la cuenta vieja configurada, 30 días
+ * daban $24k de gasto contra $1,9M de ventas. Ahora se lee la configurada MÁS
+ * las cuentas dueñas de cada campaña que Analytics ve (el utm_campaign de Meta
+ * es el ID de la campaña, y Meta dice de qué cuenta es), así el gasto y las
+ * ventas salen siempre del mismo universo de campañas.
  */
-async function metaCampaigns(days) {
-  if (!config.meta.adsAccessToken || !config.meta.adAccountId) {
-    return { enabled: false, reason: 'Falta META_ADS_ACCESS_TOKEN o META_AD_ACCOUNT_ID.', campaigns: [] };
+async function metaCampaigns({ since, until, gaIds = [] }) {
+  if (!config.meta.adsAccessToken) {
+    return { enabled: false, reason: 'Falta META_ADS_ACCESS_TOKEN.', campaigns: [], cuentas: [], estados: {}, idsSinLeer: [] };
   }
-  const act = config.meta.adAccountId;
-  const since = new Date(Date.now() - days * 864e5).toISOString().slice(0, 10);
-  const until = new Date(Date.now() - 864e5).toISOString().slice(0, 10);
   try {
-    const [insights, adsets] = await Promise.all([
-      fbGet(`${act}/insights`, {
-        level: 'campaign',
-        fields: 'campaign_id,campaign_name,objective,spend,impressions,clicks,inline_link_clicks,ctr,cpc,frequency,actions,action_values',
-        time_range: JSON.stringify({ since, until }),
-        limit: 50,
-      }),
-      fbGet(`${act}/adsets`, { fields: 'campaign_id,promoted_object,optimization_goal', limit: 300 }).catch(() => ({ data: [] })),
-    ]);
+    // 1. Las campañas que Analytics ve, con su cuenta y su estado de hoy.
+    const vistas = await fbByIds(gaIds, 'account_id,name,effective_status');
+    const configurada = config.meta.adAccountId || null;
+    const detectadas = Object.values(vistas).map((c) => c.account_id && `act_${c.account_id}`).filter(Boolean);
+    const actIds = [...new Set([configurada, ...detectadas].filter(Boolean))];
+    if (!actIds.length) {
+      return { enabled: false, reason: 'Falta META_AD_ACCOUNT_ID y Analytics no ve campañas de Meta para deducir la cuenta.', campaigns: [], cuentas: [], estados: {}, idsSinLeer: [] };
+    }
+
+    // 2. Gasto por campaña de cada cuenta. Una cuenta que falla no tumba a las otras.
+    const cuentas = await Promise.all(actIds.map(async (act) => {
+      try {
+        const [info, insights, adsets] = await Promise.all([
+          fbGet(act, { fields: 'name' }).catch(() => ({})),
+          fbGetAll(`${act}/insights`, {
+            level: 'campaign',
+            fields: 'campaign_id,campaign_name,objective,spend,impressions,clicks,inline_link_clicks,ctr,cpc,frequency,actions,action_values',
+            time_range: JSON.stringify({ since, until }),
+            limit: 200,
+          }),
+          fbGetAll(`${act}/adsets`, { fields: 'campaign_id,promoted_object,optimization_goal', limit: 200 }).catch(() => []),
+        ]);
+        return { id: act, nombre: info.name || act, configurada: act === configurada, insights, adsets };
+      } catch (err) {
+        return { id: act, nombre: act, configurada: act === configurada, insights: [], adsets: [], error: err.message };
+      }
+    }));
+
+    // 3. Estado de las campañas con gasto que Analytics no vio (las de WhatsApp no dejan visitas).
+    const conGasto = cuentas.flatMap((c) => c.insights.map((r) => String(r.campaign_id)));
+    const faltan = conGasto.filter((id) => !vistas[id]);
+    const estadosExtra = faltan.length ? await fbByIds(faltan, 'effective_status') : {};
+    const estados = {};
+    for (const [id, o] of Object.entries({ ...vistas, ...estadosExtra })) {
+      estados[id] = { ...estadoMeta(o.effective_status), nombre: o.name || null, cuentaId: o.account_id ? `act_${o.account_id}` : null };
+    }
 
     const byCampaign = new Map();
-    for (const s of adsets.data || []) {
+    for (const s of cuentas.flatMap((c) => c.adsets)) {
       const cur = byCampaign.get(s.campaign_id) || { catalogo: false, goals: new Set() };
       if (s.promoted_object && s.promoted_object.product_set_id) cur.catalogo = true;
       if (s.optimization_goal) cur.goals.add(s.optimization_goal);
       byCampaign.set(s.campaign_id, cur);
     }
 
-    const campaigns = (insights.data || []).map((r) => {
+    const campaigns = cuentas.flatMap((cuenta) => cuenta.insights.map((r) => {
       const extra = byCampaign.get(r.campaign_id) || { catalogo: false, goals: new Set() };
       const goals = [...extra.goals];
       const esMensajes = goals.includes('CONVERSATIONS') || /conversation|messages/i.test(r.objective || '');
       const tipo = extra.catalogo
         ? 'Meta · Catálogo (Advantage+)'
         : esMensajes ? 'Meta · Mensajes (WhatsApp)' : 'Meta · Ventas web (píxel)';
+      const est = estados[String(r.campaign_id)] || { estado: null, vigente: true };
       return {
         canal: 'meta',
         id: r.campaign_id,
         campana: r.campaign_name,
+        cuenta: cuenta.nombre,
+        cuentaId: cuenta.id,
+        estado: est.estado,
+        vigente: est.vigente,
         tipo,
         objetivo: r.objective,
         gasto: round(r.spend),
@@ -290,10 +394,129 @@ async function metaCampaigns(days) {
         propioIngresos: round(metaRevenue(r), 0),
         mensajes: metaMessages(r),
       };
-    });
-    return { enabled: true, campaigns };
+    }));
+
+    // Las que ya no corren: hasta qué día gastaron (son pocas, una llamada cada una).
+    await Promise.all(campaigns.filter((c) => !c.vigente && c.gasto > 0).map(async (c) => {
+      c.ultimoGasto = await ultimoGastoMeta(c.id, since, until);
+    }));
+
+    return {
+      enabled: true,
+      campaigns,
+      estados,
+      // IDs que Analytics ve pero que este token no puede leer: su gasto puede faltar.
+      idsSinLeer: gaIds.filter((id) => !vistas[String(id)]),
+      cuentas: cuentas.map((c) => ({
+        id: c.id,
+        nombre: c.nombre,
+        configurada: c.configurada,
+        gasto: round(c.insights.reduce((a, r) => a + num(r.spend), 0), 0),
+        campanas: c.insights.length,
+        campanasVigentes: campaigns.filter((x) => x.cuentaId === c.id && x.vigente).length,
+        error: c.error || null,
+      })),
+    };
   } catch (err) {
-    return { enabled: false, reason: err.message, campaigns: [] };
+    return { enabled: false, reason: err.message, campaigns: [], cuentas: [], estados: {}, idsSinLeer: [] };
+  }
+}
+
+/* ------------------------------- Google Ads (API) ------------------------------- */
+
+/**
+ * Estado de cada campaña de Google. GA4 da el gasto por nombre de campaña pero
+ * no sabe si la campaña sigue viva: eso sólo lo dice la API de Google Ads. Sin
+ * esto, las campañas que Milbrands borró el 30-sep aparecían como cualquier otra
+ * (y hasta con veredicto de "apagar"). También trae el gasto de la API para
+ * controlar que el de Analytics no se haya cortado.
+ */
+async function googleCampaignStates({ since, until }) {
+  const gads = require('./googleAds');
+  if (!gads.isEnabled()) return { enabled: false, reason: 'La API de Google Ads no está configurada.', porNombre: {} };
+  try {
+    const [todas, diario, presupuestos] = await Promise.all([
+      gads.gaql('SELECT campaign.id, campaign.name, campaign.status, campaign.primary_status, campaign.serving_status FROM campaign'),
+      gads.gaql(`SELECT campaign.name, segments.date, metrics.cost_micros FROM campaign
+                 WHERE segments.date BETWEEN '${since}' AND '${until}' AND metrics.cost_micros > 0`),
+      gads.gaql(`SELECT account_budget.approved_spending_limit_micros, account_budget.amount_served_micros,
+                        account_budget.approved_end_date_time FROM account_budget`).catch(() => []),
+    ]);
+    const porNombre = {};
+    for (const r of todas) {
+      const c = r.campaign;
+      const estado = c.status === 'REMOVED' ? 'eliminada'
+        : c.status === 'PAUSED' ? 'pausada'
+          : c.primaryStatus === 'ENDED' ? 'finalizada' : 'activa';
+      const prev = porNombre[c.name];
+      // Dos campañas con el mismo nombre (una borrada y otra viva): manda la viva.
+      if (prev && prev.vigente) continue;
+      porNombre[c.name] = { id: c.id, estado, vigente: estado === 'activa', gastoApi: 0, ultimoGasto: null };
+    }
+    let gastoApi = 0;
+    for (const r of diario) {
+      const g = num(r.metrics.costMicros) / 1e6;
+      gastoApi += g;
+      const c = porNombre[r.campaign.name];
+      if (!c) continue;
+      c.gastoApi += g;
+      if (!c.ultimoGasto || r.segments.date > c.ultimoGasto) c.ultimoGasto = r.segments.date;
+    }
+
+    /* Campañas activas que Google tiene SUSPENDIDAS: siguen "vigentes" (vuelven
+     * solas cuando se resuelve), pero hoy no sale ningún anuncio. Lo típico es el
+     * tope de gasto de la cuenta (presupuesto de cuenta en Facturación). */
+    const activas = todas.filter((r) => r.campaign.status === 'ENABLED' && r.campaign.primaryStatus !== 'ENDED');
+    let detenida = null;
+    if (activas.length && activas.every((r) => r.campaign.servingStatus === 'SUSPENDED')) {
+      const vigente = presupuestos.map((r) => r.accountBudget).find((b) => !b.approvedEndDateTime) || null;
+      const tope = vigente && vigente.approvedSpendingLimitMicros ? num(vigente.approvedSpendingLimitMicros) / 1e6 : null;
+      const consumido = vigente ? num(vigente.amountServedMicros) / 1e6 : null;
+      const ultimo = Object.values(porNombre).filter((c) => c.vigente && c.ultimoGasto).map((c) => c.ultimoGasto).sort().pop() || null;
+      detenida = { tope: round(tope, 0), consumido: round(consumido, 0), agotado: Boolean(tope && consumido >= tope), ultimoGasto: ultimo };
+    }
+    return { enabled: true, porNombre, gastoApi: round(gastoApi, 0), detenida };
+  } catch (err) {
+    return { enabled: false, reason: err.message, porNombre: {} };
+  }
+}
+
+/* ---------------------------- Ventas reales (Tiendanube) ---------------------------- */
+
+/**
+ * Pedidos PAGOS de Tiendanube que entraron por un anuncio, por canal. Es el
+ * control contra la realidad: Analytics pierde compras (navegador de Instagram,
+ * cookies rechazadas) y cada plataforma se cuelga de más. Tiendanube guarda la
+ * visita que terminó en el pedido (`customer_visit`): el utm_campaign de Meta es
+ * el ID de la campaña, así que en Meta se puede separar por campaña; en Google
+ * sólo queda el gclid, que no dice de qué campaña vino.
+ */
+async function ventasTiendanube(desde, hasta) {
+  try {
+    const pool = require('./db');
+    const { rows } = await pool.query(`
+      WITH v AS (
+        SELECT o.total,
+               lower(o.raw->'customer_visit'->'utm_parameters'->>'utm_source') AS src,
+               lower(o.raw->'customer_visit'->'utm_parameters'->>'utm_medium') AS med,
+               o.raw->'customer_visit'->'utm_parameters'->>'utm_campaign'      AS campana,
+               COALESCE(o.raw->'customer_visit'->>'landing_page', '') || ' ' || COALESCE(o.landing_url, '') AS landing
+          FROM orders_cache o
+         WHERE (o.created_at AT TIME ZONE 'America/Argentina/Buenos_Aires')::date BETWEEN $1::date AND $2::date
+           AND o.status <> 'cancelled' AND o.payment_status = 'paid'
+      )
+      SELECT CASE
+               WHEN src IN ('ig', 'fb', 'th', 'an', 'facebook', 'instagram') AND med ~ 'paid|cpc|social' THEN 'meta'
+               WHEN landing ~ 'fbclid=' THEN 'meta'
+               WHEN src = 'google' AND med ~ 'cpc|paid' THEN 'google'
+               WHEN landing ~ '(gclid|gbraid|wbraid)=' THEN 'google'
+               ELSE 'otro'
+             END AS canal,
+             campana, count(*)::int AS pedidos, COALESCE(sum(total), 0)::float AS ingresos
+        FROM v GROUP BY 1, 2`, [desde, hasta]);
+    return { enabled: true, rows };
+  } catch (err) {
+    return { enabled: false, reason: err.message, rows: [] };
   }
 }
 
@@ -319,6 +542,10 @@ function googleType(name, canalGa) {
  * hace apagar campañas que sí están trayendo clientes.
  */
 function veredicto(c, gastoTotal, valorConsulta = 0) {
+  if (!c.vigente) {
+    const hasta = c.ultimoGasto ? ` (gastó hasta el ${c.ultimoGasto.split('-').reverse().slice(0, 2).join('/')})` : '';
+    return { nivel: 'no-corre', texto: `Ya no corre: está ${c.estado}${hasta}. No entra en la comparación` };
+  }
   const peso = gastoTotal ? c.gasto / gastoTotal : 0;
 
   if (c.segmento === 'mayorista' || (c.segmento === 'mixta' && !c.compras)) {
@@ -452,6 +679,7 @@ function funnelOf(row, label) {
  */
 async function paidPerformance({ days = 30, valorConsulta = 0 } = {}) {
   const avisos = [];
+  const alertas = []; // lo urgente, que va arriba de todo en el panel
   if (!gaEnabled()) {
     return {
       ok: false,
@@ -459,26 +687,98 @@ async function paidPerformance({ days = 30, valorConsulta = 0 } = {}) {
     };
   }
 
-  const [byChannel, campanasGa, leads, meta, segmentos, leadsCampana, fichas] = await Promise.all([
+  // Fechas en hora argentina: las mismas que Analytics (`${days}daysAgo` → ayer).
+  const desde = fechaAR(days);
+  const hasta = fechaAR(1);
+
+  const [byChannel, campanasGa, leads, segmentos, leadsCampana, fichas, google, tn] = await Promise.all([
     gaByChannel(days),
     gaByCampaign(days),
     gaLeadsByChannel(days),
-    metaCampaigns(days),
     gaSegmentByCampaign(days),
     gaLeadsByCampaign(days),
     gaProductViewsByCampaign(days),
+    googleCampaignStates({ since: desde, until: hasta }),
+    ventasTiendanube(desde, hasta),
   ]);
 
-  const googleRow = sumChannels(byChannel, GOOGLE_CHANNELS);
-  const metaRow = sumChannels(byChannel, META_CHANNELS);
-  const metaGasto = round(meta.campaigns.reduce((a, c) => a + c.gasto, 0), 0);
-  const metaClicks = meta.campaigns.reduce((a, c) => a + c.clicks, 0);
-  const metaImpresiones = meta.campaigns.reduce((a, c) => a + c.impresiones, 0);
+  // Filas de Meta en Analytics. Su utm_campaign es el ID de la campaña, y con
+  // esos IDs Meta dice de qué cuenta es cada una: de ahí salen las cuentas a leer.
+  const esMetaGa = (c) => /paid|cpc/i.test(c.sourceMedium) && !/^google/i.test(c.sourceMedium);
+  const gaIdsMeta = [...new Set(campanasGa.filter((c) => esMetaGa(c) && esIdMeta(c.campana)).map((c) => c.campana))];
+  const meta = await metaCampaigns({ since: desde, until: hasta, gaIds: gaIdsMeta });
+
+  const estadoGoogle = (nombre) => google.porNombre[nombre] || { estado: null, vigente: true };
+  const estadoMetaId = (id) => (meta.estados || {})[String(id)] || { estado: null, vigente: true };
+
+  /* Lo que ya no corre sale de la comparación: sus filas de Analytics se restan
+   * del canal (gasto, visitas y ventas juntos, para no desbalancear el ROAS) y se
+   * informan aparte en `fuera`. */
+  const noVigenteGa = (c) => (GOOGLE_CHANNELS.includes(c.canalGa) && !estadoGoogle(c.campana).vigente)
+    || (META_CHANNELS.includes(c.canalGa) && esIdMeta(c.campana) && !estadoMetaId(c.campana).vigente);
+  const fueraGa = campanasGa.filter(noVigenteGa);
+  const sumarFilas = (rows) => rows.reduce((acc, r) => addRow(acc, r), emptyRow());
+  const restar = (a, b) => {
+    const out = { ...a };
+    for (const k of Object.keys(emptyRow())) out[k] = round(num(a[k]) - num(b[k]));
+    return out;
+  };
+  const googleRowTodo = sumChannels(byChannel, GOOGLE_CHANNELS);
+  const googleFuera = sumarFilas(fueraGa.filter((c) => GOOGLE_CHANNELS.includes(c.canalGa)));
+  const metaFuera = sumarFilas(fueraGa.filter((c) => META_CHANNELS.includes(c.canalGa)));
+  const googleRow = restar(googleRowTodo, googleFuera);
+  const metaRow = restar(sumChannels(byChannel, META_CHANNELS), metaFuera);
+
+  const metaVigentes = meta.campaigns.filter((c) => c.vigente);
+  const metaGasto = round(metaVigentes.reduce((a, c) => a + c.gasto, 0), 0);
+  const metaClicks = metaVigentes.reduce((a, c) => a + c.clicks, 0);
+  const metaImpresiones = metaVigentes.reduce((a, c) => a + c.impresiones, 0);
 
   if (!meta.enabled) avisos.push(`Meta Ads no se pudo leer: ${meta.reason} Se muestra sólo Google.`);
-  if (!googleRow.gasto) {
+  if (!googleRowTodo.gasto) {
     avisos.push('Analytics no informa gasto de Google Ads. Suele ser que la cuenta de Google Ads no está vinculada a la propiedad de GA4 (Admin → Vínculos de productos → Google Ads).');
   }
+  const pesos = (n) => `$${Math.round(n).toLocaleString('es-AR')}`;
+  if (meta.enabled) {
+    const conf = meta.cuentas.find((c) => c.configurada);
+    const otras = meta.cuentas.filter((c) => !c.configurada && c.campanasVigentes > 0).sort((a, b) => b.gasto - a.gasto);
+    if (conf && !conf.campanasVigentes && otras.length) {
+      avisos.push(`META_AD_ACCOUNT_ID apunta a «${conf.nombre}» (${conf.id}), que ya no tiene campañas corriendo${conf.gasto ? ` (en el período gastó ${pesos(conf.gasto)} antes de cortarse)` : ''}. El gasto de Meta se leyó también de las cuentas dueñas de las campañas que ve Analytics: ${otras.map((c) => `«${c.nombre}» (${c.id}, ${pesos(c.gasto)})`).join(', ')}. Conviene cambiar META_AD_ACCOUNT_ID a ${otras[0].id}: otras secciones del panel siguen leyendo sólo esa variable.`);
+    }
+    for (const c of meta.cuentas.filter((x) => x.error)) avisos.push(`No se pudo leer el gasto de la cuenta de Meta «${c.nombre}»: ${c.error}`);
+    if (meta.idsSinLeer.length) {
+      const filas = sumarFilas(campanasGa.filter((c) => esMetaGa(c) && meta.idsSinLeer.includes(c.campana)));
+      avisos.push(`${meta.idsSinLeer.length} campaña(s) de Meta que Analytics ve no se pueden leer con el token de Meta (${filas.sesiones} visitas, ${pesos(filas.ingresos)} en ventas): si gastaron en el período, ese gasto falta y el ROAS de Meta da de más.`);
+    }
+  }
+  if (!google.enabled) {
+    avisos.push(`No se pudo leer el estado de las campañas de Google (${google.reason}): las pausadas o eliminadas no se pueden separar.`);
+  } else {
+    if (google.gastoApi && Math.abs(google.gastoApi - googleRowTodo.gasto) / google.gastoApi > 0.03) {
+      avisos.push(`El gasto de Google que informa Analytics (${pesos(googleRowTodo.gasto)}) no coincide con el de la API de Google Ads (${pesos(google.gastoApi)}): el ROAS de Google puede estar corrido.`);
+    }
+    const d = google.detenida;
+    if (d) {
+      const fecha = d.ultimoGasto ? ` El último día con gasto fue el ${d.ultimoGasto.split('-').reverse().slice(0, 2).join('/')}.` : '';
+      alertas.push(d.agotado
+        ? `Google Ads NO está mostrando anuncios: la cuenta llegó a su tope de gasto (${pesos(d.tope)}, consumido ${pesos(d.consumido)}) y Google suspendió todas las campañas activas.${fecha} Se reactiva subiendo el tope en Facturación de Google Ads.`
+        : `Google Ads NO está mostrando anuncios: Google tiene suspendidas todas las campañas activas.${fecha} Revisá Facturación en Google Ads.`);
+    }
+  }
+
+  /* Control contra las ventas REALES de Tiendanube. En Meta se separa por
+   * campaña (el utm_campaign es el ID) y quedan sólo las vigentes; en Google el
+   * pedido trae el gclid sin campaña, así que se compara contra TODO su gasto. */
+  const tnCanal = (canal, pred = () => true) => {
+    const rows = tn.rows.filter((r) => r.canal === canal && pred(r));
+    return { pedidos: rows.reduce((a, r) => a + r.pedidos, 0), ingresos: round(rows.reduce((a, r) => a + r.ingresos, 0), 0) };
+  };
+  const tnMetaPorCampana = {};
+  for (const r of tn.rows.filter((x) => x.canal === 'meta' && x.campana)) {
+    const cur = tnMetaPorCampana[r.campana] || { pedidos: 0, ingresos: 0 };
+    tnMetaPorCampana[r.campana] = { pedidos: cur.pedidos + r.pedidos, ingresos: round(cur.ingresos + r.ingresos, 0) };
+  }
+  if (!tn.enabled) avisos.push(`No se pudieron leer los pedidos de Tiendanube (${tn.reason}): falta el control contra las ventas reales.`);
 
   // Meta: el gasto sale de Meta y las conversiones de GA4 (misma vara que Google).
   // Los clics del aviso también son de Meta (GA sólo ve las sesiones que llegaron).
@@ -489,15 +789,18 @@ async function paidPerformance({ days = 30, valorConsulta = 0 } = {}) {
     ...kpis({ ...metaRow, clicks: metaClicks, impresiones: metaImpresiones }, { gasto: metaGasto }),
     consultas: leads['Paid Social'] || 0,
     gastoFuente: 'API de Meta',
+    cuentas: meta.cuentas || [],
     propio: meta.enabled ? {
-      compras: meta.campaigns.reduce((a, c) => a + c.propioCompras, 0),
-      ingresos: round(meta.campaigns.reduce((a, c) => a + c.propioIngresos, 0), 0),
-      mensajes: meta.campaigns.reduce((a, c) => a + c.mensajes, 0),
+      compras: metaVigentes.reduce((a, c) => a + c.propioCompras, 0),
+      ingresos: round(metaVigentes.reduce((a, c) => a + c.propioIngresos, 0), 0),
+      mensajes: metaVigentes.reduce((a, c) => a + c.mensajes, 0),
     } : null,
+    reales: tn.enabled ? tnCanal('meta', (r) => !esIdMeta(r.campana) || estadoMetaId(r.campana).vigente) : null,
   };
   canalMeta.propio = canalMeta.propio
     ? { ...canalMeta.propio, roas: div(canalMeta.propio.ingresos, metaGasto) }
     : null;
+  if (canalMeta.reales) canalMeta.reales.roas = div(canalMeta.reales.ingresos, metaGasto);
 
   const canalGoogle = {
     id: 'google',
@@ -505,9 +808,11 @@ async function paidPerformance({ days = 30, valorConsulta = 0 } = {}) {
     detalle: 'Búsqueda + Performance Max + Display',
     ...kpis(googleRow),
     consultas: (leads['Paid Search'] || 0) + (leads['Cross-network'] || 0) + (leads.Display || 0),
-    gastoFuente: 'Analytics (cuenta vinculada)',
+    gastoFuente: google.enabled ? 'Analytics (cuenta vinculada), controlado con la API de Google Ads' : 'Analytics (cuenta vinculada)',
     propio: null,
+    reales: tn.enabled ? { ...tnCanal('google'), incluyeNoVigentes: googleFuera.gasto > 0 } : null,
   };
+  if (canalGoogle.reales) canalGoogle.reales.roas = div(canalGoogle.reales.ingresos, googleRowTodo.gasto);
 
   // Campañas de Google. Una misma campaña puede aparecer en más de una red
   // (una de Búsqueda que además sirve en Display): GA4 las devuelve separadas y
@@ -520,13 +825,19 @@ async function paidPerformance({ days = 30, valorConsulta = 0 } = {}) {
   }
   const RED = { Display: 'red de Display', 'Cross-network': 'multi-red', 'Paid Search': 'búsqueda', 'Paid Shopping': 'Shopping', 'Paid Video': 'video' };
   const campanasGoogle = campanasGa
-    .filter((c) => c.gasto > 0)
+    // Las que ya no corren se listan también si dejaron ventas sin gastar (links viejos).
+    .filter((c) => c.gasto > 0
+      || (GOOGLE_CHANNELS.includes(c.canalGa) && !estadoGoogle(c.campana).vigente && c.ingresos > 0))
     .map((c) => {
       const seg = segmentOf(segmentos[c.campana]);
       const lead = leadsCampana[c.campana] || {};
+      const est = estadoGoogle(c.campana);
       return {
         canal: 'google',
         campana: nombresRepetidos.has(c.campana) && RED[c.canalGa] ? `${c.campana} · ${RED[c.canalGa]}` : c.campana,
+        estado: est.estado,
+        vigente: est.vigente,
+        ultimoGasto: est.ultimoGasto || null,
         tipo: googleType(c.campana, c.canalGa),
         gasto: round(c.gasto, 0),
         impresiones: c.impresiones,
@@ -558,19 +869,40 @@ async function paidPerformance({ days = 30, valorConsulta = 0 } = {}) {
     const prev = gaPorId.get(c.campana) || emptyRow();
     gaPorId.set(c.campana, addRow(prev, c));
   }
-  const matcheadas = meta.campaigns.filter((c) => gaPorId.has(String(c.id)));
-  const sinMatch = meta.campaigns.filter((c) => !gaPorId.has(String(c.id)));
+  // Lo que Analytics no puede asignar a una campaña se reparte sólo entre las
+  // vigentes que mandan a la web: una de mensajes de WhatsApp no deja visitas.
+  const esMensajes = (c) => c.tipo === 'Meta · Mensajes (WhatsApp)';
+  const matcheadas = metaVigentes.filter((c) => gaPorId.has(String(c.id)));
+  const sinMatch = metaVigentes.filter((c) => !gaPorId.has(String(c.id)) && !esMensajes(c));
   const restante = matcheadas.reduce((acc, c) => {
     const g = gaPorId.get(String(c.id));
     return { sesiones: acc.sesiones - g.sesiones, carritos: acc.carritos - g.carritos, checkouts: acc.checkouts - g.checkouts, compras: acc.compras - g.compras, ingresos: acc.ingresos - g.ingresos };
   }, { sesiones: metaRow.sesiones, carritos: metaRow.carritos, checkouts: metaRow.checkouts, compras: metaRow.compras, ingresos: metaRow.ingresos });
   const gastoSinMatch = sinMatch.reduce((a, c) => a + c.gasto, 0);
 
-  const campanasMeta = meta.campaigns.map((c) => {
+  // Campañas viejas que no gastaron en el período pero a las que Analytics les
+  // sigue anotando ventas (gente que vuelve con el link de un anuncio de hace
+  // meses): se listan para que se vea de dónde salen esas ventas.
+  const conGastoMeta = new Set(meta.campaigns.map((c) => String(c.id)));
+  const viejasSinGasto = [...gaPorId.entries()]
+    .filter(([id, g]) => esIdMeta(id) && !conGastoMeta.has(id) && !estadoMetaId(id).vigente && g.ingresos > 0)
+    .map(([id]) => {
+      const est = estadoMetaId(id);
+      const cuenta = (meta.cuentas || []).find((x) => x.id === est.cuentaId);
+      return {
+        canal: 'meta', id, campana: est.nombre || id, cuenta: cuenta ? cuenta.nombre : est.cuentaId,
+        estado: est.estado, vigente: false, tipo: 'Meta · Ventas web (píxel)', gasto: 0,
+        impresiones: 0, clicks: 0, ctr: 0, frecuencia: 0, propioCompras: 0, propioIngresos: 0, mensajes: 0,
+      };
+    });
+
+  const campanasMeta = [...meta.campaigns, ...viejasSinGasto].map((c) => {
     const g = gaPorId.get(String(c.id));
-    const seg = segmentOf(segmentos[String(c.id)]);
+    // Una campaña de mensajes que no manda a la web se juzga por conversaciones,
+    // igual que las mayoristas (sin esto caía como "tienda" con ROAS 0).
+    const seg = !g && esMensajes(c) ? { segmento: 'mayorista', pctMayorista: null } : segmentOf(segmentos[String(c.id)]);
     const lead = leadsCampana[String(c.id)] || {};
-    const share = gastoSinMatch ? c.gasto / gastoSinMatch : 0;
+    const share = sinMatch.includes(c) && gastoSinMatch ? c.gasto / gastoSinMatch : 0;
     const medido = g
       ? { sesiones: g.sesiones, carritos: g.carritos, checkouts: g.checkouts, compras: g.compras, ingresos: round(g.ingresos, 0) }
       : {
@@ -580,9 +912,14 @@ async function paidPerformance({ days = 30, valorConsulta = 0 } = {}) {
         compras: round(Math.max(restante.compras, 0) * share, 1),
         ingresos: round(Math.max(restante.ingresos, 0) * share, 0),
       };
+    const real = tnMetaPorCampana[String(c.id)] || { pedidos: 0, ingresos: 0 };
     return {
       canal: 'meta',
       campana: c.campana,
+      cuenta: c.cuenta,
+      estado: c.estado,
+      vigente: c.vigente,
+      ultimoGasto: c.ultimoGasto || null,
       tipo: c.tipo,
       objetivo: c.objetivo,
       gasto: c.gasto,
@@ -591,8 +928,11 @@ async function paidPerformance({ days = 30, valorConsulta = 0 } = {}) {
       ctr: c.ctr,
       frecuencia: c.frecuencia,
       ...medido,
-      ingresosEstimados: !g,
+      ingresosEstimados: sinMatch.includes(c),
       roas: div(medido.ingresos, c.gasto),
+      // Pedidos pagos de Tiendanube que entraron por esta campaña.
+      realesPedidos: tn.enabled ? real.pedidos : null,
+      realesIngresos: tn.enabled ? real.ingresos : null,
       cpc: c.clicks ? round(c.gasto / c.clicks, 0) : null,
       ...seg,
       // Las conversaciones de WhatsApp que informa Meta cuentan como consulta:
@@ -609,12 +949,15 @@ async function paidPerformance({ days = 30, valorConsulta = 0 } = {}) {
       mensajes: c.mensajes,
     };
   });
-  if (sinMatch.length && meta.campaigns.length > 1) {
+  if (sinMatch.length && metaVigentes.length > 1) {
     avisos.push(`${sinMatch.length} campaña(s) de Meta no aparecen identificadas en Analytics: sus ingresos se reparten según cuánto gastaron (el total del canal sí es exacto).`);
   }
 
-  const campanas = [...campanasGoogle, ...campanasMeta].sort((a, b) => b.gasto - a.gasto);
-  const gastoTotal = round(campanas.reduce((a, c) => a + c.gasto, 0), 0);
+  // Primero las que corren (ordenadas por gasto); las que ya no, al final.
+  const campanas = [...campanasGoogle, ...campanasMeta]
+    .sort((a, b) => (Number(b.vigente) - Number(a.vigente)) || (b.gasto - a.gasto));
+  const vigentes = campanas.filter((c) => c.vigente);
+  const gastoTotal = round(vigentes.reduce((a, c) => a + c.gasto, 0), 0);
   campanas.forEach((c) => {
     c.cpl = c.consultas ? round(c.gasto / c.consultas, 0) : null;      // lo que cuesta cada consulta
     c.valorConsultas = valorConsulta > 0 ? round(c.consultas * valorConsulta, 0) : null;
@@ -627,7 +970,7 @@ async function paidPerformance({ days = 30, valorConsulta = 0 } = {}) {
 
   // Rendimiento por TIPO de campaña (catálogo/Pmax vs búsqueda vs display...).
   const tiposMap = {};
-  for (const c of campanas) {
+  for (const c of vigentes) {
     const t = tiposMap[c.tipo] || { tipo: c.tipo, canal: c.canal, gasto: 0, ingresos: 0, compras: 0, sesiones: 0, clicks: 0, consultas: 0, campanas: 0 };
     t.gasto = round(t.gasto + c.gasto, 0);
     t.ingresos = round(t.ingresos + c.ingresos, 0);
@@ -649,7 +992,7 @@ async function paidPerformance({ days = 30, valorConsulta = 0 } = {}) {
   /* Los DOS negocios por separado: es la lectura que faltaba. La sección
    * /mayorista no tiene carrito, así que su conversión es la consulta. */
   const porSegmento = ['minorista', 'mixta', 'mayorista'].map((seg) => {
-    const cs = campanas.filter((c) => c.segmento === seg);
+    const cs = vigentes.filter((c) => c.segmento === seg);
     if (!cs.length) return null;
     const gasto = round(cs.reduce((a, c) => a + c.gasto, 0), 0);
     const ingresos = round(cs.reduce((a, c) => a + c.ingresos, 0), 0);
@@ -681,6 +1024,19 @@ async function paidPerformance({ days = 30, valorConsulta = 0 } = {}) {
   totales.cac = totales.compras ? round(totales.gasto / totales.compras, 0) : null;
   totales.resultado = round(totales.ingresos - totales.gasto, 0);
 
+  // Lo que quedó afuera de la comparación por no correr más: plata gastada de
+  // verdad en el período, informada aparte (nunca escondida).
+  const noVigentes = campanas.filter((c) => !c.vigente);
+  const fueraRow = addRow(googleFuera, metaFuera);
+  const fuera = {
+    campanas: noVigentes.length,
+    gasto: round(googleFuera.gasto + meta.campaigns.filter((c) => !c.vigente).reduce((a, c) => a + c.gasto, 0), 0),
+    ingresos: round(fueraRow.ingresos, 0),
+    compras: round(fueraRow.compras, 1),
+    sesiones: fueraRow.sesiones,
+    detalle: noVigentes.map((c) => ({ canal: c.canal, campana: c.campana, estado: c.estado, gasto: c.gasto, ingresos: c.ingresos, ultimoGasto: c.ultimoGasto })),
+  };
+
   const canales = [canalMeta, canalGoogle]
     .filter((c) => c.gasto > 0 || c.sesiones > 0)
     .map((c) => ({ ...c, pctGasto: totales.gasto ? round((c.gasto / totales.gasto) * 100, 1) : 0 }));
@@ -692,7 +1048,7 @@ async function paidPerformance({ days = 30, valorConsulta = 0 } = {}) {
 
   /* Embudo del negocio MAYORISTA: no termina en una compra sino en una consulta.
    * Sin esto, las campañas que mandan a /mayorista parecen no convertir nunca. */
-  const mayoristas = campanas.filter((c) => c.segmento === 'mayorista' || c.segmento === 'mixta');
+  const mayoristas = vigentes.filter((c) => c.segmento === 'mayorista' || c.segmento === 'mixta');
   const sum = (k) => mayoristas.reduce((a, c) => a + (c[k] || 0), 0);
   const embudoMayorista = mayoristas.length ? {
     label: 'Pauta que va a la sección mayorista',
@@ -725,21 +1081,24 @@ async function paidPerformance({ days = 30, valorConsulta = 0 } = {}) {
 
   // Cuánto de lo que se vende NO viene de la pauta (contexto: sin esto el ROAS
   // se lee como si la tienda dependiera sólo de los anuncios).
+  // Las ventas de campañas que ya no corren siguen siendo de pauta, no orgánicas.
   const totalSitio = Object.values(byChannel).reduce((a, r) => addRow(a, r), emptyRow());
+  const pautaIngresos = totales.ingresos + fuera.ingresos;
   const organico = {
-    ingresos: round(totalSitio.ingresos - totales.ingresos, 0),
-    compras: round(totalSitio.compras - totales.compras, 1),
-    pctIngresos: totalSitio.ingresos ? round(((totalSitio.ingresos - totales.ingresos) / totalSitio.ingresos) * 100, 1) : null,
+    ingresos: round(totalSitio.ingresos - pautaIngresos, 0),
+    compras: round(totalSitio.compras - totales.compras - fuera.compras, 1),
+    pctIngresos: totalSitio.ingresos ? round(((totalSitio.ingresos - pautaIngresos) / totalSitio.ingresos) * 100, 1) : null,
   };
 
   return {
     ok: true,
     days,
-    desde: new Date(Date.now() - days * 864e5).toISOString().slice(0, 10),
-    hasta: new Date(Date.now() - 864e5).toISOString().slice(0, 10),
+    desde,
+    hasta,
     moneda: 'ARS',
     canales,
     totales,
+    fuera,
     tipos,
     porSegmento,
     campanas,
@@ -747,9 +1106,10 @@ async function paidPerformance({ days = 30, valorConsulta = 0 } = {}) {
     embudoMayorista,
     organico,
     valorConsulta,
-    reasignacion: buildReassignment(campanas, totales),
+    reasignacion: buildReassignment(vigentes, totales),
     avisos,
-    metodologia: 'Gasto de Meta: API de Meta. Gasto de Google: el que Analytics recibe de la cuenta vinculada. Compras e ingresos de los DOS canales: Google Analytics 4, última interacción (misma vara). Lo que cada plataforma se atribuye a sí misma se muestra aparte. Las campañas que van a /mayorista se miden por CONSULTAS, no por ventas: en esa sección no hay carrito.',
+    alertas,
+    metodologia: 'Gasto de Meta: API de Meta, de todas las cuentas por las que pasaron las campañas que ve Analytics. Gasto de Google: el que Analytics recibe de la cuenta vinculada (controlado contra la API de Google Ads). Compras e ingresos de los DOS canales: Google Analytics 4, última interacción (misma vara). Sólo entran en la comparación las campañas que siguen corriendo: las pausadas o eliminadas se informan aparte. Lo que cada plataforma se atribuye a sí misma y las ventas reales de Tiendanube se muestran como control. Las campañas que van a /mayorista se miden por CONSULTAS, no por ventas: en esa sección no hay carrito.',
   };
 }
 
@@ -762,10 +1122,14 @@ function digest(rep) {
   lineas.push(`PERÍODO: últimos ${rep.days} días (${rep.desde} a ${rep.hasta}). Moneda: pesos argentinos.`);
   lineas.push(`TOTAL PAUTA: gasto ${money(rep.totales.gasto)} · ingresos atribuidos ${money(rep.totales.ingresos)} · ROAS ${roas(rep.totales.roas)} · ${rep.totales.compras} compras · CAC ${money(rep.totales.cac)}.`);
   lineas.push(`VENTAS QUE NO VIENEN DE LA PAUTA: ${money(rep.organico.ingresos)} (${rep.organico.pctIngresos}% del total del sitio).`);
-  lineas.push('\nPOR CANAL (misma vara: Analytics, última interacción):');
+  if (rep.fuera && rep.fuera.campanas) {
+    lineas.push(`CAMPAÑAS QUE YA NO CORREN (pausadas o eliminadas; NO entran en la comparación ni se recomienda nada sobre ellas): ${rep.fuera.campanas} · gastaron ${money(rep.fuera.gasto)} en el período antes de cortarse · Analytics les anota ${money(rep.fuera.ingresos)}.`);
+  }
+  lineas.push('\nPOR CANAL (misma vara: Analytics, última interacción; sólo campañas que siguen corriendo):');
   for (const c of rep.canales) {
     lineas.push(`- ${c.nombre}: gasto ${money(c.gasto)} (${c.pctGasto}% del total) · ingresos ${money(c.ingresos)} · ROAS ${roas(c.roas)} · ${c.compras} compras · CAC ${money(c.cac)} · ${c.sesiones} sesiones · conversión ${c.convPct ?? 's/d'}% · CPC ${money(c.cpc)} · consultas ${c.consultas}` +
-      (c.propio ? ` || lo que la plataforma se atribuye a sí misma: ${c.propio.compras} compras / ${money(c.propio.ingresos)} / ROAS ${roas(c.propio.roas)}${c.propio.mensajes ? ` + ${c.propio.mensajes} conversaciones de WhatsApp` : ''}` : ''));
+      (c.propio ? ` || lo que la plataforma se atribuye a sí misma: ${c.propio.compras} compras / ${money(c.propio.ingresos)} / ROAS ${roas(c.propio.roas)}${c.propio.mensajes ? ` + ${c.propio.mensajes} conversaciones de WhatsApp` : ''}` : '') +
+      (c.reales ? ` || VENTAS REALES en Tiendanube (pedidos pagos que entraron por un anuncio de este canal): ${c.reales.pedidos} pedidos / ${money(c.reales.ingresos)} / ROAS ${roas(c.reales.roas)}` : ''));
   }
   lineas.push('\nLOS DOS NEGOCIOS POR SEPARADO (la tienda tiene una sección MAYORISTA con "Consultar precio" y SIN carrito, y una sección minorista donde sí se compra online):');
   for (const s of rep.porSegmento || []) {
@@ -785,7 +1149,7 @@ function digest(rep) {
     lineas.push(`- ${t.tipo}: ${t.campanas} campaña(s) · gasto ${money(t.gasto)} (${t.pctGasto}%) · ingresos ${money(t.ingresos)} · ROAS ${roas(t.roas)} · CAC ${money(t.cac)} · ${t.consultas} consultas (costo por consulta ${money(t.cpl)})`);
   }
   lineas.push('\nCAMPAÑAS (ordenadas por gasto). "destino" dice a qué negocio manda cada una:');
-  for (const c of rep.campanas.slice(0, 18)) {
+  for (const c of rep.campanas.filter((x) => x.vigente).slice(0, 18)) {
     lineas.push(`- [${c.canal}] ${c.campana} (${c.tipo}) destino=${c.segmento.toUpperCase()}${c.segmento === 'mixta' ? ` (${c.pctMayorista}% a mayorista)` : ''}: gasto ${money(c.gasto)} · ${c.sesiones} sesiones · ${c.compras} compras · ingresos ${money(c.ingresos)} · ROAS ${roas(c.roas)} · ${c.consultas} consultas · costo por consulta ${money(c.cpl)} · CPC ${money(c.cpc)}${c.frecuencia ? ` · frecuencia ${c.frecuencia}` : ''}${c.ingresosEstimados ? ' [ingresos repartidos por gasto: Meta sin UTM]' : ''}`);
   }
   lineas.push('\nEMBUDO POR CANAL (sesiones):');
@@ -802,6 +1166,7 @@ function digest(rep) {
     const r = rep.reasignacion;
     lineas.push(`\nREASIGNACIÓN CALCULADA POR EL SISTEMA: mover ${money(r.monto)} desde campañas con ROAS<1 (gastan ${money(r.montoEnRojo)}, ROAS ${roas(r.roasOrigen)}) hacia las de ROAS>=2 (ROAS ${roas(r.roasDestino)}, proyectado ${roas(r.roasProyectado)} al escalar). Eso serían ${money(r.ingresosExtra)} de FACTURACIÓN adicional (no ganancia neta) con el mismo presupuesto total.`);
   }
+  if ((rep.alertas || []).length) lineas.push(`\nALERTA (tenela en cuenta en todo el análisis): ${rep.alertas.join(' | ')}`);
   if (rep.avisos.length) lineas.push(`\nLIMITACIONES DE LA MEDICIÓN: ${rep.avisos.join(' | ')}`);
   return lineas.join('\n');
 }

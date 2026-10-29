@@ -5090,7 +5090,8 @@ function renderAdsPerformance(d) {
   const resultadoPos = t.resultado >= 0;
 
   /* --- 1. El resumen de plata: lo que entra contra lo que sale --- */
-  const resumen = `
+  const alertas = (d.alertas || []).map((a) => `<div class="panel ads-alerta">${icon('alert')} <span>${esc(a)}</span></div>`).join('');
+  const resumen = `${alertas}
     <div class="panel ads-hero">
       <div class="ads-kpis">
         <div class="ads-kpi"><span>Invertido en pauta</span><b>${adsMoney(t.gasto)}</b><i>últimos ${d.days} días</i></div>
@@ -5100,6 +5101,7 @@ function renderAdsPerformance(d) {
         <div class="ads-kpi"><span>Costo por venta</span><b>${adsMoney(t.cac)}</b><i>promedio de los dos</i></div>
       </div>
       <p class="hint" style="margin:14px 0 0;">${icon('info')} Además, <b>${adsMoney(d.organico.ingresos)}</b> de facturación (${d.organico.pctIngresos}% del total del sitio) llegó <b>sin pasar por la pauta</b>: orgánico, directo y referidos.</p>
+      ${d.fuera && d.fuera.campanas ? `<p class="hint" style="margin:8px 0 0;">${icon('info')} Sólo se comparan las campañas que <b>siguen corriendo</b>. Quedan afuera ${d.fuera.campanas} pausada(s) o eliminada(s) que en el período gastaron <b>${adsMoney(d.fuera.gasto)}</b> y tienen ${adsMoney(d.fuera.ingresos)} de ventas anotadas: están al final de la pestaña Campañas, marcadas.</p>` : ''}
     </div>`;
 
   /* --- 2. Canal contra canal, con la misma vara --- */
@@ -5123,6 +5125,11 @@ function renderAdsPerformance(d) {
         <b>Lo que ${esc(c.nombre)} dice de sí mismo:</b> ${adsCount(c.propio.compras)} compras · ${adsMoney(c.propio.ingresos)} · ROAS ${adsRoas(c.propio.roas)}${c.propio.mensajes ? ` · ${c.propio.mensajes} charlas de WhatsApp` : ''}.
         <span class="hint" style="display:block;margin-top:4px;">Se atribuye toda venta de alguien que vio un anuncio, aunque haya entrado por Google. El de arriba (${adsRoas(c.roas)}) es el comparable.</span>
       </div>` : ''}
+      ${c.reales ? `<div class="ac-self">
+        <b>Ventas reales en Tiendanube:</b> ${adsCount(c.reales.pedidos)} pedido(s) pagos · ${adsMoney(c.reales.ingresos)} · ROAS ${adsRoas(c.reales.roas)}.
+        <span class="hint" style="display:block;margin-top:4px;">Pedidos que entraron por un anuncio de este canal (UTM o clic).${c.id === 'meta' ? ' Analytics se pierde algunas compras, sobre todo las del navegador de Instagram.' : ''}${c.reales.incluyeNoVigentes ? ' En Google el pedido no dice de qué campaña vino: incluye las que ya no corren y se compara contra todo su gasto.' : ''}</span>
+      </div>` : ''}
+      ${c.cuentas && c.cuentas.some((x) => x.gasto > 0) ? `<p class="hint" style="margin:10px 0 0;">Gasto leído de ${c.cuentas.filter((x) => x.gasto > 0).map((x) => `<b>${esc(x.nombre)}</b> (${adsMoney(x.gasto)}${x.campanasVigentes ? '' : ', ya no corre'})`).join(' · ')}.</p>` : ''}
       ${c.consultas ? `<p class="hint" style="margin:10px 0 0;">${c.consultas} sesión(es) abrieron una consulta de WhatsApp o el cotizador (mayorista).</p>` : ''}
     </div>`;
 
@@ -5208,11 +5215,16 @@ function renderAdsPerformance(d) {
     </div>`;
 
   /* --- 5. Campaña por campaña, con veredicto --- */
-  const VERD = { escalar: 'Escalar', mantener: 'Mantener', ajustar: 'Revisar', revisar: 'Revisar', apagar: 'Apagar', 'sin-datos': 'Sin datos' };
+  const VERD = { escalar: 'Escalar', mantener: 'Mantener', ajustar: 'Revisar', revisar: 'Revisar', apagar: 'Apagar', 'sin-datos': 'Sin datos', 'no-corre': 'Ya no corre' };
+  // Estado de hoy en la plataforma: las que no corren van al final y no se comparan.
+  const ESTADO = { activa: 'Activa', pausada: 'Pausada', eliminada: 'Eliminada', archivada: 'Archivada', finalizada: 'Finalizada' };
+  const fechaCorta = (iso) => (iso ? iso.split('-').reverse().slice(0, 2).join('/') : '');
+  const estadoTag = (c) => (c.estado ? `<span class="estado-tag ${c.vigente ? 'on' : 'off'}" title="${c.vigente ? 'Sigue corriendo' : `Ya no corre${c.ultimoGasto ? `: gastó hasta el ${fechaCorta(c.ultimoGasto)}` : ' y no gastó en el período'}. No entra en la comparación`}">${ESTADO[c.estado] || esc(c.estado)}</span>` : '');
+  const primeraFuera = d.campanas.findIndex((c) => !c.vigente);
   const campanas = `
     <div class="panel">
       ${panelHead('Campaña por campaña',
-    'Las campañas marcadas Mayorista mandan a la sección sin carrito: ahí el ROAS no aplica y se juzgan por consultas y por lo que cuesta cada una. "Apagar" sólo aparece cuando una campaña no trajo ni ventas ni consultas.')}
+    'Las campañas marcadas Mayorista mandan a la sección sin carrito: ahí el ROAS no aplica y se juzgan por consultas y por lo que cuesta cada una. "Apagar" sólo aparece cuando una campaña no trajo ni ventas ni consultas. Las pausadas o eliminadas van al final y no entran en la comparación.')}
       <div class="ads-table-wrap">
         <table class="ads-table">
           <thead><tr>
@@ -5221,14 +5233,14 @@ function renderAdsPerformance(d) {
             <th class="r">Consultas</th><th class="r">c/consulta</th><th>Qué hacer</th>
           </tr></thead>
           <tbody>
-            ${d.campanas.map((c) => `<tr>
-              <td class="c-name"><span class="ch-dot ${c.canal}"></span>${esc(c.campana)}${c.frecuencia && c.frecuencia >= 3 ? ` <span class="badge qa-warn" title="Cada persona vio el anuncio ${String(c.frecuencia).replace('.', ',')} veces: pasando de 3 se quema la audiencia">frec. ${String(c.frecuencia).replace('.', ',')}</span>` : ''}</td>
+            ${d.campanas.map((c, i) => `${i === primeraFuera ? `<tr class="fuera-sep"><td colspan="10">Ya no corren — no entran en la comparación${d.fuera ? ` · gastaron ${adsMoney(d.fuera.gasto)} en el período` : ''}</td></tr>` : ''}<tr class="${c.vigente ? '' : 'fuera'}">
+              <td class="c-name"><span class="ch-dot ${c.canal}"></span>${esc(c.campana)} ${estadoTag(c)}${c.frecuencia && c.frecuencia >= 3 ? ` <span class="badge qa-warn" title="Cada persona vio el anuncio ${String(c.frecuencia).replace('.', ',')} veces: pasando de 3 se quema la audiencia">frec. ${String(c.frecuencia).replace('.', ',')}</span>` : ''}${c.vigente ? '' : `<span class="c-type-sub">${[c.cuenta ? esc(c.cuenta) : '', c.ultimoGasto ? `gastó hasta el ${fechaCorta(c.ultimoGasto)}` : 'sin gasto en el período: ventas de links viejos'].filter(Boolean).join(' · ')}</span>`}</td>
               <td class="c-type"><span class="seg-tag ${c.segmento}" title="${c.segmento === 'mayorista' ? 'Manda a /mayorista: ahí no hay carrito, se mide por consultas' : c.segmento === 'mixta' ? `Manda tráfico a las dos secciones (${c.pctMayorista}% a mayorista)` : 'Manda a la tienda: se mide por ventas'}">${c.segmento === 'mayorista' ? 'Mayorista' : c.segmento === 'mixta' ? 'Mixta' : 'Tienda'}</span>
                 <span class="c-type-sub">${esc(String(c.tipo).replace(/^(Meta|Google) · /, ''))}</span></td>
               <td class="r">${adsMoney(c.gasto)}</td>
               <td class="r">${adsCount(c.sesiones)}</td>
               <td class="r">${adsCount(c.compras)}</td>
-              <td class="r">${adsMoney(c.ingresos)}${c.ingresosEstimados ? '<span class="est" title="Repartido según el gasto: Analytics no identifica esta campaña">~</span>' : ''}</td>
+              <td class="r">${adsMoney(c.ingresos)}${c.ingresosEstimados ? '<span class="est" title="Repartido según el gasto: Analytics no identifica esta campaña">~</span>' : ''}${c.realesPedidos ? `<span class="c-type-sub" title="Pedidos pagos de Tiendanube que entraron por esta campaña">real: ${adsMoney(c.realesIngresos)}</span>` : ''}</td>
               <td class="r roas ${c.segmento === 'mayorista' ? 'nd' : roasClass(c.roas)}">${c.segmento === 'mayorista' ? '<span class="na" title="En la sección mayorista no hay carrito: el ROAS no aplica">n/a</span>' : adsRoas(c.roas)}</td>
               <td class="r">${c.consultas ? adsCount(c.consultas) : '—'}</td>
               <td class="r">${adsMoney(c.cpl)}</td>
