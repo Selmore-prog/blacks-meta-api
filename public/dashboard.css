@@ -3141,6 +3141,10 @@ button .cost-tag { margin-left: 8px; }
 .cr-manual > summary { cursor: pointer; font-size: 12.5px; color: var(--muted); }
 .cr-manual code { word-break: break-all; }
 .cr-aj-pie { display: flex; justify-content: flex-end; margin-top: 14px; }
+.cr-aj-ancho { grid-column: 1 / -1; }
+.cr-etapas { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr)); gap: 14px; }
+.cr-etapa { display: flex; flex-direction: column; gap: 7px; min-width: 0; font-size: 13px; }
+.cr-grupo { text-align: center; border-left: 1px solid var(--line); }
 /* 9 tarjetas: en el celular van de a dos (las de Estadísticas, de a una, acá
    obligaban a scrollear 9 pantallas antes de llegar a la tabla). */
 #view-carritos .st-kpis { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); }

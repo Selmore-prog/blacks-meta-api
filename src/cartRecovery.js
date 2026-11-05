@@ -86,22 +86,25 @@ async function setModo(modo) {
 const SIN_WORKER_NUEVO = 'El Worker de Cloudflare todavía no tiene esta función: hay que pegar el worker.js '
   + 'actualizado (repo del theme, backend/lookbook-discounts) y desplegarlo.';
 
-// Horario de envío, 2º aviso y aviso de pago rechazado. El Worker valida y
-// devuelve la config completa.
+// Horario de envío, 2º aviso, aviso de pago rechazado y mensaje por etapa. El
+// Worker valida y devuelve la config completa.
 async function setConfig(cambios) {
   const body = {};
   if (cambios && cambios.horario) body.horario = cambios.horario;
   if (cambios && cambios.segundo) body.segundo = cambios.segundo;
   if (cambios && cambios.pago) body.pago = cambios.pago;
+  if (cambios && cambios.etapas) body.etapas = cambios.etapas;
   if (!Object.keys(body).length) throw errorCon(400, 'No llegó ningún ajuste para guardar.');
   const data = await llamarWorker('/carritos-config', { method: 'POST', body });
   if (!data || !data.config) throw errorCon(502, SIN_WORKER_NUEVO);
   return data;
 }
 
-// Manda a revisión de Meta la plantilla del 2º aviso o la de pago rechazado.
+const PLANTILLAS = ['segundo', 'pago', 'envio_costo', 'sin_envio', 'envio_gratis', 'solo_pagar'];
+
+// Manda a revisión de Meta una plantilla del Worker (todas menos la genérica).
 async function crearPlantilla(cual) {
-  if (cual !== 'segundo' && cual !== 'pago') throw errorCon(400, 'La plantilla tiene que ser "segundo" o "pago".');
+  if (!PLANTILLAS.includes(cual)) throw errorCon(400, `La plantilla tiene que ser una de: ${PLANTILLAS.join(', ')}.`);
   const data = await llamarWorker('/carritos-plantillas', { method: 'POST', body: { cual } });
   if (!data || !data.estado) throw errorCon(502, SIN_WORKER_NUEVO);
   return data;

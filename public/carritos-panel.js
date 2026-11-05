@@ -16,8 +16,8 @@
  * - Compras: pedidos de Tiendanube hasta 7 días después del aviso, del mismo
  *   carrito o de la misma persona (email o celular).
  *
- * Los ajustes (horario de envío, 2º aviso, aviso de pago rechazado) viven en el
- * KV del Worker: el cron los lee en cada corrida.
+ * Los ajustes (horario de envío, 2º aviso, aviso de pago rechazado, mensaje por
+ * etapa) viven en el KV del Worker: el cron los lee en cada corrida.
  *
  * Depende de los helpers de dashboard.js (api, esc, toast, tip, icon, skeleton).
  * Backend: src/cartRecovery.js → /api/carritos/stats, /modo, /config,
@@ -127,8 +127,19 @@ const CR_ESTADO_PLANTILLA = {
   NO_EXISTE: ['', 'Todavía no está creada'],
 };
 
+// Las etapas con mensaje propio, en el orden en que se abandona.
+const CR_ETAPAS = [
+  ['envio_costo', 'Eligió un envío con costo'],
+  ['sin_envio', 'No eligió envío (menos de $45.000)'],
+  ['envio_gratis', 'Envío gratis, sin medio de pago'],
+  ['solo_pagar', 'Eligió medio de pago, no intentó'],
+];
+
 function crPlantilla(cual, p) {
   if (!p) return '';
+  // Cada variable con su ejemplo: las de etapa tienen varias.
+  const ejemplos = p.ejemplos || ['Sofía'];
+  const mensaje = String(p.texto || '').replace(/\{\{(\d+)\}\}/g, (m, n) => ejemplos[Number(n) - 1] ?? m);
   const [clase, texto] = CR_ESTADO_PLANTILLA[p.estado] || ['', p.estado ? `Estado: ${p.estado}` : 'No pude consultar a Meta'];
   const motivo = p.motivo_rechazo ? ` · ${esc(p.motivo_rechazo)}` : '';
   const crear = p.estado === 'NO_EXISTE' || p.estado === 'REJECTED'
@@ -141,9 +152,23 @@ function crPlantilla(cual, p) {
       ${crear}
     </div>
     ${demora}
-    <div class="cr-burbuja">${esc(String(p.texto || '').replace('{{1}}', 'Sofía'))}
+    <div class="cr-burbuja">${esc(mensaje)}
       <span class="cr-burbuja-btn">${icon('cart')} ${esc(p.boton || '')}</span></div>
   </div>`;
+}
+
+// Worker sin actualizar: no tiene etapas y la sección no aparece.
+function crAjusteEtapas(c, p) {
+  if (!c.etapas) return '';
+  return `<section class="cr-aj cr-aj-ancho">
+        <label class="ia-check"><input type="checkbox" id="cr-etapas-on"${c.etapas.activo ? ' checked' : ''}> <b>Mensaje según la etapa</b></label>
+        <p class="hint">En vez del aviso común, cada carrito recibe el mensaje de la etapa donde se quedó, con su envío y su fecha reales.
+          Sólo sale el que Meta ya aprobó: los demás siguen con el aviso común, igual que si esto está apagado.
+          Apagado también se anota la etapa de cada aviso, así la tabla "Recuperación por etapa" tiene con qué comparar.</p>
+        <div class="cr-etapas">
+          ${CR_ETAPAS.map(([cual, titulo]) => `<div class="cr-etapa"><b>${esc(titulo)}</b>${crPlantilla(cual, p[cual])}</div>`).join('')}
+        </div>
+      </section>`;
 }
 
 function crLecturaAjuste(w) {
@@ -171,6 +196,7 @@ function crAjustes(e) {
     e.horario ? `Envíos ${e.horario.texto}` : '',
     `2º aviso ${c.segundo.activo ? `a las ${c.segundo.horas} h` : 'apagado'}`,
     `pago rechazado ${c.pago.activo ? 'activo' : 'apagado'}`,
+    c.etapas ? `mensaje por etapa ${c.etapas.activo ? 'activo' : 'apagado'}` : '',
     `lectura por mensaje ${w.conectado ? 'conectada' : 'sin conectar'}`,
   ].filter(Boolean).join(' · ');
 
@@ -205,6 +231,8 @@ function crAjustes(e) {
         ${crPlantilla('pago', p.pago)}
       </section>
 
+      ${crAjusteEtapas(c, p)}
+
       <section class="cr-aj">
         <h4>Leído por mensaje ${tip('WhatsApp avisa cuándo se entregó y cuándo se leyó cada mensaje. Quien tiene apagada la confirmación de lectura (los tildes azules) nunca figura como leído aunque lo haya leído.')}</h4>
         ${crLecturaAjuste(w)}
@@ -238,12 +266,15 @@ async function carritosGuardarAjustes(boton) {
     segundo: { activo: document.getElementById('cr-seg-on').checked, horas: Number(document.getElementById('cr-seg-horas').value) },
     pago: { activo: document.getElementById('cr-pago-on').checked },
   };
+  const etapasOn = document.getElementById('cr-etapas-on');
+  if (etapasOn) cambios.etapas = { activo: etapasOn.checked };
   if (cambios.horario.desde > cambios.horario.hasta) { toast('La hora de inicio tiene que ser anterior a la de fin.', 'err'); return; }
   if (!dias.length) { toast('Elegí al menos un día de envío.', 'err'); return; }
 
   const prende = [];
   if (cambios.segundo.activo && !antes.segundo.activo) prende.push(`un 2º WhatsApp ${cambios.segundo.horas} h después del primero a quien no compró ni respondió`);
   if (cambios.pago.activo && !antes.pago.activo) prende.push('el mensaje de pago rechazado a quien intentó pagar y no pudo');
+  if (cambios.etapas && cambios.etapas.activo && !(antes.etapas && antes.etapas.activo)) prende.push('el mensaje según la etapa, en vez del aviso común, en las plantillas que Meta ya aprobó');
   if (prende.length && !window.confirm(`¿Activar ${prende.join(' y ')}?\n\nSale solo, desde el número de la empresa, en el horario elegido.`)) return;
 
   crState.guardando = true;
@@ -253,7 +284,8 @@ async function carritosGuardarAjustes(boton) {
       method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(cambios),
     });
     const pend = (cual) => cambios[cual].activo && e.plantillas && e.plantillas[cual] && e.plantillas[cual].estado !== 'APPROVED';
-    toast(pend('segundo') || pend('pago')
+    const etapaPendiente = cambios.etapas && cambios.etapas.activo && CR_ETAPAS.some(([cual]) => e.plantillas && e.plantillas[cual] && e.plantillas[cual].estado !== 'APPROVED');
+    toast(pend('segundo') || pend('pago') || etapaPendiente
       ? 'Ajustes guardados. Ojo: lo que usa una plantilla sin aprobar empieza a salir cuando Meta la apruebe.'
       : 'Ajustes guardados: valen desde la próxima revisión.', 'ok');
     crState.ajustesAbiertos = true;
@@ -267,7 +299,8 @@ async function carritosGuardarAjustes(boton) {
 }
 
 async function carritosCrearPlantilla(cual, boton) {
-  const nombre = cual === 'segundo' ? 'del 2º aviso' : 'de pago rechazado';
+  const etapa = CR_ETAPAS.find(([k]) => k === cual);
+  const nombre = etapa ? `de la etapa "${etapa[1]}"` : (cual === 'segundo' ? 'del 2º aviso' : 'de pago rechazado');
   if (!window.confirm(`¿Mandar la plantilla ${nombre} a revisión de Meta?\n\nSe crea en el WhatsApp de la empresa con el texto que ves acá. No se le manda nada a nadie: sólo queda lista para usar cuando Meta la apruebe.`)) return;
   boton.disabled = true;
   try {
@@ -416,6 +449,28 @@ function crTablaVentas(ventas) {
   </div>`;
 }
 
+/* Cada etapa con su mensaje al lado de la misma etapa con el aviso común. */
+function crTablaEtapas(filas) {
+  if (!filas || !filas.length) return '';
+  const celdas = (l) => (l.enviados
+    ? `<td class="num">${crNum(l.enviados)}</td>
+       <td class="num">${crNum(l.compras)}<span class="st-prod-sub cr-sub">${l.tasa === null ? '' : `${Number(l.tasa).toLocaleString('es-AR', { maximumFractionDigits: 1 })}%`}</span></td>
+       <td class="num">${crMoney(l.ingresos)}${l.ingresos_pendientes ? `<span class="st-prod-sub cr-sub">+ ${crMoney(l.ingresos_pendientes)} pendiente</span>` : ''}</td>`
+    : '<td class="num cr-muted">—</td><td class="num cr-muted">—</td><td class="num cr-muted">—</td>');
+  const cuerpo = filas.map((f) => `<tr><td><b>${esc(f.etiqueta || f.segmento)}</b></td>${celdas(f.propia)}${celdas(f.generica)}</tr>`).join('');
+  return `<div class="panel" style="margin-bottom:18px;">
+    ${panelHead('Recuperación por etapa', 'Dónde se había quedado cada carrito cuando salió el aviso, y qué pasó según el mensaje que recibió. Compraron = avisos con al menos un pedido, igual que la Conversión de arriba. "Antes de separar por etapa" son los avisos viejos, de los que no se guardó la etapa.')}
+    <div class="st-block"><table class="st-table cr-table">
+      <thead>
+        <tr><th></th><th colspan="3" class="cr-grupo">Con su mensaje</th><th colspan="3" class="cr-grupo">Con el aviso común</th></tr>
+        <tr><th>Etapa</th><th class="num">Avisos</th><th class="num">Compraron</th><th class="num">Recuperado</th><th class="num">Avisos</th><th class="num">Compraron</th><th class="num">Recuperado</th></tr>
+      </thead>
+      <tbody>${cuerpo}</tbody>
+    </table></div>
+    <p class="hint" style="margin:8px 0 0;">No es un experimento: compara períodos distintos (ojo con el Cyber), y con tan pocos carritos por etapa, 1 o 2 compras de diferencia no alcanzan para decidir nada.</p>
+  </div>`;
+}
+
 const CR_FILTROS = {
   todos: { label: 'Todos', ok: () => true },
   compraron: { label: 'Compraron', ok: (m) => !!m.compra },
@@ -447,7 +502,7 @@ function crPintarMensajes() {
   const filas = lista.map((m) => `<tr>
     <td><b>${esc(m.nombre || '—')}</b>${m.tipo === 'pago' ? ' <span class="badge cr-pago" title="Intentó pagar y la tarjeta no pasó">Pago rechazado</span>' : ''}<span class="st-prod-sub cr-sub">${esc(m.tel || '')}</span></td>
     <td class="num" title="${esc(m.productos || '')}">${crMoney(m.total)}<span class="st-prod-sub cr-sub">${crNum(m.items)} producto${m.items === 1 ? '' : 's'}</span></td>
-    <td class="cr-nowrap">${esc(crFechaHora(m.ts))}</td>
+    <td class="cr-nowrap">${esc(crFechaHora(m.ts))}${m.segmento && m.segmento !== 'sin_dato' ? `<span class="st-prod-sub cr-sub" title="${esc(m.plantilla || '')}">${esc(m.etapa || m.segmento)}</span>` : ''}</td>
     <td>${wa(m)}${m.wa === 'error' && m.error ? `<span class="st-prod-sub cr-sub cr-err-txt">${esc(m.error)}</span>` : ''}${m.lectura ? `<span class="st-prod-sub cr-sub">${crLectura(m.lectura)}</span>` : ''}</td>
     <td>${crSegundo(m)}</td>
     <td>${m.respondio ? `Sí · ${esc(crFechaHora(m.respondio))}` : '<span class="cr-muted">—</span>'}</td>
@@ -528,6 +583,8 @@ function crRender() {
       ${panelHead('Día por día', 'Las barras son los avisos que salieron cada día; la línea, las compras recuperadas de esos avisos, en el día en que se hizo el pedido.')}
       ${crChart(d.por_dia)}
     </div>
+
+    ${crTablaEtapas(d.por_etapa)}
 
     ${crTablaVentas(d.ventas)}
 
