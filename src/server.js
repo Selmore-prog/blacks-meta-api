@@ -2091,8 +2091,14 @@ app.post('/api/catalog/sync', wrap(async (req, res) => {
 // así el catálogo de anuncios amanece alineado con el stock del día.
 app.post('/api/cron/sync-catalog', authCron, wrap(async (req, res) => {
   if (await metaPausa.estaPausado('sync')) return res.json(metaPausa.respuestaPausada('sync'));
-  const { syncCatalogAvailability } = require('./catalogSync');
-  res.json({ ok: true, ...(await syncCatalogAvailability({ apply: true })) });
+  const { syncCatalogAvailability, syncCatalogPrices } = require('./catalogSync');
+  const disponibilidad = await syncCatalogAvailability({ apply: true });
+  // Precios también (16-nov-2026): la integración nativa los dejaba viejos y el
+  // remarketing de catálogo mostraba precios que la tienda ya no cobraba. Si
+  // falla no frena lo de stock, que ya se aplicó.
+  let precios;
+  try { precios = await syncCatalogPrices({ apply: true }); } catch (err) { precios = { error: err.message }; }
+  res.json({ ok: true, ...disponibilidad, precios });
 }));
 
 /* --------------------- CONJUNTO CURADO DE ANUNCIOS ---------------------- *
