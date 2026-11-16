@@ -259,8 +259,131 @@ async function syncCatalogAvailability({ apply = false, only = null } = {}) {
   return summary;
 }
 
+/* ------------------------------- PRECIOS ---------------------------------- *
+ * POR QUÉ (16-nov-2026): la integración nativa Tiendanube→Meta tampoco mueve
+ * los PRECIOS. El 16-nov el catálogo decía jean $38.999 (la tienda cobraba
+ * $45.299 desde el 12-nov), remera Gurre $12.999 (cobraba $18.999), chomba
+ * $26.999 ($33.999), bermuda náutica $13.999 ($28.999)... y el remarketing de
+ * catálogo mostraba esos números: el que hacía clic veía otro precio en la
+ * ficha. Lo que dice un aviso obliga (Ley 24.240 art. 8) y además se van.
+ *
+ * Misma lógica que la disponibilidad: retailer_id = id de variante de
+ * Tiendanube, la fuente es products_cache y sólo se pisan price/sale_price.
+ *  · price      = precio de lista de la variante (el tachado en la ficha).
+ *  · sale_price = precio promocional, si es menor que el de lista. Si la
+ *                 variante no tiene promoción se manda vacío para que Meta no
+ *                 siga mostrando una promo que ya no existe.
+ *  · KITS: la API da la suma de los componentes; el % del kit sólo está en la
+ *    página pública (LS.kit_discount_percent), igual que en el verificador de
+ *    precios de anuncios. Si la página no responde, ese kit no se toca (más
+ *    vale dejarlo como está que mandar la suma sin descuento).
+ * ------------------------------------------------------------------------- */
+
+/** "$48.999,00" (formato de la API de catálogos) → 48999. */
+function metaMoney(s) {
+  if (s === null || s === undefined || s === '') return null;
+  const n = Number(String(s).replace(/[^\d,]/g, '').replace(',', '.'));
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+const r2 = (n) => Math.round(n * 100) / 100;
+
+async function syncCatalogPrices({ apply = false } = {}) {
+  const catalogId = config.meta.catalogId;
+  if (!catalogId) throw new Error('Falta META_CATALOG_ID (el ID del catálogo de Meta a sincronizar).');
+  const { fetchKitDiscountPct } = require('./tiendanube');
+
+  const [items, { rows }] = await Promise.all([
+    fetchAllCatalogItems(catalogId, 'retailer_id,name,price,sale_price,url'),
+    pool.query('SELECT id, name, raw FROM products_cache'),
+  ]);
+
+  // id de variante → { lista, final } esperados en Meta.
+  const esperado = new Map();
+  // Los KITS no usan el id de variante: Meta tiene un item por combinación de
+  // colores con retailer_id propio ("kc-…"), así que se cruzan por el link.
+  const kitPorRuta = new Map();
+  const rutaDe = (url) => { try { return new URL(url).pathname.replace(/\/+$/, ''); } catch (_) { return null; } };
+  const kitsSinLeer = [];
+  for (const p of rows) {
+    let raw = p.raw;
+    if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch (_) { continue; } }
+    if (!raw) continue;
+    let pctKit = 0;
+    if (raw.is_kit === true) {
+      pctKit = await fetchKitDiscountPct(raw.canonical_url);
+      if (pctKit === null) { kitsSinLeer.push(p.name); continue; }
+    }
+    for (const v of raw.variants || []) {
+      const lista = Number(v.price);
+      if (!(lista > 0)) continue;
+      const promo = Number(v.promotional_price);
+      let final = promo > 0 && promo < lista ? promo : null;
+      if (raw.is_kit === true && pctKit > 0) final = r2(lista * (1 - pctKit / 100));
+      const e = { producto: p.name, productoId: String(p.id), lista, final };
+      esperado.set(String(v.id), e);
+      if (raw.is_kit === true && rutaDe(raw.canonical_url)) kitPorRuta.set(rutaDe(raw.canonical_url), e);
+    }
+  }
+
+  const fixes = [];
+  for (const item of items) {
+    const e = esperado.get(String(item.retailer_id)) || kitPorRuta.get(rutaDe(item.url));
+    if (!e) continue;
+    const lista = metaMoney(item.price);
+    const final = metaMoney(item.sale_price);
+    const difLista = lista === null || Math.abs(lista - e.lista) >= 1;
+    const difFinal = (final === null) !== (e.final === null) || (final !== null && Math.abs(final - e.final) >= 1);
+    if (difLista || difFinal) {
+      fixes.push({
+        retailer_id: String(item.retailer_id), producto: e.producto, producto_id: e.productoId,
+        en_meta: { lista, final }, en_tienda: { lista: e.lista, final: e.final },
+      });
+    }
+  }
+
+  // Resumen por producto (lo que se lee de un vistazo).
+  const porProducto = new Map();
+  for (const f of fixes) {
+    const k = f.producto_id;
+    if (!porProducto.has(k)) porProducto.set(k, { producto: f.producto, items: 0, en_meta: f.en_meta, en_tienda: f.en_tienda });
+    porProducto.get(k).items += 1;
+  }
+
+  const summary = {
+    items_revisados: items.length,
+    precios_a_corregir: fixes.length,
+    productos_afectados: porProducto.size,
+    productos: [...porProducto.values()],
+    kits_sin_leer: kitsSinLeer,
+    applied: false,
+  };
+
+  if (apply && fixes.length) {
+    const handles = [];
+    for (let i = 0; i < fixes.length; i += 4500) {
+      const batch = fixes.slice(i, i + 4500).map((f) => ({
+        method: 'UPDATE',
+        data: {
+          id: f.retailer_id,
+          price: `${f.en_tienda.lista.toFixed(2)} ARS`,
+          sale_price: f.en_tienda.final === null ? '' : `${f.en_tienda.final.toFixed(2)} ARS`,
+        },
+      }));
+      const r = await fbPost(`${catalogId}/items_batch`, { item_type: 'PRODUCT_ITEM', requests: batch });
+      handles.push(...(r.handles || []));
+    }
+    summary.handles = handles;
+    summary.applied = true;
+    console.log(`[catalogSync] ${fixes.length} precios corregidos en Meta (${porProducto.size} productos).`);
+  }
+  return summary;
+}
+
 module.exports = {
   syncCatalogAvailability,
+  syncCatalogPrices,
+  metaMoney,
   tiendanubeVariantMap,
   tiendanubeCatalogMaps,
   fbGet,

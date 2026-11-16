@@ -418,4 +418,4 @@ async function fetchOrders({ since, until = null, by = 'created_at', maxPages = 
   return out;
 }
 
-module.exports = { fetchAllProducts, fetchProduct, fetchSalesSince, fetchOrders, normalizeOrder, normalizeProduct, detectBrand, pickText, productColors, tnRequest, setVariantPromotionalPrice };
+module.exports = { fetchAllProducts, fetchProduct, fetchSalesSince, fetchOrders, normalizeOrder, normalizeProduct, detectBrand, pickText, productColors, tnRequest, setVariantPromotionalPrice, fetchKitDiscountPct };

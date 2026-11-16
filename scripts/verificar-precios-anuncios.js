@@ -33,7 +33,7 @@
 require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
-const { tnRequest } = require('../src/tiendanube');
+const { tnRequest, fetchKitDiscountPct } = require('../src/tiendanube');
 
 const GRAPH = 'https://graph.facebook.com';
 const API = process.env.META_API_VERSION || 'v21.0';
@@ -61,6 +61,17 @@ async function estadoProducto(id) {
     const s = v.stock == null ? Infinity : Number(v.stock);
     stock += s;
     if (s > 0) conStock++;
+  }
+  // KITS ("Kit X3 Remeras"): la API da la suma de los componentes y nada más;
+  // el descuento del kit (5% hoy) sólo está en la página pública. Sin esto un
+  // anuncio del kit a $56.997 saltaba como error contra los $59.997 de lista.
+  // Si la página no responde queda el precio de lista: más vale un falso ✗.
+  if (p.is_kit === true) {
+    const pct = await fetchKitDiscountPct(p.canonical_url);
+    if (pct > 0) {
+      lista = final;
+      final = Math.round(final * (1 - pct / 100) * 100) / 100;
+    }
   }
   const descuento = lista > final ? (1 - final / lista) * 100 : 0;
   // Talles agotados en TODOS los colores (el 28-sep: chomba sin L, remera sin M).
@@ -109,7 +120,9 @@ async function pausar(adId) {
   const umbral = Number(process.env.FREE_SHIPPING_MIN || man.envio_gratis_desde || 45000);
   const pausarErrores = process.argv.includes('--pausar');
 
-  const ids = [...new Set(man.anuncios.flatMap((a) => [...a.productos, ...(a.tarjetas || []).map((t) => t.producto)]))];
+  // `stock_de`: productos que sólo se miran por stock y talles (los componentes
+  // de un kit: el kit no tiene stock propio, sale del de cada prenda).
+  const ids = [...new Set(man.anuncios.flatMap((a) => [...a.productos, ...(a.stock_de || []), ...(a.tarjetas || []).map((t) => t.producto)]))];
   const productos = {};
   for (const id of ids) productos[id] = await estadoProducto(id);
 
@@ -122,7 +135,7 @@ async function pausar(adId) {
     const problemas = [];
     const notas = [];
 
-    for (const p of ps) {
+    for (const p of [...ps, ...(a.stock_de || []).map((id) => productos[id])]) {
       if (!p.publicado) problemas.push(`${p.nombre}: despublicado en la tienda`);
       else if (p.stock <= 0) problemas.push(`${p.nombre}: sin stock`);
       else if (p.conStock / p.variantes < 0.5) notas.push(`${p.nombre}: sólo ${p.conStock} de ${p.variantes} variantes con stock`);
@@ -130,7 +143,8 @@ async function pausar(adId) {
     }
     if (a.precio != null) {
       const real = ps[0].final;
-      if (real > a.precio) problemas.push(`dice ${pesos(a.precio)} y la tienda cobra ${pesos(real)}`);
+      // Tolerancia de $1: el kit cobra $56.997,15 y el anuncio dice $56.997.
+      if (real > a.precio + 1) problemas.push(`dice ${pesos(a.precio)} y la tienda cobra ${pesos(real)}`);
       else if (real < a.precio) notas.push(`dice ${pesos(a.precio)} y la tienda bajó a ${pesos(real)}`);
     }
     if (a.descuento != null) {
