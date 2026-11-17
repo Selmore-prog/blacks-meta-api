@@ -153,8 +153,38 @@ function crPlantilla(cual, p) {
     </div>
     ${demora}
     <div class="cr-burbuja">${esc(mensaje)}
-      <span class="cr-burbuja-btn">${icon('cart')} ${esc(p.boton || '')}</span></div>
+      <span class="cr-burbuja-btn">${icon('cart')} ${esc(p.boton || '')}</span>${(p.respuestas || []).map((r) => `
+      <span class="cr-burbuja-btn cr-burbuja-resp">${icon('comment')} ${esc(r)}</span>`).join('')}</div>
   </div>`;
+}
+
+// Los mensajes firmados por Santi: cada uno reemplaza a su par cuando Meta lo aprueba.
+const CR_SANTI = [
+  ['santi_primero', 'Aviso común'],
+  ['santi_segundo', '2º aviso'],
+  ['santi_pago', 'Pago rechazado'],
+  ['santi_envio_costo', 'Eligió un envío con costo'],
+  ['santi_sin_envio', 'No eligió envío (menos de $45.000)'],
+  ['santi_envio_gratis', 'Envío gratis, sin medio de pago'],
+  ['santi_solo_pagar', 'Eligió medio de pago, no intentó'],
+];
+
+// Worker sin actualizar: no tiene a Santi y la sección no aparece.
+function crAjusteSanti(c, p) {
+  if (!c.santi) return '';
+  const faltan = CR_SANTI.filter(([cual]) => p[cual] && (p[cual].estado === 'NO_EXISTE' || p[cual].estado === 'REJECTED'));
+  const aprobadas = CR_SANTI.filter(([cual]) => p[cual] && p[cual].estado === 'APPROVED').length;
+  return `<section class="cr-aj cr-aj-ancho">
+        <label class="ia-check"><input type="checkbox" id="cr-santi-on"${c.santi.activo ? ' checked' : ''}> <b>Mensajes firmados por Santi</b></label>
+        <p class="hint">Cada mensaje se presenta como Santi, dice qué quedó en el carrito y trae botones para responder con un toque: la respuesta
+          cae en el chat de Kommo. Reemplaza a su par sólo cuando Meta lo aprueba (van ${aprobadas} de ${CR_SANTI.length}); el 2º aviso, el de pago y los de etapa
+          siguen dependiendo de su propio interruptor. Cuando alguien responde, queda una tarea en Kommo para contestarle en 30 minutos.
+          <b>Apagalo si nadie va a contestar ese WhatsApp</b>: un "escribime" sin respuesta es peor que no decir nada.</p>
+        ${faltan.length ? `<div><button class="btn-ghost btn-sm" onclick="carritosCrearSanti(this)">Mandar ${faltan.length === 1 ? 'la que falta' : `las ${faltan.length} que faltan`} a revisión de Meta</button></div>` : ''}
+        <div class="cr-etapas">
+          ${CR_SANTI.map(([cual, titulo]) => `<div class="cr-etapa"><b>${esc(titulo)}</b>${crPlantilla(cual, p[cual])}</div>`).join('')}
+        </div>
+      </section>`;
 }
 
 // Worker sin actualizar: no tiene etapas y la sección no aparece.
@@ -197,6 +227,7 @@ function crAjustes(e) {
     `2º aviso ${c.segundo.activo ? `a las ${c.segundo.horas} h` : 'apagado'}`,
     `pago rechazado ${c.pago.activo ? 'activo' : 'apagado'}`,
     c.etapas ? `mensaje por etapa ${c.etapas.activo ? 'activo' : 'apagado'}` : '',
+    c.santi ? `firmados por Santi ${c.santi.activo ? 'sí' : 'no'}` : '',
     `lectura por mensaje ${w.conectado ? 'conectada' : 'sin conectar'}`,
   ].filter(Boolean).join(' · ');
 
@@ -205,6 +236,8 @@ function crAjustes(e) {
       <p class="hint cr-resumen">${esc(resumen)}</p></summary>
 
     <div class="cr-aj-grid">
+      ${crAjusteSanti(c, p)}
+
       <section class="cr-aj">
         <h4>Horario de envío</h4>
         <div class="cr-horas">De <select class="input" id="cr-desde">${horas(c.horario.desde)}</select>
@@ -268,6 +301,8 @@ async function carritosGuardarAjustes(boton) {
   };
   const etapasOn = document.getElementById('cr-etapas-on');
   if (etapasOn) cambios.etapas = { activo: etapasOn.checked };
+  const santiOn = document.getElementById('cr-santi-on');
+  if (santiOn) cambios.santi = { activo: santiOn.checked };
   if (cambios.horario.desde > cambios.horario.hasta) { toast('La hora de inicio tiene que ser anterior a la de fin.', 'err'); return; }
   if (!dias.length) { toast('Elegí al menos un día de envío.', 'err'); return; }
 
@@ -275,6 +310,7 @@ async function carritosGuardarAjustes(boton) {
   if (cambios.segundo.activo && !antes.segundo.activo) prende.push(`un 2º WhatsApp ${cambios.segundo.horas} h después del primero a quien no compró ni respondió`);
   if (cambios.pago.activo && !antes.pago.activo) prende.push('el mensaje de pago rechazado a quien intentó pagar y no pudo');
   if (cambios.etapas && cambios.etapas.activo && !(antes.etapas && antes.etapas.activo)) prende.push('el mensaje según la etapa, en vez del aviso común, en las plantillas que Meta ya aprobó');
+  if (cambios.santi && cambios.santi.activo && !(antes.santi && antes.santi.activo)) prende.push('los mensajes firmados por Santi (alguien tiene que contestar ese WhatsApp)');
   if (prende.length && !window.confirm(`¿Activar ${prende.join(' y ')}?\n\nSale solo, desde el número de la empresa, en el horario elegido.`)) return;
 
   crState.guardando = true;
@@ -285,7 +321,8 @@ async function carritosGuardarAjustes(boton) {
     });
     const pend = (cual) => cambios[cual].activo && e.plantillas && e.plantillas[cual] && e.plantillas[cual].estado !== 'APPROVED';
     const etapaPendiente = cambios.etapas && cambios.etapas.activo && CR_ETAPAS.some(([cual]) => e.plantillas && e.plantillas[cual] && e.plantillas[cual].estado !== 'APPROVED');
-    toast(pend('segundo') || pend('pago') || etapaPendiente
+    const santiPendiente = cambios.santi && cambios.santi.activo && CR_SANTI.some(([cual]) => e.plantillas && e.plantillas[cual] && e.plantillas[cual].estado !== 'APPROVED');
+    toast(pend('segundo') || pend('pago') || etapaPendiente || santiPendiente
       ? 'Ajustes guardados. Ojo: lo que usa una plantilla sin aprobar empieza a salir cuando Meta la apruebe.'
       : 'Ajustes guardados: valen desde la próxima revisión.', 'ok');
     crState.ajustesAbiertos = true;
@@ -300,7 +337,8 @@ async function carritosGuardarAjustes(boton) {
 
 async function carritosCrearPlantilla(cual, boton) {
   const etapa = CR_ETAPAS.find(([k]) => k === cual);
-  const nombre = etapa ? `de la etapa "${etapa[1]}"` : (cual === 'segundo' ? 'del 2º aviso' : 'de pago rechazado');
+  const santi = CR_SANTI.find(([k]) => k === cual);
+  const nombre = santi ? `de Santi "${santi[1]}"` : etapa ? `de la etapa "${etapa[1]}"` : (cual === 'segundo' ? 'del 2º aviso' : 'de pago rechazado');
   if (!window.confirm(`¿Mandar la plantilla ${nombre} a revisión de Meta?\n\nSe crea en el WhatsApp de la empresa con el texto que ves acá. No se le manda nada a nadie: sólo queda lista para usar cuando Meta la apruebe.`)) return;
   boton.disabled = true;
   try {
@@ -314,6 +352,27 @@ async function carritosCrearPlantilla(cual, boton) {
     toast(err.message, 'err');
     boton.disabled = false;
   }
+}
+
+// Las de Santi que todavía no están creadas (o que Meta rechazó), con un solo OK.
+async function carritosCrearSanti(boton) {
+  const p = (crState.data && crState.data.estado && crState.data.estado.plantillas) || {};
+  const faltan = CR_SANTI.filter(([cual]) => p[cual] && (p[cual].estado === 'NO_EXISTE' || p[cual].estado === 'REJECTED'));
+  if (!faltan.length) return;
+  if (!window.confirm(`¿Mandar ${faltan.length} plantilla(s) de Santi a revisión de Meta?\n\n${faltan.map(([, t]) => '• ' + t).join('\n')}\n\nSe crean en el WhatsApp de la empresa con el texto que ves acá. No se le manda nada a nadie: sólo quedan listas para usar cuando Meta las apruebe.`)) return;
+  boton.disabled = true;
+  const errores = [];
+  for (const [cual, titulo] of faltan) {
+    try {
+      await api('/api/carritos/plantillas', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ cual }) });
+    } catch (err) {
+      errores.push(`${titulo}: ${err.message}`);
+    }
+  }
+  if (errores.length) toast(`No se pudieron mandar ${errores.length}: ${errores.join(' · ')}`, 'err');
+  else toast('Plantillas de Santi mandadas a revisión de Meta.', 'ok');
+  crState.ajustesAbiertos = true;
+  await carritosCargar();
 }
 
 async function carritosConectarLecturas(boton) {

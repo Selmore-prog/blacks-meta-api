@@ -86,7 +86,8 @@ async function setModo(modo) {
 const SIN_WORKER_NUEVO = 'El Worker de Cloudflare todavía no tiene esta función: hay que pegar el worker.js '
   + 'actualizado (repo del theme, backend/lookbook-discounts) y desplegarlo.';
 
-// Horario de envío, 2º aviso, aviso de pago rechazado y mensaje por etapa. El
+// Horario de envío, 2º aviso, aviso de pago rechazado, mensaje por etapa y
+// mensajes firmados por Santi. El
 // Worker valida y devuelve la config completa.
 async function setConfig(cambios) {
   const body = {};
@@ -94,13 +95,16 @@ async function setConfig(cambios) {
   if (cambios && cambios.segundo) body.segundo = cambios.segundo;
   if (cambios && cambios.pago) body.pago = cambios.pago;
   if (cambios && cambios.etapas) body.etapas = cambios.etapas;
+  if (cambios && cambios.santi) body.santi = cambios.santi;
   if (!Object.keys(body).length) throw errorCon(400, 'No llegó ningún ajuste para guardar.');
   const data = await llamarWorker('/carritos-config', { method: 'POST', body });
   if (!data || !data.config) throw errorCon(502, SIN_WORKER_NUEVO);
   return data;
 }
 
-const PLANTILLAS = ['segundo', 'pago', 'envio_costo', 'sin_envio', 'envio_gratis', 'solo_pagar'];
+const PLANTILLAS = ['segundo', 'pago', 'envio_costo', 'sin_envio', 'envio_gratis', 'solo_pagar',
+  // Las mismas, firmadas por Santi (minorista), con respuestas rápidas. Ver el Worker.
+  'santi_primero', 'santi_segundo', 'santi_pago', 'santi_envio_costo', 'santi_sin_envio', 'santi_envio_gratis', 'santi_solo_pagar'];
 
 // Manda a revisión de Meta una plantilla del Worker (todas menos la genérica).
 async function crearPlantilla(cual) {
