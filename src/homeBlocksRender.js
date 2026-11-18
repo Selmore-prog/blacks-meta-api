@@ -53,6 +53,38 @@ function ratioStyle(r, fallback) {
  * grande siempre (es el error que hoy tiene el slider del home: sirve una de
  * 1024 px en un hueco de 375).
  */
+/**
+ * Fotos de PRODUCTO de Tiendanube (18-nov-2026). La API da la foto original de
+ * 1024 px y 904 de las 2.605 del catálogo son PNG de ~1 MB: recorrer el home en
+ * el celular bajaba 22 MB de fotos. El CDN sirve la misma foto achicada y en
+ * webp cambiando el final: `-1024-1024.png` → `-480-0.webp` (17 KB promedio).
+ * Medido: 37 de 40 fotos publicadas existen en 240/320/480/640; las otras dan
+ * 403 en todos los tamaños, así que el <img> lleva la original en
+ * `data-bx-orig` y un `onerror` que vuelve a ella (anda solo, sin el tema).
+ * Las fotos que no son de producto (subidas al Worker) quedan como estaban.
+ */
+const FOTO_TN = /^(https?:\/\/[^/?#]*mitiendanube\.com\/stores\/\d+\/\d+\/products\/[^?#"]+)-1024-1024\.(png|jpe?g|webp)$/i;
+const VOLVER_A_ORIGINAL = "this.onerror=null;this.removeAttribute('srcset');this.removeAttribute('sizes');this.src=this.getAttribute('data-bx-orig')";
+
+function fotoProducto(url, anchos = [320, 480, 640, 1024]) {
+  const m = String(url || '').match(FOTO_TN);
+  if (!m) return null;
+  const de = (w) => m[1] + (w >= 1024 ? '-1024-1024.webp' : `-${w}-0.webp`);
+  return {
+    src: de(anchos[Math.min(1, anchos.length - 1)]),
+    srcset: anchos.map((w) => `${de(w)} ${w}w`).join(', '),
+    orig: String(url),
+  };
+}
+
+/** Atributos de un <img> de producto: chica + srcset + respaldo a la original. */
+function attrsFoto(url, sizes, anchos) {
+  const f = fotoProducto(url, anchos);
+  if (!f) return `src="${esc(url)}"`;
+  return `src="${esc(f.src)}" srcset="${esc(f.srcset)}"${sizes ? ` sizes="${esc(sizes)}"` : ''}`
+    + ` data-bx-orig="${esc(f.orig)}" onerror="${VOLVER_A_ORIGINAL}"`;
+}
+
 function imagen({ src, srcMobile, alt, ratio, eager = false, sizes = '100vw', clase = '' }) {
   if (!src && !srcMobile) return '';
   const principal = src || srcMobile;
@@ -62,9 +94,14 @@ function imagen({ src, srcMobile, alt, ratio, eager = false, sizes = '100vw', cl
   const fuenteMobile = srcMobile && src
     ? `<source media="(max-width: 767px)" srcset="${esc(srcMobile)}">`
     : '';
+  // Con <source> de celular aparte el srcset del <img> no se usa en el celular:
+  // sólo se achica la foto principal cuando no hay otra para el celular.
+  const img = !fuenteMobile && fotoProducto(principal)
+    ? `<img ${attrsFoto(principal, sizes)} alt="${esc(alt || '')}" ${carga}>`
+    : `<img src="${esc(principal)}" alt="${esc(alt || '')}" ${carga} sizes="${esc(sizes)}">`;
   return `<picture class="hb-pic ${clase}" style="${ratioStyle(ratio)}">`
     + fuenteMobile
-    + `<img src="${esc(principal)}" alt="${esc(alt || '')}" ${carga} sizes="${esc(sizes)}">`
+    + img
     + '</picture>';
 }
 
@@ -543,8 +580,8 @@ function precioDe(p) {
 
 function miniaturas(prods, limite = 3) {
   return prods.slice(0, limite).map((p) => (p.url
-    ? `<a class="hb-vf-mini" href="${esc(p.url)}" title="${esc(p.name)}"><img src="${esc(p.image)}" alt="${esc(p.name)}" loading="lazy" decoding="async" width="64" height="64"></a>`
-    : `<span class="hb-vf-mini"><img src="${esc(p.image)}" alt="${esc(p.name)}" loading="lazy" decoding="async" width="64" height="64"></span>`)).join('');
+    ? `<a class="hb-vf-mini" href="${esc(p.url)}" title="${esc(p.name)}"><img ${attrsFoto(p.image, '64px', [240])} alt="${esc(p.name)}" loading="lazy" decoding="async" width="64" height="64"></a>`
+    : `<span class="hb-vf-mini"><img ${attrsFoto(p.image, '64px', [240])} alt="${esc(p.name)}" loading="lazy" decoding="async" width="64" height="64"></span>`)).join('');
 }
 
 function placaVidriera(f, i, o) {
