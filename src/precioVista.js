@@ -253,7 +253,11 @@ async function datosTiendanube(categorias, arbol, { force = false, forzarCampo =
         Object.assign(tnCache, { at: Date.now(), claveLeida: claveDe(categorias), error: err.message });
         return tnCache;
       })
-      .finally(() => { tnCache.enCurso = null; });
+      .finally(() => {
+        tnCache.enCurso = null;
+        // Lo nuevo de Tiendanube se ve en la próxima visita, no un minuto después.
+        cachePublico = { at: 0, data: null };
+      });
   }
   if (!force && misma) return tnCache;
   return tnCache.enCurso;

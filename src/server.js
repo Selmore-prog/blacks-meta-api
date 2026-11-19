@@ -40,6 +40,7 @@ const navMenu = require('./navMenu');
 const navAssets = require('./navAssets');
 const benefits = require('./benefits');
 const precioVista = require('./precioVista');
+const equivalenteMinorista = require('./equivalenteMinorista');
 const metaPausa = require('./metaPausa');
 const homeBlocksAssets = require('./homeBlocksAssets');
 const homePlan = require('./homePlan');
@@ -100,6 +101,9 @@ app.use(async (req, res, next) => {
     // Precios a la vista (sin compra) de los mayoristas: los pide la ficha y la
     // grilla de la tienda. Sólo lectura: id de producto → precio que ya se ve.
     '/api/precio-vista',
+    // La ficha mayorista pregunta si hay una versión por unidad del producto.
+    // Sólo lectura: devuelve un producto minorista publicado (nombre, link, foto, precio).
+    '/api/minorista',
     // Portal del equipo: la pantalla de ingreso y su hoja de estilos. No exponen
     // nada — son el formulario de login y CSS. Ver src/teamPortal.js.
     '/equipo.html', '/equipo.js', '/works-panel.js', '/dashboard.css', '/api/team/login', '/api/team/user-login'];
@@ -1785,7 +1789,22 @@ app.get('/api/precio-vista', publicGetCors, wrap(async (req, res) => {
     console.error('[precio-vista] publico:', e.message);
     return { productos: {} };
   });
-  res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=600');
+  // Sin stale-while-revalidate largo: con 600 s el navegador seguía mostrando la
+  // lista vieja hasta 10 min después de cargar un precio (19-nov).
+  res.setHeader('Cache-Control', 'public, max-age=30');
+  res.json(data);
+}));
+
+/* EQUIVALENTE MINORISTA (nov-2026): la ficha mayorista pregunta si la tienda
+   vende ese producto por unidad, para ofrecer el link. Por palabras del nombre,
+   con reglas conservadoras. Ver src/equivalenteMinorista.js. */
+app.options('/api/minorista', publicGetCors);
+app.get('/api/minorista', publicGetCors, wrap(async (req, res) => {
+  const data = await equivalenteMinorista.buscar(String(req.query.nombre || '').slice(0, 200)).catch((e) => {
+    console.error('[minorista]', e.message);
+    return { producto: null };
+  });
+  res.setHeader('Cache-Control', 'public, max-age=600, stale-while-revalidate=3600');
   res.json(data);
 }));
 
