@@ -68,3 +68,42 @@ test('precios escritos a mano: punto de miles y coma decimal', () => {
   assert.equal(pv.entero(289999.4), 289999);
   assert.ok(Number.isNaN(pv.entero('abc')));
 });
+
+// ---- Campo "Precio a la vista" de Tiendanube (19-nov-2026) ----
+
+test('campo de Tiendanube: lee el precio como lo escriba la persona', () => {
+  assert.equal(pv.precioDeCampo('50.000'), 50000);
+  assert.equal(pv.precioDeCampo('50000'), 50000);
+  assert.equal(pv.precioDeCampo('$ 50.000,00'), 50000);
+  assert.equal(pv.precioDeCampo('50000.00'), 50000);
+  assert.equal(pv.precioDeCampo('1.234.567'), 1234567);
+  assert.equal(pv.precioDeCampo(289999), 289999);
+  assert.equal(pv.precioDeCampo('50.5'), 51, 'decimal: queda chico y el motor lo descarta (< 100)');
+  for (const v of ['', null, undefined, 'consultar', '-5000', 0, '0']) assert.equal(pv.precioDeCampo(v), 0, String(v));
+});
+
+test('el campo se reconoce por el nombre, sin importar mayúsculas ni tildes', () => {
+  assert.ok(pv.esCampoPrecio({ owner_resource: 'product', name: 'Precio a la vista' }));
+  assert.ok(pv.esCampoPrecio({ owner_resource: 'product', name: '  PRECIO A LA VISTA (web)' }));
+  assert.ok(!pv.esCampoPrecio({ owner_resource: 'product', name: 'Canal' }));
+  assert.ok(!pv.esCampoPrecio({ owner_resource: 'variant', name: 'Precio a la vista' }));
+});
+
+test('un precio cargado en Tiendanube le gana al del motor, sólo en categorías tildadas', () => {
+  const cfg = pv.normalizarConfig({
+    categorias: [{ id: 41943073, minimo: 1, descuentos: false, iva: 'mas' }],
+    precios: { 377924162: { precio: 50000, cats: [41943073] }, 100: { precio: 7000, cats: [41943073] } },
+  });
+  const tn = {
+    valores: { 377924162: 55000, 200: 9000, 300: 12000 },
+    // 200 está en Herramientas (lo dice Tiendanube); 300 está en Shop Online, no tildada.
+    cats: { 377924162: [41943073], 200: [22030313, 41943073], 300: [21736015] },
+  };
+  assert.deepEqual(pv.mapaPublico(cfg, ARBOL, tn), {
+    377924162: { p: 55000, min: 1, desc: false, iva: 'mas' }, // gana Tiendanube
+    100: { p: 7000, min: 1, desc: false, iva: 'mas' },        // sólo en el motor
+    200: { p: 9000, min: 1, desc: false, iva: 'mas' },        // sólo en Tiendanube
+  });
+  // Sin lo de Tiendanube (no contestó), queda el del motor.
+  assert.equal(pv.mapaPublico(cfg, ARBOL, null)['377924162'].p, 50000);
+});

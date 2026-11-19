@@ -1800,6 +1800,12 @@ app.post('/api/precio-vista/panel', wrap(async (req, res) => {
   res.json({ ok: true, ...(await precioVista.guardar(req.body || {})) });
 }));
 
+// Crea el campo personalizado "Precio a la vista" en Tiendanube (botón del panel),
+// para cargar el precio desde allá sin volver comprable el producto.
+app.post('/api/precio-vista/panel/campo', wrap(async (req, res) => {
+  res.json({ ok: true, ...(await precioVista.crearCampo()) });
+}));
+
 /* ========================= PORTAL DEL EQUIPO =============================
  * Una entrada aparte para que alguien cargue contenido sin ver el panel entero.
  * La config (activado / contraseña / secciones) la maneja el DUEÑO desde

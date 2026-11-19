@@ -22,6 +22,16 @@
  * guardados aunque se destilde la categoría: al volver a tildarla, vuelven.
  * `cats` es la lista de categorías del producto al guardar; sirve para saber
  * si el producto sigue cubierto sin pedirle nada a Tiendanube en cada visita.
+ *
+ * EL PRECIO TAMBIÉN SE PUEDE CARGAR EN TIENDANUBE (19-nov-2026)
+ * Pedido del dueño: a veces es más fácil cambiar precios desde Tiendanube. El
+ * campo "Precio" de allá NO sirve (lo vuelve comprable), así que se usa un
+ * CAMPO PERSONALIZADO de producto llamado "Precio a la vista" (Tiendanube →
+ * producto → Campos personalizados; la tienda ya usa "Canal" y "Entrega").
+ * Si un producto de una categoría tildada tiene ese campo cargado, vale ése;
+ * si no, vale el de acá. El "Precio" de Tiendanube sigue vacío: nada lo puede
+ * comprar. Los valores se leen con UN pedido (`/owners` devuelve todos los
+ * productos con valor) cada minuto, sin hacer esperar a la tienda.
  * ========================================================================= */
 
 const { getSetting, setSetting } = require('./settings');
@@ -34,6 +44,22 @@ const PRECIO_MAX = 100000000;
 const CACHE_PUBLICO_MS = 60 * 1000;
 let cachePublico = { at: 0, data: null };
 
+// Campo personalizado de Tiendanube (ver cabecera).
+const CAMPO_NOMBRE = 'Precio a la vista';
+const CAMPO_DESCRIPCION = 'Precio que se muestra en la tienda sin poder comprar (Precios a la vista del motor). Dejá vacío el Precio del producto.';
+// Menos de esto no es un precio: es "50.000" leído como 50 con decimales.
+const PRECIO_MIN_CAMPO = 100;
+const TN_VALORES_MS = 60 * 1000;       // cada cuánto se releen los valores
+const TN_CAMPO_MS = 10 * 60 * 1000;    // la definición del campo (si existe)
+const TN_CATS_MS = 10 * 60 * 1000;     // en qué categorías está cada producto
+const TN_ESPERA_MS = 3500;             // lo más que espera la tienda en frío
+const tnCache = {
+  at: 0, claveLeida: null, enCurso: null, error: null,
+  campo: undefined, campoAt: 0,
+  valores: {}, raros: {},
+  cats: {}, catsClave: null, catsAt: 0,
+};
+
 const texto = (v) => (v && typeof v === 'object' ? (v.es || Object.values(v)[0] || '') : (v || ''));
 // "289.999" (punto de miles, como se escribe acá) o un número ya armado.
 const entero = (v) => {
@@ -42,6 +68,26 @@ const entero = (v) => {
   const n = Number(String(v).replace(/[^\d.,-]/g, '').replace(/\./g, '').replace(',', '.'));
   return Number.isFinite(n) ? Math.round(n) : NaN;
 };
+
+/* El valor del campo de Tiendanube, como lo haya escrito la persona:
+   "50.000", "50000", "$ 50.000,00", "50000.00" o un número. 0 = no hay precio. */
+function precioDeCampo(v) {
+  if (v == null || v === '') return 0;
+  if (typeof v === 'number') return Number.isFinite(v) && v > 0 && v <= PRECIO_MAX ? Math.round(v) : 0;
+  const crudo = String(v).trim();
+  if (/-\s*\d/.test(crudo)) return 0;
+  let s = crudo.replace(/[^\d.,]/g, '');
+  if (!/\d/.test(s)) return 0;
+  if (s.includes(',')) s = s.replace(/\./g, '').replace(',', '.');   // 50.000,50
+  else if (/\.\d{1,2}$/.test(s)) s = s.replace(/\.(?=.*\.)/g, '');   // 50000.00
+  else s = s.replace(/\./g, '');                                       // 50.000
+  const n = Math.round(Number(s));
+  return Number.isFinite(n) && n > 0 && n <= PRECIO_MAX ? n : 0;
+}
+
+const nombreNormal = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '')
+  .toLowerCase().replace(/\s+/g, ' ').trim();
+const esCampoPrecio = (f) => !!f && f.owner_resource === 'product' && nombreNormal(f.name).startsWith(nombreNormal(CAMPO_NOMBRE));
 
 /** Una categoría tildada, con sus opciones. Defaults = la ficha mayorista de siempre. */
 function normalizarCategoria(c) {
@@ -112,24 +158,120 @@ function categoriasCubiertas(categorias, arbol) {
   return cubiertas;
 }
 
-/** Lo que pide la tienda: { [productId]: { p, min, desc, iva } }. */
-function mapaPublico(cfg, arbol) {
+/**
+ * Lo que pide la tienda: { [productId]: { p, min, desc, iva } }.
+ * `tn` (opcional) = lo leído del campo de Tiendanube: { valores: {pid: precio},
+ * cats: {pid: [categorías]} }. Un valor de Tiendanube le gana al del motor.
+ */
+function mapaPublico(cfg, arbol, tn) {
   const cubiertas = categoriasCubiertas(cfg.categorias, arbol);
+  const opciones = (cats) => (cats || []).map((c) => cubiertas.get(Number(c))).find(Boolean);
   const out = {};
   Object.entries(cfg.precios || {}).forEach(([pid, e]) => {
     if (!(e.precio > 0)) return;
-    const cat = (e.cats || []).map((c) => cubiertas.get(c)).find(Boolean);
+    const cat = opciones(e.cats);
     if (!cat) return;
     out[pid] = { p: e.precio, min: cat.minimo, desc: cat.descuentos, iva: cat.iva };
+  });
+  const valores = (tn && tn.valores) || {};
+  const catsTN = (tn && tn.cats) || {};
+  Object.entries(valores).forEach(([pid, precio]) => {
+    if (!(precio > 0)) return;
+    const cat = opciones(catsTN[pid] || (cfg.precios[pid] && cfg.precios[pid].cats));
+    if (!cat) return;
+    out[pid] = { p: precio, min: cat.minimo, desc: cat.descuentos, iva: cat.iva };
   });
   return out;
 }
 
+/* ------------------- Campo "Precio a la vista" de Tiendanube ------------------- */
+
+async function buscarCampo(force = false) {
+  // Sin campo se vuelve a mirar al minuto (puede que lo estén creando).
+  const vigencia = tnCache.campo ? TN_CAMPO_MS : TN_VALORES_MS;
+  if (!force && tnCache.campo !== undefined && Date.now() - tnCache.campoAt < vigencia) return tnCache.campo;
+  const lista = await tnRequest('GET', '/products/custom-fields');
+  tnCache.campo = (Array.isArray(lista) ? lista : []).find(esCampoPrecio) || null;
+  tnCache.campoAt = Date.now();
+  return tnCache.campo;
+}
+
+/** { valores: {pid: precio}, raros: {pid: 'lo que escribieron'} } del campo. */
+async function valoresDelCampo(campo) {
+  let o;
+  try {
+    o = await tnRequest('GET', `/products/custom-fields/${encodeURIComponent(campo.id)}/owners`);
+  } catch (err) {
+    // Lo borraron en Tiendanube: se vuelve a buscar en la próxima vuelta.
+    if (err.status === 404) { tnCache.campo = undefined; return { valores: {}, raros: {} }; }
+    throw err;
+  }
+  const valores = {};
+  const raros = {};
+  (o && Array.isArray(o.products) ? o.products : []).forEach((x) => {
+    if (!x || !x.id || x.value == null || x.value === '') return;
+    const n = precioDeCampo(x.value);
+    if (n >= PRECIO_MIN_CAMPO) valores[String(x.id)] = n;
+    else raros[String(x.id)] = String(x.value).slice(0, 40);
+  });
+  return { valores, raros };
+}
+
+const claveDe = (categorias) => (categorias || []).map((c) => c.id).sort((a, b) => a - b).join(',');
+
+/* Lee el campo y, si hay valores, en qué categorías está cada producto (eso
+   cambia poco: cada 10 min, o al tildar/destildar una categoría). */
+async function leerTiendanube(categorias, arbol, { forzarCampo = false } = {}) {
+  const clave = claveDe(categorias);
+  const campo = await buscarCampo(forzarCampo);
+  const { valores, raros } = campo ? await valoresDelCampo(campo) : { valores: {}, raros: {} };
+  const hay = Object.keys(valores).length > 0;
+  if (hay && categorias.length && (tnCache.catsClave !== clave || Date.now() - tnCache.catsAt > TN_CATS_MS)) {
+    const prods = await productosCubiertos(categorias, arbol);
+    tnCache.cats = {};
+    prods.forEach((p) => { tnCache.cats[p.id] = p.cats; });
+    tnCache.catsClave = clave;
+    tnCache.catsAt = Date.now();
+  }
+  Object.assign(tnCache, { at: Date.now(), claveLeida: clave, valores, raros, error: null });
+  return tnCache;
+}
+
+/**
+ * Lo leído de Tiendanube, sin hacer esperar: si hay algo leído para las mismas
+ * categorías lo devuelve y, si pasó el minuto, relee por detrás. Espera sólo
+ * la primera vez, al cambiar las categorías o con `force`. Si Tiendanube
+ * falla, quedan los últimos valores buenos.
+ */
+async function datosTiendanube(categorias, arbol, { force = false, forzarCampo = false } = {}) {
+  const misma = tnCache.at > 0 && tnCache.claveLeida === claveDe(categorias);
+  if (!force && misma && Date.now() - tnCache.at < TN_VALORES_MS) return tnCache;
+  if (!tnCache.enCurso) {
+    tnCache.enCurso = leerTiendanube(categorias, arbol, { forzarCampo })
+      .catch((err) => {
+        console.warn('[precio-vista] campo de Tiendanube:', err.message);
+        Object.assign(tnCache, { at: Date.now(), claveLeida: claveDe(categorias), error: err.message });
+        return tnCache;
+      })
+      .finally(() => { tnCache.enCurso = null; });
+  }
+  if (!force && misma) return tnCache;
+  return tnCache.enCurso;
+}
+
+const conTope = (promesa, ms) => Promise.race([promesa, new Promise((listo) => setTimeout(() => listo(null), ms))]);
+
 async function publico({ force = false } = {}) {
   if (!force && cachePublico.data && Date.now() - cachePublico.at < CACHE_PUBLICO_MS) return cachePublico.data;
   const [cfg, cats] = await Promise.all([getConfig(), storeCategories.categorias().catch(() => ({ lista: [] }))]);
-  const data = { productos: mapaPublico(cfg, cats.lista || []), leido: new Date().toISOString() };
-  cachePublico = { at: Date.now(), data };
+  const arbol = cats.lista || [];
+  // Sin categorías tildadas el campo no importa: no se le pide nada a Tiendanube.
+  const tn = cfg.categorias.length
+    ? (await conTope(datosTiendanube(cfg.categorias, arbol), TN_ESPERA_MS)) || tnCache
+    : null;
+  const data = { productos: mapaPublico(cfg, arbol, tn), leido: new Date().toISOString() };
+  // Si Tiendanube no llegó a contestar en frío, la próxima visita vuelve a mirar.
+  cachePublico = { at: tn && !tn.at ? 0 : Date.now(), data };
   return data;
 }
 
@@ -202,22 +344,52 @@ async function panel({ force = false } = {}) {
   let error = cats.error || null;
   try {
     productos = await productosCubiertos(cfg.categorias, cats.lista || []);
+    // Ya están leídos: le sirven al campo de Tiendanube sin pedirlos otra vez.
+    tnCache.cats = {};
+    productos.forEach((p) => { tnCache.cats[p.id] = p.cats; });
+    tnCache.catsClave = claveDe(cfg.categorias);
+    tnCache.catsAt = Date.now();
   } catch (err) {
     error = `No se pudieron leer los productos de Tiendanube: ${err.message}`;
   }
-  const visibles = mapaPublico(cfg, cats.lista || []);
+  // El panel siempre lee el campo al momento (y su definición, con Refrescar).
+  const tn = await datosTiendanube(cfg.categorias, cats.lista || [], { force: true, forzarCampo: force });
+  const visibles = mapaPublico(cfg, cats.lista || [], tn);
+  const enCategorias = new Set(productos.map((p) => p.id));
   return {
     config: { categorias: cfg.categorias },
     arbol,
+    campo: tn.campo ? { id: tn.campo.id, nombre: tn.campo.name, tipo: tn.campo.value_type, creadoPor: tn.campo.created_by || '' } : null,
+    campoNombre: CAMPO_NOMBRE,
+    campoError: tn.error || null,
     productos: productos.map((p) => ({
       ...p,
       precio: cfg.precios[p.id] ? cfg.precios[p.id].precio : null,
+      precioCampo: tn.valores[p.id] || null,
+      campoRaro: tn.raros[p.id] || null,
       seVe: !!visibles[p.id] && !(p.precioTN > 0),
     })),
     // Precios guardados de productos que hoy no están en ninguna categoría tildada.
-    guardadosFuera: Object.keys(cfg.precios).filter((pid) => !productos.some((p) => p.id === pid)).length,
+    guardadosFuera: Object.keys(cfg.precios).filter((pid) => !enCategorias.has(pid)).length,
+    // Productos con el campo cargado en Tiendanube que no están en una categoría tildada.
+    campoFuera: Object.keys(tn.valores).filter((pid) => !enCategorias.has(pid)).length,
     error,
   };
+}
+
+/** Crea el campo "Precio a la vista" en Tiendanube (botón del panel). */
+async function crearCampo() {
+  if (await buscarCampo(true)) return panel();
+  // Texto y no número: así "50.000" no se guarda como 50 con decimales.
+  await tnRequest('POST', '/products/custom-fields', {
+    name: CAMPO_NOMBRE,
+    description: CAMPO_DESCRIPCION,
+    value_type: 'text',
+    read_only: false,
+    values: [],
+  });
+  tnCache.campo = undefined;
+  return panel({ force: true });
 }
 
 /**
@@ -257,7 +429,8 @@ async function guardar(input) {
 }
 
 module.exports = {
-  getConfig, publico, panel, guardar,
+  getConfig, publico, panel, guardar, crearCampo,
   // Para las pruebas.
   normalizarConfig, categoriasCubiertas, mapaPublico, precioEnTiendanube, entero, productosCubiertos,
+  precioDeCampo, esCampoPrecio, CAMPO_NOMBRE,
 };

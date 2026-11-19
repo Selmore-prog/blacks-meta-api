@@ -6,11 +6,15 @@
  * pero el producto NO se puede comprar: en Tiendanube sigue sin precio. La
  * consulta va por WhatsApp o mail, con el precio ya escrito en el mensaje.
  *
+ * El precio también se puede cargar en Tiendanube, en el campo personalizado
+ * "Precio a la vista" del producto (no en "Precio": ése lo vuelve comprable).
+ * Si está cargado allá, gana sobre el de acá.
+ *
  * Depende de los helpers de dashboard.js (api, esc, toast, tip, panelHead,
  * hydrateIcons, skeleton). Backend: src/precioVista.js + /api/precio-vista/panel.
  * ========================================================================= */
 
-const pvState = { data: null, categorias: [], precios: {}, guardando: false, sucio: false };
+const pvState = { data: null, categorias: [], precios: {}, guardando: false, creando: false, sucio: false };
 
 async function pvCargar(force = false) {
   const box = document.getElementById('precio-vista-tools');
@@ -61,6 +65,8 @@ function pvRender() {
   const editables = productos.filter((p) => !(p.precioTN > 0));
   const conPrecioTN = productos.filter((p) => p.precioTN > 0);
   const visibles = editables.filter((p) => p.seVe).length;
+  const desdeTN = editables.filter((p) => p.precioCampo).length;
+  const raros = editables.filter((p) => p.campoRaro && !p.precioCampo);
 
   const badge = document.getElementById('pt-pv-count');
   if (badge) { badge.textContent = visibles; badge.classList.toggle('hidden', !visibles); }
@@ -70,7 +76,7 @@ function pvRender() {
 
   box.innerHTML = `<div class="panel pv-panel">
     ${panelHead('Precios a la vista, sin compra',
-      'Para productos mayoristas: el precio se ve en la tienda (ficha y tarjetas), pero NO se puede comprar online. La persona consulta por WhatsApp o mail y el mensaje ya sale con el precio. En Tiendanube dejá esos productos SIN precio: si les cargás precio allá, se vuelven comprables.',
+      'Para productos mayoristas: el precio se ve en la tienda (ficha y tarjetas), pero NO se puede comprar online. La persona consulta por WhatsApp o mail y el mensaje ya sale con el precio. El precio se carga acá o en Tiendanube, en el campo "Precio a la vista" del producto. El campo "Precio" de Tiendanube dejalo vacío: con precio ahí, el producto se vuelve comprable.',
       `<button class="btn-ghost btn-sm" onclick="pvCargar(true)"><span data-ic="refresh"></span> Refrescar</button>`)}
 
     ${d.error ? `<div class="flash-banner warn"><span data-ic="info"></span><div>${esc(d.error)}</div></div>` : ''}
@@ -101,21 +107,16 @@ function pvRender() {
       <button class="btn-ghost btn-sm" onclick="pvAgregar()"><span data-ic="plus"></span> Agregar</button>
     </div>
 
-    <h4 class="pv-h">2. Precios ${tip('El precio por unidad que se muestra. Vacío = el producto se sigue viendo sin precio. Se puede escribir con punto de miles: 289.999.')}</h4>
+    ${pvCampoHtml(d, desdeTN, raros)}
+
+    <h4 class="pv-h">2. Precios ${tip('El precio por unidad que se muestra. Vacío = el producto se sigue viendo sin precio. Se puede escribir con punto de miles: 289.999. Si el producto tiene cargado "Precio a la vista" en Tiendanube, vale ése y acá no se puede cambiar.')}</h4>
     ${pvState.categorias.length ? `
       <p class="hint" style="margin:0 0 10px">${editables.length
         ? `<b>${visibles}</b> de ${editables.length} producto${editables.length === 1 ? '' : 's'} con el precio a la vista.`
         : 'Las categorías elegidas no tienen productos sin precio.'}
         ${d.guardadosFuera ? ` · ${d.guardadosFuera} precio${d.guardadosFuera === 1 ? '' : 's'} guardado${d.guardadosFuera === 1 ? '' : 's'} de categorías que quitaste.` : ''}</p>
       <div class="pv-lista">
-        ${editables.map((p) => `<div class="pv-fila${p.publicado ? '' : ' pv-oculto'}">
-          ${p.imagen ? `<img src="${esc(p.imagen)}" alt="" loading="lazy">` : '<span class="pv-sinfoto"></span>'}
-          <div class="pv-prod">
-            <a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.nombre)}</a>
-            <span class="pv-estado">${p.seVe ? `Se ve a ${pvPesos(p.precio)}` : p.precio ? 'Precio guardado (se ve al guardar)' : 'Sin precio: se ve como mayorista'}${p.publicado ? '' : ' · no publicado'}</span>
-          </div>
-          <div class="pv-precio"><span>$</span><input class="input" inputmode="numeric" placeholder="Sin precio" value="${esc(pvMostrar(pvState.precios[p.id]))}" oninput="pvPrecio('${p.id}', this.value)"></div>
-        </div>`).join('')}
+        ${editables.map((p) => pvFilaHtml(p)).join('')}
       </div>
       ${conPrecioTN.length ? `<div class="flash-banner warn" style="margin-top:14px"><span data-ic="info"></span><div>
         <b>${conPrecioTN.length} producto${conPrecioTN.length === 1 ? '' : 's'} de estas categorías ya tiene${conPrecioTN.length === 1 ? '' : 'n'} precio en Tiendanube</b> y se compra${conPrecioTN.length === 1 ? '' : 'n'} online con su botón de siempre: acá no se tocan.
@@ -130,6 +131,67 @@ function pvRender() {
     </div>
   </div>`;
   hydrateIcons(box);
+}
+
+// Una fila de producto. Con "Precio a la vista" cargado en Tiendanube, el campo
+// de acá se apaga y muestra el de allá.
+function pvFilaHtml(p) {
+  const tn = p.precioCampo;
+  let estado;
+  if (tn) {
+    estado = `${p.seVe ? `Se ve a ${pvPesos(tn)}` : `${pvPesos(tn)}`} · cargado en Tiendanube` +
+      (p.precio && p.precio !== tn ? ` · el de acá (${pvPesos(p.precio)}) vuelve si lo borrás allá` : '');
+  } else {
+    estado = p.seVe ? `Se ve a ${pvPesos(p.precio)}` : p.precio ? 'Precio guardado (se ve al guardar)' : 'Sin precio: se ve como mayorista';
+  }
+  if (p.campoRaro && !tn) estado += ` · <b class="pv-raro">En Tiendanube dice «${esc(p.campoRaro)}»: no parece un precio, no se usa</b>`;
+  return `<div class="pv-fila${p.publicado ? '' : ' pv-oculto'}">
+    ${p.imagen ? `<img src="${esc(p.imagen)}" alt="" loading="lazy">` : '<span class="pv-sinfoto"></span>'}
+    <div class="pv-prod">
+      <a href="${esc(p.url)}" target="_blank" rel="noopener">${esc(p.nombre)}</a>
+      <span class="pv-estado">${estado}${p.publicado ? '' : ' · no publicado'}</span>
+    </div>
+    <div class="pv-precio${tn ? ' pv-de-tn' : ''}">${tn ? '<em>Tiendanube</em>' : ''}<span>$</span>${tn
+      ? `<input class="input" value="${esc(pvMostrar(tn))}" disabled title="Se cambia en Tiendanube: campo «Precio a la vista» del producto">`
+      : `<input class="input" inputmode="numeric" placeholder="Sin precio" value="${esc(pvMostrar(pvState.precios[p.id]))}" oninput="pvPrecio('${p.id}', this.value)">`}</div>
+  </div>`;
+}
+
+// Estado del campo "Precio a la vista" de Tiendanube.
+function pvCampoHtml(d, desdeTN, raros) {
+  if (!pvState.categorias.length) return '';
+  const nombre = esc(d.campoNombre || 'Precio a la vista');
+  if (d.campoError && !d.campo) {
+    return `<div class="flash-banner warn pv-campo"><span data-ic="info"></span><div>No se pudo leer el campo «${nombre}» de Tiendanube: ${esc(d.campoError)}. Quedan los precios de acá.</div></div>`;
+  }
+  if (!d.campo) {
+    return `<div class="pv-campo pv-campo-no">
+      <div><b>¿Preferís cargar los precios desde Tiendanube?</b>
+        Se puede con un campo personalizado del producto llamado «${nombre}» (como «Canal» o «Entrega»). El «Precio» de Tiendanube queda vacío, así que sigue sin poder comprarse.</div>
+      <div class="nav-acciones"><button class="btn-ghost btn-sm" id="pv-crear-campo" onclick="pvCrearCampo()" ${pvState.creando ? 'disabled' : ''}><span data-ic="plus"></span> ${pvState.creando ? 'Creando…' : 'Crear el campo en Tiendanube'}</button></div>
+    </div>`;
+  }
+  return `<div class="pv-campo pv-campo-si"><span data-ic="check"></span><div>
+    <b>Se puede cargar desde Tiendanube</b>: en la edición del producto, campo personalizado «${esc(d.campo.nombre)}». Escribí el precio como acá (50.000). Si está cargado allá, vale ése; si no, el de acá. El «Precio» de Tiendanube dejalo vacío.
+    <span class="pv-campo-dato">${desdeTN ? `${desdeTN} producto${desdeTN === 1 ? '' : 's'} toma${desdeTN === 1 ? '' : 'n'} el precio de Tiendanube.` : 'Todavía ningún producto de estas categorías lo tiene cargado.'}${d.campoFuera ? ` ${d.campoFuera} producto${d.campoFuera === 1 ? '' : 's'} lo tiene${d.campoFuera === 1 ? '' : 'n'} cargado pero no está${d.campoFuera === 1 ? '' : 'n'} en una categoría elegida: no se ve${d.campoFuera === 1 ? '' : 'n'}.` : ''}${raros.length ? ` <b class="pv-raro">${raros.length} con un valor que no parece precio (revisalo en la lista).</b>` : ''}${d.campoError ? ` <b class="pv-raro">La última lectura falló (${esc(d.campoError)}): se muestran los valores anteriores.</b>` : ''}</span>
+  </div></div>`;
+}
+
+async function pvCrearCampo() {
+  if (pvState.creando) return;
+  pvState.creando = true;
+  pvRender();
+  try {
+    const data = await api('/api/precio-vista/panel/campo', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: '{}' });
+    pvState.data = data;
+    pvTomar(data);
+    toast('Campo creado en Tiendanube. Ya podés cargar el precio en cada producto.', 'ok');
+  } catch (err) {
+    toast(err.message, 'err');
+  } finally {
+    pvState.creando = false;
+    pvRender();
+  }
 }
 
 function pvMarcarSucio() {
@@ -174,7 +236,8 @@ async function pvGuardar() {
   const precios = {};
   const malos = [];
   (pvState.data.productos || []).forEach((p) => {
-    if (p.precioTN > 0 || !(p.id in pvState.precios)) return;
+    // Los que vienen de Tiendanube no se mandan: el del motor queda como estaba.
+    if (p.precioTN > 0 || p.precioCampo || !(p.id in pvState.precios)) return;
     const n = pvNumero(pvState.precios[p.id]);
     if (Number.isNaN(n)) malos.push(p.nombre);
     else precios[p.id] = n;

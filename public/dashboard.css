@@ -3224,8 +3224,20 @@ button .cost-tag { margin-left: 8px; }
 .pv-tn { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 8px; }
 .pv-tn a, .pv-tn span { font-size: 12px; color: var(--text); }
 .pv-pie { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 18px; }
+/* Campo "Precio a la vista" de Tiendanube */
+.pv-campo { display: flex; align-items: flex-start; gap: 10px; margin-top: 18px; padding: 12px 14px; font-size: 13px; line-height: 1.5;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); }
+.pv-campo > div { flex: 1; min-width: 0; }
+.pv-campo-no { flex-wrap: wrap; align-items: center; }
+.pv-campo-no > div:first-child { flex: 1 1 320px; }
+.pv-campo-no .nav-acciones { flex: 0 0 auto; }
+.pv-campo-si [data-ic] { flex: 0 0 auto; margin-top: 2px; color: var(--green, #15803d); }
+.pv-campo-dato { display: block; margin-top: 4px; color: var(--muted); }
+.pv-raro { color: var(--orange); font-weight: 700; }
+.pv-de-tn em { font-style: normal; font-size: 11px; font-weight: 700; color: var(--muted); margin-right: 2px; }
+.pv-de-tn .input:disabled { opacity: 1; color: var(--text); background: var(--panel-2); cursor: not-allowed; }
 @media (max-width: 560px) {
   .pv-fila { flex-wrap: wrap; }
-  .pv-precio { margin-left: 56px; }
-  .pv-precio .input { width: 150px; }
+  .pv-precio { margin-left: 56px; min-width: 0; max-width: calc(100% - 56px); }
+  .pv-precio .input { width: auto; flex: 0 1 150px; min-width: 0; }
 }
