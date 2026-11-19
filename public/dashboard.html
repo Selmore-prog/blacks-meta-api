@@ -280,6 +280,7 @@
         <button class="ptab active" data-pane="prioridades" onclick="switchProductsPane('prioridades')">Qué priorizar</button>
         <button class="ptab" data-pane="fotos" onclick="switchProductsPane('fotos')">Fotos de publicaciones</button>
         <button class="ptab" data-pane="trabajos" onclick="switchProductsPane('trabajos')">Trabajos con bordado<span class="pt-badge hidden" id="pt-works-count"></span></button>
+        <button class="ptab" data-pane="precios" onclick="switchProductsPane('precios')">Precios a la vista<span class="pt-badge hidden" id="pt-pv-count"></span></button>
       </div>
 
       <!-- ---- Panel 1: qué priorizar ---- -->
@@ -306,6 +307,13 @@
         <div id="works-tools"></div>
 
         <button class="btn-ghost btn-sm" onclick="switchTab('access')" style="margin-top:18px;">Administrar accesos del equipo</button>
+      </div>
+
+      <!-- ---- Panel 4: precios a la vista ----
+           Mayoristas con el precio visible pero sin compra online (siguen sin
+           precio en Tiendanube). Ver src/precioVista.js. -->
+      <div id="pt-precios" class="pt-pane hidden">
+        <div id="precio-vista-tools"></div>
       </div>
     </section>
 
@@ -738,6 +746,7 @@
        del equipo (equipo.html), que no puede cargar dashboard.js entero.
        Tiene que ir DESPUÉS de dashboard.js: usa sus helpers. -->
   <script src="/works-panel.js"></script>
+  <script src="/precio-vista-panel.js"></script>
   <!-- Bloques de contenido del home. Aparte de dashboard.js (que ya tiene 6.700
        líneas) y DESPUÉS de él: usa api(), esc(), toast() y tip(). -->
   <script src="/home-blocks-panel.js"></script>

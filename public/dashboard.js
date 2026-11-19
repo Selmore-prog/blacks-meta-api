@@ -190,6 +190,7 @@ const PT_SUBS = {
   prioridades: 'Prioridades según ventas (30 días), stock y curva de talles.',
   fotos: 'Copiar fotos entre publicaciones y elegir la foto de cada color.',
   trabajos: 'Fotos de prendas ya bordadas, para las fichas mayoristas.',
+  precios: 'Mayoristas con el precio a la vista, sin compra online.',
 };
 const ptCargados = new Set();
 
@@ -212,6 +213,7 @@ function switchProductsPane(name) {
   if (name === 'prioridades') loadProducts();
   else if (name === 'fotos') loadMediaTools();
   else if (name === 'trabajos') loadWorks();
+  else if (name === 'precios') pvCargar();
 }
 
 /** El botón "Refrescar" de la barra: recarga SOLO el panel que estás mirando. */

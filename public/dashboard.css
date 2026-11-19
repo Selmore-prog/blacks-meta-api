@@ -3193,3 +3193,39 @@ button .cost-tag { margin-left: 8px; }
   .ia-buscar { width: 100%; }
   .ia-fila-top b { white-space: normal; }
 }
+
+/* ---------- Precios a la vista (Productos → Precios a la vista) ---------- */
+.pv-panel .flash-banner { flex-wrap: nowrap; align-items: flex-start; font-size: 13px; line-height: 1.5; }
+.pv-panel .flash-banner > div { flex: 1; min-width: 0; }
+.pv-h { margin: 22px 0 10px; font-size: 14px; font-weight: 800; display: flex; align-items: center; gap: 6px; }
+.pv-cats { display: grid; gap: 10px; }
+.pv-cat { display: flex; flex-wrap: wrap; align-items: center; gap: 10px 18px; padding: 12px 14px;
+  border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); }
+.pv-cat-nombre { flex: 1 1 220px; min-width: 0; font-size: 14px; display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
+.pv-aviso-min { font-size: 11px; font-weight: 700; color: var(--orange); }
+.pv-op { display: inline-flex; align-items: center; gap: 8px; font-size: 13px; color: var(--muted); }
+.pv-op .input { padding: 7px 9px; width: auto; }
+.pv-op .pv-min { width: 72px; }
+.pv-check input { width: 16px; height: 16px; accent-color: var(--text); }
+.pv-agregar { display: flex; gap: 8px; margin-top: 10px; flex-wrap: wrap; }
+.pv-agregar .input { flex: 1 1 260px; min-width: 0; }
+.pv-lista { border: 1px solid var(--line); border-radius: 12px; overflow: hidden; }
+.pv-fila { display: flex; align-items: center; gap: 12px; padding: 10px 12px; border-top: 1px solid var(--line); background: var(--panel); }
+.pv-fila:first-child { border-top: 0; }
+.pv-fila.pv-oculto { opacity: .6; }
+.pv-fila img, .pv-sinfoto { width: 44px; height: 44px; border-radius: 8px; object-fit: cover; background: var(--panel-2); flex: 0 0 auto; }
+.pv-prod { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 2px; }
+.pv-prod a { color: var(--text); font-weight: 700; font-size: 13.5px; text-decoration: none; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pv-prod a:hover { text-decoration: underline; }
+.pv-estado { font-size: 12px; color: var(--muted); }
+.pv-precio { display: flex; align-items: center; gap: 6px; flex: 0 0 auto; }
+.pv-precio span { color: var(--muted); font-weight: 700; }
+.pv-precio .input { width: 120px; padding: 8px 10px; text-align: right; font-variant-numeric: tabular-nums; }
+.pv-tn { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-top: 8px; }
+.pv-tn a, .pv-tn span { font-size: 12px; color: var(--text); }
+.pv-pie { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; margin-top: 18px; }
+@media (max-width: 560px) {
+  .pv-fila { flex-wrap: wrap; }
+  .pv-precio { margin-left: 56px; }
+  .pv-precio .input { width: 150px; }
+}

@@ -39,6 +39,7 @@ const storeMedia = require('./storeMedia');
 const navMenu = require('./navMenu');
 const navAssets = require('./navAssets');
 const benefits = require('./benefits');
+const precioVista = require('./precioVista');
 const metaPausa = require('./metaPausa');
 const homeBlocksAssets = require('./homeBlocksAssets');
 const homePlan = require('./homePlan');
@@ -96,6 +97,9 @@ app.use(async (req, res, next) => {
     // El estilo del menú lo pide la TIENDA en todas sus páginas. Es de sólo
     // lectura y devuelve lo que ya se ve en el menú: colores y globitos.
     '/api/nav/style',
+    // Precios a la vista (sin compra) de los mayoristas: los pide la ficha y la
+    // grilla de la tienda. Sólo lectura: id de producto → precio que ya se ve.
+    '/api/precio-vista',
     // Portal del equipo: la pantalla de ingreso y su hoja de estilos. No exponen
     // nada — son el formulario de login y CSS. Ver src/teamPortal.js.
     '/equipo.html', '/equipo.js', '/works-panel.js', '/dashboard.css', '/api/team/login', '/api/team/user-login'];
@@ -1770,6 +1774,30 @@ app.get('/api/works/product/:id', publicGetCors, wrap(async (req, res) => {
   // ninguna ficha espere por esto y el motor no reciba una consulta por visita.
   res.setHeader('Cache-Control', 'public, max-age=300, stale-while-revalidate=3600');
   res.json({ items });
+}));
+
+/* PRECIOS A LA VISTA, SIN COMPRA (nov-2026). El precio que se MUESTRA en los
+   mayoristas de las categorías elegidas; en Tiendanube siguen sin precio, así
+   que no se pueden comprar. Ver src/precioVista.js. */
+app.options('/api/precio-vista', publicGetCors);
+app.get('/api/precio-vista', publicGetCors, wrap(async (req, res) => {
+  const data = await precioVista.publico().catch((e) => {
+    console.error('[precio-vista] publico:', e.message);
+    return { productos: {} };
+  });
+  res.setHeader('Cache-Control', 'public, max-age=60, stale-while-revalidate=600');
+  res.json(data);
+}));
+
+// Panel del dueño: categorías, opciones y precio de cada producto.
+app.get('/api/precio-vista/panel', wrap(async (req, res) => {
+  res.json(await precioVista.panel({ force: req.query.force === '1' }));
+}));
+
+// ⚠️ Guarda en /panel y NO en /api/precio-vista: esa ruta está en la lista de
+// abiertas del control de sesión, que mira sólo la ruta y no el método.
+app.post('/api/precio-vista/panel', wrap(async (req, res) => {
+  res.json({ ok: true, ...(await precioVista.guardar(req.body || {})) });
 }));
 
 /* ========================= PORTAL DEL EQUIPO =============================
