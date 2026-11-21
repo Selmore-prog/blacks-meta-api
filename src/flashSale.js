@@ -112,6 +112,15 @@ function pickBase(price, promo, base) {
   if (base === 'current' && Number.isFinite(pr) && pr > 0 && pr < reg) return pr;
   return reg;
 }
+/* Precio redondo hacia ABAJO, terminado en 99 (24.939,14 → 24.899), como los
+   precios del resto de la tienda. Nunca sube: el cliente paga a lo sumo $99
+   menos que el % exacto. Por debajo de $1.000 se deja con el redondeo a peso. */
+function precioRedondo(n) {
+  const x = Number(n);
+  if (!Number.isFinite(x) || x <= 0) return null;
+  if (x < 1000) return Math.floor(x);
+  return Math.floor((x + 1) / 100) * 100 - 1;
+}
 const validHex = (v) => typeof v === 'string' && /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(v.trim());
 
 /* ---------------------------- buscador (sólo minoristas) ---------------------------- */
@@ -265,7 +274,7 @@ async function _activate() {
       if (!Number.isFinite(price) || price <= 0) continue; // variante sin precio: se saltea
       // El % se aplica sobre la BASE elegida (precio actual vs. regular).
       const base = pickBase(price, v.promotional_price, cfg.discount_base);
-      const promo = money(base * (1 - pct / 100));
+      const promo = precioRedondo(base * (1 - pct / 100));
       if (!(promo > 0) || promo >= price) continue;
       if (writes >= MAX_WRITES) { errors.push(`Tope de ${MAX_WRITES} escrituras alcanzado.`); break; }
       try {
@@ -417,4 +426,4 @@ async function getBlock() {
 
 function invalidate() { cache = { block: null, at: 0 }; }
 
-module.exports = { getConfig, getConfigDetailed, saveConfig, search, activate, end, maybeAutoEnd, getBlock, invalidate };
+module.exports = { precioRedondo, getConfig, getConfigDetailed, saveConfig, search, activate, end, maybeAutoEnd, getBlock, invalidate };

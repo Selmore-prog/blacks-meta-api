@@ -7025,7 +7025,9 @@ function flashFinal(it) {
     const p = Number(it.promo_now);
     return (Number.isFinite(p) && p > 0) ? p : (Number(it.price) || 0);
   }
-  return Math.round(flashBase(it) * (1 - flashEffPct(it) / 100));
+  // Mismo redondeo que el motor (flashSale.precioRedondo): hacia abajo, terminado en 99.
+  const x = flashBase(it) * (1 - flashEffPct(it) / 100);
+  return x < 1000 ? Math.floor(x) : Math.floor((x + 1) / 100) * 100 - 1;
 }
 /* % REAL respecto del precio regular (lo que ve el cliente tachado). */
 function flashRealPct(it) {
