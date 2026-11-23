@@ -32,7 +32,7 @@ const homeRails = require('./homeRails');
 const KEY = 'flash_sale';
 const MAX_ITEMS = 12;      // una sección de ofertas con más de 12 se vuelve un catálogo
 const MAX_WRITES = 400;    // tope duro de PUTs por activación (freno ante un error de datos)
-const WRITE_DELAY_MS = 300;
+const WRITE_DELAY_MS = Number(process.env.FLASH_WRITE_DELAY_MS || 300);
 
 const DEFAULT = {
   title: 'Ofertas flash',
@@ -53,6 +53,7 @@ const DEFAULT = {
   estilo: null,
   badge: null,            // texto del chip de arriba (null = "OFERTA RELÁMPAGO")
   despues: null,          // config de la oferta que vuelve sola cuando ésta termina (ver _end)
+  programada: null,       // { inicia_at, config }: la oferta que arranca sola a esa hora (ver maybeAutoStart)
   items: [],              // [{ id, pct?, precio? }]  pct opcional: si falta, usa default_pct.
                           // precio = precio de oferta EXACTO (gana sobre el %): con % enteros
                           // no se llega a un número redondo ($43.999 → $39.999 es 9,09 %).
@@ -283,9 +284,67 @@ async function saveConfig(input) {
 let activating = null;
 let ending = null;
 
+/* CANDADO EN LA BASE (nov-2026). Las transiciones pueden dispararse desde DOS
+   procesos: Render (al servir el home, cuando vence el contador o llega la
+   hora de una oferta programada) y el runner de GitHub Actions (cron). Si los
+   dos prenden la misma oferta a la vez, la segunda anota como "precio de
+   antes" el que acaba de escribir la primera, y al terminar ese precio de
+   oferta quedaría para siempre. El candado es una fila de app_settings que se
+   toma con un solo INSERT … ON CONFLICT (anda con el pooler de Supabase, que
+   no garantiza los advisory locks de sesión) y vence sola a los 15 min por si
+   un proceso se muere en el medio. */
+const CANDADO = 'flash_sale_candado';
+async function tomarCandado(minutos = 15) {
+  try {
+    const { rows } = await pool.query(
+      `INSERT INTO app_settings (key, value, updated_at) VALUES ($1, $2, now())
+       ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, updated_at = now()
+         WHERE app_settings.updated_at < now() - make_interval(mins => $3::int)
+       RETURNING key`,
+      [CANDADO, `${process.pid}@${new Date().toISOString()}`, minutos]
+    );
+    return rows.length > 0;
+  } catch (err) {
+    console.error('[flashSale] candado:', err.message);
+    return false;
+  }
+}
+async function soltarCandado() {
+  await pool.query('DELETE FROM app_settings WHERE key = $1', [CANDADO]).catch(() => {});
+}
+async function conCandado(fn, { siOcupado } = {}) {
+  if (!(await tomarCandado())) {
+    if (siOcupado) return siOcupado();
+    throw badRequest('Hay otro cambio de ofertas en curso. Probá de nuevo en unos minutos.');
+  }
+  try { return await fn(); } finally { await soltarCandado(); }
+}
+
+/* La copia del catálogo (products_cache.raw) queda con el precio de oferta que
+   se acaba de escribir en Tiendanube. syncCatalogPrices (catálogo de Meta) lee
+   esa copia: sin esto el catálogo seguía con el precio viejo hasta el sync. */
+async function reflejarEnCopia(productId, cambios) {
+  if (!cambios.size) return;
+  try {
+    const { rows } = await pool.query('SELECT raw FROM products_cache WHERE id = $1', [Number(productId)]);
+    let raw = rows[0] && rows[0].raw;
+    if (typeof raw === 'string') raw = JSON.parse(raw);
+    if (!raw || !Array.isArray(raw.variants)) return;
+    for (const v of raw.variants) {
+      if (cambios.has(Number(v.id))) {
+        const promo = cambios.get(Number(v.id));
+        v.promotional_price = promo != null ? Number(promo).toFixed(2) : null;
+      }
+    }
+    await pool.query('UPDATE products_cache SET raw = $2 WHERE id = $1', [Number(productId), JSON.stringify(raw)]);
+  } catch (err) {
+    console.error(`[flashSale] copia del producto ${productId}:`, err.message);
+  }
+}
+
 async function activate() {
   if (activating) return activating;
-  activating = _activate();
+  activating = conCandado(() => _activate());
   try { return await activating; } finally { activating = null; }
 }
 
@@ -317,6 +376,7 @@ async function _activate() {
     // que va al cache — así el resto del sitio ve el mismo número que la vidriera.
     const pricedVariant = variants.find((v) => Number(v.price) > 0);
     let displayPromo = null;
+    const escritas = new Map();
 
     for (const v of variants) {
       // Precio fijo del ítem o % sobre la BASE elegida (precio actual vs. regular).
@@ -326,6 +386,7 @@ async function _activate() {
       try {
         await setVariantPromotionalPrice(prod.id, v.id, promo);
         variantsBook.push({ product_id: Number(prod.id), variant_id: v.id, prior_promo: v.promotional_price ? money(v.promotional_price) : null });
+        escritas.set(Number(v.id), promo);
         if (pricedVariant && v.id === pricedVariant.id) displayPromo = promo;
         writes += 1;
         await sleep(WRITE_DELAY_MS);
@@ -339,6 +400,7 @@ async function _activate() {
     if (displayPromo != null) {
       await pool.query('UPDATE products_cache SET promo_price = $2 WHERE id = $1', [Number(prod.id), displayPromo]).catch(() => {});
     }
+    await reflejarEnCopia(prod.id, escritas);
   }
 
   const next = {
@@ -358,24 +420,31 @@ async function _activate() {
   };
 }
 
+/* opts.auto: la terminó el contador (no una persona). Si el candado está
+   tomado por otro proceso que ya la está terminando, no hace nada.
+   opts.siguiente === false: no prende la oferta de `despues` (la usa
+   maybeAutoStart, que prende la programada en su lugar). */
 async function end(opts = {}) {
   if (ending) return ending;
-  ending = _end(opts);
+  ending = conCandado(() => _end(opts), opts.auto ? { siOcupado: () => ({ ok: true, ocupado: true }) } : {});
   try { return await ending; } finally { ending = null; }
 }
 
-async function _end({ auto = false } = {}) {
+async function _end({ auto = false, siguiente = true } = {}) {
   const cfg = await getConfig();
   if (!cfg.active) return { ok: true, active: false, restauradas: 0 };
 
   const book = cfg.applied || { variants: [], products: [] };
   const errors = [];
   let restored = 0;
+  const porProducto = new Map();
 
   for (const v of book.variants || []) {
     try {
       await setVariantPromotionalPrice(v.product_id, v.variant_id, v.prior_promo != null ? v.prior_promo : null);
       restored += 1;
+      if (!porProducto.has(v.product_id)) porProducto.set(v.product_id, new Map());
+      porProducto.get(v.product_id).set(Number(v.variant_id), v.prior_promo != null ? v.prior_promo : null);
       await sleep(WRITE_DELAY_MS);
     } catch (err) {
       errors.push(`Variante ${v.variant_id}: ${err.message}`);
@@ -387,6 +456,7 @@ async function _end({ auto = false } = {}) {
     await pool.query('UPDATE products_cache SET promo_price = $2 WHERE id = $1', [p.id, p.prior_promo_price])
       .catch(() => {});
   }
+  for (const [pid, cambios] of porProducto) await reflejarEnCopia(pid, cambios);
 
   const next = { ...cfg, active: false, applied_at: null, applied: { variants: [], products: [] } };
   await putConfig(next);
@@ -397,17 +467,22 @@ async function _end({ auto = false } = {}) {
   // que sigue hasta el 7-dic. Hay una sola oferta a la vez, así que la de
   // Black Friday guarda en `despues` la que tiene que volver al terminar
   // (sola, al vencer el contador a la medianoche, o a mano). Si la siguiente
-  // ya venció, queda guardada pero apagada.
-  if (cfg.despues && typeof cfg.despues === 'object' && Array.isArray(cfg.despues.items)) {
+  // ya venció, queda guardada pero apagada. Se prende acá adentro, con el
+  // candado tomado: nadie más puede prenderla a la vez.
+  if (siguiente && cfg.despues && typeof cfg.despues === 'object' && Array.isArray(cfg.despues.items)) {
     const sig = cfg.despues;
-    await putConfig({ ...DEFAULT, ...sig, despues: null, active: false, applied_at: null, applied: { variants: [], products: [] } });
+    await putConfig({ ...DEFAULT, ...sig, despues: null, programada: null, active: false, applied_at: null, applied: { variants: [], products: [] } });
     const vence = sig.ends_at ? new Date(sig.ends_at).getTime() : null;
     if (!vence || vence > Date.now()) {
       resultado.siguiente = sig.title || 'oferta siguiente';
-      // Atrás: son decenas de escrituras con pausa y esto puede venir de un pedido del home.
-      activate()
-        .then((r) => console.log(`[flashSale] Volvió "${resultado.siguiente}": ${r.variantes_escritas} variantes.`))
-        .catch((e) => console.error('[flashSale] No se pudo prender la oferta siguiente:', e.message));
+      try {
+        const r = await _activate();
+        resultado.siguiente_variantes = r.variantes_escritas;
+        console.log(`[flashSale] Volvió "${resultado.siguiente}": ${r.variantes_escritas} variantes.`);
+      } catch (e) {
+        resultado.siguiente_error = e.message;
+        console.error('[flashSale] No se pudo prender la oferta siguiente:', e.message);
+      }
     }
   }
   return resultado;
@@ -424,10 +499,70 @@ async function maybeAutoEnd() {
   return null;
 }
 
+/* ---------------------------- oferta programada ---------------------------- */
+
+/* OFERTA PROGRAMADA (Black Friday, nov-2026): una oferta que arranca SOLA a una
+   hora. Se guarda en `programada` de la config que está ahora ({ inicia_at,
+   config }). A esa hora (la primera visita al home después, o el cron de
+   GitHub Actions, lo que llegue primero) se termina la oferta de ahora, se
+   guarda como `despues` de la programada (si todavía no venció) y se prende la
+   programada. */
+async function programar(config, inicia_at) {
+  const t = new Date(inicia_at);
+  if (Number.isNaN(t.getTime())) throw badRequest('La hora de inicio no es válida.');
+  if (t.getTime() <= Date.now()) throw badRequest('La hora de inicio ya pasó.');
+  if (!config || !Array.isArray(config.items) || !config.items.length) throw badRequest('La oferta programada no tiene productos.');
+  if (config.ends_at && new Date(config.ends_at).getTime() <= t.getTime()) throw badRequest('La oferta programada termina antes de empezar.');
+  const validos = new Set((await loadChosen(config.items.map((i) => i.id))).map((r) => Number(r.id)));
+  const rechazados = config.items.map((i) => Number(i.id)).filter((id) => !validos.has(id));
+  const current = await getConfig();
+  const programada = { inicia_at: t.toISOString(), config: { ...config, items: config.items.filter((i) => validos.has(Number(i.id))) } };
+  await putConfig({ ...current, programada });
+  return { ok: true, programada, rechazados };
+}
+
+async function cancelarProgramada() {
+  const current = await getConfig();
+  await putConfig({ ...current, programada: null });
+  return { ok: true };
+}
+
+const programadaVencida = (cfg) => Boolean(cfg && cfg.programada && cfg.programada.inicia_at && new Date(cfg.programada.inicia_at).getTime() <= Date.now());
+
+let starting = null;
+async function maybeAutoStart() {
+  if (starting) return starting;
+  if (!programadaVencida(await getConfig())) return null;
+  starting = conCandado(async () => {
+    const cfg = await getConfig(); // otra vez, ya con el candado: otro proceso pudo haberla prendido
+    if (!programadaVencida(cfg)) return null;
+    const { config: nueva, inicia_at } = cfg.programada;
+    console.log(`[flashSale] Arranca la oferta programada "${nueva.title}" (${inicia_at}).`);
+    let vuelve = null;
+    if (cfg.items && cfg.items.length && (!cfg.ends_at || new Date(cfg.ends_at).getTime() > Date.now())) {
+      const { applied, applied_at, active, programada, despues, ...sinLibreta } = cfg;
+      vuelve = sinLibreta;
+    }
+    const terminada = cfg.active ? await _end({ auto: true, siguiente: false }) : null;
+    await putConfig({
+      ...DEFAULT, ...nueva,
+      despues: nueva.despues !== undefined ? nueva.despues : vuelve,
+      programada: null, active: false, applied_at: null, applied: { variants: [], products: [] },
+    });
+    const r = await _activate();
+    return { ok: true, arranco: nueva.title, terminada: terminada && terminada.restauradas, ...r };
+  }, { siOcupado: () => ({ ok: true, ocupado: true }) });
+  try { return await starting; } finally { starting = null; }
+}
+
 /* ---------------------------- payload para el theme ---------------------------- */
 
 async function computeBlock() {
   const cfg = await getConfig();
+  if (programadaVencida(cfg)) {
+    // Llegó la hora de la oferta programada: se prende atrás (≈1-2 min de escrituras).
+    maybeAutoStart().catch((e) => console.error('[flashSale] auto-start:', e.message));
+  }
   if (!cfg.active) return { active: false };
   // Vencida pero todavía activa: se dispara la restauración atrás y se sirve
   // como inactiva para que la sección no muestre "quedan 0".
@@ -498,4 +633,4 @@ async function getBlock() {
 
 function invalidate() { cache = { block: null, at: 0 }; }
 
-module.exports = { precioRedondo, promoDeVariante, getConfig, getConfigDetailed, saveConfig, search, activate, end, maybeAutoEnd, getBlock, invalidate };
+module.exports = { precioRedondo, promoDeVariante, programar, cancelarProgramada, maybeAutoStart, getConfig, getConfigDetailed, saveConfig, search, activate, end, maybeAutoEnd, getBlock, invalidate };

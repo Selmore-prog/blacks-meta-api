@@ -30,6 +30,16 @@ on:
     - cron: '0 6 */2 * *'
     # Plan mensual IA: el día 25 deja armado el plan del mes siguiente (12:00 UTC)
     - cron: '0 12 25 * *'
+    # BLACK FRIDAY 2026 (ofertas flash programadas, scripts/flash-programada.js).
+    # Arranque: la oferta programada arranca el jueves 26 a las 23:30 ARG, media
+    # hora antes que los anuncios (viernes 27 00:00): se prueba a las 23:33,
+    # 23:53 y 00:13 ARG. Fin: el contador vence el lunes 30 23:59 ARG (02:59 UTC
+    # del 1-dic) y se prueba a las 00:09, 00:29 y 00:49 ARG. Minutos raros a
+    # propósito: GitHub demora los crons en punto. Además lo hace Render en la
+    # primera visita al home, y la pasada de cada hora (:20) por las dudas.
+    - cron: '33,53 2 27 11 *'
+    - cron: '13 3 27 11 *'
+    - cron: '9,29,49 3 1 12 *'
   workflow_dispatch:
     inputs:
       job:
@@ -47,6 +57,7 @@ on:
           - generate-plan
           - sync-company-info
           - ad-set
+          - flash-programada
 
 jobs:
   # Trae precios/stock actualizados de Tiendanube al cache.
@@ -67,6 +78,11 @@ jobs:
         with:
           node-version: 22
       - run: npm ci
+      # Ofertas flash programadas o vencidas (Black Friday): red de seguridad por
+      # si el job de horario fijo no corrió. No frena el sync si falla.
+      - name: Ofertas flash programadas
+        continue-on-error: true
+        run: node scripts/flash-programada.js
       - run: npm run sync
       # Con el catálogo fresco, los rieles del home tienen que rearmarse ya:
       # si no, la caché de 15 min sigue sirviendo el precio viejo.
@@ -90,6 +106,41 @@ jobs:
             -H "Content-Type: application/json" \
             -d "{\"chat_id\":\"${{ secrets.TELEGRAM_CHAT_ID }}\",\"text\":\"BLACKS - FALLO el sync de Tiendanube (precios y stock). El panel esta mostrando datos viejos. Revisa el log: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}\"}" \
             > /dev/null || echo "no se pudo avisar por Telegram"
+
+  # BLACK FRIDAY: prende o termina las ofertas flash a la hora (ver horarios arriba).
+  # Si hubo cambio, relee el catálogo de Tiendanube, corrige los precios del
+  # catálogo de Meta y refresca el home.
+  flash-programada:
+    if: contains(fromJSON('["33,53 2 27 11 *","13 3 27 11 *","9,29,49 3 1 12 *"]'), github.event.schedule) || github.event.inputs.job == 'flash-programada'
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      TIENDANUBE_STORE_ID: ${{ secrets.TIENDANUBE_STORE_ID }}
+      TIENDANUBE_ACCESS_TOKEN: ${{ secrets.TIENDANUBE_ACCESS_TOKEN }}
+      TIENDANUBE_USER_AGENT: ${{ secrets.TIENDANUBE_USER_AGENT }}
+      TIENDANUBE_AUTH_HEADER_STYLE: ${{ secrets.TIENDANUBE_AUTH_HEADER_STYLE }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm ci
+      - name: Prender o terminar la oferta que corresponda
+        id: flash
+        run: node scripts/flash-programada.js
+      - name: Releer el catálogo de Tiendanube
+        if: steps.flash.outputs.cambio == 'si'
+        run: npm run sync
+      - name: Corregir precios del catálogo de Meta y refrescar el home
+        if: steps.flash.outputs.cambio == 'si'
+        run: |
+          curl -sf --retry 4 --retry-all-errors --retry-delay 15 --max-time 300 -X POST \
+            -H "Authorization: Bearer ${{ secrets.CRON_SECRET }}" \
+            -H "Content-Type: application/json" \
+            "${{ secrets.PUBLIC_BASE_URL }}/api/cron/sync-catalog" \
+            || echo "sync-catalog falló (se corrige con el sync de la mañana)"
+          curl -sf --retry 3 --retry-all-errors --retry-delay 10 --max-time 120 "${{ secrets.PUBLIC_BASE_URL }}/api/home/rails?force=1" -o /dev/null \
+            || echo "no se pudo refrescar el home (se rearma solo en 15 min)"
 
   sync-products:
     if: github.event.schedule == '45 9 * * *' || github.event.inputs.job == 'sync-products'
