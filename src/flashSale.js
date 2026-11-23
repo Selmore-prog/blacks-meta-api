@@ -48,7 +48,14 @@ const DEFAULT = {
   //             ya tenía una oferta mayor, esto podría SUBIR el precio mostrado.
   discount_base: 'current',
   accent: '#111111',      // color de las pastillas del contador en el theme
-  items: [],              // [{ id, pct? }]  pct opcional: si falta, usa default_pct
+  // Presentación de un evento (Black Friday, nov-2026): 'black' = la sección
+  // va en negro con el título grande (home-flash-sale.tpl). null = la de siempre.
+  estilo: null,
+  badge: null,            // texto del chip de arriba (null = "OFERTA RELÁMPAGO")
+  despues: null,          // config de la oferta que vuelve sola cuando ésta termina (ver _end)
+  items: [],              // [{ id, pct?, precio? }]  pct opcional: si falta, usa default_pct.
+                          // precio = precio de oferta EXACTO (gana sobre el %): con % enteros
+                          // no se llega a un número redondo ($43.999 → $39.999 es 9,09 %).
   active: false,
   applied_at: null,
   // Libreta para restaurar (se llena al activar):
@@ -88,8 +95,8 @@ async function getConfigDetailed() {
   const byId = new Map(chosen.map((r) => [Number(r.id), r]));
   const items_detail = cfg.items.map((i) => {
     const r = byId.get(Number(i.id));
-    if (!r) return { id: Number(i.id), missing: true, pct: i.pct || null };
-    return { id: Number(r.id), name: r.name, image: r.image_url, price: money(r.price), promo_now: money(r.promo_price), stock: r.stock === null ? null : Number(r.stock), pct: i.pct || null };
+    if (!r) return { id: Number(i.id), missing: true, pct: i.pct || null, precio: precioFijo(i.precio) };
+    return { id: Number(r.id), name: r.name, image: r.image_url, price: money(r.price), promo_now: money(r.promo_price), stock: r.stock === null ? null : Number(r.stock), pct: i.pct || null, precio: precioFijo(i.precio) };
   });
   return { ...cfg, items_detail };
 }
@@ -122,6 +129,32 @@ function precioRedondo(n) {
   return Math.floor((x + 1) / 100) * 100 - 1;
 }
 const validHex = (v) => typeof v === 'string' && /^#[0-9a-fA-F]{3}([0-9a-fA-F]{3})?$/.test(v.trim());
+const precioFijo = (v) => {
+  const n = Number(v);
+  return Number.isFinite(n) && n >= 100 ? Math.round(n * 100) / 100 : null;
+};
+const ESTILOS = new Set(['black']);
+
+/* Precio de oferta de UNA variante, o null si no hay que tocarla.
+   - Con `precio` fijo en el ítem: ese número, salvo que la variante ya muestre
+     uno MÁS BAJO (nunca sube el precio que el cliente ve).
+   - Si no: el % sobre la base elegida, redondeado a ...99.
+   Nunca devuelve un precio igual o mayor al regular. */
+function promoDeVariante({ price, promotional_price }, item, cfg) {
+  const reg = Number(price);
+  if (!Number.isFinite(reg) || reg <= 0) return null;
+  const fijo = precioFijo(item && item.precio);
+  let promo;
+  if (fijo) {
+    const actual = Number(promotional_price);
+    if (Number.isFinite(actual) && actual > 0 && actual < reg && actual <= fijo) return null;
+    promo = fijo;
+  } else {
+    const pct = effectivePct(item || {}, cfg);
+    promo = precioRedondo(pickBase(reg, promotional_price, cfg.discount_base) * (1 - pct / 100));
+  }
+  return promo > 0 && promo < reg ? promo : null;
+}
 
 /* ---------------------------- buscador (sólo minoristas) ---------------------------- */
 
@@ -191,10 +224,16 @@ async function saveConfig(input) {
   // Con la oferta ACTIVA no se cambian productos ni %: hay que terminarla primero
   // (si no, quedarían precios escritos en Tiendanube sin su libreta de restauración).
   const accentActive = validHex(input.accent) ? input.accent.trim() : (current.accent || DEFAULT.accent);
+  // Estilo y chip: si la clave no viene (el panel no los manda) queda lo que había.
+  const estilo = input.estilo === undefined ? (current.estilo || null) : (ESTILOS.has(input.estilo) ? input.estilo : null);
+  const badge = input.badge === undefined ? (current.badge || null) : (input.badge ? String(input.badge).trim().slice(0, 40) : null);
+  // La oferta que vuelve cuando ésta termina (ver _end). El panel no la manda: se conserva.
+  const despues = input.despues === undefined ? (current.despues || null)
+    : (input.despues && typeof input.despues === 'object' && Array.isArray(input.despues.items) ? input.despues : null);
   if (current.active) {
     // Con la oferta activa sólo cambian cosas de PRESENTACIÓN (no la base ni el %,
     // que ya están escritos en Tiendanube con su libreta de restauración).
-    const next = { ...current, title, subtitle, url, ends_at, accent: accentActive };
+    const next = { ...current, title, subtitle, url, ends_at, accent: accentActive, estilo, badge, despues };
     await putConfig(next);
     return next;
   }
@@ -206,6 +245,10 @@ async function saveConfig(input) {
   const seen = new Set();
   const wantIds = [];
   const pctById = new Map();
+  const precioById = new Map();
+  // El panel no conoce el precio fijo: si un ítem llega sin la clave `precio`,
+  // se conserva el que ya tenía guardado (si no, guardar desde el panel lo borraba).
+  const precioPrevio = new Map((current.items || []).filter((i) => precioFijo(i.precio)).map((i) => [Number(i.id), precioFijo(i.precio)]));
   for (const it of rawItems) {
     const id = Number(it && (it.id !== undefined ? it.id : it));
     if (!Number.isFinite(id) || seen.has(id)) continue;
@@ -213,6 +256,8 @@ async function saveConfig(input) {
     wantIds.push(id);
     const p = clampPct(it && it.pct);
     if (p) pctById.set(id, p);
+    const fijo = it && typeof it === 'object' && 'precio' in it ? precioFijo(it.precio) : precioPrevio.get(id);
+    if (fijo) precioById.set(id, fijo);
   }
   // Validación anti-mayorista: sólo dejamos guardar productos que son minoristas
   // (precio > 0 y stock > 0). Un mayorista no tiene precio del que sacar la oferta.
@@ -221,10 +266,14 @@ async function saveConfig(input) {
   const rejected = wantIds.filter((id) => !validIds.has(id));
   const items = wantIds
     .filter((id) => validIds.has(id))
-    .map((id) => (pctById.has(id) ? { id, pct: pctById.get(id) } : { id }));
+    .map((id) => ({
+      id,
+      ...(pctById.has(id) ? { pct: pctById.get(id) } : {}),
+      ...(precioById.has(id) ? { precio: precioById.get(id) } : {}),
+    }));
 
   const discount_base = input.discount_base === 'regular' ? 'regular' : 'current';
-  const next = { ...current, title, subtitle, url, ends_at, default_pct, discount_base, accent: accentActive, items, active: false };
+  const next = { ...current, title, subtitle, url, ends_at, default_pct, discount_base, accent: accentActive, estilo, badge, despues, items, active: false };
   await putConfig(next);
   return { ...next, rejected };
 }
@@ -249,7 +298,7 @@ async function _activate() {
   }
 
   const chosen = await loadChosen(cfg.items.map((i) => i.id));
-  const pctOf = new Map(cfg.items.map((i) => [Number(i.id), effectivePct(i, cfg)]));
+  const itemOf = new Map(cfg.items.map((i) => [Number(i.id), i]));
 
   const variantsBook = [];
   const productsBook = [];
@@ -257,7 +306,7 @@ async function _activate() {
   let writes = 0;
 
   for (const prod of chosen) {
-    const pct = pctOf.get(Number(prod.id)) || cfg.default_pct;
+    const item = itemOf.get(Number(prod.id)) || { id: prod.id };
     let raw = prod.raw;
     if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch (_) { raw = null; } }
     const variants = (raw && Array.isArray(raw.variants)) ? raw.variants : [];
@@ -270,12 +319,9 @@ async function _activate() {
     let displayPromo = null;
 
     for (const v of variants) {
-      const price = Number(v.price);
-      if (!Number.isFinite(price) || price <= 0) continue; // variante sin precio: se saltea
-      // El % se aplica sobre la BASE elegida (precio actual vs. regular).
-      const base = pickBase(price, v.promotional_price, cfg.discount_base);
-      const promo = precioRedondo(base * (1 - pct / 100));
-      if (!(promo > 0) || promo >= price) continue;
+      // Precio fijo del ítem o % sobre la BASE elegida (precio actual vs. regular).
+      const promo = promoDeVariante(v, item, cfg);
+      if (!promo) continue; // sin precio, o ya muestra uno igual o más bajo
       if (writes >= MAX_WRITES) { errors.push(`Tope de ${MAX_WRITES} escrituras alcanzado.`); break; }
       try {
         await setVariantPromotionalPrice(prod.id, v.id, promo);
@@ -345,7 +391,26 @@ async function _end({ auto = false } = {}) {
   const next = { ...cfg, active: false, applied_at: null, applied: { variants: [], products: [] } };
   await putConfig(next);
 
-  return { ok: true, active: false, restauradas: restored, errores: errors, auto };
+  const resultado = { ok: true, active: false, restauradas: restored, errores: errors, auto };
+
+  // OFERTA SIGUIENTE (nov-2026): el Black Friday tapa a la oferta de verano,
+  // que sigue hasta el 7-dic. Hay una sola oferta a la vez, así que la de
+  // Black Friday guarda en `despues` la que tiene que volver al terminar
+  // (sola, al vencer el contador a la medianoche, o a mano). Si la siguiente
+  // ya venció, queda guardada pero apagada.
+  if (cfg.despues && typeof cfg.despues === 'object' && Array.isArray(cfg.despues.items)) {
+    const sig = cfg.despues;
+    await putConfig({ ...DEFAULT, ...sig, despues: null, active: false, applied_at: null, applied: { variants: [], products: [] } });
+    const vence = sig.ends_at ? new Date(sig.ends_at).getTime() : null;
+    if (!vence || vence > Date.now()) {
+      resultado.siguiente = sig.title || 'oferta siguiente';
+      // Atrás: son decenas de escrituras con pausa y esto puede venir de un pedido del home.
+      activate()
+        .then((r) => console.log(`[flashSale] Volvió "${resultado.siguiente}": ${r.variantes_escritas} variantes.`))
+        .catch((e) => console.error('[flashSale] No se pudo prender la oferta siguiente:', e.message));
+    }
+  }
+  return resultado;
 }
 
 /* Si venció el contador y quedó activa, la termina sola. Se llama al leer el
@@ -408,6 +473,8 @@ async function computeBlock() {
     ends_at: cfg.ends_at || null,
     server_now: new Date().toISOString(), // ancla para el contador: no dependemos del reloj del cliente
     accent: cfg.accent || DEFAULT.accent,
+    estilo: cfg.estilo || null,
+    badge: cfg.badge || null,
     products,
   };
 }
@@ -426,4 +493,4 @@ async function getBlock() {
 
 function invalidate() { cache = { block: null, at: 0 }; }
 
-module.exports = { precioRedondo, getConfig, getConfigDetailed, saveConfig, search, activate, end, maybeAutoEnd, getBlock, invalidate };
+module.exports = { precioRedondo, promoDeVariante, getConfig, getConfigDetailed, saveConfig, search, activate, end, maybeAutoEnd, getBlock, invalidate };
