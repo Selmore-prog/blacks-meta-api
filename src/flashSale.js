@@ -437,7 +437,11 @@ async function computeBlock() {
   }
 
   const chosen = await loadChosen(cfg.items.map((i) => i.id));
-  const pctOf = new Map(cfg.items.map((i) => [Number(i.id), effectivePct(i, cfg)]));
+  // El % de transferencia es el mismo que usan los rieles (panel › Rieles del
+  // home). Sin esto las tarjetas de ofertas no mostraban "$X con Transferencia"
+  // y los rieles sí: en el Black Friday es el precio más bajo que se puede decir.
+  const rieles = await homeRails.getRailsConfig().catch(() => ({}));
+  const transferPct = Number(rieles.transfer_discount_pct) > 0 ? Number(rieles.transfer_discount_pct) : null;
 
   const products = chosen.map((r) => {
     const price = money(r.price);
@@ -457,6 +461,7 @@ async function computeBlock() {
       price,
       promo_price: finalP,
       discount_pct: disc,
+      transfer_price: transferPct && finalP ? money(finalP * (1 - transferPct / 100)) : null,
       free_shipping: r.raw?.free_shipping === true,
       stock: r.stock === null ? null : Number(r.stock),
       low_stock: r.stock !== null && Number(r.stock) > 0 && Number(r.stock) <= 8,
