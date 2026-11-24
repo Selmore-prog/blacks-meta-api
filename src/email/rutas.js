@@ -16,6 +16,7 @@ const pool = require('../db');
 const base = require('./base');
 const campanas = require('./campanas');
 const proveedor = require('./proveedor');
+const { componer } = require('./componer');
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const id = (req) => {
@@ -123,7 +124,10 @@ privadas.put('/api/email/campanias/:id', wrap(async (req, res) => {
   const c = await campanas.guardar(id(req), req.body || {});
   res.json({ ok: true, personas: await campanas.cuantos(c), actualizado: c.actualizado });
 }));
-privadas.delete('/api/email/campanias/:id', wrap(async (req, res) => { await campanas.borrar(id(req)); res.json({ ok: true }); }));
+privadas.get('/api/email/archivadas', wrap(async (req, res) => { res.json(await campanas.lista({ archivadas: true })); }));
+privadas.delete('/api/email/campanias/:id', wrap(async (req, res) => { res.json(await campanas.eliminar(id(req))); }));
+privadas.post('/api/email/campanias/:id/recuperar', wrap(async (req, res) => { await campanas.recuperar(id(req)); res.json({ ok: true }); }));
+privadas.post('/api/email/campanias/:id/reprogramar', wrap(async (req, res) => { res.json(await campanas.reprogramar(id(req), req.body || {})); }));
 privadas.post('/api/email/campanias/:id/duplicar', wrap(async (req, res) => { res.json(await campanas.duplicar(id(req))); }));
 privadas.post('/api/email/campanias/:id/vista', wrap(async (req, res) => { res.json(await campanas.vista(id(req), req.body || null)); }));
 privadas.post('/api/email/campanias/:id/prueba', wrap(async (req, res) => { res.json(await campanas.prueba(id(req), (req.body || {}).para)); }));
@@ -138,12 +142,18 @@ privadas.get('/api/email/campanias/:id/archivo', wrap(async (req, res) => {
 privadas.get('/api/email/campanias/:id/reporte', wrap(async (req, res) => { res.json(await campanas.reporte(id(req))); }));
 privadas.get('/api/email/campanias/:id/mapa', wrap(async (req, res) => { res.json({ html: await campanas.mapa(id(req)) }); }));
 privadas.get('/api/email/campanias/:id/actividad', wrap(async (req, res) => { res.json(await campanas.actividad(id(req), req.query)); }));
-privadas.post('/api/email/redactar', wrap(async (req, res) => {
-  const { idea, para, ids } = req.body || {};
-  if (!String(idea || '').trim()) return res.status(400).json({ error: 'Contá en una frase de qué es el mail.' });
-  const lista = (Array.isArray(ids) ? ids : []).map(Number).filter((x) => x > 0).slice(0, 8);
-  const { rows } = lista.length ? await pool.query('SELECT name, price, promo_price FROM products_cache WHERE id = ANY($1::bigint[])', [lista]) : { rows: [] };
-  res.json(await campanas.redactar({ idea, para, productos: rows }));
+// Arma el mail entero desde una idea (campaña nueva) o le aplica un pedido a la que está abierta.
+privadas.post('/api/email/componer', wrap(async (req, res) => {
+  const { idea, para, id: cual, actual } = req.body || {};
+  const r = await componer({ idea, para, actual });
+  if (cual || actual) return res.json(r);
+  const c = await campanas.crear({ plantilla: para === 'mayorista' ? 'mayorista' : 'oferta', nombre: r.nombre, contenido: r });
+  res.json({ ...r, id: c.id });
+}));
+
+privadas.get('/api/email/conexion', wrap(async (req, res) => {
+  const a = await base.getAjustes();
+  res.json(await proveedor.estado([...new Set(a.remitentes.map((r) => r.email.split('@')[1]))], a.topeDiario));
 }));
 
 // Cada minuto mientras el motor esté despierto; el cron horario es la red de seguridad.

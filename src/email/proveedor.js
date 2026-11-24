@@ -97,6 +97,62 @@ async function enviar(m) {
   throw new ErrorDeEnvio('Todavía no hay un servicio de envío conectado.', { frenar: true, reintentar: true });
 }
 
+/* ------------------------------- Conexión ------------------------------- */
+
+/**
+ * Qué falta para enviar, preguntándoselo al servicio. Devuelve una lista de pasos
+ * { ok, texto } para la pantalla de Ajustes. ok = null es "no se pudo saber".
+ */
+async function estado(dominios, topeDiario = 0) {
+  const p = cual();
+  const pasos = [];
+  if (!p) return { proveedor: null, pasos: [{ ok: false, texto: 'No hay claves cargadas en Render.' }], listo: false };
+  if (p === 'ses') {
+    const { AwsClient } = require('aws4fetch');
+    const region = env('EMAIL_SES_REGION') || 'us-east-1';
+    const aws = new AwsClient({ accessKeyId: env('EMAIL_SES_KEY'), secretAccessKey: env('EMAIL_SES_SECRET'), service: 'ses', region, retries: 1 });
+    const pedir = async (ruta) => {
+      try {
+        const r = await aws.fetch(`https://email.${region}.amazonaws.com/v2/email/${ruta}`, { signal: AbortSignal.timeout(15000) });
+        return { s: r.status, d: await r.json().catch(() => ({})) };
+      } catch (e) { return { s: 0, d: { message: e.message } }; }
+    };
+    const c = await pedir('account');
+    if (c.s !== 200) {
+      pasos.push({ ok: false, texto: `Amazon no aceptó las claves (${c.s || 'sin respuesta'}: ${c.d.message || c.d.Message || 'revisá clave, secreto y región'}).` });
+      return { proveedor: p, region, pasos, listo: false };
+    }
+    const q = c.d.SendQuota || {};
+    pasos.push({ ok: true, texto: `Claves correctas, región ${region}.` });
+    for (const dom of dominios) {
+      const i = await pedir(`identities/${dom}`);
+      const ok = i.s === 200 && i.d.VerifiedForSendingStatus === true;
+      pasos.push({ ok, texto: ok ? `${dom} verificado.` : i.s === 404 ? `${dom} todavía no está agregado en esta región.` : `${dom} sin verificar: ${(i.d.DkimAttributes && i.d.DkimAttributes.Status) || i.d.message || 'faltan los registros DKIM'}.` });
+    }
+    pasos.push({ ok: c.d.ProductionAccessEnabled === true, texto: c.d.ProductionAccessEnabled ? 'Cuenta habilitada para mandar a cualquiera.' : 'La cuenta sigue en modo de prueba: sólo manda a mails verificados.' });
+    const max = Math.round(q.Max24HourSend || 0);
+    if (c.d.ProductionAccessEnabled) pasos.push({ ok: max < 0 || max >= topeDiario, texto: `Amazon te deja ${max < 0 ? 'mandar sin tope' : `mandar ${max.toLocaleString('es-AR')} por día`} (van ${Math.round(q.SentLast24Hours || 0).toLocaleString('es-AR')}).` });
+    if (c.d.EnforcementStatus && c.d.EnforcementStatus !== 'HEALTHY') pasos.push({ ok: false, texto: `Amazon puso la cuenta en ${c.d.EnforcementStatus}: revisá los avisos en la consola.` });
+    pasos.push({ ok: Boolean(env('EMAIL_WEBHOOK_KEY')), texto: env('EMAIL_WEBHOOK_KEY') ? 'Clave de avisos de rebotes cargada.' : 'Falta EMAIL_WEBHOOK_KEY: sin eso no se enteran los rebotes ni las quejas.' });
+    return { proveedor: p, region, pasos, listo: pasos.every((x) => x.ok) };
+  }
+  const r = await fetch('https://api.resend.com/domains', { headers: { Authorization: `Bearer ${env('RESEND_API_KEY')}` }, signal: AbortSignal.timeout(15000) }).catch((e) => ({ ok: false, status: 0, json: async () => ({ message: e.message }) }));
+  const d = await r.json().catch(() => ({}));
+  if (!r.ok) {
+    // Una clave "sólo enviar" no puede leer dominios: sirve igual.
+    if (/restricted/i.test(d.name || d.message || '')) pasos.push({ ok: null, texto: 'Clave de sólo envío: mandá una prueba para confirmar el dominio.' });
+    else pasos.push({ ok: false, texto: `Resend no aceptó la clave (${r.status || 'sin respuesta'}).` });
+  } else {
+    pasos.push({ ok: true, texto: 'Clave correcta.' });
+    for (const dom of dominios) {
+      const x = (d.data || []).find((y) => y.name === dom);
+      pasos.push({ ok: Boolean(x && x.status === 'verified'), texto: x ? `${dom}: ${x.status === 'verified' ? 'verificado' : x.status}.` : `${dom} todavía no está agregado.` });
+    }
+  }
+  pasos.push({ ok: Boolean(env('RESEND_WEBHOOK_SECRET')), texto: env('RESEND_WEBHOOK_SECRET') ? 'Avisos de rebotes conectados.' : 'Falta RESEND_WEBHOOK_SECRET: sin eso no se enteran los rebotes ni las quejas.' });
+  return { proveedor: p, pasos, listo: pasos.every((x) => x.ok !== false) };
+}
+
 /* ------------------------------- Webhooks ------------------------------- */
 
 /** Firma de Resend (Svix): HMAC de "id.fecha.cuerpo" con la clave whsec_. */
@@ -134,4 +190,4 @@ function leerSes(m) {
   return null;
 }
 
-module.exports = { cual, enviar, ErrorDeEnvio, firmaResendValida, leerResend, leerSes, de };
+module.exports = { cual, estado, enviar, ErrorDeEnvio, firmaResendValida, leerResend, leerSes, de };

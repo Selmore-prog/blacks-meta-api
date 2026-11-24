@@ -32,8 +32,26 @@ const EM_ESTADO = { borrador: 'Borrador', programada: 'Programada', enviando: 'E
 const EM_TIPO = { minorista: 'Minorista', mayorista: 'Mayorista' };
 const EM_BLOQUES = {
   titulo: 'Título', texto: 'Texto', imagen: 'Foto', estrella: 'Producto destacado', productos: 'Productos', boton: 'Botón',
+  foto_texto: 'Foto con texto', banda: 'Franja de color', lista: 'Lista', pasos: 'Pasos',
   beneficios: 'Beneficios', cupon: 'Cupón', separador: 'Línea', firma: 'Firma',
 };
+
+/** Ventana de confirmación. Devuelve true sólo si tocó el botón. */
+function emConfirmar({ titulo, texto, boton, peligro = false, html = '' }) {
+  return new Promise((ok) => {
+    const m = showInfoModal(titulo, `<p class="em-envio">${emE(texto)}</p>${html}<div class="em-acciones em-conf"><button class="btn-ghost" data-no>No</button><button class="${peligro ? 'em-peligro' : 'btn-primary'}" data-si>${emE(boton)}</button></div>`);
+    let dicho = false;
+    const cerrar = (v) => { if (dicho) return; dicho = true; m.remove(); obs.disconnect(); document.removeEventListener('keydown', tecla); ok(v); };
+    const tecla = (e) => { if (e.key === 'Escape') cerrar(false); };
+    // La ventana también se cierra con la cruz o tocando afuera: eso es un no.
+    const obs = new MutationObserver(() => { if (!document.body.contains(m)) cerrar(false); });
+    obs.observe(document.body, { childList: true });
+    document.addEventListener('keydown', tecla);
+    m.querySelector('[data-no]').onclick = () => cerrar(false);
+    m.querySelector('[data-si]').onclick = () => cerrar(true);
+    m.querySelector('[data-no]').focus();
+  });
+}
 
 async function emailCargar() {
   window.emCargado = true;
@@ -49,7 +67,7 @@ async function emailCargar() {
 window.emailCargar = emailCargar;
 
 async function emPane(p) {
-  if (emState.sucio && !(await emGuardar()) && !window.confirm('Hay cambios sin guardar. ¿Salir igual?')) return;
+  if (emState.sucio && !(await emGuardar()) && !(await emConfirmar({ titulo: 'Hay cambios sin guardar', texto: 'No se pudieron guardar los últimos cambios. Si salís, se pierden.', boton: 'Salir igual', peligro: true }))) return;
   emState.pane = p; emState.c = null; emState.sucio = false;
   emPintar();
   // Al volver a Campañas o Audiencias, los números del momento.
@@ -73,23 +91,83 @@ function emCampanias() {
   const filas = campanias.map((c) => {
     const salio = ['enviando', 'pausada', 'enviada', 'cancelada'].includes(c.estado);
     const cuando = c.estado === 'programada' ? `Sale el ${emFecha(c.programada_para)}` : salio ? emFecha(c.empezo) : `Editado el ${emFecha(c.actualizado)}`;
-    return `<button class="em-fila" onclick="${salio ? `emReporte(${c.id})` : `emEditar(${c.id})`}">
+    const ocupada = ['programada', 'enviando', 'pausada'].includes(c.estado);
+    return `<div class="em-fila"><button class="em-fila-b" onclick="${salio ? `emReporte(${c.id})` : `emEditar(${c.id})`}">
       <span class="em-fila-n"><b>${emE(c.nombre)}</b><small>${emE(c.asunto || 'Sin asunto')}</small>${c.aviso ? `<small class="em-mal">${emE(c.aviso)}</small>` : ''}</span>
       <span class="em-estado em-${c.estado}">${EM_ESTADO[c.estado] || c.estado}</span>
       <span class="em-fila-f">${cuando}</span>
       <span class="em-fila-m">${salio ? `<b>${emNum(c.enviados)}</b><small>${c.pendientes ? `de ${emNum(c.total)}` : 'enviados'}</small>` : ''}</span>
       <span class="em-fila-m">${salio ? `<b>${emPct(c.abrieron, c.enviados)}</b><small>abrieron</small>` : ''}</span>
       <span class="em-fila-m">${salio ? `<b>${emPct(c.tocaron, c.enviados)}</b><small>tocaron</small>` : ''}</span>
-    </button>`;
+    </button>${emState.archivadas
+    ? `<button class="btn-ghost btn-sm" onclick="emRecuperar(${c.id})">Recuperar</button>`
+    : `<button class="em-borrar" ${ocupada ? 'disabled title="Primero cancelá el envío"' : ''} aria-label="Eliminar la campaña ${emE(c.nombre)}" data-id="${c.id}" data-nombre="${emE(c.nombre)}" data-salio="${c.enviados ? 1 : ''}" onclick="emEliminar(this)">${icon('trash')}</button>`}</div>`;
   }).join('');
-  return `<div class="em-cab"><h3>Campañas</h3><button class="btn-primary" onclick="emNueva()">${icon('plus')} Nueva campaña</button></div>
-    ${filas ? `<div class="em-lista">${filas}</div>` : '<div class="em-vacio"><p>Todavía no hay campañas. Empezá eligiendo un diseño.</p></div>'}`;
+  return `<div class="em-cab"><h3>${emState.archivadas ? 'Campañas archivadas' : 'Campañas'}</h3><button class="em-link" onclick="emVerArchivadas(${!emState.archivadas})">${emState.archivadas ? 'Volver a las campañas' : 'Ver archivadas'}</button><button class="btn-primary" onclick="emNueva()">${icon('plus')} Nueva campaña</button></div>
+    ${filas ? `<div class="em-lista">${filas}</div>` : `<div class="em-vacio"><p>${emState.archivadas ? 'No hay campañas archivadas.' : 'Todavía no hay campañas. Contale a la IA qué querés mandar o empezá de un diseño.'}</p></div>`}`;
 }
+
+async function emVerArchivadas(si) {
+  try {
+    emState.archivadas = si;
+    emState.d.campanias = si ? await api('/api/email/archivadas') : (await api('/api/email/inicio')).campanias;
+    emPintar();
+  } catch (e) { toast(e.message, 'error'); }
+}
+
+async function emRecuperar(id) {
+  try { await api(`/api/email/campanias/${id}/recuperar`, emJson('POST')); toast('Recuperada', 'ok'); emVerArchivadas(true); } catch (e) { toast(e.message, 'error'); }
+}
+
+async function emEliminar(btn) {
+  const { id, nombre, salio } = btn.dataset;
+  const ok = await emConfirmar(salio
+    ? { titulo: 'Archivar campaña', texto: `"${nombre}" ya se envió. Se va de la lista, pero se guarda el reporte y siguen andando los links y la baja de los mails que la gente ya recibió.`, boton: 'Sí, archivar' }
+    : { titulo: 'Eliminar campaña', texto: `"${nombre}" se borra y no se puede recuperar.`, boton: 'Sí, eliminar', peligro: true });
+  if (!ok) return;
+  try {
+    const r = await api(`/api/email/campanias/${id}`, { method: 'DELETE' });
+    toast(r.archivada ? 'Archivada' : 'Eliminada', 'ok');
+    emState.c = null; emState.sucio = false;
+    emailCargar();
+  } catch (e) { toast(e.message, 'error'); }
+}
+Object.assign(window, { emVerArchivadas, emRecuperar, emEliminar });
+
+const EM_EJEMPLOS = ['Llegó el calor: alpargatas y remeras para el verano', 'Guía para elegir el pantalón cargo según el trabajo', 'Avisar que el 8 de diciembre no despachamos', 'Uniformes de fin de año para empresas, con logo'];
 
 function emNueva() {
   const tarjetas = emState.d.plantillas.map((p) => `<button class="em-plantilla" onclick="emCrear('${p.clave}')"><span class="em-mini em-mini-${p.tema}"><i></i><i></i><i></i></span><b>${emE(p.nombre)}</b><small>${emE(p.detalle)}</small></button>`).join('');
-  emState.modal = showInfoModal('Elegí un diseño', `<div class="em-plantillas">${tarjetas}</div>`);
+  emState.modal = showInfoModal('Nueva campaña', `<div class="em-ia-nueva"><label class="em-campo"><span>${icon('wand')} Contale a la IA qué mail querés</span><textarea class="input" id="em-n-idea" rows="4" placeholder="Ej: Black Friday del 27 al 30, el jean a $39.999 y llevando 2 el envío es gratis. Sumá la chomba y las alpargatas."></textarea></label>
+      <div class="em-ejemplos">${EM_EJEMPLOS.map((x) => `<button class="chip-suggest" onclick="document.getElementById('em-n-idea').value = this.textContent">${emE(x)}</button>`).join('')}</div>
+      <div class="em-ia-pie"><label class="em-campo"><span>Para</span><select class="input" id="em-n-para"><option value="minorista">Clientes de la tienda</option><option value="mayorista">Empresas</option></select></label><button class="btn-primary" id="em-n-btn" onclick="emCrearIa()">Armar el mail</button></div>
+      <p class="em-sub">Elige los bloques, los productos y los botones, y escribe el asunto. Los precios salen de la tienda. Después lo podés cambiar todo.</p></div>
+    <h4 class="em-o">O empezá de un diseño</h4><div class="em-plantillas">${tarjetas}</div>`);
+  document.getElementById('em-n-idea').focus();
 }
+
+// Con la IA cargada puede tardar hasta un minuto: se cuenta en qué anda.
+function emEsperar(btn, texto) {
+  const pasos = ['Leyendo el catálogo…', 'Eligiendo los bloques…', 'Escribiendo…', 'Corrigiendo el texto…', 'Ya casi…'];
+  let i = 0;
+  btn.disabled = true; btn.textContent = pasos[0];
+  const t = setInterval(() => { i = Math.min(i + 1, pasos.length - 1); btn.textContent = pasos[i]; }, 3500);
+  return () => { clearInterval(t); btn.disabled = false; btn.textContent = texto; };
+}
+
+async function emCrearIa() {
+  const btn = document.getElementById('em-n-btn');
+  const listo = emEsperar(btn, 'Armar el mail');
+  const modal = emState.modal;
+  try {
+    const r = await api('/api/email/componer', emJson('POST', { idea: document.getElementById('em-n-idea').value, para: document.getElementById('em-n-para').value }));
+    emState.ia = { id: r.id, asuntos: r.asuntos, revisar: r.revisar };
+    modal.remove();
+    emEditar(r.id);
+  } catch (e) { toast(e.message, 'error'); }
+  listo();
+}
+window.emCrearIa = emCrearIa;
 window.emNueva = emNueva;
 
 async function emCrear(plantilla) {
@@ -110,6 +188,8 @@ async function emEditar(id) {
     c.mapaProductos = new Map(c.productos.map((p) => [Number(p.id), p]));
     emState.c = c;
     emState.sucio = false;
+    emState.pila = [];
+    if (emState.ia && emState.ia.id !== c.id) emState.ia = null;
     emPintarEditor();
   } catch (e) { toast(e.message, 'error'); emailCargar(); }
 }
@@ -121,18 +201,22 @@ function emPintarEditor() {
   const listas = (clave) => d.listas.map((l) => `<label class="em-check"><input type="checkbox" ${c[clave].includes(l.id) ? 'checked' : ''} onchange="emLista('${clave}', ${l.id}, this.checked)"> <span>${emE(l.nombre)}</span> <small>${emNum(l.activos)}</small></label>`).join('');
   emBody().innerHTML = `
     <div class="em-cab"><button class="btn-ghost btn-sm" onclick="emSalir()">← Campañas</button>
-      <span class="em-guardado" id="em-guardado" role="status">${fija ? 'No se puede editar: ya está programada.' : 'Guardado'}</span>
+      <span class="em-guardado" id="em-guardado" role="status">${fija ? `Programada para el ${emFecha(c.programada_para)}. Para editarla, cancelá la programación.` : 'Guardado'}</span>
       <div class="em-acciones">
+        ${fija ? '' : `<button class="em-borrar" aria-label="Eliminar esta campaña" data-id="${c.id}" data-nombre="${emE(c.nombre)}" onclick="emEliminar(this)">${icon('trash')}</button>`}
         <button class="btn-ghost" onclick="emPrueba()">Mandar prueba</button>
         <button class="btn-ghost" onclick="emArchivo()">Bajar HTML</button>
-        ${fija ? `<button class="btn-ghost" onclick="emAccion('cancelar')">Cancelar el envío programado</button>` : '<button class="btn-primary" onclick="emEnviar()">Enviar…</button>'}
+        ${fija ? '<button class="btn-ghost" onclick="emAccion(\'cancelar\')">Cancelar la programación</button><button class="btn-primary" onclick="emReprogramar()">Cambiar horario</button>' : '<button class="btn-ghost" onclick="emEnviar(true)">Programar</button><button class="btn-primary" onclick="emEnviar(false)">Enviar ahora</button>'}
       </div></div>
     <div class="em-editor"><div class="em-form" ${fija ? 'inert' : ''}>
+      <section class="em-caja em-ia-caja"><h4>${icon('wand')} Pedile a la IA</h4>
+        <textarea class="input" id="em-idea" rows="2" aria-label="Qué querés cambiar" placeholder="Ej: hacelo más corto, sumá las alpargatas, poné fondo negro"></textarea>
+        <div class="em-ia-bot"><button class="btn-primary btn-sm" id="em-ia-btn" onclick="emCambiar(false)">Cambiar esto</button><button class="btn-ghost btn-sm" id="em-ia-nuevo" onclick="emCambiar(true)">Armar otro desde cero</button><button class="btn-ghost btn-sm" id="em-ia-des" ${(emState.pila || []).length ? '' : 'hidden'} onclick="emDeshacer()">Deshacer</button></div>
+        <div id="em-ia-res"></div></section>
       <section class="em-caja"><h4>Qué es</h4>
         <label class="em-campo"><span>Nombre (sólo lo ves vos)</span><input class="input" value="${emE(c.nombre)}" oninput="emCampo('nombre', this.value)"></label>
         <label class="em-campo"><span>Asunto</span><input class="input" id="em-asunto" maxlength="150" value="${emE(c.asunto)}" oninput="emCampo('asunto', this.value)"><small id="em-asunto-n"></small></label>
         <label class="em-campo"><span>Texto al lado del asunto</span><input class="input" id="em-preheader" maxlength="150" value="${emE(c.preheader)}" oninput="emCampo('preheader', this.value)"></label>
-        <details class="em-ia"><summary>${icon('wand')} Escribir con IA</summary><textarea class="input" id="em-idea" rows="3" placeholder="Ej: Black Friday del 27 al 30, el jean a $39.999 y llevando 2 el envío es gratis"></textarea><button class="btn-ghost btn-sm" id="em-ia-btn" onclick="emRedactar()">Proponer textos</button><div id="em-ia-res"></div></details>
         <div class="em-dos"><label class="em-campo"><span>Sale desde</span><select class="input" onchange="emCampo('remitente_email', this.value)">${d.ajustes.remitentes.map((r) => `<option value="${emE(r.email)}" ${r.email === c.remitente_email ? 'selected' : ''}>${emE(r.email)}</option>`).join('')}</select></label>
         <label class="em-campo"><span>Con el nombre</span><input class="input" value="${emE(c.remitente_nombre)}" oninput="emCampo('remitente_nombre', this.value)"></label></div>
         <label class="em-campo"><span>Las respuestas llegan a</span><input class="input" type="email" value="${emE(c.responder_a)}" oninput="emCampo('responder_a', this.value)"></label>
@@ -156,6 +240,7 @@ function emPintarEditor() {
         <iframe id="em-iframe" class="em-iframe em-${emState.ancho}" title="Vista previa del mail" sandbox="allow-same-origin"></iframe>
         <div id="em-avisos"></div></div></div>`;
   emPintarBloques();
+  emPintarIa();
   emVista();
 }
 
@@ -239,7 +324,7 @@ function emAncho(a) {
 window.emAncho = emAncho;
 
 async function emSalir() {
-  if (emState.sucio && !(await emGuardar()) && !window.confirm('Hay cambios sin guardar. ¿Salir igual?')) return;
+  if (emState.sucio && !(await emGuardar()) && !(await emConfirmar({ titulo: 'Hay cambios sin guardar', texto: 'No se pudieron guardar los últimos cambios. Si salís, se pierden.', boton: 'Salir igual', peligro: true }))) return;
   emState.c = null; emState.sucio = false; emState.d = null;
   emailCargar();
 }
@@ -267,11 +352,21 @@ const EM_CAMPOS = {
   estrella: (i, b) => `${b.id ? `<div class="em-chips">${emProdChip(i, b.id)}</div>` : ''}${emBuscador(i)}` + emInput(i, 'nombre', 'Nombre (vacío = el de la tienda)') + emInput(i, 'detalle', 'Detalle', { area: true }) + emInput(i, 'src', 'Otra foto (vacío = la de la tienda)', { tipo: 'url' }) + emInput(i, 'boton', 'Botón'),
   productos: (i, b) => emInput(i, 'titulo', 'Título') + `<div class="em-chips">${(b.ids || []).map((x) => emProdChip(i, x)).join('')}</div>${emBuscador(i)}<div class="em-dos"><label class="em-campo"><span>Por fila</span><select class="input" onchange="emBloque(${i}, 'columnas', Number(this.value))">${[1, 2, 3].map((n) => `<option ${Number(b.columnas) === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>${emInput(i, 'boton', 'Botón')}</div>`,
   boton: (i) => emInput(i, 'texto', 'Texto del botón') + emInput(i, 'url', 'Va a', { tipo: 'url' }),
-  beneficios: (i, b) => `<label class="em-campo"><span>Uno por renglón, hasta 4</span><textarea class="input" rows="4" oninput="emBloque(${i}, 'items', this.value.split('\\n'))">${emE((b.items || []).join('\n'))}</textarea></label>`,
+  foto_texto: (i, b) => `${b.id ? `<div class="em-chips">${emProdChip(i, b.id)}</div>` : ''}${emBuscador(i)}` + emInput(i, 'src', 'Otra foto (vacío = la del producto)', { tipo: 'url' }) + emInput(i, 'titulo', 'Título') + emInput(i, 'texto', 'Texto', { area: true })
+    + `<div class="em-dos">${emInput(i, 'boton', 'Botón (vacío = sin botón)')}<label class="em-campo"><span>La foto va a la</span><select class="input" onchange="emBloque(${i}, 'lado', this.value)"><option value="izquierda">Izquierda</option><option value="derecha" ${b.lado === 'derecha' ? 'selected' : ''}>Derecha</option></select></label></div>` + emInput(i, 'url', 'Va a (vacío = el producto)', { tipo: 'url' }),
+  banda: (i, b) => emInput(i, 'titulo', 'Título', { area: true }) + emInput(i, 'texto', 'Texto', { area: true })
+    + `<div class="em-dos">${emInput(i, 'boton', 'Botón (vacío = sin botón)')}<label class="em-campo"><span>Color</span><select class="input" onchange="emBloque(${i}, 'color', this.value)">${[['suave', 'Suave'], ['acento', 'Naranja'], ['tinta', 'Contraste']].map(([k, n]) => `<option value="${k}" ${b.color === k ? 'selected' : ''}>${n}</option>`).join('')}</select></label></div>` + emInput(i, 'url', 'El botón va a', { tipo: 'url' }),
+  lista: (i, b) => emInput(i, 'titulo', 'Título') + emItems(i, b, 8),
+  pasos: (i, b) => emInput(i, 'titulo', 'Título') + emItems(i, b, 5),
+  beneficios: (i, b) => emItems(i, b, 4),
   cupon: (i) => emInput(i, 'texto', 'Texto') + emInput(i, 'codigo', 'Código'),
   separador: () => '',
   firma: (i) => emInput(i, 'texto', 'Firma', { area: true }),
 };
+
+function emItems(i, b, max) {
+  return `<label class="em-campo"><span>Uno por renglón, hasta ${max}</span><textarea class="input" rows="4" oninput="emBloque(${i}, 'items', this.value.split('\\n'))">${emE((b.items || []).join('\n'))}</textarea></label>`;
+}
 
 function emBuscador(i) {
   return `<div class="em-buscar"><input class="input" type="search" placeholder="Buscar producto para agregar" aria-label="Buscar producto" oninput="emBuscar(${i}, this)"><div class="em-resultados" id="em-res-${i}"></div></div>`;
@@ -289,13 +384,13 @@ function emPintarBloques() {
 function emResumen(b) {
   if (b.tipo === 'productos') return `${(b.ids || []).length} elegidos`;
   if (b.tipo === 'estrella') { const p = emState.c.mapaProductos.get(Number(b.id)); return p ? p.name : 'sin elegir'; }
-  if (b.tipo === 'beneficios') return (b.items || []).filter(Boolean).join(' · ').slice(0, 50);
+  if (['beneficios', 'lista', 'pasos'].includes(b.tipo) && !b.titulo) return (b.items || []).filter(Boolean).join(' · ').slice(0, 50);
   return String(b.titulo || b.texto || b.codigo || b.alt || '').split('\n')[0].slice(0, 50);
 }
 
 function emBloque(i, k, v) { emState.c.bloques[i][k] = v; emTocado(); }
 function emAgregar(tipo) {
-  const nuevo = { titulo: { titulo: 'Título' }, texto: { texto: '' }, imagen: { src: '', alt: '', url: '' }, estrella: { id: null, boton: 'Comprar' }, productos: { ids: [], columnas: 2, boton: 'Comprar' }, boton: { texto: 'Ver más', url: 'https://blacksindumentaria.com.ar/' }, beneficios: { items: ['10% OFF por transferencia'] }, cupon: { texto: 'Usá este código', codigo: '' }, separador: {}, firma: { texto: 'Equipo BLACKS' } }[tipo];
+  const nuevo = { titulo: { titulo: 'Título' }, texto: { texto: '' }, imagen: { src: '', alt: '', url: '' }, estrella: { id: null, boton: 'Comprar' }, productos: { ids: [], columnas: 2, boton: 'Comprar' }, boton: { texto: 'Ver más', url: 'https://blacksindumentaria.com.ar/' }, foto_texto: { id: null, titulo: 'Título', texto: '', boton: 'Ver', lado: 'izquierda' }, banda: { titulo: 'Mensaje importante', texto: '', color: 'acento' }, lista: { items: [''] }, pasos: { items: [''] }, beneficios: { items: ['10% OFF por transferencia'] }, cupon: { texto: 'Usá este código', codigo: '' }, separador: {}, firma: { texto: 'Equipo BLACKS' } }[tipo];
   emState.c.bloques.push({ tipo, ...nuevo });
   emState.abierto = emState.c.bloques.length - 1;
   emPintarBloques(); emTocado();
@@ -318,7 +413,7 @@ function emBuscar(i, input) {
   if (q.length < 2) { res.innerHTML = ''; return; }
   emBuscarT = setTimeout(async () => {
     try {
-      const r = (await api(`/api/products?q=${encodeURIComponent(q)}`)).filter((p) => Number(p.price) > 0).slice(0, 8);
+      const r = (await api(`/api/products?q=${encodeURIComponent(q)}`)).filter((p) => Number(p.price) > 0 || emPublico() === 'mayorista').slice(0, 8);
       emState.hallados = new Map(r.map((p) => [Number(p.id), p]));
       res.innerHTML = r.length ? r.map((p) => `<button onclick="emPonerProd(${i}, ${Number(p.id)})">${p.image_url ? `<img src="${emE(p.image_url)}" alt="">` : ''}<span>${emE(p.name)}<small>${emPlata(p.promo_price || p.price)} · ${p.stock === null ? 'sin control de stock' : `${emNum(p.stock)} u`}</small></span></button>`).join('') : '<p class="em-sub">Nada con ese nombre (sólo aparecen los que tienen precio).</p>';
     } catch (e) { res.innerHTML = `<p class="em-sub">${emE(e.message)}</p>`; }
@@ -328,43 +423,76 @@ function emPonerProd(i, id) {
   const p = emState.hallados.get(id);
   emState.c.mapaProductos.set(id, p);
   const b = emState.c.bloques[i];
-  if (b.tipo === 'estrella') b.id = id; else if (!b.ids.includes(id)) b.ids.push(id);
+  if (b.tipo !== 'productos') b.id = id; else if (!b.ids.includes(id)) b.ids.push(id);
+  if (['estrella', 'productos'].includes(b.tipo) && !Number(p.price)) b.sinPrecio = true;
   emState.abierto = i; emPintarBloques(); emTocado();
 }
 function emQuitarProd(i, id) {
   const b = emState.c.bloques[i];
-  if (b.tipo === 'estrella') b.id = null; else b.ids = b.ids.filter((x) => Number(x) !== id);
+  if (b.tipo !== 'productos') b.id = null; else b.ids = b.ids.filter((x) => Number(x) !== id);
   emPintarBloques(); emTocado();
 }
 Object.assign(window, { emBuscar, emPonerProd, emQuitarProd });
 
-async function emRedactar() {
-  const btn = document.getElementById('em-ia-btn');
+/* ---------------------------------- IA ---------------------------------- */
+
+function emPintarIa() {
   const res = document.getElementById('em-ia-res');
-  const ids = emState.c.bloques.flatMap((b) => (b.tipo === 'estrella' ? [b.id] : b.tipo === 'productos' ? b.ids : [])).filter(Boolean);
-  const listasTipo = emState.d.listas.filter((l) => emState.c.listas.includes(l.id)).map((l) => l.tipo);
-  btn.disabled = true; btn.textContent = 'Pensando…';
-  try {
-    const r = await api('/api/email/redactar', emJson('POST', { idea: document.getElementById('em-idea').value, para: listasTipo.length && listasTipo.every((t) => t === 'mayorista') ? 'mayorista' : 'minorista', ids }));
-    emState.ia = r;
-    res.innerHTML = `<p class="em-sub">Elegí un asunto:</p>${r.asuntos.map((a, i) => `<button class="em-opcion" onclick="emUsarIa(${i})">${emE(a)}</button>`).join('')}<p class="em-sub">${emE([r.titulo, r.bajada].filter(Boolean).join(' · '))}</p>`;
-  } catch (e) { res.innerHTML = `<p class="em-sub em-mal">${emE(e.message)}</p>`; }
-  btn.disabled = false; btn.textContent = 'Proponer textos';
+  if (!res) return;
+  const { ia, c } = emState;
+  const otros = ia ? ia.asuntos.filter((a) => a !== c.asunto) : [];
+  res.innerHTML = (ia && ia.revisar.length ? `<div class="em-avisos"><b>Revisá esto antes de enviar</b><ul>${ia.revisar.map((x) => `<li>${emE(x)}</li>`).join('')}</ul></div>` : '')
+    + (otros.length ? `<p class="em-sub">Otros asuntos:</p>${otros.map((a, i) => `<button class="em-opcion" onclick="emUsarAsunto(${i})">${emE(a)}</button>`).join('')}` : '');
 }
-function emUsarIa(i) {
+
+function emUsarAsunto(i) {
   const { c, ia } = emState;
-  c.asunto = ia.asuntos[i]; c.preheader = ia.preheader;
-  let t = c.bloques.find((b) => b.tipo === 'titulo');
-  if (!t) { t = { tipo: 'titulo' }; c.bloques.unshift(t); }
-  Object.assign(t, { antetitulo: ia.antetitulo, titulo: ia.titulo, bajada: ia.bajada });
-  const boton = c.bloques.find((b) => b.tipo === 'boton');
-  if (boton && ia.boton) boton.texto = ia.boton;
+  c.asunto = ia.asuntos.filter((a) => a !== c.asunto)[i];
   document.getElementById('em-asunto').value = c.asunto;
-  document.getElementById('em-preheader').value = c.preheader;
-  emPintarBloques(); emTocado();
-  toast('Textos puestos. Revisalos antes de enviar.', 'ok');
+  emPintarIa(); emTocado();
 }
-Object.assign(window, { emRedactar, emUsarIa });
+
+const emPublico = () => {
+  const { c, d } = emState;
+  const t = d.listas.filter((l) => c.listas.includes(l.id)).map((l) => l.tipo);
+  if (t.length) return t.every((x) => x === 'mayorista') ? 'mayorista' : 'minorista';
+  return c.bloques.some((b) => b.sinPrecio) || (!c.descuento_transferencia && JSON.stringify(c.bloques).includes('wa.me')) ? 'mayorista' : 'minorista';
+};
+
+// Antes de cada cambio se guarda una foto del mail: "Deshacer" vuelve a esa.
+const EM_FOTO = ['asunto', 'preheader', 'tema', 'precios', 'descuento_transferencia', 'bloques'];
+
+async function emCambiar(desdeCero) {
+  const c = emState.c;
+  const idea = document.getElementById('em-idea').value.trim();
+  if (!idea) return toast(desdeCero ? 'Contá de qué es el mail.' : 'Contá qué querés cambiar.', 'error');
+  const btn = document.getElementById(desdeCero ? 'em-ia-nuevo' : 'em-ia-btn');
+  const listo = emEsperar(btn, desdeCero ? 'Armar otro desde cero' : 'Cambiar esto');
+  try {
+    const actual = desdeCero ? null : { asunto: c.asunto, preheader: c.preheader, tema: c.tema, precios: c.precios, bloques: c.bloques };
+    const r = await api('/api/email/componer', emJson('POST', { idea, para: emPublico(), actual, id: c.id }));
+    if (emState.c !== c) return;
+    emState.pila = [...(emState.pila || []), JSON.stringify(Object.fromEntries(EM_FOTO.map((k) => [k, c[k]])))].slice(-15);
+    Object.assign(c, { asunto: r.asunto, preheader: r.preheader, tema: r.tema, precios: r.precios, bloques: r.bloques });
+    if (desdeCero) c.descuento_transferencia = r.descuento_transferencia;
+    r.productos.forEach((p) => c.mapaProductos.set(Number(p.id), p));
+    emState.ia = { id: c.id, asuntos: r.asuntos, revisar: r.revisar };
+    emState.abierto = -1;
+    emTocado();
+    emPintarEditor();
+    toast('Listo. Si no te gusta, tocá Deshacer.', 'ok');
+  } catch (e) { toast(e.message, 'error'); listo(); }
+}
+
+function emDeshacer() {
+  const antes = emState.pila.pop();
+  if (!antes) return;
+  Object.assign(emState.c, JSON.parse(antes));
+  emState.ia = null; emState.abierto = -1;
+  emTocado();
+  emPintarEditor();
+}
+Object.assign(window, { emUsarAsunto, emCambiar, emDeshacer });
 
 /* --------------------------- Prueba y envío --------------------------- */
 
@@ -395,40 +523,96 @@ async function emArchivo() {
   } catch (e) { toast(e.message, 'error'); }
 }
 
-async function emEnviar() {
+// Para el campo de fecha: "2026-11-27T09:00" en hora argentina.
+const emLocal = (d) => new Date(d.getTime() - 3 * 3600000).toISOString().slice(0, 16);
+
+function emSugerencias() {
+  const salen = [];
+  for (let n = 0; n < 8 && salen.length < 4; n++) {
+    const d = new Date(Date.now() - 3 * 3600000 + n * 86400000);
+    const dia = d.getUTCDay();
+    for (const h of n === 0 ? [18] : [9, 18]) {
+      if (dia === 0 || dia === 6 || salen.length >= 4) continue;
+      const f = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate(), h + 3));
+      if (f.getTime() > Date.now() + 30 * 60000) salen.push(f);
+    }
+  }
+  return salen;
+}
+
+const emCampoFecha = (valor = '') => `<label class="em-campo"><span>Día y hora (Argentina)</span><input class="input" type="datetime-local" id="em-cuando" value="${valor}" min="${emLocal(new Date())}"></label>
+  <div class="em-ejemplos">${emSugerencias().map((f) => `<button class="chip-suggest" data-f="${emLocal(f)}" onclick="document.getElementById('em-cuando').value = this.dataset.f; document.getElementById('em-cuando').dispatchEvent(new Event('input'))">${f.toLocaleString('es-AR', { weekday: 'long', day: 'numeric', hour: '2-digit', minute: '2-digit', hourCycle: 'h23', timeZone: 'America/Argentina/Buenos_Aires' })}</button>`).join('')}</div>`;
+
+async function emEnviar(programar) {
   if (!(await emGuardar())) return toast('No se pudo guardar.', 'error');
   const { c, d } = emState;
   const dias = Math.ceil(c.personas / d.ajustes.topeDiario);
-  const m = showInfoModal('Enviar campaña', `
-    <p class="em-envio"><b>${emE(c.asunto || 'Sin asunto')}</b><br>Desde ${emE(c.remitente_nombre)} &lt;${emE(c.remitente_email)}&gt;</p>
-    <p class="em-envio">${emNum(c.personas)} personas · hasta ${emNum(d.ajustes.topeDiario)} por día${dias > 1 ? `: va a tardar ${dias} días` : ''}.</p>
+  const listas = d.listas.filter((l) => c.listas.includes(l.id)).map((l) => l.nombre).join(', ');
+  const m = showInfoModal(programar ? 'Programar campaña' : 'Enviar ahora', `
+    <dl class="em-resumen"><dt>Asunto</dt><dd>${emE(c.asunto || 'Sin asunto')}</dd><dt>Desde</dt><dd>${emE(c.remitente_nombre)} &lt;${emE(c.remitente_email)}&gt;</dd><dt>A</dt><dd>${emE(listas || 'ninguna lista')}</dd><dt>Personas</dt><dd>${emNum(c.personas)}${dias > 1 ? `. Con el tope de ${emNum(d.ajustes.topeDiario)} por día, tarda ${dias} días` : ''}</dd></dl>
     ${d.totales.bajas ? '' : '<p class="em-sub em-mal">Todavía no cargaste las bajas de Perfit: si seguís, le vas a escribir a gente que ya pidió no recibir mails.</p>'}
-    <label class="em-campo"><span>Cuándo (vacío = ahora)</span><input class="input" type="datetime-local" id="em-cuando"></label>
-    <label class="em-campo"><span>Para confirmar, escribí cuántas personas lo van a recibir</span><input class="input" inputmode="numeric" id="em-confirmo" autocomplete="off" placeholder="${c.personas}"></label>
-    <div class="em-acciones" style="margin-top:14px;"><button class="btn-primary" id="em-enviar-btn" ${d.proveedor ? '' : 'disabled'}>Enviar campaña</button></div>
+    ${programar ? emCampoFecha() : ''}
+    <label class="em-campo"><span>Para confirmar, escribí cuántas personas lo van a recibir (${emNum(c.personas)})</span><input class="input" inputmode="numeric" id="em-confirmo" autocomplete="off"></label>
+    <div class="em-acciones em-conf"><button class="btn-ghost" data-no>No, volver</button><button class="btn-primary" id="em-enviar-btn" disabled>${programar ? 'Sí, programar' : `Sí, enviar a ${emNum(c.personas)} personas`}</button></div>
     ${d.proveedor ? '' : '<p class="em-sub em-mal">Falta conectar el servicio de envío (Ajustes).</p>'}`);
-  m.querySelector('#em-enviar-btn').onclick = async (ev) => {
-    const cuando = m.querySelector('#em-cuando').value;
+  const btn = m.querySelector('#em-enviar-btn');
+  const num = m.querySelector('#em-confirmo');
+  const fecha = m.querySelector('#em-cuando');
+  // El botón se prende recién cuando el número coincide (y hay fecha, si se programa).
+  const revisar = () => {
+    const bien = Number(num.value.replace(/\D/g, '')) === c.personas && c.personas > 0;
+    btn.disabled = !d.proveedor || !bien || (programar && !fecha.value);
+    if (programar) btn.textContent = fecha.value ? `Sí, programar para el ${emFecha(new Date(`${fecha.value}:00-03:00`).toISOString())}` : 'Sí, programar';
+  };
+  num.oninput = revisar;
+  if (fecha) fecha.oninput = revisar;
+  m.querySelector('[data-no]').onclick = () => m.remove();
+  btn.onclick = async () => {
+    btn.disabled = true;
+    try {
+      const r = await api(`/api/email/campanias/${c.id}/enviar`, emJson('POST', { confirmo: Number(num.value.replace(/\D/g, '')), cuando: programar ? new Date(`${fecha.value}:00-03:00`).toISOString() : null }));
+      m.remove(); emState.c = null; emState.d = null;
+      toast(programar ? `Programada para el ${emFecha(r.programada_para)}` : 'Empezó a salir', 'ok');
+      emailCargar();
+    } catch (e) { toast(e.message, 'error'); revisar(); }
+  };
+}
+
+async function emReprogramar() {
+  const c = emState.c;
+  const m = showInfoModal('Cambiar horario', `<p class="em-envio">Ahora sale el ${emFecha(c.programada_para)}.</p>${emCampoFecha(emLocal(new Date(c.programada_para)))}<div class="em-acciones em-conf"><button class="btn-ghost" data-no>No</button><button class="btn-primary" data-si>Sí, cambiar</button></div>`);
+  m.querySelector('[data-no]').onclick = () => m.remove();
+  m.querySelector('[data-si]').onclick = async (ev) => {
+    const v = m.querySelector('#em-cuando').value;
+    if (!v) return toast('Elegí día y hora.', 'error');
     ev.target.disabled = true;
     try {
-      const r = await api(`/api/email/campanias/${c.id}/enviar`, emJson('POST', { confirmo: Number(m.querySelector('#em-confirmo').value.replace(/\D/g, '')), cuando: cuando ? new Date(`${cuando}:00-03:00`).toISOString() : null }));
-      m.remove(); emState.c = null; emState.d = null;
-      toast(cuando ? `Programada para el ${emFecha(r.programada_para)}` : 'Empezó a salir', 'ok');
-      emailCargar();
+      const r = await api(`/api/email/campanias/${c.id}/reprogramar`, emJson('POST', { cuando: new Date(`${v}:00-03:00`).toISOString() }));
+      m.remove(); toast(`Ahora sale el ${emFecha(r.programada_para)}`, 'ok'); emEditar(c.id);
     } catch (e) { toast(e.message, 'error'); ev.target.disabled = false; }
   };
 }
 
+const EM_CONFIRMA = {
+  cancelar: (c) => (c.estado === 'programada'
+    ? { titulo: 'Cancelar la programación', texto: 'No se envía y vuelve a ser un borrador que podés editar.', boton: 'Sí, cancelar' }
+    : { titulo: 'Cancelar el envío', texto: 'Los mails que todavía no salieron no se mandan. Los que ya salieron no se pueden traer de vuelta.', boton: 'Sí, cancelar lo que falta', peligro: true }),
+  pausar: () => ({ titulo: 'Pausar el envío', texto: 'Deja de salir hasta que toques "Seguir enviando".', boton: 'Sí, pausar' }),
+  seguir: () => ({ titulo: 'Seguir enviando', texto: 'Vuelve a salir para las personas que faltan.', boton: 'Sí, seguir' }),
+};
+
 async function emAccion(accion, id) {
-  const cual = id || emState.c.id;
-  if (accion === 'cancelar' && !window.confirm('¿Cancelar? Los mails que todavía no salieron no se mandan.')) return;
+  const c = emState.c || (emState.r && emState.r.campania);
+  const cual = id || c.id;
+  if (EM_CONFIRMA[accion] && !(await emConfirmar(EM_CONFIRMA[accion](c)))) return;
   try {
     await api(`/api/email/campanias/${cual}/${accion}`, emJson('POST'));
     toast({ pausar: 'Pausada', seguir: 'Sigue saliendo', cancelar: 'Cancelada', duplicar: 'Duplicada' }[accion], 'ok');
-    emState.c = null; emState.d = null;
+    emState.c = null; emState.d = null; emState.sucio = false;
     emailCargar();
   } catch (e) { toast(e.message, 'error'); }
 }
+window.emReprogramar = emReprogramar;
 Object.assign(window, { emPrueba, emArchivo, emEnviar, emAccion });
 
 /* ------------------------------- Reporte ------------------------------- */
@@ -446,7 +630,7 @@ async function emReporte(id) {
         ${c.estado === 'enviando' ? `<button class="btn-ghost" onclick="emAccion('pausar', ${id})">Pausar</button>` : ''}
         ${c.estado === 'pausada' ? `<button class="btn-primary" onclick="emAccion('seguir', ${id})">Seguir enviando</button>` : ''}
         ${['enviando', 'pausada'].includes(c.estado) ? `<button class="btn-ghost" onclick="emAccion('cancelar', ${id})">Cancelar lo que falta</button>` : ''}
-        <button class="btn-ghost" onclick="emAccion('duplicar', ${id})">Duplicar</button></div></div>
+        <button class="btn-ghost" onclick="emAccion('duplicar', ${id})">Duplicar</button>${['enviada', 'cancelada'].includes(c.estado) ? `<button class="em-borrar" aria-label="Archivar esta campaña" data-id="${id}" data-nombre="${emE(c.nombre)}" data-salio="${r.enviados ? 1 : ''}" onclick="emEliminar(this)">${icon('trash')}</button>` : ''}</div></div>
       <div class="em-rep-cab"><h3>${emE(c.nombre)} <span class="em-estado em-${c.estado}">${EM_ESTADO[c.estado]}</span></h3><p class="em-sub">${emE(c.asunto)} · ${emE(c.remitente)} · ${emFecha(c.empezo)}</p>${c.aviso ? `<p class="em-mal">${emE(c.aviso)}</p>` : ''}</div>
       <div class="em-stats">
         ${num(emNum(r.enviados), 'enviados', r.pendientes ? `faltan ${emNum(r.pendientes)}` : r.fallidos ? `${emNum(r.fallidos)} no salieron` : '')}
@@ -525,7 +709,8 @@ async function emImportar() {
 }
 
 async function emBorrarLista(id) {
-  if (!window.confirm('¿Borrar la lista? Los contactos y sus bajas se conservan.')) return;
+  const l = emState.d.listas.find((x) => x.id === id);
+  if (!(await emConfirmar({ titulo: 'Borrar lista', texto: `Se borra la lista "${l ? l.nombre : ''}". Las personas y sus bajas se conservan.`, boton: 'Sí, borrar', peligro: true }))) return;
   try { await api(`/api/email/listas/${id}`, { method: 'DELETE' }); emailCargar(); } catch (e) { toast(e.message, 'error'); }
 }
 Object.assign(window, { emTienda, emImportar, emBorrarLista });
@@ -533,17 +718,23 @@ Object.assign(window, { emTienda, emImportar, emBorrarLista });
 /* ------------------------------- Ajustes ------------------------------- */
 
 function emAjustes() {
-  const { ajustes: a, proveedor, seguimiento, webhook } = emState.d;
-  const paso = (ok, t) => `<li class="${ok ? 'ok' : ''}">${t}</li>`;
+  const { ajustes: a, proveedor, seguimiento } = emState.d;
   return `<div class="em-cab"><h3>Ajustes</h3></div>
     <section class="em-caja"><h4>Servicio de envío</h4>
-      <p>${proveedor ? `Conectado: <b>${proveedor === 'resend' ? 'Resend' : 'Amazon SES'}</b>` : 'Sin conectar.'}</p>
-      <ol class="em-pasos">
-        ${paso(Boolean(proveedor), 'Crear la cuenta en resend.com o en Amazon SES y agregar el dominio blacksindumentaria.com.ar. Los registros que pide van en el DNS del dominio, sin tocar los de Google ni los de Perfit.')}
-        ${paso(Boolean(proveedor), 'En Render → Environment: <code>RESEND_API_KEY</code>, o bien <code>EMAIL_SES_KEY</code>, <code>EMAIL_SES_SECRET</code> y <code>EMAIL_SES_REGION</code>.')}
-        ${paso(webhook, `Avisos de rebotes y spam: en Resend → Webhooks, dirección <code>${emE(seguimiento.base)}/api/email/webhook/resend</code> con bounced y complained; la clave va en <code>RESEND_WEBHOOK_SECRET</code>. En Amazon SES, SNS a <code>${emE(seguimiento.base)}/api/email/webhook/ses?k=…</code> con <code>EMAIL_WEBHOOK_KEY</code>.`)}
-        ${paso(seguimiento.propio, `Opcional y recomendado: que los links salgan con el dominio propio. Crear <code>mail.blacksindumentaria.com.ar</code> apuntando a Render y cargar <code>EMAIL_TRACK_URL</code>. Hoy salen con <code>${emE(seguimiento.base)}</code>.`)}
-      </ol></section>
+      <p>${proveedor ? `Conectado: <b>${proveedor === 'resend' ? 'Resend' : 'Amazon SES'}</b>` : 'Sin conectar. El más barato es Amazon SES.'}</p>
+      <div class="em-acciones" style="margin:0 0 10px;"><button class="btn-ghost btn-sm" onclick="emProbarConexion(this)">Comprobar conexión</button></div><div id="em-conexion"></div>
+      <details class="em-mas" ${proveedor ? '' : 'open'}><summary>Cómo conectar Amazon SES</summary><ol class="em-pasos">
+        <li>Entrar a <b>console.aws.amazon.com</b> (crear la cuenta si no hay), buscar <b>SES</b> y elegir arriba la región <b>N. Virginia (us-east-1)</b>.</li>
+        <li><b>Identities → Create identity → Domain</b>: <code>blacksindumentaria.com.ar</code>, Easy DKIM, 2048 bits. Da 3 registros CNAME.</li>
+        <li>Cargar esos 3 CNAME en Tiendanube → Configuración → Dominios → registros del dominio. No tocar los de Google ni los de Perfit.</li>
+        <li><b>Account dashboard → Request production access</b>: tipo Marketing, sitio blacksindumentaria.com.ar. Amazon contesta en hasta 96 horas.</li>
+        <li>En el plan de precios de SES, pasar de Essentials a <b>à la carte</b>.</li>
+        <li><b>IAM → Users → Create user</b> <code>motor-mails</code>, con esta política, y crear una Access key:<pre class="em-codigo">${emE('{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Action":["ses:SendEmail","ses:GetAccount","ses:GetEmailIdentity"],"Resource":"*"}]}')}</pre></li>
+        <li>En <b>Render → Environment</b>: <code>EMAIL_PROVIDER</code> = ses, <code>EMAIL_SES_KEY</code>, <code>EMAIL_SES_SECRET</code>, <code>EMAIL_SES_REGION</code> = us-east-1 y <code>EMAIL_WEBHOOK_KEY</code> = una clave inventada de 30 letras y números.</li>
+        <li>Avisos de rebotes: <b>SNS → Create topic</b> (Standard) <code>blacks-mails</code>, en Access policy → Advanced pegar esto (cambiando el número de cuenta, son 12 dígitos):<pre class="em-codigo">${emE('{"Version":"2012-10-17","Statement":[{"Effect":"Allow","Principal":{"Service":"ses.amazonaws.com"},"Action":"SNS:Publish","Resource":"arn:aws:sns:us-east-1:NUMERO_DE_CUENTA:blacks-mails","Condition":{"StringEquals":{"AWS:SourceAccount":"NUMERO_DE_CUENTA"}}}]}')}</pre>Después <b>Create subscription</b>, HTTPS, a:<pre class="em-codigo">${emE(seguimiento.base)}/api/email/webhook/ses?k=TU_EMAIL_WEBHOOK_KEY</pre>Se confirma sola. Por último, en SES → Identities → el dominio → <b>Notifications</b>, poner ese topic en Bounce y en Complaint.</li>
+      </ol></details>
+      <details class="em-mas"><summary>Cómo conectar Resend</summary><ol class="em-pasos"><li>Crear la cuenta en resend.com, Domains → Add domain, y cargar los registros en Tiendanube.</li><li>En Render: <code>RESEND_API_KEY</code>.</li><li>Webhooks → <code>${emE(seguimiento.base)}/api/email/webhook/resend</code> con bounced y complained; la clave va en <code>RESEND_WEBHOOK_SECRET</code>.</li></ol></details>
+      <p class="em-sub">${seguimiento.propio ? 'Los links salen con el dominio propio.' : `Los links salen con <code>${emE(seguimiento.base)}</code>. Para que salgan con el tuyo: en Render → Settings → Custom domains agregar <code>mail.blacksindumentaria.com.ar</code>, cargar el CNAME que indique y después <code>EMAIL_TRACK_URL</code> = https://mail.blacksindumentaria.com.ar.`}</p></section>
     <section class="em-caja"><h4>Desde dónde salen</h4><div id="em-remitentes">${a.remitentes.map((r) => emRemitente(r)).join('')}</div><button class="btn-ghost btn-sm" onclick="document.getElementById('em-remitentes').insertAdjacentHTML('beforeend', emRemitente({ nombre: 'BLACKS', email: '' }))">Agregar otro</button>
       <label class="em-campo"><span>Mails de prueba (separados por coma)</span><input class="input" id="em-aj-pruebas" value="${emE(a.pruebas.join(', '))}"></label>
       <label class="em-campo"><span>Pie del mail</span><input class="input" id="em-aj-empresa" value="${emE(a.empresa)}"></label></section>
@@ -551,6 +742,17 @@ function emAjustes() {
       <div class="em-dos"><label class="em-campo"><span>Mails por día, como máximo</span><input class="input" type="number" min="10" max="20000" id="em-aj-tope" value="${a.topeDiario}"></label><label class="em-campo"><span>Mails por minuto</span><input class="input" type="number" min="1" max="600" id="em-aj-min" value="${a.porMinuto}"></label></div></section>
     <button class="btn-primary" onclick="emGuardarAjustes(this)">Guardar ajustes</button>`;
 }
+
+async function emProbarConexion(btn) {
+  const c = document.getElementById('em-conexion');
+  btn.disabled = true; btn.textContent = 'Preguntando…';
+  try {
+    const r = await api('/api/email/conexion');
+    c.innerHTML = `<ul class="em-cheq">${r.pasos.map((p) => `<li class="${p.ok === true ? 'ok' : p.ok === false ? 'mal' : ''}">${emE(p.texto)}</li>`).join('')}</ul>${r.listo ? '<p class="em-sub">Todo listo para enviar.</p>' : ''}`;
+  } catch (e) { c.innerHTML = `<p class="em-sub em-mal">${emE(e.message)}</p>`; }
+  btn.disabled = false; btn.textContent = 'Comprobar conexión';
+}
+window.emProbarConexion = emProbarConexion;
 
 function emRemitente(r) {
   return `<div class="em-dos em-rem"><label class="em-campo"><span>Nombre</span><input class="input em-rem-n" value="${emE(r.nombre)}"></label><label class="em-campo"><span>Mail</span><input class="input em-rem-m" type="email" value="${emE(r.email)}"></label></div>`;

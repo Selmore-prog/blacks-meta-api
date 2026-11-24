@@ -26,11 +26,14 @@ const urlBase = () => String(process.env.EMAIL_TRACK_URL || config.publicBaseUrl
 
 /* ------------------------------ Productos ------------------------------ */
 
-function idsDe(bloques) {
+/** Productos que usa el mail. conPrecio: sólo los que muestran precio (a esos se les exige stock). */
+function idsDe(bloques, conPrecio = false) {
   const ids = new Set();
   for (const b of bloques || []) {
-    if (b && b.tipo === 'estrella' && b.id) ids.add(Number(b.id));
-    if (b && b.tipo === 'productos') for (const x of b.ids || []) ids.add(Number(x));
+    if (!b || (conPrecio && b.sinPrecio)) continue;
+    if (b.tipo === 'estrella' && b.id) ids.add(Number(b.id));
+    if (b.tipo === 'productos') for (const x of b.ids || []) ids.add(Number(x));
+    if (!conPrecio && ['imagen', 'foto_texto'].includes(b.tipo) && b.id) ids.add(Number(b.id));
   }
   return [...ids].filter((x) => Number.isInteger(x) && x > 0);
 }
@@ -92,11 +95,12 @@ async function enJpg(url) {
 async function productosFrescos(bloques, precios) {
   const { fetchProduct } = require('../tiendanube');
   const m = new Map();
+  const exigidos = new Set(idsDe(bloques, true));
   for (const id of idsDe(bloques)) {
     const p = await fetchProduct(id);
     if (!p || p.published === false || (p.raw && p.raw.published === false)) throw error(409, `El producto ${id} ya no está publicado en la tienda.`);
-    if (!Number(p.price)) throw error(409, `"${p.name}" no tiene precio (¿es la ficha mayorista?).`);
-    if (p.stock !== null && p.stock !== undefined && Number(p.stock) <= 0) throw error(409, `"${p.name}" no tiene stock.`);
+    if (exigidos.has(id) && !Number(p.price)) throw error(409, `"${p.name}" no tiene precio (¿es la ficha mayorista?).`);
+    if (exigidos.has(id) && p.stock !== null && p.stock !== undefined && Number(p.stock) <= 0) throw error(409, `"${p.name}" no tiene stock.`);
     m.set(id, { id, name: p.name, price: p.price, promo_price: p.promo_price, stock: p.stock, image_url: await enJpg(p.image_url), permalink: p.permalink });
   }
   // Para el archivo: se puede bajar hoy con el precio que va a tener la oferta.
@@ -114,7 +118,7 @@ async function productosFrescos(bloques, precios) {
 
 /* ------------------------------ Campañas ------------------------------ */
 
-const slug = (s) => String(s || '').normalize('NFD').replace(/[̀-ͯ]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
+const slug = (s) => String(s || '').normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
 const enteros = (a) => [...new Set((Array.isArray(a) ? a : []).map(Number).filter((x) => Number.isInteger(x) && x > 0))];
 const corto = (s, n) => String(s === null || s === undefined ? '' : s).slice(0, n);
 const linkSeguro = (u) => (/^(https?:\/\/|mailto:|tel:)/i.test(String(u || '').trim()) ? String(u).trim().slice(0, 900) : '');
@@ -129,7 +133,12 @@ function limpiarBloques(bloques) {
     if (b.url !== undefined) r.url = linkSeguro(b.url);
     if (b.src !== undefined) r.src = /^https:\/\//i.test(String(b.src)) ? String(b.src).slice(0, 900) : '';
     if (b.aSangre !== undefined) r.aSangre = Boolean(b.aSangre);
-    if (b.tipo === 'estrella') r.id = Number(b.id) || null;
+    if (['estrella', 'imagen', 'foto_texto'].includes(b.tipo)) { const n = Number(b.id); if (b.tipo === 'estrella' || b.id) r.id = Number.isInteger(n) && n > 0 ? n : null; }
+    if (['estrella', 'productos'].includes(b.tipo) && b.sinPrecio) r.sinPrecio = true;
+    if (b.tipo === 'foto_texto') r.lado = b.lado === 'derecha' ? 'derecha' : 'izquierda';
+    if (b.tipo === 'banda') r.color = ['acento', 'tinta', 'suave'].includes(b.color) ? b.color : 'suave';
+    if (b.tipo === 'lista') r.items = (Array.isArray(b.items) ? b.items : []).map((x) => corto(x, 160)).slice(0, 8);
+    if (b.tipo === 'pasos') r.items = (Array.isArray(b.items) ? b.items : []).map((x) => corto(x, 160)).slice(0, 5);
     if (b.tipo === 'productos') { r.ids = enteros(b.ids).slice(0, 12); r.columnas = [1, 2, 3].includes(Number(b.columnas)) ? Number(b.columnas) : 2; }
     if (b.tipo === 'beneficios') r.items = (Array.isArray(b.items) ? b.items : []).map((x) => corto(x, 60)).slice(0, 4);
     return r;
@@ -143,7 +152,7 @@ async function una(id) {
   return rows[0];
 }
 
-async function crear({ plantilla = 'oferta', nombre } = {}) {
+async function crear({ plantilla = 'oferta', nombre, contenido = null } = {}) {
   await base.ensureSchema();
   const p = PLANTILLAS.find((x) => x.clave === plantilla) || PLANTILLAS[0];
   const a = await base.getAjustes();
@@ -155,6 +164,7 @@ async function crear({ plantilla = 'oferta', nombre } = {}) {
   );
   const c = rows[0];
   const r = await pool.query('UPDATE email_campaigns SET utm = $2 WHERE id = $1 RETURNING *', [c.id, `mail_${c.id}_${slug(n)}`]);
+  if (contenido) return guardar(c.id, contenido);
   return r.rows[0];
 }
 
@@ -190,12 +200,22 @@ async function guardar(id, d = {}) {
   return rows[0];
 }
 
-async function borrar(id) {
-  const { rowCount } = await pool.query("DELETE FROM email_campaigns WHERE id = $1 AND estado IN ('borrador','cancelada') AND NOT EXISTS (SELECT 1 FROM email_sends s WHERE s.campaign_id = $1 AND s.estado = 'enviado')", [id]);
-  if (!rowCount) throw error(409, 'Sólo se borran borradores que no mandaron ningún mail.');
+/**
+ * Sin ningún mail enviado se borra del todo. Si ya salió, se archiva: se va de la
+ * lista, pero los links y la baja de los mails que la gente ya tiene siguen andando.
+ */
+async function eliminar(id) {
+  const c = await una(id);
+  if (['programada', 'enviando', 'pausada'].includes(c.estado)) throw error(409, 'Primero cancelá el envío.');
+  const b = await pool.query("DELETE FROM email_campaigns WHERE id = $1 AND estado IN ('borrador','cancelada') AND NOT EXISTS (SELECT 1 FROM email_sends s WHERE s.campaign_id = $1 AND s.enviado_en IS NOT NULL)", [id]);
+  if (b.rowCount) return { borrada: true };
+  await pool.query('UPDATE email_campaigns SET archivada = true WHERE id = $1', [id]);
+  return { archivada: true };
 }
 
-async function lista() {
+async function recuperar(id) { await pool.query('UPDATE email_campaigns SET archivada = false WHERE id = $1', [id]); }
+
+async function lista({ archivadas = false } = {}) {
   await base.ensureSchema();
   const { rows } = await pool.query(
     `SELECT c.id, c.nombre, c.asunto, c.estado, c.tema, c.programada_para, c.empezo, c.termino, c.actualizado, c.total, c.aviso,
@@ -205,7 +225,9 @@ async function lista() {
         count(s.id) FILTER (WHERE s.clicks > 0)::int AS tocaron,
         count(s.id) FILTER (WHERE s.estado = 'rebote')::int AS rebotes
        FROM email_campaigns c LEFT JOIN email_sends s ON s.campaign_id = c.id
-      GROUP BY c.id ORDER BY COALESCE(c.empezo, c.programada_para, c.actualizado) DESC LIMIT 100`,
+      WHERE c.archivada = $1
+      GROUP BY c.id ORDER BY (c.estado = 'programada') DESC, CASE WHEN c.estado = 'programada' THEN c.programada_para END ASC, COALESCE(c.empezo, c.actualizado) DESC LIMIT 100`,
+    [Boolean(archivadas)],
   );
   return rows;
 }
@@ -305,14 +327,24 @@ async function programar(id, { confirmo, cuando } = {}) {
   if (Number(confirmo) !== n) throw error(409, `Ahora son ${n} personas. Revisá y volvé a confirmar.`);
   const r = renderizar(c, { productos: await productosDeCache(c.bloques, c.precios), modo: 'vista', base: urlBase(), secreto: SECRETO });
   if (r.avisos.length) throw error(400, `Antes de enviar: ${r.avisos[0]}`);
-  let fecha = null;
-  if (cuando) {
-    fecha = new Date(cuando);
-    if (Number.isNaN(fecha.getTime()) || fecha.getTime() < Date.now() - 60000) throw error(400, 'La fecha tiene que ser futura.');
-  }
+  const fecha = cuando ? fechaFutura(cuando) : null;
   const { rows } = await pool.query("UPDATE email_campaigns SET estado='programada', programada_para=$2, total=$3, aviso=NULL WHERE id=$1 AND estado='borrador' RETURNING *", [id, fecha || new Date(), n]);
   if (!rows[0]) throw error(409, 'La campaña ya no es un borrador.');
   if (!fecha) despertar();
+  return rows[0];
+}
+
+const fechaFutura = (cuando) => {
+  const f = new Date(cuando);
+  if (Number.isNaN(f.getTime()) || f.getTime() < Date.now() - 60000) throw error(400, 'La fecha tiene que ser futura.');
+  if (f.getTime() > Date.now() + 180 * 86400000) throw error(400, 'Se puede programar hasta 6 meses para adelante.');
+  return f;
+};
+
+async function reprogramar(id, { cuando } = {}) {
+  const f = fechaFutura(cuando);
+  const { rows } = await pool.query("UPDATE email_campaigns SET programada_para=$2 WHERE id=$1 AND estado='programada' RETURNING *", [id, f]);
+  if (!rows[0]) throw error(409, 'Esta campaña no está programada.');
   return rows[0];
 }
 
@@ -552,28 +584,7 @@ async function actividad(id, { ver = 'todos', pagina = 1 } = {}) {
   return { filas: rows, total: rows[0] ? rows[0].total : 0, pagina: p };
 }
 
-/* ------------------------------- Redacción ------------------------------- */
-
-/** Asunto, adelanto y textos a partir de una idea. Sólo con datos que se le pasan. */
-async function redactar({ idea, para = 'minorista', productos = [] }) {
-  const { generateJson } = require('../ai');
-  const { getCompanyFacts } = require('../companyInfo');
-  const hechos = await getCompanyFacts().catch(() => '');
-  const system = 'Escribís mails para BLACKS, una tienda argentina de ropa de trabajo y urbana. Voseo rioplatense, frases cortas y directas, con mayúscula al empezar cada frase y en los nombres propios (Black Friday). No nombrás el año. Sin mayúsculas sostenidas, sin signos de exclamación repetidos, sin emojis, sin frases hechas de publicidad. No inventás descuentos, precios, plazos ni stock: usás sólo los datos que te pasan. Un precio es por unidad: nunca lo juntes con una promo por cantidad en la misma frase (mal: "llevá 2 a $39.999"; bien: "El jean a $39.999. Llevando 2, el envío es gratis"). Respondés en JSON.';
-  const prompt = `Idea: ${corto(idea, 800)}\nPúblico: ${para === 'mayorista' ? 'empresas que compran uniformes (no hablar de precios ni cuotas)' : 'clientes de la tienda online'}\nProductos: ${productos.map((p) => `${p.name} (${p.promo_price || p.price})`).join('; ') || 'ninguno'}\nDatos del negocio:\n${typeof hechos === 'string' ? hechos : (hechos && hechos.facts_summary) || ''}\n\nDevolvé {"asuntos": [3 asuntos de hasta 45 letras, distintos entre sí], "preheader": "hasta 80 letras, que sume algo al asunto", "antetitulo": "hasta 30 letras o vacío", "titulo": "hasta 40 letras", "bajada": "hasta 140 letras", "boton": "2 o 3 palabras con verbo"}`;
-  const r = await generateJson({ system, prompt, maxTokens: 1200, temperature: 0.7 });
-  // El modelo a veces arranca en minúscula o mete un año viejo ("Black Friday 2024").
-  const prolijo = (x, n) => {
-    const s = corto(x, n).replace(/\s*\b20\d\d\b/g, '').replace(/\s{2,}/g, ' ').replace(/black friday/gi, 'Black Friday').trim();
-    return s.replace(/(^|[.!?]\s+)(\p{Ll})/gu, (_, a, l) => a + l.toUpperCase());
-  };
-  return {
-    asuntos: (Array.isArray(r.asuntos) ? r.asuntos : []).map((x) => prolijo(x, 80)).filter(Boolean).slice(0, 3),
-    preheader: prolijo(r.preheader, 120), antetitulo: prolijo(r.antetitulo, 60), titulo: prolijo(r.titulo, 90), bajada: prolijo(r.bajada, 220), boton: prolijo(r.boton, 40),
-  };
-}
-
 module.exports = {
-  crear, duplicar, guardar, borrar, lista, una, vista, archivo, prueba, programar, pausar, seguir, cancelar, procesar, cuantos,
-  abrio, toco, destino, darDeBaja, avisoDelProveedor, reporte, mapa, actividad, redactar, productosDeCache, limpiarBloques, asuntoPara, personalizar, primerNombre, GIF, PLANTILLAS, urlBase,
+  crear, duplicar, guardar, eliminar, recuperar, reprogramar, lista, una, vista, archivo, prueba, programar, pausar, seguir, cancelar, procesar, cuantos,
+  abrio, toco, destino, darDeBaja, avisoDelProveedor, reporte, mapa, actividad, preciosProgramados, productosDeCache, limpiarBloques, asuntoPara, personalizar, primerNombre, GIF, PLANTILLAS, urlBase,
 };

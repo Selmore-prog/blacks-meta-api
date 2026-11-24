@@ -5,6 +5,7 @@ const { renderizar, abrirLink, firmar, empaquetar, conUtm, precios, PLANTILLAS }
 const { leerCsv, mailLimpio } = require('../src/email/base');
 const proveedor = require('../src/email/proveedor');
 const campanas = require('../src/email/campanas');
+const { sanear, sinRespaldo, prolijo } = require('../src/email/componer');
 
 const JEAN = { id: 1, name: 'Jean <Clásico> "Recto"', price: '44599', promo_price: '39999', stock: 10, image_url: 'https://x.com/j.jpg', permalink: 'jean-clasico' };
 const REMERA = { id: 2, name: 'Remera', price: '22999', promo_price: null, stock: 0, image_url: 'https://x.com/r.jpg', permalink: 'remera' };
@@ -143,4 +144,51 @@ test('rebotes: sólo el permanente da de baja el contacto', () => {
 test('sin servicio de envío no hay proveedor', () => {
   for (const k of ['EMAIL_PROVIDER', 'RESEND_API_KEY', 'EMAIL_SES_KEY', 'EMAIL_SES_SECRET']) delete process.env[k];
   assert.strictEqual(proveedor.cual(), null);
+});
+
+/* ------------------------- El mail que arma la IA ------------------------- */
+
+const REGLAS = { ids: new Set([1, 2]), urls: ['https://blacksindumentaria.com.ar/', 'https://blacksindumentaria.com.ar/eshop'], fotos: ['https://cdn.com/a.jpg'], para: 'minorista', sitio: 'https://blacksindumentaria.com.ar' };
+
+test('IA: descarta productos, links y fotos que no existen', () => {
+  const r = sanear({ asunto: 'hola', tema: 'raro', bloques: [
+    { tipo: 'titulo', titulo: 'GUÍA DE COMPRA!!' }, { tipo: 'estrella', id: 99 }, { tipo: 'productos', ids: [1, 77, 1] },
+    { tipo: 'boton', texto: 'Ver todo.', url: 'https://malo.com/' }, { tipo: 'boton', texto: 'Otro', url: 'https://blacksindumentaria.com.ar/eshop' },
+    { tipo: 'imagen', src: 'https://malo.com/x.jpg' }, { tipo: 'separador' }, { tipo: 'beneficios', items: ['a'] }, { tipo: 'iframe' },
+  ] }, REGLAS);
+  assert.deepStrictEqual(r.bloques.map((b) => b.tipo), ['titulo', 'productos', 'boton', 'beneficios']);
+  assert.strictEqual(r.bloques[0].titulo, 'Guía de compra');
+  assert.deepStrictEqual(r.bloques[1].ids, [1]);
+  assert.deepStrictEqual([r.bloques[2].texto, r.bloques[2].url], ['Ver todo', 'https://blacksindumentaria.com.ar/']);
+  assert.strictEqual(r.tema, 'claro');
+});
+
+test('IA: un mail sin ningún botón recibe uno; a empresas no se les muestran precios', () => {
+  assert.strictEqual(sanear({ bloques: [{ tipo: 'texto', texto: 'Hola' }] }, REGLAS).bloques.pop().tipo, 'boton');
+  const e = sanear({ bloques: [{ tipo: 'productos', ids: [1], boton: 'Comprar' }] }, { ...REGLAS, para: 'mayorista' }).bloques[0];
+  assert.deepStrictEqual([e.sinPrecio, e.boton], [true, 'Pedir presupuesto']);
+});
+
+test('IA: marca precios, porcentajes, cantidades y fechas que nadie le dio', () => {
+  const idea = 'El jean a $39.999 hasta el 30 de noviembre, 10% por transferencia';
+  assert.deepStrictEqual(sinRespaldo(['Jean a $39.999, 10% menos, hasta el 30 de noviembre'], idea), []);
+  assert.deepStrictEqual(sinRespaldo(['Todo a $19.999', '25% OFF', 'hasta el 9 de diciembre', '48 horas'], `${idea} tel 54 9 11`, idea), ['$19.999', '25%', '9 de diciembre', '48 horas']);
+});
+
+test('IA: prolijo saca emojis, años, gritos y signos', () => {
+  assert.strictEqual(prolijo('black friday 2024 llegó!! 🔥 aprovechá', 80), 'Black Friday llegó. Aprovechá');
+});
+
+test('bloques nuevos: se dibujan, llevan sus links y las fichas en mayúsculas se leen normal', () => {
+  const p = new Map([[1, { ...JEAN, name: 'CHOMBA PAMPERO DE PIQUE', price: '0', promo_price: null }]]);
+  const { html, links, avisos } = renderizar(mail([
+    { tipo: 'foto_texto', id: 1, titulo: 'Título', texto: 'Dato', boton: 'Ver', lado: 'derecha' },
+    { tipo: 'banda', titulo: 'Fuerte', boton: 'Ir', url: 'https://blacksindumentaria.com.ar/', color: 'acento' },
+    { tipo: 'lista', items: ['uno **dos**'] }, { tipo: 'pasos', items: ['a', 'b'] },
+    { tipo: 'productos', ids: [1], columnas: 1, sinPrecio: true, boton: 'Consultar' },
+  ]), { ...OPC, productos: p });
+  assert.deepStrictEqual(avisos, []);
+  assert.ok(html.includes('Chomba Pampero de Pique') && html.includes('<strong>dos</strong>') && !html.includes('undefined'));
+  assert.ok(!/\$0/.test(html), 'sin precio');
+  assert.deepStrictEqual(links.map((l) => l.etiqueta), ['Logo', 'Título', 'Ver', 'Ir', 'CHOMBA PAMPERO DE PIQUE', 'Consultar']);
 });

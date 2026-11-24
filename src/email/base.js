@@ -97,6 +97,7 @@ CREATE TABLE IF NOT EXISTS email_events (
 );
 CREATE INDEX IF NOT EXISTS email_events_c ON email_events(campaign_id, tipo);
 ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS precios TEXT NOT NULL DEFAULT 'tienda'; -- 'tienda' | 'oferta' (la programada)
+ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS archivada BOOLEAN NOT NULL DEFAULT false;
 ALTER TABLE email_contacts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE email_lists ENABLE ROW LEVEL SECURITY;
 ALTER TABLE email_list_contacts ENABLE ROW LEVEL SECURITY;
@@ -205,7 +206,7 @@ async function guardarContactos(contactos, { listaId = null, tipo = null, reempl
 
 /** Lee un CSV (coma, punto y coma o tabulación) y devuelve [{ email, nombre }]. */
 function leerCsv(texto) {
-  const limpio = String(texto || '').replace(/^﻿/, '');
+  const limpio = String(texto || '').replace(/^\uFEFF/, '');
   const primera = limpio.split(/\r?\n/, 1)[0] || '';
   const sep = [';', '\t', ','].map((s) => [s, primera.split(s).length]).sort((a, b) => b[1] - a[1])[0];
   const separador = sep[1] > 1 ? sep[0] : ',';
@@ -226,7 +227,7 @@ function leerCsv(texto) {
   fila.push(campo);
   if (fila.some((x) => x.trim())) filas.push(fila);
   if (!filas.length) return [];
-  const cab = filas[0].map((x) => x.trim().toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, ''));
+  const cab = filas[0].map((x) => x.trim().toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, ''));
   const tieneCabecera = !filas[0].some((x) => mailLimpio(x));
   const col = (re) => cab.findIndex((x) => re.test(x));
   let iMail = tieneCabecera ? col(/^(e-?mail|mail|correo)/) : filas[0].findIndex((x) => mailLimpio(x));

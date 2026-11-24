@@ -32,7 +32,7 @@ const TEMAS = {
 
 const LETRA = "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
 
-const TIPOS = ['titulo', 'imagen', 'texto', 'boton', 'estrella', 'productos', 'beneficios', 'cupon', 'separador', 'firma'];
+const TIPOS = ['titulo', 'imagen', 'texto', 'boton', 'estrella', 'productos', 'foto_texto', 'banda', 'lista', 'pasos', 'beneficios', 'cupon', 'separador', 'firma'];
 
 const escapar = (s) => String(s === null || s === undefined ? '' : s)
   .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
@@ -88,6 +88,13 @@ const textoPlano = (texto) => conNombre(texto)
   .replace(/\*\*([^*]+)\*\*/g, '$1')
   .replace(/\[([^\]]+)\]\(([^)\s]+)\)/g, '$1: $2');
 
+/** Las fichas mayoristas vienen en MAYÚSCULAS: en el mail se leen como el resto. */
+function nombreDe(p) {
+  const n = String(p.name || '');
+  if (n !== n.toUpperCase() || !/\p{Lu}{4}/u.test(n)) return n;
+  return n.toLowerCase().replace(/(^|\s)(\p{Ll})(?=\p{Ll}{3})/gu, (_, a, l) => a + l.toUpperCase()).replace(/^\p{Ll}/u, (l) => l.toUpperCase());
+}
+
 function precios(p, descuentoTransferencia) {
   const lista = Number(p.price) || 0;
   const oferta = Number(p.promo_price) || 0;
@@ -142,10 +149,10 @@ function renderizar(campania, opciones = {}) {
 
   const fila = (contenido, relleno = '0 32px', extra = '') => `<tr><td class="px" style="padding:${relleno};${extra}">${contenido}</td></tr>`;
 
-  function boton(texto, url, { ancho = false, chico = false } = {}) {
+  function boton(texto, url, { ancho = false, chico = false, fondo = t.boton, tinta = t.sobreBoton, izquierda = false } = {}) {
     const href = enlazar(url, texto);
     const alto = chico ? '11px 18px' : '15px 30px';
-    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0"${ancho ? ' width="100%"' : ' align="center" style="margin:0 auto;"'}><tr><td align="center" bgcolor="${t.boton}" style="background:${t.boton};border-radius:6px;"><a href="${href}" target="_blank" style="display:block;padding:${alto};font-family:${LETRA};font-size:${chico ? 14 : 16}px;font-weight:700;line-height:1.2;color:${t.sobreBoton};text-decoration:none;border-radius:6px;">${escapar(texto)}</a></td></tr></table>${calor()}`;
+    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0"${ancho ? ' width="100%"' : izquierda ? '' : ' align="center" style="margin:0 auto;"'}><tr><td align="center" bgcolor="${fondo}" style="background:${fondo};border-radius:6px;"><a href="${href}" target="_blank" style="display:block;padding:${alto};font-family:${LETRA};font-size:${chico ? 14 : 16}px;font-weight:700;line-height:1.2;color:${tinta};text-decoration:none;border-radius:6px;">${escapar(texto)}</a></td></tr></table>${calor()}`;
   }
 
   function foto(src, alt, ancho, href) {
@@ -163,11 +170,11 @@ function renderizar(campania, opciones = {}) {
       + (pr.transferencia ? `<p style="margin:2px 0 0;font-family:${LETRA};font-size:${grande ? 15 : 13}px;line-height:1.35;color:${t.acento};font-weight:600;">${plata(pr.transferencia)} por transferencia</p>` : '');
   }
 
-  function producto(id) {
+  function producto(id, sinPrecio = false) {
     const p = productos.get(Number(id));
     if (!p) { avisos.push(`Bloque ${bloqueActual + 1}: un producto ya no está publicado.`); return null; }
     if (p.stock !== null && p.stock !== undefined && Number(p.stock) <= 0) avisos.push(`${p.name}: sin stock.`);
-    if (!Number(p.price)) avisos.push(`${p.name}: sin precio (¿es la ficha mayorista?).`);
+    if (!sinPrecio && !Number(p.price)) avisos.push(`${p.name}: sin precio (¿es la ficha mayorista?).`);
     return p;
   }
 
@@ -182,6 +189,8 @@ function renderizar(campania, opciones = {}) {
       );
     },
     imagen(b) {
+      const deProducto = b.id ? productos.get(Number(b.id)) : null;
+      if (deProducto) b = { ...b, src: b.src || deProducto.image_url, url: b.url || urlProducto(deProducto), alt: b.alt || deProducto.name };
       if (!b.src) { avisos.push(`Bloque ${bloqueActual + 1}: falta la foto.`); return ''; }
       const href = b.url ? enlazar(b.url, b.alt || 'Foto') : '';
       return fila(foto(b.src, b.alt || '', b.aSangre ? 600 : 536, href) + (href ? calor() : ''), b.aSangre ? '16px 0 0' : '16px 32px 0');
@@ -196,31 +205,43 @@ function renderizar(campania, opciones = {}) {
       return fila(html, '18px 32px 10px', 'text-align:center;');
     },
     estrella(b) {
-      const p = producto(b.id);
+      const p = producto(b.id, b.sinPrecio);
       if (!p) return '';
       const href = enlazar(urlProducto(p), p.name);
       const img = foto(b.src || p.image_url, p.name, 536, href) + calor();
       const pr = precios(p, campania.descuento_transferencia);
-      plano.push(`${b.nombre || p.name} — ${plata(pr.final)}\n${urlProducto(p)}`);
+      plano.push(`${b.nombre || p.name}${b.sinPrecio ? '' : ` — ${plata(pr.final)}`}\n${urlProducto(p)}`);
       return fila(img, '18px 32px 0')
         + fila(
-          `<h2 style="margin:0;font-family:${LETRA};font-size:22px;line-height:1.25;font-weight:700;color:${t.tinta};">${escapar(b.nombre || p.name)}</h2>${bloquePrecio(p, true)}`
+          `<h2 style="margin:0;font-family:${LETRA};font-size:22px;line-height:1.25;font-weight:700;color:${t.tinta};">${escapar(b.nombre || nombreDe(p))}</h2>${b.sinPrecio ? '' : bloquePrecio(p, true)}`
           + (b.detalle ? `<p style="margin:10px 0 0;font-family:${LETRA};font-size:15px;line-height:1.5;color:${t.suave};">${escapar(b.detalle).replace(/\n/g, '<br>')}</p>` : ''),
           '18px 32px 0', 'text-align:center;',
         )
         + fila(boton(b.boton || 'Comprar', urlProducto(p)), '18px 32px 12px', 'text-align:center;');
     },
     productos(b) {
-      const lista = (b.ids || []).map(producto).filter(Boolean);
+      const lista = (b.ids || []).map((x) => producto(x, b.sinPrecio)).filter(Boolean);
       if (!lista.length) { avisos.push(`Bloque ${bloqueActual + 1}: no hay productos elegidos.`); return ''; }
       const columnas = Math.min(3, Math.max(1, Number(b.columnas) || 2));
       const ancho = Math.floor((536 - (columnas - 1) * 16) / columnas);
+      const cuanto = (p) => (b.sinPrecio ? '' : bloquePrecio(p, false));
+      const enPlano = (p) => plano.push(`${p.name}${b.sinPrecio ? '' : ` — ${plata(precios(p, 0).final)}`}\n${urlProducto(p)}`);
+      // Uno por fila: la foto a la izquierda y los datos al lado.
+      if (columnas === 1) {
+        const filas1 = lista.map((p) => {
+          const href = enlazar(urlProducto(p), p.name);
+          const img = foto(p.image_url, p.name, 190, href) + calor();
+          enPlano(p);
+          return `<tr><td class="col" width="190" valign="top" style="width:190px;padding:0 22px 26px 0;">${img}</td><td class="col" valign="middle" style="padding:0 0 26px;"><p style="margin:0;font-family:${LETRA};font-size:17px;line-height:1.35;font-weight:700;color:${t.tinta};">${escapar(nombreDe(p))}</p>${cuanto(p)}<div style="height:12px;line-height:12px;font-size:12px;">&nbsp;</div>${boton(b.boton || 'Comprar', urlProducto(p), { chico: true, izquierda: true })}</td></tr>`;
+        });
+        return (b.titulo ? fila(`<h2 style="margin:0;font-family:${LETRA};font-size:20px;line-height:1.3;font-weight:700;color:${t.tinta};">${escapar(b.titulo)}</h2>`, '24px 32px 0') : '')
+          + fila(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${filas1.join('')}</table>`, '18px 32px 0');
+      }
       const celda = (p) => {
         const href = enlazar(urlProducto(p), p.name);
         const img = foto(p.image_url, p.name, ancho, href) + calor();
-        const pr = precios(p, campania.descuento_transferencia);
-        plano.push(`${p.name} — ${plata(pr.final)}\n${urlProducto(p)}`);
-        return `${img}<p style="margin:12px 0 0;font-family:${LETRA};font-size:15px;line-height:1.35;font-weight:600;color:${t.tinta};">${escapar(p.name)}</p>${bloquePrecio(p, false)}<div style="height:12px;line-height:12px;font-size:12px;">&nbsp;</div>${boton(b.boton || 'Comprar', urlProducto(p), { ancho: true, chico: true })}`;
+        enPlano(p);
+        return `${img}<p style="margin:12px 0 0;font-family:${LETRA};font-size:15px;line-height:1.35;font-weight:600;color:${t.tinta};">${escapar(nombreDe(p))}</p>${cuanto(p)}<div style="height:12px;line-height:12px;font-size:12px;">&nbsp;</div>${boton(b.boton || 'Comprar', urlProducto(p), { ancho: true, chico: true })}`;
       };
       const filas = [];
       for (let i = 0; i < lista.length; i += columnas) {
@@ -242,6 +263,54 @@ function renderizar(campania, opciones = {}) {
     cupon(b) {
       plano.push(`${b.texto || ''} ${b.codigo || ''}`.trim());
       return fila(`<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" style="background:${t.caja};border-radius:8px;"><tr><td align="center" style="padding:22px 20px;">${b.texto ? `<p style="margin:0 0 8px;font-family:${LETRA};font-size:15px;line-height:1.4;color:${t.suave};">${escapar(b.texto)}</p>` : ''}<p style="margin:0;font-family:${LETRA};font-size:28px;line-height:1.2;font-weight:800;letter-spacing:1px;color:${t.tinta};">${escapar(b.codigo || '')}</p></td></tr></table>`, '20px 32px 0');
+    },
+    foto_texto(b) {
+      const p = b.id ? productos.get(Number(b.id)) : null;
+      const src = b.src || (p && p.image_url);
+      const url = b.url || (p && urlProducto(p)) || '';
+      if (!src) avisos.push(`Bloque ${bloqueActual + 1}: falta la foto.`);
+      const href = url && src ? enlazar(url, b.titulo || b.alt || 'Foto') : '';
+      const img = (src ? foto(src, b.alt || b.titulo || '', 256, href) : '') + (href ? calor() : '');
+      plano.push([b.titulo, b.texto].filter(Boolean).map(textoPlano).join('\n'));
+      const datos = (b.titulo ? `<h2 style="margin:0 0 8px;font-family:${LETRA};font-size:22px;line-height:1.25;font-weight:700;color:${t.tinta};">${escapar(conNombre(b.titulo))}</h2>` : '')
+        + parrafos(b.texto, enlazar, `margin:0 0 12px;font-family:${LETRA};font-size:15px;line-height:1.55;color:${t.suave};`, t.acento)
+        + (b.boton && url ? boton(b.boton, url, { chico: true, izquierda: true }) : '');
+      const celda = (html, extra, clase = 'col') => `<td class="${clase}" width="268" valign="middle" style="width:268px;${extra}">${html}</td>`;
+      // En el celular va siempre la foto arriba: por eso se escribe primero aunque se vea a la derecha.
+      const partes = b.lado === 'derecha'
+        ? `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" dir="rtl"><tr>${celda(`<div dir="ltr">${img}</div>`, 'padding:0 0 16px 0;')}${celda(`<div dir="ltr" style="text-align:left;">${datos}</div>`, 'padding:0 24px 16px 0;', 'col dato')}</tr></table>`
+        : `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0"><tr>${celda(img, 'padding:0 0 16px 0;')}${celda(datos, 'padding:0 0 16px 24px;', 'col dato')}</tr></table>`;
+      return fila(partes, '24px 32px 0');
+    },
+    banda(b) {
+      const [fondo, tinta, botonFondo, botonTinta] = {
+        acento: ['#c2410c', '#ffffff', '#ffffff', '#17181c'],
+        tinta: [t.boton, t.sobreBoton, t.sobreBoton, t.boton],
+        suave: [t.caja, t.tinta, t.boton, t.sobreBoton],
+      }[b.color] || [t.caja, t.tinta, t.boton, t.sobreBoton];
+      plano.push([b.titulo, b.texto].filter(Boolean).map(textoPlano).join('\n'));
+      const html = `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${fondo}" style="background:${fondo};border-radius:10px;"><tr><td align="center" style="padding:30px 26px;">`
+        + (b.titulo ? `<h2 style="margin:0;font-family:${LETRA};font-size:26px;line-height:1.2;font-weight:800;letter-spacing:-0.3px;color:${tinta};">${escapar(conNombre(b.titulo)).replace(/\n/g, '<br>')}</h2>` : '')
+        + (b.texto ? `<p style="margin:10px 0 0;font-family:${LETRA};font-size:16px;line-height:1.5;color:${tinta};">${escapar(conNombre(b.texto)).replace(/\n/g, '<br>')}</p>` : '')
+        + (b.boton ? `<div style="height:18px;line-height:18px;font-size:18px;">&nbsp;</div>${boton(b.boton, b.url, { fondo: botonFondo, tinta: botonTinta })}` : '')
+        + '</td></tr></table>';
+      return fila(html, '24px 32px 0');
+    },
+    lista(b) {
+      const items = (b.items || []).map((x) => String(x || '').trim()).filter(Boolean).slice(0, 8);
+      if (!items.length) return '';
+      plano.push(items.map((x) => `· ${textoPlano(x)}`).join('\n'));
+      const filas = items.map((x) => `<tr><td width="22" valign="top" style="width:22px;padding:5px 0;font-family:${LETRA};font-size:16px;line-height:1.5;font-weight:700;color:${t.acento};">•</td><td valign="top" style="padding:5px 0;font-family:${LETRA};font-size:16px;line-height:1.5;color:${t.tinta};">${escapar(conNombre(x)).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')}</td></tr>`).join('');
+      return fila((b.titulo ? `<h2 style="margin:0 0 8px;font-family:${LETRA};font-size:20px;line-height:1.3;font-weight:700;color:${t.tinta};">${escapar(b.titulo)}</h2>` : '')
+        + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${filas}</table>`, '20px 32px 0');
+    },
+    pasos(b) {
+      const items = (b.items || []).map((x) => String(x || '').trim()).filter(Boolean).slice(0, 5);
+      if (!items.length) return '';
+      plano.push(items.map((x, i) => `${i + 1}. ${textoPlano(x)}`).join('\n'));
+      const filas = items.map((x, i) => `<tr><td width="46" valign="top" style="width:46px;padding:8px 0;"><table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr><td align="center" valign="middle" width="32" height="32" bgcolor="${t.boton}" style="width:32px;height:32px;background:${t.boton};border-radius:16px;font-family:${LETRA};font-size:15px;font-weight:700;color:${t.sobreBoton};">${i + 1}</td></tr></table></td><td valign="middle" style="padding:8px 0;font-family:${LETRA};font-size:16px;line-height:1.5;color:${t.tinta};">${escapar(conNombre(x)).replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')}</td></tr>`).join('');
+      return fila((b.titulo ? `<h2 style="margin:0 0 8px;font-family:${LETRA};font-size:20px;line-height:1.3;font-weight:700;color:${t.tinta};">${escapar(b.titulo)}</h2>` : '')
+        + `<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0">${filas}</table>`, '20px 32px 0');
     },
     separador() {
       return fila(`<div style="border-top:1px solid ${t.linea};height:1px;line-height:1px;font-size:1px;">&nbsp;</div>`, '24px 32px 4px');
@@ -273,7 +342,7 @@ function renderizar(campania, opciones = {}) {
 
   const html = `<!doctype html>
 <html lang="es"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="x-apple-disable-message-reformatting"><meta name="color-scheme" content="${campania.tema === 'negro' ? 'dark' : 'light'}"><title>${escapar(conNombre(campania.asunto || 'BLACKS')).replace(/%%NOMBRE%%/g, '')}</title>
-<style>@media only screen and (max-width:620px){.hoja{width:100%!important}.px{padding-left:20px!important;padding-right:20px!important}.col{display:block!important;width:100%!important;padding-right:0!important}.col img{max-width:100%!important;width:100%!important}.h1{font-size:30px!important}}a{text-decoration:none}</style></head>
+<style>@media only screen and (max-width:620px){.hoja{width:100%!important}.px{padding-left:20px!important;padding-right:20px!important}.col{display:block!important;width:100%!important;padding-right:0!important}.col img{max-width:100%!important;width:100%!important}.dato{padding-left:0!important}.h1{font-size:30px!important}}a{text-decoration:none}</style></head>
 <body style="margin:0;padding:0;background:${t.fondo};-webkit-text-size-adjust:100%;">
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;font-size:1px;line-height:1px;color:${t.fondo};">${pre}${'&#8199;&#65279;&#847; '.repeat(pre ? 30 : 0)}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${t.fondo}" style="background:${t.fondo};"><tr><td align="center" style="padding:24px 8px;">
