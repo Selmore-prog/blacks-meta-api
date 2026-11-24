@@ -31,6 +31,9 @@
  * VIDEO QUE ABRE WHATSAPP (conjuntos que optimizan conversaciones, como el
  * mayorista): la pieza lleva además
  *   "whatsapp": { "precargado": "lo que el cliente manda", "saludo": "lo que ve primero" }
+ * o, para que la persona elija en vez de mandar un texto ya escrito (nov-2026,
+ * remarketing mayorista): "whatsapp": { "saludo", "opciones": ["...", "..."] }.
+ * Cada opción es el primer mensaje que llega a Kommo (hasta 80 caracteres).
  * y no lleva "url" ni "feed": va UN solo video, el 9:16 (los feeds lo
  * muestran recortado a 4:5 al centro). Probado el 1-oct-2026: con
  * asset_feed_spec (un video por ubicación) el anuncio se crea, pero las vistas
@@ -169,8 +172,15 @@ function creativoWhatsapp(p, activos) {
           landing_screen_type: 'welcome_message',
           media_type: 'text',
           text_format: {
-            customer_action_type: 'autofill_message',
-            message: { text: p.whatsapp.saludo, autofill_message: { content: p.whatsapp.precargado } },
+            ...(p.whatsapp.opciones
+              ? {
+                customer_action_type: 'ice_breakers',
+                message: { text: p.whatsapp.saludo, ice_breakers: p.whatsapp.opciones.map((title) => ({ title })), quick_replies: [] },
+              }
+              : {
+                customer_action_type: 'autofill_message',
+                message: { text: p.whatsapp.saludo, autofill_message: { content: p.whatsapp.precargado } },
+              }),
           },
         },
       },
@@ -288,7 +298,7 @@ const archivosDe = (p) => {
   console.log(`\nConjunto ${spec.adset} · ${spec.piezas.length} piezas · ${aplicar ? (enPausa ? 'APLICAR EN PAUSA' : 'APLICAR') : 'vista previa'}\n`);
   if (!aplicar) {
     for (const p of spec.piezas) {
-      console.log(`  ${p.nombre} [${p.tipo}] → ${p.whatsapp ? `WhatsApp ("${p.whatsapp.precargado}")` : p.url}`);
+      console.log(`  ${p.nombre} [${p.tipo}] → ${p.whatsapp ? `WhatsApp (${p.whatsapp.opciones ? p.whatsapp.opciones.map((o) => `"${o}"`).join(' / ') : `"${p.whatsapp.precargado}"`})` : p.url}`);
       if (p.tipo === 'carrusel') {
         console.log(`     texto:     ${p.texto_feed}`);
         p.tarjetas.forEach((t, i) => console.log(`     ${String(i + 1).padStart(2)}. ${t.titulo}${t.descripcion ? '  |  ' + t.descripcion : ''}\n         ${t.url}`));

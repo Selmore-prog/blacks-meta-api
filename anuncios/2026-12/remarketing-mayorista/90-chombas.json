@@ -1,0 +1,22 @@
+{
+  "_que_es": "Igual que anuncios/2026-10/videos-equipo/90-chombas.json, con la bajada más corta: la original llegaba al borde derecho y en Reels se cortaba (\"para un client\"), visto en la vista previa del 24-nov-2026.",
+  "clave": "rmk-mayorista-90-chombas",
+  "cortes": [
+    [
+      0.0,
+      21.1
+    ]
+  ],
+  "titular": "UNIFORMES PARA|TU EMPRESA",
+  "bajada": "90 chombas bordadas para un cliente",
+  "chip": "EMITIMOS FACTURA A",
+  "posicion": "arriba",
+  "entra_titular": 0.15,
+  "entra_chip": 1.0,
+  "sale": 5.5,
+  "portada_seg": 2.4,
+  "recorte_45": 0.4,
+  "recorte_11": 0.45,
+  "productos": [],
+  "tam_titular": 0.098
+}

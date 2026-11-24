@@ -1,0 +1,57 @@
+{
+  "_que_es": "Remarketing mayorista por WhatsApp (pedido de Sebastián, 24-nov-2026): a quien entró a /mayorista en 90 días y no consultó. Videos ya aprobados (uniformes con tu logo: OK a los logos de clientes el 21-oct). El video de los 4 pantalones queda afuera a propósito: traía revendedores. Todo lo que se afirma está en company_facts (logo bordado o estampado, muestra digital antes de producir, Factura A, lunes a viernes de 8 a 17). No dice 'envío gratis': company_facts y la landing no coinciden. Las tres primeras opciones empiezan con la frase que Kommo reconoce como mayorista; 'Somos' permite contar cuántas consultas trajo esta campaña. El filtro ('equipos de 10 personas o más') va en la primera línea: en el feed se ven unos 100 caracteres antes del 'Ver más'.",
+  "adset": "120251593043750783",
+  "piezas": [
+    {
+      "nombre": "RMK Mayorista · Uniformes con tu logo · Trabajos",
+      "tipo": "video",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/videos/para-pauta/mayorista-uniformes-trabajos_916.mp4",
+      "portada_vertical": "/Users/sebastianelmore/Desktop/piezas-motor/videos/para-pauta/mayorista-uniformes-trabajos_916.jpg",
+      "titulo": "Uniformes con el logo de tu empresa",
+      "texto_feed": "Uniformes para equipos de 10 personas o más, con el logo de tu empresa bordado o estampado. Antes de producir te mandamos una muestra digital para aprobar, y emitimos Factura A.\n\nElegí cuántos son y un asesor te pasa el presupuesto por WhatsApp, de lunes a viernes de 8 a 17.",
+      "whatsapp": {
+        "saludo": "¡Hola! Cotizamos uniformes y ropa de trabajo para empresas. ¿Para cuántas personas es? Después contanos de qué empresa nos escribís y qué prendas necesitás, y un asesor te arma el presupuesto.",
+        "opciones": [
+          "Hola! Quiero cotizar ropa de trabajo para mi empresa. Somos de 10 a 30",
+          "Hola! Quiero cotizar ropa de trabajo para mi empresa. Somos de 31 a 100",
+          "Hola! Quiero cotizar ropa de trabajo para mi empresa. Somos más de 100",
+          "Busco una o pocas prendas para uso personal"
+        ]
+      }
+    },
+    {
+      "nombre": "RMK Mayorista · 90 chombas bordadas para un cliente",
+      "tipo": "video",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/videos/para-pauta/rmk-mayorista-90-chombas_916.mp4",
+      "portada_vertical": "/Users/sebastianelmore/Desktop/piezas-motor/videos/para-pauta/rmk-mayorista-90-chombas_916.jpg",
+      "titulo": "Así queda el uniforme de una empresa",
+      "texto_feed": "Para equipos de 10 personas o más: este pedido real fueron 90 chombas con los logos bordados y cinta reflectiva. Hacemos lo mismo para tu empresa, con muestra digital para aprobar antes de producir y Factura A.\n\nElegí cuántos son y un asesor te pasa el presupuesto por WhatsApp, de lunes a viernes de 8 a 17.",
+      "whatsapp": {
+        "saludo": "¡Hola! Cotizamos uniformes y ropa de trabajo para empresas. ¿Para cuántas personas es? Después contanos de qué empresa nos escribís y qué prendas necesitás, y un asesor te arma el presupuesto.",
+        "opciones": [
+          "Hola! Quiero cotizar ropa de trabajo para mi empresa. Somos de 10 a 30",
+          "Hola! Quiero cotizar ropa de trabajo para mi empresa. Somos de 31 a 100",
+          "Hola! Quiero cotizar ropa de trabajo para mi empresa. Somos más de 100",
+          "Busco una o pocas prendas para uso personal"
+        ]
+      }
+    },
+    {
+      "nombre": "RMK Mayorista · Chombas para tu empresa",
+      "tipo": "video",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/videos/para-pauta/mayorista-chomba-empresas_916.mp4",
+      "portada_vertical": "/Users/sebastianelmore/Desktop/piezas-motor/videos/para-pauta/mayorista-chomba-empresas_916.jpg",
+      "titulo": "Chombas con el logo de tu empresa",
+      "texto_feed": "Chombas para equipos de 10 personas o más, con el logo de tu empresa bordado o estampado. Son Pampero de micropiqué: aprobás una muestra digital antes de producir y emitimos Factura A.\n\nElegí cuántos son y un asesor te pasa el presupuesto por WhatsApp, de lunes a viernes de 8 a 17.",
+      "whatsapp": {
+        "saludo": "¡Hola! Cotizamos uniformes y ropa de trabajo para empresas. ¿Para cuántas personas es? Después contanos de qué empresa nos escribís y qué prendas necesitás, y un asesor te arma el presupuesto.",
+        "opciones": [
+          "Hola! Quiero cotizar ropa de trabajo para mi empresa. Somos de 10 a 30",
+          "Hola! Quiero cotizar ropa de trabajo para mi empresa. Somos de 31 a 100",
+          "Hola! Quiero cotizar ropa de trabajo para mi empresa. Somos más de 100",
+          "Busco una o pocas prendas para uso personal"
+        ]
+      }
+    }
+  ]
+}
