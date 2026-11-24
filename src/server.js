@@ -51,9 +51,12 @@ const storeHome = require('./storeHome');
 const storeCategories = require('./storeCategories');
 const whatsappChannel = require('./whatsappChannel');
 const whatsappVisual = require('./whatsappVisual');
+const emailRutas = require('./email/rutas');
+const emailCampanas = require('./email/campanas');
 
 const app = express();
-app.use(express.json({ limit: '2mb' }));
+// El aviso de rebotes del servicio de mail viene firmado sobre el texto exacto.
+app.use(express.json({ limit: '2mb', verify: (req, _res, buf) => { if (req.originalUrl.startsWith('/api/email/webhook/')) req.rawBody = buf; } }));
 app.use(['/api/login', '/api/team'], (_req, res, next) => { res.setHeader('Cache-Control', 'no-store'); next(); });
 
 /* ----------------------- Login del panel ----------------------- */
@@ -107,6 +110,9 @@ app.use(async (req, res, next) => {
     // Portal del equipo: la pantalla de ingreso y su hoja de estilos. No exponen
     // nada — son el formulario de login y CSS. Ver src/teamPortal.js.
     '/equipo.html', '/equipo.js', '/works-panel.js', '/dashboard.css', '/api/team/login', '/api/team/user-login'];
+  // Los mails enviados: abrir, tocar un link, darse de baja. Y los avisos (firmados)
+  // del servicio de envío. Ver src/email/rutas.js.
+  if (req.path.startsWith('/e/') || req.path.startsWith('/api/email/webhook/')) return next();
   if (open.includes(req.path) || req.path.startsWith('/api/cron/')) return next(); // cron tiene su propio secret
   // La ficha de producto MAYORISTA (otro dominio) pide sus trabajos: sólo lectura
   // y devuelve fotos que ya son públicas en la vidriera. Ver src/works.js.
@@ -144,6 +150,8 @@ app.use(async (req, res, next) => {
   return res.redirect('/login.html');
 });
 
+app.use(emailRutas.publicas);
+app.use(emailRutas.privadas);
 app.use(express.static(path.join(__dirname, '..', 'public')));
 
 const upload = multer({ storage: multer.memoryStorage(), limits: { fileSize: 10 * 1024 * 1024 } });
@@ -3199,6 +3207,9 @@ app.get('/api/account/analysis', wrap(async (req, res) => {
   res.json(await analyzeAccountPerformance(Number(req.query.limit) || 60));
 }));
 
+// Campañas de mail programadas o a medio enviar (src/email/campanas.js).
+app.post('/api/cron/email', authCron, wrap(async (req, res) => { res.json(await emailCampanas.procesar()); }));
+
 /* ----------------------- Manejo de errores ----------------------- */
 app.use((req, res) => res.status(404).json({ error: 'No encontrado' }));
 
@@ -3222,4 +3233,5 @@ Promise.all([require('./reelBrief').ensureSchema(), teamUsers.ensureSchema()]).t
     .catch(() => {});
   // Retoma los videos de Veo que quedaron a medio generar (ya están pagados).
   require('./videoAi').resumeVideoJobs().catch(() => {});
+  emailRutas.arrancar();
 })).catch((err) => { console.error('[server] No pude preparar los guiones de Reel:', err); process.exitCode = 1; });

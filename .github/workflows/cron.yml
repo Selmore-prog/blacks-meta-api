@@ -90,6 +90,13 @@ jobs:
         run: |
           curl -sf --retry 3 --retry-all-errors --retry-delay 10 --max-time 120 "${{ secrets.PUBLIC_BASE_URL }}/api/home/rails?force=1" -o /dev/null \
             || echo "no se pudo refrescar los rieles (se rearman solos en 15 min)"
+      # Red de seguridad de las campañas de mail: si el motor se durmió con una
+      # campaña programada o a medio enviar, esto lo despierta y la sigue.
+      - name: Campañas de mail pendientes
+        continue-on-error: true
+        run: |
+          curl -sf --max-time 120 -X POST -H "x-cron-secret: ${{ secrets.CRON_SECRET }}" "${{ secrets.PUBLIC_BASE_URL }}/api/cron/email" -o /dev/null \
+            || echo "no se pudo avisar a la cola de mails"
       # AVISO SI EL SYNC FALLA. Motivo real (ago-2026): el token de Tiendanube guardado
       # acá venció, `npm run sync` devolvió 401 y el sync horario de precios/stock falló
       # 9 días seguidos sin que nadie se enterara — el panel seguía mostrando stock viejo
