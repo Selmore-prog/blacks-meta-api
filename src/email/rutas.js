@@ -16,7 +16,7 @@ const pool = require('../db');
 const base = require('./base');
 const campanas = require('./campanas');
 const proveedor = require('./proveedor');
-const { componer } = require('./componer');
+const { componer, mejorar } = require('./componer');
 
 const wrap = (fn) => (req, res, next) => Promise.resolve(fn(req, res, next)).catch(next);
 const id = (req) => {
@@ -150,6 +150,9 @@ privadas.post('/api/email/componer', wrap(async (req, res) => {
   const c = await campanas.crear({ plantilla: para === 'mayorista' ? 'mayorista' : 'oferta', nombre: r.nombre, contenido: r });
   res.json({ ...r, id: c.id });
 }));
+
+// El lapicito del asunto y del texto de al lado.
+privadas.post('/api/email/mejorar', wrap(async (req, res) => { res.json(await mejorar(req.body || {})); }));
 
 privadas.get('/api/email/conexion', wrap(async (req, res) => {
   const a = await base.getAjustes();

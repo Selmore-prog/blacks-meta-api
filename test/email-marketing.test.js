@@ -5,7 +5,7 @@ const { renderizar, abrirLink, firmar, empaquetar, conUtm, precios, PLANTILLAS }
 const { leerCsv, mailLimpio } = require('../src/email/base');
 const proveedor = require('../src/email/proveedor');
 const campanas = require('../src/email/campanas');
-const { sanear, sinRespaldo, prolijo } = require('../src/email/componer');
+const { sanear, sinRespaldo, prolijo, limpiarOpcion, envioSinCondicion } = require('../src/email/componer');
 
 const JEAN = { id: 1, name: 'Jean <Clásico> "Recto"', price: '44599', promo_price: '39999', stock: 10, image_url: 'https://x.com/j.jpg', permalink: 'jean-clasico' };
 const REMERA = { id: 2, name: 'Remera', price: '22999', promo_price: null, stock: 0, image_url: 'https://x.com/r.jpg', permalink: 'remera' };
@@ -177,6 +177,7 @@ test('IA: marca precios, porcentajes, cantidades y fechas que nadie le dio', () 
 
 test('IA: prolijo saca emojis, años, gritos y signos', () => {
   assert.strictEqual(prolijo('black friday 2024 llegó!! 🔥 aprovechá', 80), 'Black Friday llegó. Aprovechá');
+  assert.strictEqual(prolijo('¿sabés? envio en 2 dias, remera pampero', 80), '¿Sabés? Envío en 2 días, remera Pampero');
 });
 
 test('bloques nuevos: se dibujan, llevan sus links y las fichas en mayúsculas se leen normal', () => {
@@ -191,4 +192,18 @@ test('bloques nuevos: se dibujan, llevan sus links y las fichas en mayúsculas s
   assert.ok(html.includes('Chomba Pampero de Pique') && html.includes('<strong>dos</strong>') && !html.includes('undefined'));
   assert.ok(!/\$0/.test(html), 'sin precio');
   assert.deepStrictEqual(links.map((l) => l.etiqueta), ['Logo', 'Título', 'Ver', 'Ir', 'CHOMBA PAMPERO DE PIQUE', 'Consultar']);
+});
+
+test('lapicito: con emoji queda uno solo en su punta; sin emoji, ninguno', () => {
+  const con = { campo: 'asunto', emojis: true };
+  assert.strictEqual(limpiarOpcion('🔥🔥 black friday: el jean a $39.999!!', con), '🔥 Black Friday: el jean a $39.999');
+  assert.strictEqual(limpiarOpcion('Volvió el jean 👖', con), 'Volvió el jean 👖');
+  assert.strictEqual(limpiarOpcion('❤️ Para tu equipo.', con), '❤️ Para tu equipo');
+  assert.strictEqual(limpiarOpcion('🔥 Volvió el jean 👖', { campo: 'asunto', emojis: false }), 'Volvió el jean');
+  assert.strictEqual(limpiarOpcion('"Hay todos los talles."', { campo: 'preheader', emojis: false }), 'Hay todos los talles.');
+});
+
+test('envío gratis: nunca sin su condición', () => {
+  for (const mal of ['Jean clásico $39.999 con envío gratis', 'Envíos gratis a todo el país', 'El envío es gratis', 'Envío gratis en jeans desde el 27']) assert.ok(envioSinCondicion(mal), mal);
+  for (const bien of ['Llevando 2 jeans, el envío es gratis', 'Envío gratis desde $45.000', 'Comprando dos, el envío va gratis', 'Enviamos a todo el país']) assert.ok(!envioSinCondicion(bien), bien);
 });

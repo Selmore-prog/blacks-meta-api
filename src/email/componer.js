@@ -156,6 +156,12 @@ function sinRespaldo(textos, fuentes, fuentesFecha = fuentes) {
 const PROHIBIDAS = /no te lo pierdas|no te pierdas|imperdible|últimas unidades|ultimas unidades|m[aá]s barat[oa]s? del a[ñn]o|m[aá]s bajos del a[ñn]o|mejores? precios? del mercado|al pr[oó]ximo nivel|est[aá]s list[oa]|de primera calidad|descubr[ií]|renov[aá] tu|garantizamos|costuras? (?:dobles?|triples?|reforzadas?)|lleg[oó] el momento/i;
 const PROHIBIDAS_EMPRESAS = /env[ií]os? gratis|sin cargo|cuotas|\bofertas?\b/i;
 
+/**
+ * El envío gratis siempre tiene condición (desde $45.000 o llevando 2): decirlo suelto,
+ * o pegado al precio de una prenda, promete algo que el carrito después no da.
+ */
+const envioSinCondicion = (t) => /env[ií]os?\s+(?:es\s+|sale\s+|va\s+)?(?:gratis|sin cargo|sin costo)/i.test(t) && !/llev|compr[aá]ndo|compr[aá]s|sumando|(?:desde|superando|a partir de)\s+(?:los\s+)?\$|\b2\b|\bdos\b|\$\s?45\.000/i.test(t);
+
 function textosDe(r) {
   const t = [r.asunto, r.preheader, ...(r.asuntos || [])];
   for (const b of r.bloques || []) for (const k of ['antetitulo', 'titulo', 'bajada', 'texto', 'nombre', 'detalle', 'boton', 'codigo']) if (b[k]) t.push(b[k]);
@@ -164,8 +170,13 @@ function textosDe(r) {
 }
 
 const prolijo = (x, n) => {
-  const s = sinGritar(corto(x, n)).replace(/\s*\b20\d\d\b/g, '').replace(/[ \t]{2,}/g, ' ').replace(/black friday/gi, 'Black Friday').replace(/!{1,}/g, '.').replace(/¡/g, '').replace(/\.{2,}/g, '.').replace(/\p{Extended_Pictographic}\uFE0F?/gu, '').replace(/[ \t]{2,}/g, ' ').trim();
-  return s.replace(/(^|[.!?]\s+|\n)(\p{Ll})/gu, (_, a, l) => a + l.toUpperCase());
+  const s = sinGritar(corto(x, n)).replace(/\s*\b20\d\d\b/g, '').replace(/[ \t]{2,}/g, ' ').replace(/black friday/gi, 'Black Friday').replace(/\b(pampero|gurre|ombú|blacks)\b/gi, (m) => (m.toLowerCase() === 'blacks' ? 'BLACKS' : m.charAt(0).toUpperCase() + m.slice(1).toLowerCase())).replace(/!{1,}/g, '.').replace(/¡/g, '').replace(/\.{2,}/g, '.').replace(/\p{Extended_Pictographic}\uFE0F?/gu, '').replace(/[ \t]{2,}/g, ' ').trim();
+  // Los modelos de respaldo se comen tildes en palabras que acá aparecen siempre.
+  const conTildes = s.replace(/\b(envio|envios|dias|clasico|clasica|clasicos|algodon|pantalon|ultimo|ultimos|credito)\b/gi, (m) => {
+    const b = { envio: 'envío', envios: 'envíos', dias: 'días', clasico: 'clásico', clasica: 'clásica', clasicos: 'clásicos', algodon: 'algodón', pantalon: 'pantalón', ultimo: 'último', ultimos: 'últimos', credito: 'crédito' }[m.toLowerCase()];
+    return m[0] === m[0].toUpperCase() ? b[0].toUpperCase() + b.slice(1) : b;
+  });
+  return conTildes.replace(/(^|[.!?]\s+|\n)(¿?)(\p{Ll})/gu, (_, a, q, l) => a + q + l.toUpperCase());
 };
 
 /** De lo que devolvió la IA a un mail que se puede dibujar. Nunca confía en ids ni en links. */
@@ -268,6 +279,8 @@ Devolvé SÓLO este JSON: {"nombre":"nombre interno, hasta 40 letras","asunto":"
       const m = x.match(PROHIBIDAS) || (publico === 'mayorista' && x.match(PROHIBIDAS_EMPRESAS));
       if (m) p.push(`sacá "${m[0]}"`);
     }
+    const porBloque = [r.asunto, r.preheader, ...r.bloques.map((b) => [b.antetitulo, b.titulo, b.bajada, b.texto, b.detalle, ...(b.items || [])].filter(Boolean).join('. '))];
+    if (porBloque.some((x) => x && envioSinCondicion(x))) p.push('el envío gratis tiene que ir con su condición (desde $45.000 o llevando 2)');
     if (r.bloques.length < 2) p.push('faltan bloques');
     if (!r.asunto) p.push('falta el asunto');
     return [...new Set(p)];
@@ -294,4 +307,80 @@ Devolvé SÓLO este JSON: {"nombre":"nombre interno, hasta 40 letras","asunto":"
   };
 }
 
-module.exports = { componer, sanear, sinRespaldo, afirmaciones, textosDe, prolijo };
+/* ---------------------- El lapicito: asunto y adelanto ---------------------- */
+
+const TONOS = {
+  directo: 'Directo: decí lo concreto, sin vueltas ni adjetivos.',
+  cercano: 'Cercano: como el mensaje de alguien conocido, cálido y simple.',
+  curioso: 'Curioso: dejá una pregunta o un dato que dé ganas de abrir, sin engañar: lo que insinúa tiene que estar en el mail.',
+  urgente: 'Con urgencia: remarcá la fecha o el plazo SÓLO si figura en el mail. Si no hay fecha, no inventes ninguna ni digas "últimas horas".',
+  elegante: 'Elegante: sobrio y corto, como una marca cuidada.',
+  divertido: 'Divertido: un guiño con humor liviano, sin chistes sobre personas.',
+};
+
+const EMOJI = /\p{Extended_Pictographic}(?:️|‍\p{Extended_Pictographic}️?)*/gu;
+
+/** Con emojis: uno solo, al principio o al final. Sin emojis: ninguno. */
+function limpiarOpcion(texto, { campo, emojis }) {
+  const crudo = corto(texto, 160).replace(/["“”«»]/g, '').trim();
+  const hallados = crudo.match(EMOJI) || [];
+  const alPrincipio = hallados.length > 0 && crudo.startsWith(hallados[0]);
+  let limpio = prolijo(crudo, 160);
+  if (campo === 'asunto') limpio = limpio.replace(/\.$/, '');
+  if (!limpio || !emojis || !hallados.length) return limpio;
+  return alPrincipio ? `${hallados[0]} ${limpio}` : `${limpio} ${hallados[0]}`;
+}
+
+const LARGO = { asunto: [12, 62], preheader: [20, 110] };
+
+/** Cuatro maneras de decir el asunto o el texto de al lado, en el tono pedido. */
+async function mejorar({ campo, texto = '', tono = 'directo', emojis = false, para = 'minorista', mail = {} } = {}) {
+  if (!LARGO[campo]) throw error(400, 'Ese campo no se puede mejorar.');
+  const t = TONOS[tono] ? tono : 'directo';
+  const { generateJson } = require('../ai');
+  const { getCompanyFacts } = require('../companyInfo');
+  const { productosDeCache } = require('./campanas');
+  const bloques = limpiarBloques(mail.bloques);
+  const [prods, hechos] = await Promise.all([productosDeCache(bloques, mail.precios), getCompanyFacts().catch(() => null)]);
+  const publico = para === 'mayorista' ? 'mayorista' : 'minorista';
+  const contenido = textosDe({ bloques }).join(' | ');
+  const lista = [...prods.values()].map((p) => `${p.name}${publico === 'mayorista' || !Number(p.price) ? '' : ` $${Math.round(Number(p.promo_price || p.price)).toLocaleString('es-AR')}`}`).join('; ');
+  const actual = corto(texto, 150).trim();
+  const otro = corto(campo === 'asunto' ? mail.preheader : mail.asunto, 150).trim();
+  if (!actual && !contenido && !lista) throw error(400, 'Todavía no hay nada en el mail de donde sacar el texto.');
+  const datos = corto((hechos && hechos.facts_summary) || '', 2500);
+  const hoy = new Date().toLocaleDateString('es-AR', { weekday: 'long', day: 'numeric', month: 'long', timeZone: config.timezone });
+  const system = `Escribís ${campo === 'asunto' ? 'asuntos' : 'textos de adelanto (los que se ven al lado del asunto en la bandeja)'} de mails para BLACKS, una tienda argentina de ropa de trabajo y urbana. Voseo rioplatense, ortografía perfecta, mayúscula sólo al empezar y en nombres propios. Sin signos de exclamación, sin mayúsculas sostenidas, sin frases de publicidad ("no te lo pierdas", "imperdible", "descubrí"). No inventás precios, descuentos, fechas, plazos ni stock: sólo lo que está en el mail o en los datos. Un precio es por unidad: no lo juntes con una promo por cantidad. El envío gratis va siempre con su condición. No hables de cuotas. No nombrás el año.${publico === 'mayorista' ? ' Le hablás a empresas: sin precios, sin cuotas, sin "ofertas" ni envío gratis.' : ''}
+${emojis ? 'Cada opción lleva UN emoji que tenga que ver con lo que dice, al principio o al final.' : 'Sin ningún emoji.'}
+${TONOS[t]}
+${campo === 'asunto' ? 'Cada asunto: 25 a 45 letras. Que se entienda qué hay adentro.' : 'Cada texto: 40 a 85 letras. Suma un dato que el asunto no dice y no lo repite.'}`;
+  const prompt = `Hoy es ${hoy}.\n${actual ? `${campo === 'asunto' ? 'ASUNTO' : 'ADELANTO'} ACTUAL: ${actual}` : 'Todavía está vacío.'}\n${otro ? `${campo === 'asunto' ? 'ADELANTO' : 'ASUNTO'} DEL MAIL: ${otro}\n` : ''}CONTENIDO DEL MAIL: ${contenido || 'sin textos todavía'}\nPRODUCTOS: ${lista || 'ninguno'}\nDATOS DEL NEGOCIO: ${datos}\n\n${actual ? 'Mejoralo en el tono pedido: la MISMA idea y el mismo producto, dicho mejor. No cambies de tema.' : 'Proponelo en el tono pedido.'} Como mucho dos opciones en forma de pregunta. Devolvé sólo {"opciones":["6 opciones bien distintas entre sí"]}`;
+  const fuentes = [actual, otro, contenido, lista, datos].join(' ');
+  const fechas = [actual, otro, contenido, hoy].join(' ');
+  const [min, max] = LARGO[campo];
+  const vistas = new Set([llano(actual)]);
+  const buenas = [];
+  const juntar = (opciones) => {
+    for (const x of Array.isArray(opciones) ? opciones : []) {
+      const o = limpiarOpcion(x, { campo, emojis });
+      const clave = llano(o.replace(EMOJI, '')).trim();
+      if (o.length < min || o.length > max || vistas.has(clave) || PROHIBIDAS.test(o)) continue;
+      if (publico === 'mayorista' && PROHIBIDAS_EMPRESAS.test(o)) continue;
+      if (sinRespaldo([o], fuentes, fechas).length || envioSinCondicion(o)) continue;
+      if (/cuotas/i.test(o) && !/cuotas/i.test(actual)) continue;
+      // Un precio al lado de "envío gratis" se lee como que una sola prenda viaja gratis.
+      if (o.split(/[.;]\s/).some((x) => /\$\s?\d/.test(x.replace(/\$\s?45\.000/g, '')) && /env[ií]o|sin cargo/i.test(x))) continue;
+      // "a 39.999" sin el signo.
+      if (/(?<![$\d.])\b\d{2,3}\.\d{3}\b/.test(o.replace(/\$\s+/g, '$'))) continue;
+      if (o.includes('¿') && buenas.filter((b) => b.includes('¿')).length >= 2) continue;
+      vistas.add(clave);
+      buenas.push(o);
+    }
+  };
+  juntar((await generateJson({ system, prompt, maxTokens: 900, temperature: 0.9 })).opciones);
+  if (buenas.length < 3) juntar((await generateJson({ system, prompt: `${prompt}\nMuchas opciones se descartaron por inventar datos o por el largo: respetá las reglas.`, maxTokens: 900, temperature: 0.6 }).catch(() => ({}))).opciones);
+  if (!buenas.length) throw error(502, 'No salió ninguna opción que respete los datos del mail. Probá con otro tono.');
+  return { opciones: buenas.slice(0, 4) };
+}
+
+module.exports = { componer, mejorar, limpiarOpcion, envioSinCondicion, sanear, sinRespaldo, afirmaciones, textosDe, prolijo };

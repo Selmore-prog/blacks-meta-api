@@ -215,8 +215,8 @@ function emPintarEditor() {
         <div id="em-ia-res"></div></section>
       <section class="em-caja"><h4>Qué es</h4>
         <label class="em-campo"><span>Nombre (sólo lo ves vos)</span><input class="input" value="${emE(c.nombre)}" oninput="emCampo('nombre', this.value)"></label>
-        <label class="em-campo"><span>Asunto</span><input class="input" id="em-asunto" maxlength="150" value="${emE(c.asunto)}" oninput="emCampo('asunto', this.value)"><small id="em-asunto-n"></small></label>
-        <label class="em-campo"><span>Texto al lado del asunto</span><input class="input" id="em-preheader" maxlength="150" value="${emE(c.preheader)}" oninput="emCampo('preheader', this.value)"></label>
+        ${emConLapiz('asunto', 'Asunto', c.asunto, '<small id="em-asunto-n"></small>')}
+        ${emConLapiz('preheader', 'Texto al lado del asunto', c.preheader)}
         <div class="em-dos"><label class="em-campo"><span>Sale desde</span><select class="input" onchange="emCampo('remitente_email', this.value)">${d.ajustes.remitentes.map((r) => `<option value="${emE(r.email)}" ${r.email === c.remitente_email ? 'selected' : ''}>${emE(r.email)}</option>`).join('')}</select></label>
         <label class="em-campo"><span>Con el nombre</span><input class="input" value="${emE(c.remitente_nombre)}" oninput="emCampo('remitente_nombre', this.value)"></label></div>
         <label class="em-campo"><span>Las respuestas llegan a</span><input class="input" type="email" value="${emE(c.responder_a)}" oninput="emCampo('responder_a', this.value)"></label>
@@ -289,7 +289,7 @@ async function emVista() {
   const c = emState.c;
   if (!c) return;
   const n = document.getElementById('em-asunto-n');
-  if (n) n.textContent = c.asunto ? `${c.asunto.length} letras` : '';
+  if (n) n.textContent = c.asunto ? `${[...c.asunto].length} letras` : '';
   const band = document.getElementById('em-bandeja');
   if (band) band.innerHTML = `<b>${emE(c.remitente_nombre)}</b> <span>${emE((c.asunto || 'Sin asunto').replace(/\s?\{nombre\}/gi, ' Ana'))}</span> <small>${emE(c.preheader)}</small>`;
   const turno = ++emState.vistaN;
@@ -451,6 +451,72 @@ function emUsarAsunto(i) {
   document.getElementById('em-asunto').value = c.asunto;
   emPintarIa(); emTocado();
 }
+
+/* -------------------- El lapicito: mejorar un texto corto -------------------- */
+
+const EM_TONOS = [['directo', 'Directo'], ['cercano', 'Cercano'], ['curioso', 'Curioso'], ['urgente', 'Con urgencia'], ['elegante', 'Elegante'], ['divertido', 'Divertido']];
+
+function emGustos() {
+  try { return { tono: 'directo', emojis: false, ...JSON.parse(localStorage.getItem('emLapiz') || '{}') }; } catch (_) { return { tono: 'directo', emojis: false }; }
+}
+function emGuardarGusto(k, v) {
+  const g = { ...emGustos(), [k]: v };
+  try { localStorage.setItem('emLapiz', JSON.stringify(g)); } catch (_) { /* modo privado */ }
+  return g;
+}
+
+function emConLapiz(campo, etiqueta, valor, extra = '') {
+  return `<div class="em-campo"><div class="em-rotulo"><label for="em-${campo}">${etiqueta}</label><button class="em-lapiz" aria-expanded="false" aria-controls="em-lapiz-${campo}" onclick="emLapiz('${campo}', this)">${icon('edit')} Mejorar</button></div>
+    <input class="input" id="em-${campo}" maxlength="150" value="${emE(valor)}" oninput="emCampo('${campo}', this.value)">${extra}<div class="em-lapiz-c" id="em-lapiz-${campo}" hidden></div></div>`;
+}
+
+function emLapiz(campo, btn) {
+  const c = document.getElementById(`em-lapiz-${campo}`);
+  const abrir = c.hidden;
+  c.hidden = !abrir;
+  btn.setAttribute('aria-expanded', String(abrir));
+  if (!abrir) return;
+  const g = emGustos();
+  c.innerHTML = `<div class="em-tonos" role="group" aria-label="Tono">${EM_TONOS.map(([k, n]) => `<button class="chip-suggest ${g.tono === k ? 'si' : ''}" aria-pressed="${g.tono === k}" data-tono="${k}" onclick="emTono('${campo}', this)">${n}</button>`).join('')}</div>
+    <div class="em-lapiz-pie"><label class="em-check"><input type="checkbox" ${g.emojis ? 'checked' : ''} onchange="emGuardarGusto('emojis', this.checked)"> <span>Con emoji</span></label><button class="btn-primary btn-sm" onclick="emMejorar('${campo}', this)">Proponer</button></div>
+    <div id="em-op-${campo}"></div>`;
+}
+
+function emTono(campo, btn) {
+  emGuardarGusto('tono', btn.dataset.tono);
+  btn.parentElement.querySelectorAll('button').forEach((b) => { const si = b === btn; b.classList.toggle('si', si); b.setAttribute('aria-pressed', String(si)); });
+}
+
+async function emMejorar(campo, btn) {
+  const c = emState.c;
+  const res = document.getElementById(`em-op-${campo}`);
+  const { tono, emojis } = emGustos();
+  btn.disabled = true; btn.textContent = 'Pensando…';
+  try {
+    const r = await api('/api/email/mejorar', emJson('POST', { campo, texto: c[campo], tono, emojis, para: emPublico(), mail: { asunto: c.asunto, preheader: c.preheader, precios: c.precios, bloques: c.bloques } }));
+    if (emState.c !== c) return;
+    // El texto que había queda como una opción más: siempre se puede volver.
+    const antes = c[campo];
+    emState.opciones = { ...emState.opciones, [campo]: [...r.opciones, ...(antes && !r.opciones.includes(antes) ? [antes] : [])] };
+    emPintarOpciones(campo, antes);
+  } catch (e) { res.innerHTML = `<p class="em-sub em-mal">${emE(e.message)}</p>`; }
+  btn.disabled = false; btn.textContent = 'Proponer otras';
+}
+
+function emPintarOpciones(campo, original) {
+  const c = emState.c;
+  if (original !== undefined) emState.originales = { ...emState.originales, [campo]: original };
+  const orig = (emState.originales || {})[campo];
+  document.getElementById(`em-op-${campo}`).innerHTML = emState.opciones[campo].map((o, i) => `<button class="em-opcion ${o === c[campo] ? 'si' : ''}" aria-pressed="${o === c[campo]}" onclick="emElegir('${campo}', ${i})">${emE(o)}<small>${o === orig ? 'el que tenías' : `${[...o].length} letras`}</small></button>`).join('');
+}
+
+function emElegir(campo, i) {
+  emState.c[campo] = emState.opciones[campo][i];
+  document.getElementById(`em-${campo}`).value = emState.c[campo];
+  emPintarOpciones(campo);
+  emTocado();
+}
+Object.assign(window, { emLapiz, emTono, emMejorar, emElegir, emGuardarGusto });
 
 const emPublico = () => {
   const { c, d } = emState;
