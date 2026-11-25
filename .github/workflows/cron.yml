@@ -31,15 +31,15 @@ on:
     # Plan mensual IA: el día 25 deja armado el plan del mes siguiente (12:00 UTC)
     - cron: '0 12 25 * *'
     # BLACK FRIDAY 2026 (ofertas flash programadas, scripts/flash-programada.js).
-    # Arranque: la oferta programada arranca el jueves 26 a las 23:30 ARG, media
-    # hora antes que los anuncios (viernes 27 00:00): se prueba a las 23:33,
-    # 23:53 y 00:13 ARG. Fin: el contador vence el lunes 30 23:59 ARG (02:59 UTC
-    # del 1-dic) y se prueba a las 00:09, 00:29 y 00:49 ARG. Minutos raros a
+    # Arranque: la oferta programada arranca el miércoles 25 a las 23:30 ARG, media
+    # hora antes que los anuncios (jueves 26 00:00): se prueba a las 23:33,
+    # 23:53 y 00:13 ARG. Fin: el contador vence el domingo 29 23:59 ARG (02:59 UTC
+    # del lunes 30) y se prueba a las 00:09, 00:29 y 00:49 ARG. Minutos raros a
     # propósito: GitHub demora los crons en punto. Además lo hace Render en la
     # primera visita al home, y la pasada de cada hora (:20) por las dudas.
-    - cron: '33,53 2 27 11 *'
-    - cron: '13 3 27 11 *'
-    - cron: '9,29,49 3 1 12 *'
+    - cron: '33,53 2 26 11 *'
+    - cron: '13 3 26 11 *'
+    - cron: '9,29,49 3 30 11 *'
   workflow_dispatch:
     inputs:
       job:
@@ -118,7 +118,7 @@ jobs:
   # Si hubo cambio, relee el catálogo de Tiendanube, corrige los precios del
   # catálogo de Meta y refresca el home.
   flash-programada:
-    if: contains(fromJSON('["33,53 2 27 11 *","13 3 27 11 *","9,29,49 3 1 12 *"]'), github.event.schedule) || github.event.inputs.job == 'flash-programada'
+    if: contains(fromJSON('["33,53 2 26 11 *","13 3 26 11 *","9,29,49 3 30 11 *"]'), github.event.schedule) || github.event.inputs.job == 'flash-programada'
     runs-on: ubuntu-latest
     env:
       DATABASE_URL: ${{ secrets.DATABASE_URL }}

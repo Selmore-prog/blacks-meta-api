@@ -3,8 +3,8 @@
  * OFERTAS FLASH: ARRANQUE Y FIN AUTOMÁTICOS DESDE EL CRON — nov-2026
  *
  * POR QUÉ EXISTE
- * El Black Friday tiene que arrancar solo a la medianoche del viernes 27 y
- * terminar solo el lunes 30 a las 23:59 (src/flashSale.js: `programada` y
+ * El Black Friday tiene que arrancar solo a la medianoche del jueves 26 y
+ * terminar solo el domingo 29 a las 23:59 (src/flashSale.js: `programada` y
  * `despues`). El motor ya lo hace al servir el home, pero Render (plan gratis)
  * se duerme y a la medianoche puede no entrar nadie al home: este script lo
  * corre el runner de GitHub Actions a horas fijas. Usa el MISMO candado de la

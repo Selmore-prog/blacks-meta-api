@@ -378,7 +378,7 @@ const PLANTILLAS = [
     clave: 'evento', nombre: 'Evento en negro', para: 'minorista', tema: 'negro',
     detalle: 'Para Black Friday y fechas fuertes: fondo negro y un producto al frente.',
     bloques: [
-      { tipo: 'titulo', antetitulo: 'Del 27 al 30 de noviembre', titulo: 'Black Friday', bajada: 'Cuatro días de precios especiales, sólo online.' },
+      { tipo: 'titulo', antetitulo: 'Del 26 al 29 de noviembre', titulo: 'Black Friday', bajada: 'Cuatro días de precios especiales, sólo online.' },
       { tipo: 'estrella', id: null, boton: 'Comprar' },
       { tipo: 'productos', titulo: 'También en oferta', ids: [], columnas: 2, boton: 'Comprar' },
       { tipo: 'beneficios', items: ['3 y 6 cuotas sin interés', '10% OFF por transferencia'] },
