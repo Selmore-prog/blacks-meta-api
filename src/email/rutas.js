@@ -31,7 +31,8 @@ const ROBOT = /bot|crawl|spider|preview|scanner|proofpoint|mimecast|barracuda|sa
 const publicas = express.Router();
 
 publicas.get('/e/logo-:cual.png', (req, res) => {
-  const c = req.params.cual === 'claro' ? 'claro' : 'oscuro';
+  // claro y oscuro quedan por los mails que ya salieron.
+  const c = ['banda', 'claro'].includes(req.params.cual) ? req.params.cual : 'oscuro';
   res.sendFile(path.join(__dirname, '..', '..', 'public', 'email-assets', `logo-${c}.png`), { maxAge: '30d' });
 });
 

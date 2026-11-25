@@ -207,3 +207,15 @@ test('envío gratis: nunca sin su condición', () => {
   for (const mal of ['Jean clásico $39.999 con envío gratis', 'Envíos gratis a todo el país', 'El envío es gratis', 'Envío gratis en jeans desde el 27']) assert.ok(envioSinCondicion(mal), mal);
   for (const bien of ['Llevando 2 jeans, el envío es gratis', 'Envío gratis desde $45.000', 'Comprando dos, el envío va gratis', 'Enviamos a todo el país']) assert.ok(!envioSinCondicion(bien), bien);
 });
+
+test('modo oscuro: el logo va en una imagen sin transparencia y el botón lleva borde', () => {
+  const archivo = require('fs').readFileSync(require('path').join(__dirname, '..', 'public', 'email-assets', 'logo-banda.png'));
+  assert.ok([0, 2, 3].includes(archivo[25]), 'el PNG no puede tener canal alfa');
+  assert.ok(!archivo.includes('tRNS'), 'ni transparencia por color');
+  for (const tema of ['claro', 'negro']) {
+    const { html } = renderizar(mail([{ tipo: 'boton', texto: 'Comprar', url: 'https://blacksindumentaria.com.ar/' }], { tema }), OPC);
+    assert.ok(html.includes('/e/logo-banda.png'));
+    assert.ok(!/logo-(claro|oscuro)/.test(html));
+    assert.match(html, /border:1px solid #[0-9a-f]{6};border-radius:6px/);
+  }
+});

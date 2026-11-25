@@ -22,13 +22,16 @@ const crypto = require('crypto');
 const TEMAS = {
   claro: {
     fondo: '#f3f2ef', hoja: '#ffffff', tinta: '#17181c', suave: '#62646b', linea: '#e6e5e1',
-    acento: '#c2410c', boton: '#17181c', sobreBoton: '#ffffff', caja: '#f7f6f3', logo: 'oscuro',
+    acento: '#c2410c', boton: '#17181c', sobreBoton: '#ffffff', caja: '#f7f6f3', bordeBoton: '#5a5b62',
   },
   negro: {
     fondo: '#000000', hoja: '#0f0f11', tinta: '#ffffff', suave: '#b4b5bb', linea: '#2c2c31',
-    acento: '#ff8a4c', boton: '#ffffff', sobreBoton: '#0f0f11', caja: '#18181b', logo: 'claro',
+    acento: '#ff8a4c', boton: '#ffffff', sobreBoton: '#0f0f11', caja: '#18181b', bordeBoton: '#85868d',
   },
 };
+
+// El logo va en una banda negra SIN transparencia: en modo oscuro Gmail da vuelta los
+// fondos y las letras pero no las imágenes, y un logo calado se pierde con el fondo nuevo.
 
 const LETRA = "-apple-system,BlinkMacSystemFont,'Segoe UI',Helvetica,Arial,sans-serif";
 
@@ -149,10 +152,10 @@ function renderizar(campania, opciones = {}) {
 
   const fila = (contenido, relleno = '0 32px', extra = '') => `<tr><td class="px" style="padding:${relleno};${extra}">${contenido}</td></tr>`;
 
-  function boton(texto, url, { ancho = false, chico = false, fondo = t.boton, tinta = t.sobreBoton, izquierda = false } = {}) {
+  function boton(texto, url, { ancho = false, chico = false, fondo = t.boton, tinta = t.sobreBoton, borde = fondo === t.boton ? t.bordeBoton : fondo, izquierda = false } = {}) {
     const href = enlazar(url, texto);
     const alto = chico ? '11px 18px' : '15px 30px';
-    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0"${ancho ? ' width="100%"' : izquierda ? '' : ' align="center" style="margin:0 auto;"'}><tr><td align="center" bgcolor="${fondo}" style="background:${fondo};border-radius:6px;"><a href="${href}" target="_blank" style="display:block;padding:${alto};font-family:${LETRA};font-size:${chico ? 14 : 16}px;font-weight:700;line-height:1.2;color:${tinta};text-decoration:none;border-radius:6px;">${escapar(texto)}</a></td></tr></table>${calor()}`;
+    return `<table role="presentation" cellpadding="0" cellspacing="0" border="0"${ancho ? ' width="100%"' : izquierda ? '' : ' align="center" style="margin:0 auto;"'}><tr><td align="center" bgcolor="${fondo}" style="background:${fondo};border:1px solid ${borde};border-radius:6px;"><a href="${href}" target="_blank" style="display:block;padding:${alto};font-family:${LETRA};font-size:${chico ? 14 : 16}px;font-weight:700;line-height:1.2;color:${tinta};text-decoration:none;border-radius:6px;">${escapar(texto)}</a></td></tr></table>${calor()}`;
   }
 
   function foto(src, alt, ancho, href) {
@@ -336,7 +339,7 @@ function renderizar(campania, opciones = {}) {
   const motivo = opciones.motivo || 'Recibís este mail porque compraste o dejaste tu mail en blacksindumentaria.com.ar.';
   const bajaHref = modo === 'envio' ? `${base}/e/b/%%TOKEN%%` : '#';
   // En el panel se ve desde donde se está mirando; en el mail, siempre con dirección completa.
-  const logoSrc = `${opciones.baseLogo === undefined ? base : opciones.baseLogo}/e/logo-${t.logo}.png`;
+  const logoSrc = `${opciones.baseLogo === undefined ? base : opciones.baseLogo}/e/logo-banda.png`;
   const pixel = modo === 'envio' ? `<img src="${base}/e/o/%%TOKEN%%.gif" width="1" height="1" alt="" style="display:block;width:1px;height:1px;border:0;">` : '';
   const pre = escapar(conNombre(campania.preheader || ''));
 
@@ -347,7 +350,7 @@ function renderizar(campania, opciones = {}) {
 <div style="display:none;max-height:0;overflow:hidden;opacity:0;font-size:1px;line-height:1px;color:${t.fondo};">${pre}${'&#8199;&#65279;&#847; '.repeat(pre ? 30 : 0)}</div>
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${t.fondo}" style="background:${t.fondo};"><tr><td align="center" style="padding:24px 8px;">
 <table role="presentation" class="hoja" width="600" cellpadding="0" cellspacing="0" border="0" bgcolor="${t.hoja}" style="width:600px;max-width:600px;background:${t.hoja};border-radius:10px;">
-<tr><td align="center" class="px" style="padding:28px 32px 4px;"><a href="${hrefLogo}" target="_blank"><img src="${escapar(logoSrc)}" alt="BLACKS" width="164" style="display:block;width:164px;height:auto;border:0;font-family:${LETRA};font-size:22px;font-weight:800;color:${t.tinta};"></a></td></tr>
+<tr><td align="center" bgcolor="${t.hoja}" style="padding:0;background:${t.hoja};border-radius:10px 10px 0 0;font-size:0;line-height:0;"><a href="${hrefLogo}" target="_blank"><img src="${escapar(logoSrc)}" alt="BLACKS" width="600" style="display:block;width:100%;max-width:600px;height:auto;border:0;border-radius:10px 10px 0 0;font-family:${LETRA};font-size:22px;line-height:56px;font-weight:800;color:${t.tinta};text-align:center;"></a></td></tr>
 ${cuerpo}
 <tr><td style="height:32px;line-height:32px;font-size:1px;">&nbsp;</td></tr>
 </table>
