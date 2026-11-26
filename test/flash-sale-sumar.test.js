@@ -171,3 +171,25 @@ test('un link escrito a mano no se pisa, y la página oculta vuelve a mostrarse'
   await flash.end();
   assert.strictEqual((await flash.getConfig()).url, '/ofertas-especiales/');
 });
+
+test('la oferta puede tener más de 12: el home muestra los primeros 12 y la página todos', async () => {
+  for (let id = 100; id < 114; id++) {
+    cache.set(id, producto(id, 30000, [[id * 10, null]]));
+    tienda.set(id * 10, null);
+  }
+  const items = Array.from({ length: 14 }, (_, k) => ({ id: 100 + k, pct: 10 }));
+  await flash.saveConfig({ ...BLACK, url: null, items });
+  await flash.activate();
+  const bloque = await flash.getBlock();
+  assert.strictEqual(bloque.products.length, 12, 'la sección del home corta en 12');
+  assert.deepStrictEqual(bloque.products.map((p) => p.id), items.slice(0, 12).map((i) => i.id), 'en el orden del panel');
+  assert.strictEqual(bloque.total, 14);
+  const cat = (await flash.getConfig()).pagina_info.category_id;
+  assert.strictEqual([...categoriasDe].filter(([, cs]) => cs.includes(cat)).length, 14, 'la página tiene los 14');
+  assert.strictEqual(tienda.get(1130), '26999.00', 'el 14 también tiene su precio de oferta');
+  await flash.end();
+});
+
+test('el tope de la oferta es 40', async () => {
+  await assert.rejects(flash.saveConfig({ ...BLACK, items: Array.from({ length: 41 }, (_, k) => ({ id: 1000 + k })) }), /hasta 40/);
+});

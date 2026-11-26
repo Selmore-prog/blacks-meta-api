@@ -3259,3 +3259,7 @@ button .cost-tag { margin-left: 8px; }
 .arr-flechas button:disabled { opacity: .3; cursor: default; }
 /* En el mail `.em-chip span` estira todo span: la manija y las flechas no. */
 .em-chip .arr-asa, .em-chip .arr-flechas { flex: none; }
+
+/* Ofertas flash: del 13 en adelante van sólo a la página de la oferta */
+.flash-corte { display: flex; align-items: center; gap: 6px; font-size: .76rem; color: var(--muted); margin: 6px 2px 2px; padding-top: 10px; border-top: 1px dashed var(--line); }
+.flash-chip-pagina { background: transparent; border-style: dashed; }

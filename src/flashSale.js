@@ -30,8 +30,13 @@ const { setVariantPromotionalPrice } = require('./tiendanube');
 const homeRails = require('./homeRails');
 
 const KEY = 'flash_sale';
-const MAX_ITEMS = 12;      // una sección de ofertas con más de 12 se vuelve un catálogo
-const MAX_WRITES = 400;    // tope duro de PUTs por activación (freno ante un error de datos)
+// La SECCIÓN del home muestra hasta 12 (con más se vuelve un catálogo). La OFERTA
+// puede tener más (26-nov-2026, Black Friday): los que pasan de 12 tienen el
+// precio de oferta y van a la página de la oferta (flashPagina.js), no al home.
+// Cuáles van al home lo decide el orden del panel: los primeros 12.
+const MAX_ITEMS = 40;
+const SECCION_MAX = 12;
+const MAX_WRITES = 2500;   // tope duro de PUTs por activación (freno ante un error de datos; ~40 productos × 60 variantes)
 const WRITE_DELAY_MS = Number(process.env.FLASH_WRITE_DELAY_MS || 300);
 
 const DEFAULT = {
@@ -260,7 +265,7 @@ async function saveConfig(input) {
 
   const default_pct = clampPct(input.default_pct) || DEFAULT.default_pct;
   const rawItems = Array.isArray(input.items) ? input.items : [];
-  if (rawItems.length > MAX_ITEMS) throw badRequest(`La sección admite hasta ${MAX_ITEMS} productos.`);
+  if (rawItems.length > MAX_ITEMS) throw badRequest(`La oferta admite hasta ${MAX_ITEMS} productos.`);
 
   const seen = new Set();
   const wantIds = [];
@@ -479,7 +484,7 @@ async function _addItems(input) {
   }
   if (!nuevos.length) throw badRequest('No hay productos nuevos para sumar.');
   if ((cfg.items || []).length + nuevos.length > MAX_ITEMS) {
-    throw badRequest(`La sección admite hasta ${MAX_ITEMS} productos y ya tiene ${(cfg.items || []).length}.`);
+    throw badRequest(`La oferta admite hasta ${MAX_ITEMS} productos y ya tiene ${(cfg.items || []).length}.`);
   }
 
   const chosen = await loadChosen(nuevos.map((n) => n.id));
@@ -729,6 +734,9 @@ async function computeBlock() {
   }).filter((c) => c.url && c.image && c.promo_price > 0 && c.promo_price < c.price);
 
   if (products.length < 1) return { active: false };
+  // Al home van los primeros 12 que se pueden mostrar; el resto, sólo a la página.
+  const enLaOferta = products.length;
+  products.splice(SECCION_MAX);
 
   return {
     active: true,
@@ -740,6 +748,7 @@ async function computeBlock() {
     accent: cfg.accent || DEFAULT.accent,
     estilo: cfg.estilo || null,
     badge: cfg.badge || null,
+    total: enLaOferta,
     products,
   };
 }

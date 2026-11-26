@@ -7204,7 +7204,7 @@ function renderFlash() {
     <div class="flash-actions">
       ${active
         ? `<button class="btn-ghost btn-sm" onclick="flashSave(true)">${icon('check')} Guardar cambios (título / fecha / página)</button>
-           <button class="btn-primary btn-sm" id="flash-sumar" onclick="flashSumar()" hidden>${icon('bolt')} Sumar a la oferta</button>`
+           <button class="btn-primary btn-sm" id="flash-sumar" onclick="flashSumar()" style="display:none;">${icon('bolt')} Sumar a la oferta</button>`
         : `<button class="btn-ghost btn-sm" onclick="flashSave(false)">${icon('save')} Guardar borrador</button>
            <button class="btn-primary btn-sm" onclick="flashActivate()">${icon('bolt')} Activar oferta real</button>`}
     </div>
@@ -7235,9 +7235,14 @@ function renderFlashNuevos() {
   const wrap = document.getElementById('flash-nuevos');
   const btn = document.getElementById('flash-sumar');
   if (!wrap) return;
-  if (btn) { btn.hidden = !flashState.nuevos.length; btn.innerHTML = `${icon('bolt')} Sumar ${flashState.nuevos.length} a la oferta`; }
+  // style y no `hidden`: el display de .btn-primary le gana al atributo.
+  if (btn) { btn.style.display = flashState.nuevos.length ? '' : 'none'; btn.innerHTML = `${icon('bolt')} Sumar ${flashState.nuevos.length} a la oferta`; }
   if (!flashState.nuevos.length) { wrap.innerHTML = ''; return; }
-  wrap.innerHTML = '<p class="flash-order-hint" style="margin-top:0;">Para sumar (todavía no se escribió nada):</p>' + flashState.nuevos.map((it, i) => {
+  const alHome = Math.max(0, 12 - flashState.chosen.length);
+  const destino = alHome >= flashState.nuevos.length ? '' : alHome === 0
+    ? ' Van a la página de la oferta: la sección del home ya tiene 12 (después podés reordenar).'
+    : ` Los primeros ${alHome} entran en la sección del home; el resto va a la página de la oferta.`;
+  wrap.innerHTML = `<p class="flash-order-hint" style="margin-top:0;">Para sumar (todavía no se escribió nada).${destino}</p>` + flashState.nuevos.map((it, i) => {
     const hoy = Number(it.promo_now) > 0 && Number(it.promo_now) < Number(it.price) ? Number(it.promo_now) : Number(it.price);
     return `<div class="flash-chip flash-chip-nuevo">
       ${it.image ? `<img src="${esc(it.image)}" alt="">` : ''}
@@ -7295,10 +7300,14 @@ function renderFlashChosen() {
     wrap.innerHTML = '<p class="hint" style="margin:6px 2px;">Todavía no elegiste productos.</p>';
     return;
   }
+  const conPagina = !!(flashState.cfg && flashState.cfg.pagina);
   wrap.innerHTML = flashState.chosen.map((it, i) => {
     const final = flashFinal(it);
     const pctVal = it.pct ? it.pct : '';
-    return `<div class="flash-chip">
+    // A partir del 13 no entran en la sección del home: van sólo a la página.
+    const corte = i === 12
+      ? `<p class="flash-corte">${icon('grid')} Desde acá, sólo en la página de la oferta${conPagina ? '' : ' (tildá "Crear una página…" para que se vean)'}. La sección del home muestra los 12 de arriba: arrastrá para elegir cuáles.</p>` : '';
+    return `${corte}<div class="flash-chip ${i >= 12 ? 'flash-chip-pagina' : ''}">
       <span class="arr-asa" title="Arrastrá para cambiar el orden">⋮⋮</span>
       ${it.image ? `<img src="${esc(it.image)}" alt="">` : ''}
       <div class="fc-info">
@@ -7396,7 +7405,7 @@ async function flashDoSearch(q) {
 
 function flashAdd(prod) {
   if ([...flashState.chosen, ...flashState.nuevos].some((c) => c.id === prod.id)) return;
-  if (flashState.chosen.length + flashState.nuevos.length >= 12) { toast('La sección admite hasta 12 productos.', 'warn'); return; }
+  if (flashState.chosen.length + flashState.nuevos.length >= 40) { toast('La oferta admite hasta 40 productos.', 'warn'); return; }
   if (flashState.cfg && flashState.cfg.active) {
     flashState.nuevos.push({ id: prod.id, name: prod.name, image: prod.image, price: prod.price, promo_now: prod.promo_price || null, stock: prod.stock, precio: null });
     const inp = document.getElementById('flash-search-input');
