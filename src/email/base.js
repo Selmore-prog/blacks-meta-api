@@ -98,6 +98,17 @@ CREATE TABLE IF NOT EXISTS email_events (
 CREATE INDEX IF NOT EXISTS email_events_c ON email_events(campaign_id, tipo);
 ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS precios TEXT NOT NULL DEFAULT 'tienda'; -- 'tienda' | 'oferta' (la programada)
 ALTER TABLE email_campaigns ADD COLUMN IF NOT EXISTS archivada BOOLEAN NOT NULL DEFAULT false;
+-- Antivirus de empresa: abren 3 links distintos o más en 2 segundos. Se marcan al tocar
+-- (campanas.toco) y no cuentan en ningún total. La primera vez se corrigen los envíos viejos.
+DO $$ BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_name = 'email_sends' AND column_name = 'robot') THEN
+    ALTER TABLE email_sends ADD COLUMN robot BOOLEAN NOT NULL DEFAULT false;
+    UPDATE email_sends SET robot = true WHERE id IN (
+      SELECT e1.send_id FROM email_events e1 JOIN email_events e2 ON e2.send_id = e1.send_id AND e2.tipo = 'click'
+         AND e2.fecha >= e1.fecha AND e2.fecha <= e1.fecha + interval '2 seconds'
+       WHERE e1.tipo = 'click' GROUP BY e1.send_id, e1.id HAVING count(DISTINCT e2.link) >= 3);
+  END IF;
+END $$;
 ALTER TABLE email_contacts ENABLE ROW LEVEL SECURITY;
 ALTER TABLE email_lists ENABLE ROW LEVEL SECURITY;
 ALTER TABLE email_list_contacts ENABLE ROW LEVEL SECURITY;

@@ -221,8 +221,8 @@ async function lista({ archivadas = false } = {}) {
     `SELECT c.id, c.nombre, c.asunto, c.estado, c.tema, c.programada_para, c.empezo, c.termino, c.actualizado, c.total, c.aviso,
         count(s.id) FILTER (WHERE s.estado IN ('enviado','rebote','queja'))::int AS enviados,
         count(s.id) FILTER (WHERE s.estado = 'pendiente')::int AS pendientes,
-        count(s.id) FILTER (WHERE s.aperturas > 0)::int AS abrieron,
-        count(s.id) FILTER (WHERE s.clicks > 0)::int AS tocaron,
+        count(s.id) FILTER (WHERE s.aperturas > 0 AND NOT s.robot)::int AS abrieron,
+        count(s.id) FILTER (WHERE s.clicks > 0 AND NOT s.robot)::int AS tocaron,
         count(s.id) FILTER (WHERE s.estado = 'rebote')::int AS rebotes
        FROM email_campaigns c LEFT JOIN email_sends s ON s.campaign_id = c.id
       WHERE c.archivada = $1
@@ -494,6 +494,11 @@ async function abrio(token) {
 /** Anota el clic (si el token existe) y devuelve a dónde ir. La firma decide el destino. */
 function destino(u, s) { return abrirLink(u, s, SECRETO); }
 
+const ROBOT_LINKS = 3;
+const ROBOT_SEGUNDOS = 2;
+// Eventos que cuentan: los de personas, no los de antivirus.
+const SIN_ROBOTS = 'AND send_id NOT IN (SELECT id FROM email_sends WHERE campaign_id = $1 AND robot)';
+
 async function toco(token, indice, robot = false) {
   if (!tokenValido(token) || robot) return;
   // Los antivirus de empresa abren todos los links apenas llega el mail.
@@ -505,6 +510,9 @@ async function toco(token, indice, robot = false) {
   if (!s) return;
   const i = Number(indice);
   if (s.clicks <= 50) await pool.query("INSERT INTO email_events (campaign_id, send_id, tipo, link) VALUES ($1,$2,'click',$3)", [s.campaign_id, s.id, Number.isInteger(i) ? i : null]);
+  // 3 links distintos en 2 segundos no lo hace una persona: es el antivirus de su empresa.
+  await pool.query(`UPDATE email_sends SET robot = true WHERE id = $1 AND NOT robot
+    AND (SELECT count(DISTINCT link) FROM email_events WHERE send_id = $1 AND tipo = 'click' AND fecha > now() - interval '${ROBOT_SEGUNDOS} seconds') >= ${ROBOT_LINKS}`, [s.id]);
   await pool.query('UPDATE email_contacts SET ultimo_click = now(), ultima_apertura = now() WHERE id=$1', [s.contact_id]);
 }
 
@@ -538,11 +546,12 @@ async function reporte(id) {
         count(*) FILTER (WHERE estado IN ('enviado','rebote','queja'))::int AS enviados,
         count(*) FILTER (WHERE estado='pendiente')::int AS pendientes, count(*) FILTER (WHERE estado='fallido')::int AS fallidos,
         count(*) FILTER (WHERE estado='rebote')::int AS rebotes, count(*) FILTER (WHERE estado='queja')::int AS quejas,
-        count(*) FILTER (WHERE aperturas > 0)::int AS abrieron, COALESCE(sum(aperturas),0)::int AS aperturas,
-        count(*) FILTER (WHERE clicks > 0)::int AS tocaron, COALESCE(sum(clicks),0)::int AS clicks,
+        count(*) FILTER (WHERE aperturas > 0 AND NOT robot)::int AS abrieron, COALESCE(sum(aperturas) FILTER (WHERE NOT robot),0)::int AS aperturas,
+        count(*) FILTER (WHERE clicks > 0 AND NOT robot)::int AS tocaron, COALESCE(sum(clicks) FILTER (WHERE NOT robot),0)::int AS clicks,
+        count(*) FILTER (WHERE robot)::int AS antivirus,
         count(*) FILTER (WHERE baja_en IS NOT NULL)::int AS bajas FROM email_sends WHERE campaign_id=$1`, [id]),
-    pool.query("SELECT link, count(*)::int AS clicks, count(DISTINCT send_id)::int AS personas FROM email_events WHERE campaign_id=$1 AND tipo='click' AND link IS NOT NULL GROUP BY link", [id]),
-    pool.query("SELECT date_trunc('hour', fecha) AS hora, count(*) FILTER (WHERE tipo='apertura')::int AS aperturas, count(*) FILTER (WHERE tipo='click')::int AS clicks FROM email_events WHERE campaign_id=$1 AND fecha < $2::timestamptz + interval '72 hours' GROUP BY 1 ORDER BY 1", [id, c.empezo || c.creado]),
+    pool.query(`SELECT link, count(*)::int AS clicks, count(DISTINCT send_id)::int AS personas FROM email_events WHERE campaign_id=$1 AND tipo='click' AND link IS NOT NULL ${SIN_ROBOTS} GROUP BY link`, [id]),
+    pool.query(`SELECT date_trunc('hour', fecha) AS hora, count(*) FILTER (WHERE tipo='apertura')::int AS aperturas, count(*) FILTER (WHERE tipo='click')::int AS clicks FROM email_events WHERE campaign_id=$1 AND fecha < $2::timestamptz + interval '72 hours' ${SIN_ROBOTS} GROUP BY 1 ORDER BY 1`, [id, c.empezo || c.creado]),
   ]);
   // Ventas: pedido pago con la UTM del mail, o de alguien que tocó un link hasta 5 días antes.
   const v = await pool.query(
@@ -551,7 +560,7 @@ async function reporte(id) {
        FROM orders_cache WHERE raw->>'payment_status'='paid' AND (raw->>'created_at')::timestamptz >= $3)
      SELECT DISTINCT p.id, p.numero, p.total, p.fecha, (p.utm = $2 OR position('utm_campaign=' || $2 IN p.landing) > 0) AS directa FROM p
       LEFT JOIN email_contacts k ON k.email = p.email LEFT JOIN email_sends s ON s.contact_id = k.id AND s.campaign_id = $1
-     WHERE p.utm = $2 OR position('utm_campaign=' || $2 IN p.landing) > 0 OR (s.primer_click IS NOT NULL AND p.fecha BETWEEN s.primer_click AND s.primer_click + interval '5 days')`,
+     WHERE p.utm = $2 OR position('utm_campaign=' || $2 IN p.landing) > 0 OR (s.primer_click IS NOT NULL AND NOT s.robot AND p.fecha BETWEEN s.primer_click AND s.primer_click + interval '5 days')`,
     [id, c.utm || `mail_${id}`, c.empezo || c.creado],
   );
   const conteos = {};
@@ -567,7 +576,7 @@ async function reporte(id) {
 /** El mail enviado, con los clics dibujados arriba de cada link. */
 async function mapa(id) {
   const c = await una(id);
-  const l = await pool.query("SELECT link, count(*)::int AS n FROM email_events WHERE campaign_id=$1 AND tipo='click' AND link IS NOT NULL GROUP BY link", [id]);
+  const l = await pool.query(`SELECT link, count(*)::int AS n FROM email_events WHERE campaign_id=$1 AND tipo='click' AND link IS NOT NULL ${SIN_ROBOTS} GROUP BY link`, [id]);
   const conteos = Object.fromEntries(l.rows.map((x) => [x.link, x.n]));
   const a = await base.getAjustes();
   return renderizar(c, { productos: await productosDeCache(c.bloques, c.precios), modo: 'calor', conteos, baseLogo: '', base: urlBase(), empresa: a.empresa }).html.replace(/%%NOMBRE%%/g, '');
@@ -583,26 +592,13 @@ function nombresDeLinks(links) {
   return new Map(links.map((l) => [l.i, { nombre: (LINK_GENERICO.test((l.etiqueta || '').trim()) && porUrl.get(sinUtm(l.url))) || l.etiqueta || 'Link', url: l.url }]));
 }
 
-/**
- * Los antivirus de las empresas abren todos los links del mail de una vez, a veces
- * medio minuto después de que llega. Una persona no toca 3 links distintos en 2 segundos.
- */
-function esRobot(clics) {
-  for (let i = 0; i < clics.length; i++) {
-    const t = new Date(clics[i].fecha).getTime();
-    const juntos = new Set(clics.filter((c) => { const d = new Date(c.fecha).getTime() - t; return d >= 0 && d <= 2000; }).map((c) => c.link));
-    if (juntos.size >= 3) return true;
-  }
-  return false;
-}
-
 async function actividad(id, { ver = 'todos', pagina = 1 } = {}) {
-  const filtro = { todos: 'true', abrieron: 's.aperturas > 0', tocaron: 's.clicks > 0', no_abrieron: "s.aperturas = 0 AND s.estado='enviado'", rebotes: "s.estado IN ('rebote','queja','fallido')", bajas: 's.baja_en IS NOT NULL' }[ver] || 'true';
+  const filtro = { todos: 'true', abrieron: 's.aperturas > 0 AND NOT s.robot', tocaron: 's.clicks > 0 AND NOT s.robot', antivirus: 's.robot', no_abrieron: "(s.aperturas = 0 OR s.robot) AND s.estado='enviado'", rebotes: "s.estado IN ('rebote','queja','fallido')", bajas: 's.baja_en IS NOT NULL' }[ver] || 'true';
   const p = Math.max(1, Number(pagina) || 1);
   const { rows } = await pool.query(
-    `SELECT s.id, k.email, k.nombre, s.estado, s.enviado_en, s.primera_apertura, s.aperturas, s.primer_click, s.clicks, s.baja_en, s.error, count(*) OVER()::int AS total
+    `SELECT s.id, k.email, k.nombre, s.estado, s.enviado_en, s.primera_apertura, s.aperturas, s.primer_click, s.clicks, s.baja_en, s.error, s.robot, count(*) OVER()::int AS total
        FROM email_sends s JOIN email_contacts k ON k.id = s.contact_id WHERE s.campaign_id=$1 AND ${filtro}
-      ORDER BY s.clicks DESC, s.aperturas DESC, s.orden LIMIT 50 OFFSET $2`, [id, (p - 1) * 50],
+      ORDER BY s.robot, s.clicks DESC, s.aperturas DESC, s.orden LIMIT 50 OFFSET $2`, [id, (p - 1) * 50],
   );
   // Qué tocó cada uno. Un "Comprar" se nombra con el producto al que lleva, y la foto,
   // el título y el botón del mismo producto cuentan juntos.
@@ -610,7 +606,7 @@ async function actividad(id, { ver = 'todos', pagina = 1 } = {}) {
   const tocados = new Map();
   if (conClic.length) {
     const [ev, camp] = await Promise.all([
-      pool.query("SELECT send_id, link, fecha FROM email_events WHERE campaign_id=$1 AND tipo='click' AND send_id = ANY($2::bigint[]) ORDER BY send_id, fecha", [id, conClic]),
+      pool.query("SELECT send_id, link FROM email_events WHERE campaign_id=$1 AND tipo='click' AND send_id = ANY($2::bigint[])", [id, conClic]),
       pool.query('SELECT links FROM email_campaigns WHERE id=$1', [id]),
     ]);
     const nombres = nombresDeLinks((camp.rows[0] || {}).links || []);
@@ -627,14 +623,14 @@ async function actividad(id, { ver = 'todos', pagina = 1 } = {}) {
         x.veces++;
         cuenta.set(n.nombre, x);
       }
-      tocados.set(sendId, { links: [...cuenta.values()].sort((x, y) => y.veces - x.veces), robot: esRobot(clics) });
+      tocados.set(sendId, [...cuenta.values()].sort((x, y) => y.veces - x.veces));
     }
   }
-  const filas = rows.map(({ id: sendId, ...f }) => ({ ...f, links: (tocados.get(sendId) || {}).links || [], robot: !!(tocados.get(sendId) || {}).robot }));
+  const filas = rows.map(({ id: sendId, ...f }) => ({ ...f, links: tocados.get(sendId) || [] }));
   return { filas, total: rows[0] ? rows[0].total : 0, pagina: p };
 }
 
 module.exports = {
   crear, duplicar, guardar, eliminar, recuperar, reprogramar, lista, una, vista, archivo, prueba, programar, pausar, seguir, cancelar, procesar, cuantos,
-  abrio, toco, destino, darDeBaja, avisoDelProveedor, reporte, mapa, actividad, nombresDeLinks, esRobot, preciosProgramados, productosDeCache, limpiarBloques, asuntoPara, personalizar, primerNombre, GIF, PLANTILLAS, urlBase,
+  abrio, toco, destino, darDeBaja, avisoDelProveedor, reporte, mapa, actividad, nombresDeLinks, preciosProgramados, productosDeCache, limpiarBloques, asuntoPara, personalizar, primerNombre, GIF, PLANTILLAS, urlBase,
 };

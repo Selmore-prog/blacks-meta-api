@@ -717,7 +717,7 @@ async function emReporte(id) {
       <div class="em-stats">
         ${num(emNum(r.enviados), 'enviados', r.pendientes ? `faltan ${emNum(r.pendientes)}` : r.fallidos ? `${emNum(r.fallidos)} no salieron` : '')}
         ${num(emPct(r.abrieron, r.enviados), `abrieron ${tip('Apple Mail abre los mails solo, así que este número siempre sale un poco inflado. Los clics son más confiables.')}`, `${emNum(r.abrieron)} personas, ${emNum(r.aperturas)} veces`)}
-        ${num(emPct(r.tocaron, r.enviados), 'tocaron un link', `${emNum(r.tocaron)} personas, ${emNum(r.clicks)} clics`)}
+        ${num(emPct(r.tocaron, r.enviados), `tocaron un link${r.antivirus ? ` ${tip(`No cuenta ${r.antivirus === 1 ? 'un mail' : `${r.antivirus} mails`} de empresa cuyo antivirus abrió todos los links apenas llegó. Están en Quién → Antivirus.`)}` : ''}`, `${emNum(r.tocaron)} personas, ${emNum(r.clicks)} clics`)}
         ${num(emPct(r.tocaron, r.abrieron), 'de los que abrieron, tocaron')}
         ${num(emPlata(r.ventas.total), `en ventas ${tip('Pedidos pagos con el link del mail, o de alguien que tocó un link hasta 5 días antes. Se actualiza con la sincronización diaria de pedidos.')}`, `${emNum(r.ventas.cantidad)} pedidos`)}
         ${num(emPct(r.bajas, r.enviados), 'se dieron de baja', `${emNum(r.bajas)} personas`)}
@@ -727,7 +727,7 @@ async function emReporte(id) {
         <section class="em-caja"><h4>Mapa de calor</h4><p class="em-sub">Los clics sobre cada foto, título y botón.</p><iframe id="em-mapa" class="em-iframe em-pc" title="Mapa de calor del mail" sandbox="allow-same-origin"></iframe></section>
         <div><section class="em-caja"><h4>Links</h4>${r.links.length ? `<table class="em-tabla"><thead><tr><th>Link</th><th>Personas</th><th>Clics</th></tr></thead><tbody>${[...r.links].sort((a, b) => b.clicks - a.clicks).map((l) => `<tr><td><b>${emE(l.etiqueta || 'Link')}</b><small>${emE(l.url.replace(/[?&]utm_[^&]*/g, '').replace(/^https?:\/\//, '').slice(0, 60))}</small></td><td>${emNum(l.personas)}</td><td>${emNum(l.clicks)}</td></tr>`).join('')}</tbody></table>` : '<p class="em-sub">Sin links todavía.</p>'}</section>
         <section class="em-caja"><h4>Primeras 72 horas</h4>${r.horas.length ? `<div class="em-horas" role="img" aria-label="Aperturas y clics por hora">${r.horas.map((h) => `<i title="${emFecha(h.hora)}: ${h.aperturas} aperturas, ${h.clicks} clics" style="height:${Math.max(4, Math.round(((h.aperturas + h.clicks) / maxH) * 100))}%"></i>`).join('')}</div>` : '<p class="em-sub">Todavía nadie lo abrió.</p>'}</section>
-        <section class="em-caja"><h4>Quién</h4><div class="em-filtros">${[['todos', 'Todos'], ['tocaron', 'Tocaron'], ['abrieron', 'Abrieron'], ['no_abrieron', 'No abrieron'], ['rebotes', 'Rebotes'], ['bajas', 'Bajas']].map(([k, n]) => `<button class="btn-ghost btn-sm" onclick="emQuien(${id}, '${k}', 1)">${n}</button>`).join('')}</div><div id="em-quien"></div></section></div>
+        <section class="em-caja"><h4>Quién</h4><div class="em-filtros">${[['todos', 'Todos'], ['tocaron', 'Tocaron'], ['abrieron', 'Abrieron'], ['no_abrieron', 'No abrieron'], ['rebotes', 'Rebotes'], ['bajas', 'Bajas'], ...(r.antivirus ? [['antivirus', `Antivirus (${r.antivirus})`]] : [])].map(([k, n]) => `<button class="btn-ghost btn-sm" onclick="emQuien(${id}, '${k}', 1)">${n}</button>`).join('')}</div><div id="em-quien"></div></section></div>
       </div>`;
     emQuien(id, 'todos', 1);
     const m = await api(`/api/email/campanias/${id}/mapa`);
@@ -741,7 +741,7 @@ function emTocados(links, robot) {
   if (!links || !links.length) return '';
   const lista = links.map((l) => `<span title="${emE(l.url ? l.url.replace(/[?&]utm_[^&]*/g, '') : '')}">${emE(l.etiqueta)}${l.veces > 1 ? ` (${l.veces})` : ''}</span>`).join(' · ');
   return robot
-    ? `<small class="em-robot">Probablemente el antivirus de su empresa: abrió varios links en el mismo segundo. ${lista}</small>`
+    ? `<small class="em-robot">Antivirus de su empresa: abrió varios links en el mismo segundo. No cuenta en los totales. ${lista}</small>`
     : `<small class="em-tocados">Tocó: ${lista}</small>`;
 }
 
