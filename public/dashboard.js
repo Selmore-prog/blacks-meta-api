@@ -7131,7 +7131,7 @@ function renderFlash() {
 
     <div class="field flash-pagina">
       <label class="check"><input type="checkbox" id="flash-pagina" ${cfg.pagina ? 'checked' : ''} />
-        Crear una página con todos los productos de la oferta ${tip('Es una categoría de Tiendanube, oculta del menú, con los productos de la oferta y su precio tachado. El botón "Ver todas" de la sección lleva ahí, salvo que escribas otro link arriba. Al terminar la oferta queda vacía.')}</label>
+        Crear una página con todos los productos de la oferta ${tip('Es una categoría de Tiendanube con los productos de la oferta y su precio tachado. No se suma al menú de la tienda, pero sí aparece en la lista de categorías de /productos/. El botón "Ver todas" de la sección lleva ahí, salvo que escribas otro link arriba. Al terminar la oferta queda vacía y oculta.')}</label>
       <input class="input" id="flash-pagina-nombre" maxlength="60" value="${esc(cfg.pagina_nombre || '')}" placeholder="Nombre de la página (vacío = el título de la oferta)" />
       ${flashPaginaEstado(cfg)}
     </div>

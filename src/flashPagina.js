@@ -12,12 +12,17 @@
  * del sitio. El motor sólo decide qué productos van.
  *
  * CÓMO
- *  · La categoría se crea OCULTA del menú (la dirección funciona igual): no
- *    aparece sola en la navegación de la tienda.
+ *  · La categoría va VISIBLE mientras dura la oferta: oculta, Tiendanube
+ *    contesta "no encontrada" en su dirección (probado el 26-nov; con el modo
+ *    "oculta del menú" del administrador pasa lo mismo, y la API no deja
+ *    ponerlo). El menú de la tienda es propio y no la suma; sí aparece como
+ *    una categoría más en la lista de /productos/. Al terminar se oculta.
+ *  · Cada cambio a la categoría manda el NOMBRE: un PUT sin nombre lo deja
+ *    vacío (pasó el 26-nov al cambiarle la dirección).
  *  · Se reusa la misma mientras siga existiendo (queda anotada en la oferta).
  *  · sincronizar(): los productos de la oferta adentro y nada más.
- *  · vaciar(): saca todos (al terminar la oferta). La categoría queda, vacía y
- *    oculta, para la próxima.
+ *  · vaciar(): saca todos y la oculta (al terminar la oferta). Queda para la
+ *    próxima.
  *  · A un producto se le SUMA o SACA esta categoría y se le dejan las suyas.
  * ========================================================================= */
 
@@ -36,32 +41,40 @@ function nombreDe(cfg) {
 const handleDe = (c) => (c && c.handle && (c.handle.es || Object.values(c.handle)[0])) || null;
 const idsDe = (p) => (Array.isArray(p.categories) ? p.categories.map((c) => Number(c.id || c)) : []);
 
+const nombreCat = (c, respaldo) => (c && c.name && String(c.name.es || '').trim()) || respaldo;
+const cambiarCategoria = (id, nombre, cambios) => tnRequest('PUT', `/categories/${id}`, { name: { es: nombre }, ...cambios });
+
 async function asegurar(cfg) {
   const info = cfg.pagina_info || {};
+  const nombre = nombreDe(cfg);
+  let c = null;
   if (info.category_id) {
     try {
-      const c = await tnRequest('GET', `/categories/${info.category_id}`);
-      if (c && c.id) return { category_id: Number(c.id), handle: handleDe(c), nombre: (c.name && c.name.es) || nombreDe(cfg) };
+      c = await tnRequest('GET', `/categories/${info.category_id}`);
     } catch (err) {
       if (err.status !== 404) throw err;
     }
   }
-  const nombre = nombreDe(cfg);
-  const todas = await tnRequest('GET', `/categories?per_page=${POR_PAGINA}&fields=id,name,handle,parent`) || [];
-  const igual = todas.find((c) => !Number(c.parent) && String((c.name && c.name.es) || '').trim().toLowerCase() === nombre.toLowerCase());
-  let c = igual || await tnRequest('POST', '/categories', { name: { es: nombre }, visibility: 'hidden' });
-  if (!igual && c.visibility && c.visibility !== 'hidden') {
-    await tnRequest('PUT', `/categories/${c.id}`, { visibility: 'hidden' }).catch(() => {});
+  let nueva = false;
+  if (!c || !c.id) {
+    const todas = await tnRequest('GET', `/categories?per_page=${POR_PAGINA}&fields=id,name,handle,parent,visibility`) || [];
+    c = todas.find((x) => !Number(x.parent) && String((x.name && x.name.es) || '').trim().toLowerCase() === nombre.toLowerCase()) || null;
+    if (!c) { c = await tnRequest('POST', '/categories', { name: { es: nombre }, visibility: 'visible' }); nueva = true; }
   }
-  // Tiendanube le agrega un sufijo al azar a la dirección (black-friday-2icfq,
-  // visto el 26-nov) aunque la limpia esté libre: se le pide la limpia y, si no
-  // se puede, queda la que dio.
-  const limpia = nombre.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
-  if (!igual && limpia && handleDe(c) !== limpia) {
-    const otra = await tnRequest('PUT', `/categories/${c.id}`, { handle: { es: limpia } }).catch(() => null);
-    if (otra && handleDe(otra) === limpia) c = otra;
+  const suNombre = nombreCat(c, info.nombre || nombre);
+  // Tiendanube le agrega un sufijo al azar a la dirección de una categoría nueva
+  // (black-friday-2icfq, visto el 26-nov) aunque la limpia esté libre: se le
+  // pide la limpia y, si no se puede, queda la que dio.
+  const limpia = suNombre.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  const arreglos = {};
+  if (c.visibility !== 'visible') arreglos.visibility = 'visible';
+  if (nueva && limpia && handleDe(c) !== limpia) arreglos.handle = { es: limpia };
+  if (!nombreCat(c, '')) arreglos.name = { es: suNombre };
+  if (Object.keys(arreglos).length) {
+    const otra = await cambiarCategoria(c.id, suNombre, arreglos).catch(() => null);
+    if (otra && otra.id) c = otra;
   }
-  return { category_id: Number(c.id), handle: handleDe(c), nombre: (c.name && c.name.es) || nombre };
+  return { category_id: Number(c.id), handle: handleDe(c), nombre: nombreCat(c, suNombre) };
 }
 
 /** Productos que hoy están en la categoría. Tiendanube contesta 404 cuando no hay ninguno. */
@@ -126,6 +139,9 @@ async function vaciar(info) {
       sacados += 1;
     } catch (err) { errores.push(`Sacar ${p.id}: ${err.message}`); }
   }
+  // Vacía no tiene que quedar en la lista de categorías de /productos/.
+  try { await cambiarCategoria(info.category_id, info.nombre || 'Ofertas', { visibility: 'hidden' }); }
+  catch (err) { if (err.status !== 404) errores.push(`Ocultar la página: ${err.message}`); }
   return { sacados, errores };
 }
 

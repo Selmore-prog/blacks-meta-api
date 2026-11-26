@@ -53,12 +53,19 @@ async function tnRequest(method, ruta, body) {
   if (method === 'GET' && camino === '/categories') return [...categorias.values()];
   if (method === 'POST' && camino === '/categories') {
     const id = siguienteCat++;
-    const c = { id, parent: 0, name: body.name, handle: { es: body.name.es.toLowerCase().replace(/\s+/g, '-') }, visibility: body.visibility || 'visible' };
+    // Tiendanube le pone un sufijo al azar a la dirección.
+    const c = { id, parent: 0, name: body.name, handle: { es: body.name.es.toLowerCase().replace(/\s+/g, '-') + '-x7k2' }, visibility: body.visibility || 'visible' };
     categorias.set(id, c);
     return c;
   }
   let m = camino.match(/^\/categories\/(\d+)$/);
   if (m && method === 'GET') return categorias.get(Number(m[1])) || no();
+  if (m && method === 'PUT') {
+    const c = categorias.get(Number(m[1])) || no();
+    // Como Tiendanube: lo que no se manda de los textos queda vacío.
+    Object.assign(c, { name: body.name || { es: '' } }, body.handle ? { handle: body.handle } : {}, body.visibility ? { visibility: body.visibility } : {});
+    return c;
+  }
   if (method === 'GET' && camino === '/products') {
     const cat = Number(q.get('category_id'));
     const lista = [...categoriasDe].filter(([, cs]) => cs.includes(cat)).map(([id, cs]) => ({ id, categories: cs.map((c) => ({ id: c })) }));
@@ -91,13 +98,14 @@ test('el nombre de la página sale del título, sin gritar', () => {
   assert.strictEqual(nombreDe({ title: 'BLACK FRIDAY', pagina_nombre: 'Black Friday 2026' }), 'Black Friday 2026');
 });
 
-test('al activar arma la página oculta con los productos y el botón "Ver todas"', async () => {
+test('al activar arma la página visible, con dirección limpia, los productos y el botón "Ver todas"', async () => {
   await flash.saveConfig(BLACK);
   await flash.activate();
   const cfg = await flash.getConfig();
   const cat = categorias.get(cfg.pagina_info.category_id);
   assert.strictEqual(cat.name.es, 'Black Friday');
-  assert.strictEqual(cat.visibility, 'hidden');
+  assert.strictEqual(cat.visibility, 'visible', 'oculta, Tiendanube contesta "no encontrada"');
+  assert.strictEqual(cat.handle.es, 'black-friday', 'sin el sufijo al azar');
   assert.deepStrictEqual(categoriasDe.get(1), [5, 7, cat.id], 'se suma la categoría y quedan las suyas');
   assert.deepStrictEqual(categoriasDe.get(2), [5, cat.id]);
   assert.deepStrictEqual(categoriasDe.get(3), [5], 'lo que no está en la oferta no se toca');
@@ -134,13 +142,18 @@ test('al terminar devuelve TODOS los precios (también los sumados) y vacía la 
   const cat = cfg.pagina_info.category_id;
   for (const id of [1, 2, 3, 4]) assert.ok(!categoriasDe.get(id).includes(cat), `producto ${id} fuera de la página`);
   assert.deepStrictEqual(categoriasDe.get(1), [5, 7]);
+  assert.strictEqual(categorias.get(cat).visibility, 'hidden', 'vacía se oculta');
+  assert.strictEqual(categorias.get(cat).name.es, 'Black Friday', 'el nombre no se pierde');
   await assert.rejects(flash.addItems({ items: [{ id: 3 }] }), /no está prendida/);
 });
 
-test('un link escrito a mano no se pisa', async () => {
+test('un link escrito a mano no se pisa, y la página oculta vuelve a mostrarse', async () => {
   await flash.saveConfig({ ...BLACK, url: '/ofertas-especiales/' });
   await flash.activate();
-  assert.strictEqual((await flash.getConfig()).url, '/ofertas-especiales/');
+  const c = await flash.getConfig();
+  assert.strictEqual(c.url, '/ofertas-especiales/');
+  assert.strictEqual(categorias.get(c.pagina_info.category_id).visibility, 'visible');
+  assert.strictEqual(categorias.size, 1, 'reusa la misma categoría');
   await flash.end();
   assert.strictEqual((await flash.getConfig()).url, '/ofertas-especiales/');
 });
