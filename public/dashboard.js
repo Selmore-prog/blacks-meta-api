@@ -138,6 +138,50 @@ function showInfoModal(title, bodyHtml) {
 
 function esc(s) { const d = document.createElement('div'); d.textContent = s == null ? '' : String(s); return d.innerHTML; }
 
+/* ORDENAR ARRASTRANDO (26-nov-2026): lo usan las listas de productos elegidos a
+   mano (ofertas flash, bloques del home, mails). En la compu se arrastra la
+   pastilla; en el celular el arrastre no anda y quedan las flechas ↑ ↓ que trae
+   cada una. Desde un campo de texto o un botón no se arrastra (si no, no se
+   podía escribir el % ni tocar la ✕). alSoltar(desde, hasta) recibe posiciones. */
+function activarArrastre(cont, selector, alSoltar) {
+  if (!cont) return;
+  let desde = null;
+  cont.querySelectorAll(selector).forEach((el, k) => {
+    el.classList.add('arr-item');
+    el.addEventListener('mousedown', (e) => { el.draggable = !e.target.closest('input, textarea, select, button, a'); });
+    el.addEventListener('dragstart', (e) => {
+      desde = k;
+      el.classList.add('arr-arrastrando');
+      if (e.dataTransfer) { e.dataTransfer.effectAllowed = 'move'; try { e.dataTransfer.setData('text/plain', String(k)); } catch (_) { /* Safari viejo */ } }
+    });
+    el.addEventListener('dragend', () => {
+      el.classList.remove('arr-arrastrando');
+      el.draggable = false;
+      cont.querySelectorAll('.arr-sobre').forEach((x) => x.classList.remove('arr-sobre'));
+    });
+    el.addEventListener('dragover', (e) => { if (desde === null) return; e.preventDefault(); el.classList.add('arr-sobre'); });
+    el.addEventListener('dragleave', () => el.classList.remove('arr-sobre'));
+    el.addEventListener('drop', (e) => {
+      e.preventDefault();
+      el.classList.remove('arr-sobre');
+      const d = desde;
+      desde = null;
+      if (d !== null && d !== k) alSoltar(d, k);
+    });
+  });
+}
+/** Mueve un elemento de una lista de una posición a otra (en el lugar). */
+function moverEnLista(lista, desde, hasta) {
+  if (!Array.isArray(lista) || desde < 0 || hasta < 0 || desde >= lista.length || hasta >= lista.length) return lista;
+  lista.splice(hasta, 0, lista.splice(desde, 1)[0]);
+  return lista;
+}
+/** Flechas ↑ ↓ de una pastilla. onclick recibe el destino. */
+function flechasOrden(k, n, fn) {
+  if (n < 2) return '';
+  return `<span class="arr-flechas"><button type="button" title="Subir" ${k === 0 ? 'disabled' : ''} onclick="${fn}(${k}, ${k - 1})">↑</button><button type="button" title="Bajar" ${k === n - 1 ? 'disabled' : ''} onclick="${fn}(${k}, ${k + 1})">↓</button></span>`;
+}
+
 function formatDate(ymd) {
   const [y, m, d] = String(ymd).slice(0, 10).split('-').map(Number);
   const date = new Date(y, m - 1, d);
@@ -7154,7 +7198,7 @@ function renderFlash() {
       </div>
       ${active ? '<div class="flash-chosen flash-nuevos" id="flash-nuevos"></div>' : ''}
       <div class="flash-chosen" id="flash-chosen"></div>
-      ${!active && flashState.chosen.length > 1 ? '<p class="flash-order-hint">Se muestran en este orden en el home.</p>' : ''}
+      ${flashState.chosen.length > 1 ? '<p class="flash-order-hint">Se muestran en este orden en el home: arrastralos o usá las flechas para cambiarlo.</p>' : ''}
     </div>
 
     <div class="flash-actions">
@@ -7254,7 +7298,8 @@ function renderFlashChosen() {
   wrap.innerHTML = flashState.chosen.map((it, i) => {
     const final = flashFinal(it);
     const pctVal = it.pct ? it.pct : '';
-    return `<div class="flash-chip ${active ? 'dim' : ''}">
+    return `<div class="flash-chip">
+      <span class="arr-asa" title="Arrastrá para cambiar el orden">⋮⋮</span>
       ${it.image ? `<img src="${esc(it.image)}" alt="">` : ''}
       <div class="fc-info">
         <div class="fc-name">${esc(it.name || ('#' + it.id))}</div>
@@ -7265,9 +7310,11 @@ function renderFlashChosen() {
                placeholder="${flashDefaultPct()}" ${active ? 'disabled' : ''} title="% para este producto (vacío = usa el general)" />
         <span>%</span>
       </div>
+      ${flechasOrden(i, flashState.chosen.length, 'flashMoverChosen')}
       ${active ? '' : `<button class="fc-remove" onclick="flashRemove(${i})" title="Quitar">&times;</button>`}
     </div>`;
-  }).join('');
+  }).join('') + (active && flashState.ordenCambiado ? '<p class="flash-order-hint" style="color:var(--orange);">Cambiaste el orden: tocá <b>Guardar cambios</b> para que se vea así en la tienda.</p>' : '');
+  activarArrastre(wrap, '.flash-chip', flashMoverChosen);
 
   wrap.querySelectorAll('[data-flash-pct]').forEach((el) => {
     el.addEventListener('input', () => {
@@ -7367,6 +7414,14 @@ function flashAdd(prod) {
   renderFlashChosen();
 }
 
+/* Cambiar el orden. Con la oferta prendida no toca precios: al guardar, el
+   motor sólo reordena (src/flashSale.js, saveConfig). */
+function flashMoverChosen(desde, hasta) {
+  moverEnLista(flashState.chosen, desde, hasta);
+  if (flashState.cfg && flashState.cfg.active) flashState.ordenCambiado = true;
+  renderFlashChosen();
+}
+
 function flashRemove(i) {
   flashState.chosen.splice(i, 1);
   renderFlashChosen();
@@ -7392,6 +7447,7 @@ async function flashSave(silent) {
   try {
     await api('/api/flash', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(flashPayload()) });
     toast(silent ? 'Cambios guardados.' : 'Borrador guardado.', 'ok');
+    flashState.ordenCambiado = false;
     await loadFlash();
   } catch (err) { toast(err.message, 'warn'); }
 }

@@ -243,7 +243,16 @@ async function saveConfig(input) {
     // Con la oferta activa sólo cambian cosas de PRESENTACIÓN (no la base ni el %,
     // que ya están escritos en Tiendanube con su libreta de restauración).
     // Prender o apagar la página sí se hace en el acto.
-    let next = { ...current, title, subtitle, url, ends_at, accent: accentActive, estilo, badge, despues, pagina, pagina_nombre };
+    // El ORDEN sí se puede cambiar (26-nov-2026): mismos productos, otra
+    // posición. No toca ningún precio. Si la lista no es la misma, se ignora.
+    let items = current.items;
+    if (Array.isArray(input.items)) {
+      const pedidos = input.items.map((it) => Number(it && (it.id !== undefined ? it.id : it)));
+      const actuales = (current.items || []).map((i) => Number(i.id));
+      const mismos = pedidos.length === actuales.length && new Set(pedidos).size === pedidos.length && pedidos.every((id) => actuales.includes(id));
+      if (mismos) items = pedidos.map((id) => current.items.find((i) => Number(i.id) === id));
+    }
+    let next = { ...current, title, subtitle, url, ends_at, accent: accentActive, estilo, badge, despues, pagina, pagina_nombre, items };
     await putConfig(next);
     if (pagina || current.pagina) next = await acomodarPagina(next);
     return next;

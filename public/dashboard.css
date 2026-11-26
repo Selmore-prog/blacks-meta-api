@@ -3245,3 +3245,17 @@ button .cost-tag { margin-left: 8px; }
   .pv-precio { margin-left: 56px; min-width: 0; max-width: calc(100% - 56px); }
   .pv-precio .input { width: auto; flex: 0 1 150px; min-width: 0; }
 }
+
+/* Ordenar arrastrando (activarArrastre en dashboard.js) */
+.arr-item { cursor: grab; }
+.arr-item input, .arr-item button, .arr-item textarea, .arr-item select { cursor: auto; }
+.arr-item button { cursor: pointer; }
+.arr-arrastrando { opacity: .4; }
+.arr-sobre { outline: 2px dashed var(--orange); outline-offset: 2px; }
+.arr-asa { color: var(--muted); font-size: 12px; letter-spacing: -2px; user-select: none; flex: none; padding: 0 2px; }
+.arr-flechas { display: inline-flex; gap: 2px; flex: none; }
+.arr-flechas button { background: none; border: 1px solid var(--line); color: var(--muted); border-radius: 6px; min-width: 24px; height: 24px; padding: 0 4px; font-size: 12px; line-height: 1; cursor: pointer; }
+.arr-flechas button:hover:not(:disabled) { color: var(--orange); border-color: var(--orange); }
+.arr-flechas button:disabled { opacity: .3; cursor: default; }
+/* En el mail `.em-chip span` estira todo span: la manija y las flechas no. */
+.em-chip .arr-asa, .em-chip .arr-flechas { flex: none; }

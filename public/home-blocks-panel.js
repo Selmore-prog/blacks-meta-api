@@ -214,6 +214,9 @@ function hbRenderEditor() {
     </div>`;
   }).join('');
   hydrateIcons();
+  box.querySelectorAll('[data-orden-ruta]').forEach((cont) => {
+    activarArrastre(cont, '.hb-prod-chip', (desde, hasta) => hbMoverProducto(cont.dataset.ordenRuta, desde, hasta));
+  });
 }
 
 /** Los campos generales que tiene TODO bloque, sea del tipo que sea. */
@@ -650,16 +653,19 @@ function hbCampoProductos(campo, ids, ruta, lab, help) {
   const chips = ids.map((id, k) => {
     const p = elegidos[id];
     return `<span class="hb-prod-chip">
+      ${ids.length > 1 ? '<span class="arr-asa" title="Arrastrá para cambiar el orden">⋮⋮</span>' : ''}
       ${p && p.image ? `<img src="${hbAttr(p.image)}" alt="">` : ''}
       <span>${esc(p ? p.name : 'Producto #' + id)}</span>
       ${p && p.stock === 0 ? '<b class="hb-sin">sin stock</b>' : ''}
+      ${ids.length > 1 ? `<span class="arr-flechas"><button type="button" title="Antes" ${k === 0 ? 'disabled' : ''} onclick="hbMoverProducto('${ruta}', ${k}, ${k - 1})">←</button><button type="button" title="Después" ${k === ids.length - 1 ? 'disabled' : ''} onclick="hbMoverProducto('${ruta}', ${k}, ${k + 1})">→</button></span>` : ''}
       <button onclick="hbQuitarProducto('${ruta}', ${k})" title="Sacar">✕</button>
     </span>`;
   }).join('');
 
   const lista = (hbState.buscando && hbState.buscando.ruta === ruta && hbState.buscando.resultados) || [];
   return `<div class="hb-f">${lab}
-    <div class="hb-prods-elegidos">${chips || '<span class="hb-f-help">Todavía no elegiste ninguno.</span>'}</div>
+    <div class="hb-prods-elegidos" data-orden-ruta="${hbAttr(ruta)}">${chips || '<span class="hb-f-help">Todavía no elegiste ninguno.</span>'}</div>
+    ${ids.length > 1 ? '<span class="hb-f-help">Se ven en este orden: arrastralos o usá las flechas.</span>' : ''}
     ${ids.length < (campo.max || 6) ? `
       <input type="search" class="hb-buscar" data-ruta="${hbAttr(ruta)}" placeholder="Buscar en el catálogo…" value="${hbAttr((hbState.buscando && hbState.buscando.ruta === ruta && hbState.buscando.q) || '')}"
              oninput="hbBuscarProductos('${ruta}', this.value)">
@@ -824,6 +830,15 @@ function hbAgregarProducto(ruta, id) {
   if (!ids.includes(id)) ids.push(id);
   hbSet(ruta, ids);
   hbState.buscando = { ...(hbState.buscando || {}), q: '', resultados: [] };
+  hbRenderEditor();
+}
+
+/* Cambiar el orden de los productos elegidos: la tienda los dibuja en este
+   orden (homeBlocksRender respeta product_ids). Se ve en la vista previa. */
+function hbMoverProducto(ruta, desde, hasta) {
+  const ids = (hbGet(ruta) || []).slice();
+  moverEnLista(ids, desde, hasta);
+  hbSet(ruta, ids); // marca el cambio y pide la vista previa
   hbRenderEditor();
 }
 

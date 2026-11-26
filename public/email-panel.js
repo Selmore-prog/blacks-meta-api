@@ -340,7 +340,19 @@ function emInput(i, k, etiqueta, { area = false, tipo = 'text', pista = '' } = {
 
 function emProdChip(i, id) {
   const p = emState.c.mapaProductos.get(Number(id));
-  return `<span class="em-chip">${p && p.image_url ? `<img src="${emE(p.image_url)}" alt="">` : ''}<span>${emE(p ? p.name : `Producto ${id}`)}<small>${p ? emPlata(p.promo_price || p.price) : 'no publicado'}</small></span><button aria-label="Sacar" onclick="emQuitarProd(${i}, ${Number(id)})">×</button></span>`;
+  const b = emState.c.bloques[i];
+  const lista = b.tipo === 'productos' ? (b.ids || []) : [];
+  const k = lista.findIndex((x) => Number(x) === Number(id));
+  const orden = lista.length > 1
+    ? `<span class="arr-flechas"><button type="button" aria-label="Subir" ${k === 0 ? 'disabled' : ''} onclick="emMoverProd(${i}, ${k}, ${k - 1})">↑</button><button type="button" aria-label="Bajar" ${k === lista.length - 1 ? 'disabled' : ''} onclick="emMoverProd(${i}, ${k}, ${k + 1})">↓</button></span>` : '';
+  return `<span class="em-chip">${lista.length > 1 ? '<span class="arr-asa" title="Arrastrá para cambiar el orden">⋮⋮</span>' : ''}${p && p.image_url ? `<img src="${emE(p.image_url)}" alt="">` : ''}<span>${emE(p ? p.name : `Producto ${id}`)}<small>${p ? emPlata(p.promo_price || p.price) : 'no publicado'}</small></span>${orden}<button aria-label="Sacar" onclick="emQuitarProd(${i}, ${Number(id)})">×</button></span>`;
+}
+/* El mail muestra los productos en este orden (plantilla.js los recorre así). */
+function emMoverProd(i, desde, hasta) {
+  const b = emState.c.bloques[i];
+  if (!b || b.tipo !== 'productos') return;
+  moverEnLista(b.ids, desde, hasta);
+  emState.abierto = i; emPintarBloques(); emTocado();
 }
 
 const EM_CAMPOS = {
@@ -350,7 +362,7 @@ const EM_CAMPOS = {
   imagen: (i, b) => emInput(i, 'src', 'Dirección de la foto (https://…)', { tipo: 'url' }) + emInput(i, 'alt', 'Qué se ve (para quien no carga fotos)') + emInput(i, 'url', 'Al tocarla va a', { tipo: 'url' })
     + `<label class="em-check"><input type="checkbox" ${b.aSangre ? 'checked' : ''} onchange="emBloque(${i}, 'aSangre', this.checked)"> <span>De borde a borde</span></label>`,
   estrella: (i, b) => `${b.id ? `<div class="em-chips">${emProdChip(i, b.id)}</div>` : ''}${emBuscador(i)}` + emInput(i, 'nombre', 'Nombre (vacío = el de la tienda)') + emInput(i, 'detalle', 'Detalle', { area: true }) + emInput(i, 'src', 'Otra foto (vacío = la de la tienda)', { tipo: 'url' }) + emInput(i, 'boton', 'Botón'),
-  productos: (i, b) => emInput(i, 'titulo', 'Título') + `<div class="em-chips">${(b.ids || []).map((x) => emProdChip(i, x)).join('')}</div>${emBuscador(i)}<div class="em-dos"><label class="em-campo"><span>Por fila</span><select class="input" onchange="emBloque(${i}, 'columnas', Number(this.value))">${[1, 2, 3].map((n) => `<option ${Number(b.columnas) === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>${emInput(i, 'boton', 'Botón')}</div>`,
+  productos: (i, b) => emInput(i, 'titulo', 'Título') + `<div class="em-chips" data-orden-bloque="${i}">${(b.ids || []).map((x) => emProdChip(i, x)).join('')}</div>${emBuscador(i)}<div class="em-dos"><label class="em-campo"><span>Por fila</span><select class="input" onchange="emBloque(${i}, 'columnas', Number(this.value))">${[1, 2, 3].map((n) => `<option ${Number(b.columnas) === n ? 'selected' : ''}>${n}</option>`).join('')}</select></label>${emInput(i, 'boton', 'Botón')}</div>`,
   boton: (i) => emInput(i, 'texto', 'Texto del botón') + emInput(i, 'url', 'Va a', { tipo: 'url' }),
   foto_texto: (i, b) => `${b.id ? `<div class="em-chips">${emProdChip(i, b.id)}</div>` : ''}${emBuscador(i)}` + emInput(i, 'src', 'Otra foto (vacío = la del producto)', { tipo: 'url' }) + emInput(i, 'titulo', 'Título') + emInput(i, 'texto', 'Texto', { area: true })
     + `<div class="em-dos">${emInput(i, 'boton', 'Botón (vacío = sin botón)')}<label class="em-campo"><span>La foto va a la</span><select class="input" onchange="emBloque(${i}, 'lado', this.value)"><option value="izquierda">Izquierda</option><option value="derecha" ${b.lado === 'derecha' ? 'selected' : ''}>Derecha</option></select></label></div>` + emInput(i, 'url', 'Va a (vacío = el producto)', { tipo: 'url' }),
@@ -379,6 +391,10 @@ function emPintarBloques() {
     <summary><b>${EM_BLOQUES[b.tipo] || b.tipo}</b><small>${emE(emResumen(b))}</small>
       <span class="em-mover"><button aria-label="Subir" ${i === 0 ? 'disabled' : ''} onclick="emMover(event, ${i}, -1)">↑</button><button aria-label="Bajar" ${i === emState.c.bloques.length - 1 ? 'disabled' : ''} onclick="emMover(event, ${i}, 1)">↓</button><button aria-label="Sacar" onclick="emSacar(event, ${i})">×</button></span></summary>
     <div class="em-bloque-c">${EM_CAMPOS[b.tipo] ? EM_CAMPOS[b.tipo](i, b) : ''}</div></details>`).join('');
+  cont.querySelectorAll('[data-orden-bloque]').forEach((c) => {
+    const i = Number(c.dataset.ordenBloque);
+    activarArrastre(c, '.em-chip', (desde, hasta) => emMoverProd(i, desde, hasta));
+  });
 }
 
 function emResumen(b) {
@@ -432,7 +448,7 @@ function emQuitarProd(i, id) {
   if (b.tipo !== 'productos') b.id = null; else b.ids = b.ids.filter((x) => Number(x) !== id);
   emPintarBloques(); emTocado();
 }
-Object.assign(window, { emBuscar, emPonerProd, emQuitarProd });
+Object.assign(window, { emBuscar, emPonerProd, emQuitarProd, emMoverProd });
 
 /* ---------------------------------- IA ---------------------------------- */
 

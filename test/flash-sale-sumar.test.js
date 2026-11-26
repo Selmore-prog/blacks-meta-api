@@ -127,6 +127,20 @@ test('sumar con la oferta prendida escribe sólo los nuevos y los suma a la pág
   assert.ok(categoriasDe.get(3).includes(cat) && categoriasDe.get(4).includes(cat));
 });
 
+test('con la oferta prendida se puede cambiar el orden sin tocar precios', async () => {
+  const antes = escrituras;
+  const cfg = await flash.getConfig();
+  await flash.saveConfig({ ...cfg, items: [{ id: 3 }, { id: 1 }, { id: 4 }, { id: 2 }] });
+  const d = await flash.getConfig();
+  assert.deepStrictEqual(d.items.map((i) => i.id), [3, 1, 4, 2]);
+  assert.strictEqual(d.items.find((i) => i.id === 1).precio, 39999, 'cada uno conserva su precio o %');
+  assert.strictEqual(escrituras, antes, 'no se escribió ningún precio');
+  assert.strictEqual(d.active, true);
+  // Otra lista (falta uno o sobra uno) no se toma como orden.
+  await flash.saveConfig({ ...d, items: [{ id: 1 }, { id: 2 }] });
+  assert.deepStrictEqual((await flash.getConfig()).items.map((i) => i.id), [3, 1, 4, 2]);
+});
+
 test('no se suma lo que no baja el precio, ni sin la oferta prendida', async () => {
   const r = await flash.addItems({ items: [{ id: 99 }] }).catch((e) => e);
   assert.ok(r instanceof Error || r.sumados.length === 0);
