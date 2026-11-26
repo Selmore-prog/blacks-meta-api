@@ -7123,7 +7123,9 @@ async function loadFlash() {
     // La lista elegida se hidrata con el detalle que trae el backend.
     flashState.chosen = (cfg.items_detail || []).filter((x) => !x.missing).map((x) => ({
       id: x.id, name: x.name, image: x.image, price: x.price, promo_now: x.promo_now || null, stock: x.stock, pct: x.pct || null,
+      precio: x.precio || null, promo_antes: x.promo_antes || null,
     }));
+    flashState.editando = null;
     renderFlash();
   } catch (err) {
     box.innerHTML = `<div class="panel"><p class="hint">No pude cargar las ofertas flash: ${esc(err.message)}</p></div>`;
@@ -7314,13 +7316,14 @@ function renderFlashChosen() {
         <div class="fc-name">${esc(it.name || ('#' + it.id))}</div>
         <div class="fc-price">${flashPriceLineHtml(it)}</div>
       </div>
-      <div class="fc-pct">
+      ${active ? `<button class="btn-ghost btn-sm" onclick="flashEditar(${i})" title="Cambiar el % o el precio de este producto">Cambiar</button>` : `<div class="fc-pct">
         <input class="input" type="number" min="1" max="90" data-flash-pct="${i}" value="${pctVal}"
-               placeholder="${flashDefaultPct()}" ${active ? 'disabled' : ''} title="% para este producto (vacío = usa el general)" />
+               placeholder="${flashDefaultPct()}" title="% para este producto (vacío = usa el general)" />
         <span>%</span>
-      </div>
+      </div>`}
       ${flechasOrden(i, flashState.chosen.length, 'flashMoverChosen')}
       ${active ? '' : `<button class="fc-remove" onclick="flashRemove(${i})" title="Quitar">&times;</button>`}
+      ${active && flashState.editando === i ? flashEditorHtml(it, i) : ''}
     </div>`;
   }).join('') + (active && flashState.ordenCambiado ? '<p class="flash-order-hint" style="color:var(--orange);">Cambiaste el orden: tocá <b>Guardar cambios</b> para que se vea así en la tienda.</p>' : '');
   activarArrastre(wrap, '.flash-chip', flashMoverChosen);
@@ -7337,6 +7340,80 @@ function renderFlashChosen() {
     });
   });
 }
+
+/* CAMBIAR UN PRODUCTO CON LA OFERTA PRENDIDA. El % va sobre lo que mostraba
+   ANTES de la oferta (promo_antes), igual que en el motor (flashSale.editItem). */
+function flashBaseAntes(it) {
+  const price = Number(it.price) || 0;
+  if ((flashState.cfg || {}).discount_base === 'regular') return price;
+  const a = Number(it.promo_antes);
+  return Number.isFinite(a) && a > 0 && a < price ? a : price;
+}
+function flashPrecioConPct(it, pct) {
+  const x = flashBaseAntes(it) * (1 - pct / 100);
+  return x < 1000 ? Math.floor(x) : Math.floor((x + 1) / 100) * 100 - 1;
+}
+function flashEditorHtml(it, i) {
+  const base = flashBaseAntes(it);
+  const antes = base < Number(it.price) ? `Antes de la oferta: ${flashMoney(base)} (lista ${flashMoney(it.price)})` : `Antes de la oferta: ${flashMoney(base)}`;
+  return `<div class="fc-edit">
+    <label>Descuento <input class="input" type="number" min="1" max="90" id="fe-pct" placeholder="%"> %</label>
+    <span class="hint">o</span>
+    <label>Precio <span>$</span><input class="input" type="number" min="100" step="1" id="fe-precio" placeholder="${Number(it.promo_now) || ''}"></label>
+    <button class="btn-primary btn-sm" id="fe-aplicar" onclick="flashAplicarEdit(${i})">Aplicar</button>
+    <button class="btn-ghost btn-sm" onclick="flashEditar(null)">Cancelar</button>
+    <p class="hint" id="fe-cuenta">${esc(antes)}. El % se calcula sobre ese precio.</p>
+  </div>`;
+}
+function flashEditar(i) {
+  flashState.editando = i;
+  renderFlashChosen();
+  if (i === null) return;
+  const it = flashState.chosen[i];
+  const pct = document.getElementById('fe-pct');
+  const precio = document.getElementById('fe-precio');
+  const cuenta = document.getElementById('fe-cuenta');
+  const mostrar = (final) => {
+    const real = Number(it.price) > 0 ? Math.round((1 - final / Number(it.price)) * 100) : 0;
+    cuenta.innerHTML = `Queda en <b>${flashMoney(final)}</b> (-${real}% sobre la lista de ${flashMoney(it.price)}). Hoy está a ${flashMoney(it.promo_now)}.`;
+  };
+  pct.addEventListener('input', () => {
+    const v = Number(pct.value);
+    precio.value = '';
+    if (Number.isFinite(v) && v >= 1 && v <= 90) mostrar(flashPrecioConPct(it, v));
+  });
+  precio.addEventListener('input', () => {
+    const v = Number(precio.value);
+    pct.value = '';
+    if (Number.isFinite(v) && v >= 100) mostrar(v);
+  });
+  pct.focus();
+}
+async function flashAplicarEdit(i) {
+  const it = flashState.chosen[i];
+  const pct = Number(document.getElementById('fe-pct').value);
+  const precio = Number(document.getElementById('fe-precio').value);
+  let body; let final;
+  if (Number.isFinite(precio) && precio >= 100) { body = { id: it.id, precio: Math.round(precio) }; final = Math.round(precio); }
+  else if (Number.isFinite(pct) && pct >= 1 && pct <= 90) { body = { id: it.id, pct: Math.round(pct) }; final = flashPrecioConPct(it, Math.round(pct)); }
+  else { toast('Poné un % (de 1 a 90) o un precio.', 'warn'); return; }
+  if (!(final < Number(it.price))) { toast(`El precio tiene que ser menor que ${flashMoney(it.price)}.`, 'warn'); return; }
+  if (!confirm(`Vas a cambiar el precio de oferta REAL en Tiendanube:\n\n${it.name}: ${flashMoney(it.promo_now)} → ${flashMoney(final)} (lista ${flashMoney(it.price)})\n\nAl terminar la oferta vuelve al precio de antes, como el resto. ¿Cambiar ahora?`)) return;
+  const btn = document.getElementById('fe-aplicar');
+  if (btn) { btn.disabled = true; btn.textContent = 'Escribiendo… no cierres esta pestaña'; }
+  try {
+    const r = await api('/api/flash/edit', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) });
+    if (r.errores && r.errores.length) { toast(`Cambiado con ${r.errores.length} aviso(s): ${r.errores[0]}`, 'warn'); console.warn('[flash] cambiar:', r.errores); }
+    else toast(`${r.name}: ahora ${flashMoney(r.precio)} (${r.variantes_escritas} talles).`, 'ok');
+    await loadFlash();
+    if (typeof previewHomeRails === 'function') previewHomeRails({ silent: true });
+  } catch (err) {
+    toast(err.message, 'warn');
+    if (btn) { btn.disabled = false; btn.textContent = 'Aplicar'; }
+  }
+}
+window.flashEditar = flashEditar;
+window.flashAplicarEdit = flashAplicarEdit;
 
 function bindFlashInputs() {
   const cfg = flashState.cfg;
@@ -7427,6 +7504,7 @@ function flashAdd(prod) {
    motor sólo reordena (src/flashSale.js, saveConfig). */
 function flashMoverChosen(desde, hasta) {
   moverEnLista(flashState.chosen, desde, hasta);
+  flashState.editando = null; // el editor abierto quedaría en otra fila
   if (flashState.cfg && flashState.cfg.active) flashState.ordenCambiado = true;
   renderFlashChosen();
 }

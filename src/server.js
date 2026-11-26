@@ -1671,6 +1671,11 @@ app.post('/api/flash/add', wrap(async (req, res) => {
   res.json(await flashSale.addItems(req.body || {}));
 }));
 
+// Cambia el precio o el % de UN producto con la oferta prendida (src/flashSale.js editItem).
+app.post('/api/flash/edit', wrap(async (req, res) => {
+  res.json(await flashSale.editItem(req.body || {}));
+}));
+
 // Restaura los precios anteriores y apaga la sección.
 app.post('/api/flash/end', wrap(async (req, res) => {
   res.json(await flashSale.end());

@@ -38,6 +38,7 @@ const pool = {
     }
     if (/DELETE FROM app_settings/.test(sql)) { settings.delete(params[0]); return { rows: [] }; }
     if (/FROM products_cache\s+WHERE id = ANY/.test(sql)) return { rows: params[0].map(Number).map((id) => cache.get(id)).filter(Boolean).map((p) => ({ ...p, raw: JSON.parse(JSON.stringify(p.raw)) })) };
+    if (/SELECT id, name, price, promo_price, raw FROM products_cache WHERE id = \$1/.test(sql)) { const p = cache.get(Number(params[0])); return { rows: p ? [{ ...p, raw: JSON.parse(JSON.stringify(p.raw)) }] : [] }; }
     if (/SELECT raw FROM products_cache/.test(sql)) return { rows: [{ raw: JSON.parse(JSON.stringify(cache.get(Number(params[0])).raw)) }] };
     if (/UPDATE products_cache SET raw/.test(sql)) { cache.get(Number(params[0])).raw = JSON.parse(params[1]); return { rows: [] }; }
     if (/UPDATE products_cache SET promo_price/.test(sql)) { cache.get(Number(params[0])).promo_price = params[1]; return { rows: [] }; }
@@ -145,6 +146,32 @@ test('no se suma lo que no baja el precio, ni sin la oferta prendida', async () 
   const r = await flash.addItems({ items: [{ id: 99 }] }).catch((e) => e);
   assert.ok(r instanceof Error || r.sumados.length === 0);
   await assert.rejects(flash.addItems({ items: [] }), /No hay productos nuevos/);
+});
+
+test('con la oferta prendida se corrige el % de un producto sobre su precio de ANTES', async () => {
+  // El 3 se sumó a $49.999; antes de la oferta mostraba $53.999.
+  const antes = escrituras;
+  const r = await flash.editItem({ id: 3, pct: 20 });
+  assert.strictEqual(escrituras - antes, 2, 'sus 2 variantes, nada más');
+  assert.strictEqual(tienda.get(31), '43199.00', '20% sobre $53.999 (no sobre los $49.999 de la oferta)');
+  assert.strictEqual(tienda.get(32), '43199.00');
+  assert.strictEqual(r.precio, 43199);
+  assert.strictEqual(tienda.get(11), '39999.00', 'el resto no se toca');
+  const cfg = await flash.getConfig();
+  assert.deepStrictEqual(cfg.items.find((i) => i.id === 3), { id: 3, pct: 20 });
+  assert.deepStrictEqual(cfg.items.map((i) => i.id), [3, 1, 4, 2], 'el orden queda igual');
+  const notas = cfg.applied.variants.filter((v) => v.product_id === 3);
+  assert.deepStrictEqual(notas.map((v) => v.prior_promo), [53999, 53999], 'la libreta sigue con el precio de antes');
+  // Dos veces seguidas: sigue calculando sobre el de antes.
+  await flash.editItem({ id: 3, precio: 45999 });
+  assert.strictEqual(tienda.get(31), '45999.00');
+  assert.strictEqual((await flash.getConfig()).applied.variants.filter((v) => v.product_id === 3).length, 2, 'sin duplicar la libreta');
+});
+
+test('al corregir: no se acepta un precio que no baja, ni un producto que no está', async () => {
+  await assert.rejects(flash.editItem({ id: 2, precio: 39999 }), /no es menor/);
+  await assert.rejects(flash.editItem({ id: 77, pct: 10 }), /no está en la oferta/);
+  await assert.rejects(flash.editItem({ id: 2 }), /precio o un %/);
 });
 
 test('al terminar devuelve TODOS los precios (también los sumados) y vacía la página', async () => {

@@ -104,10 +104,12 @@ async function getConfigDetailed() {
   const cfg = await getConfig();
   const chosen = await loadChosen(cfg.items.map((i) => i.id));
   const byId = new Map(chosen.map((r) => [Number(r.id), r]));
+  // Con la oferta prendida, lo que mostraba cada producto antes (para recalcular el % al editar).
+  const antesDe = new Map(((cfg.applied && cfg.applied.products) || []).map((p) => [Number(p.id), p.prior_promo_price]));
   const items_detail = cfg.items.map((i) => {
     const r = byId.get(Number(i.id));
     if (!r) return { id: Number(i.id), missing: true, pct: i.pct || null, precio: precioFijo(i.precio) };
-    return { id: Number(r.id), name: r.name, image: r.image_url, price: money(r.price), promo_now: money(r.promo_price), stock: r.stock === null ? null : Number(r.stock), pct: i.pct || null, precio: precioFijo(i.precio) };
+    return { id: Number(r.id), name: r.name, image: r.image_url, price: money(r.price), promo_now: money(r.promo_price), stock: r.stock === null ? null : Number(r.stock), pct: i.pct || null, precio: precioFijo(i.precio), promo_antes: cfg.active && antesDe.has(Number(r.id)) ? money(antesDe.get(Number(r.id))) : null };
   });
   return { ...cfg, items_detail };
 }
@@ -522,6 +524,83 @@ async function _addItems(input) {
   };
 }
 
+/* CAMBIAR EL PRECIO DE UN PRODUCTO CON LA OFERTA PRENDIDA (26-nov-2026). Un
+   producto sumado con un % equivocado se corregía terminando la oferta (y al
+   terminar vuelve sola la de `despues`). Acá se recalcula sólo ese producto:
+   el % o el precio nuevo van sobre lo que la variante mostraba ANTES de la
+   oferta (lo anotado en la libreta), nunca sobre el precio flash ya escrito.
+   La libreta conserva el precio de antes, así "Terminar" sigue restaurando bien. */
+let editing = null;
+async function editItem(input) {
+  if (editing) return editing;
+  editing = conCandado(() => _editItem(input));
+  try { return await editing; } finally { editing = null; }
+}
+
+async function _editItem(input) {
+  const cfg = await getConfig();
+  if (!cfg.active) throw badRequest('La oferta no está prendida: cambiá el % en la lista y guardá.');
+  const id = Number(input && input.id);
+  const pos = (cfg.items || []).findIndex((i) => Number(i.id) === id);
+  if (pos < 0) throw badRequest('Ese producto no está en la oferta.');
+  const precio = precioFijo(input && input.precio);
+  const pct = clampPct(input && input.pct);
+  if (!precio && !pct) throw badRequest('Poné un precio o un % de descuento.');
+  const item = { id, ...(precio ? { precio } : { pct }) };
+
+  // Sin el filtro de minoristas con stock: si se agotó un talle igual hay que corregirlo.
+  const { rows } = await pool.query('SELECT id, name, price, promo_price, raw FROM products_cache WHERE id = $1', [id]);
+  const prod = rows[0];
+  if (!prod) throw badRequest('No encuentro ese producto en el catálogo.');
+  if (precio && !(precio < Number(prod.price))) throw badRequest(`$${precio} no es menor que su precio de lista ($${money(prod.price)}).`);
+  let raw = prod.raw;
+  if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch (_) { raw = null; } }
+  const variants = (raw && Array.isArray(raw.variants)) ? raw.variants : [];
+
+  const libreta = cfg.applied || { variants: [], products: [] };
+  const anotadas = new Map((libreta.variants || []).filter((v) => Number(v.product_id) === id).map((v) => [Number(v.variant_id), v]));
+  const otras = (libreta.variants || []).filter((v) => Number(v.product_id) !== id);
+  const nuevas = [];
+  const escritas = new Map();
+  const errores = [];
+  const pricedVariant = variants.find((v) => Number(v.price) > 0);
+  let displayPromo;
+  let writes = 0;
+
+  for (const v of variants) {
+    const vid = Number(v.id);
+    const nota = anotadas.get(vid);
+    // Lo que mostraba antes de la oferta: lo anotado, o (si nunca se tocó) lo que tiene hoy.
+    const antes = nota ? nota.prior_promo : (v.promotional_price != null ? money(v.promotional_price) : null);
+    const promo = promoDeVariante({ price: v.price, promotional_price: antes }, item, cfg);
+    if (!promo && !nota) continue; // no se tocaba y sigue sin tocarse
+    const destino = promo || antes; // sin oferta para esta variante: vuelve a lo de antes
+    try {
+      await setVariantPromotionalPrice(id, v.id, destino);
+      escritas.set(vid, destino);
+      if (promo) nuevas.push({ product_id: id, variant_id: v.id, prior_promo: antes });
+      if (pricedVariant && v.id === pricedVariant.id) displayPromo = destino;
+      writes += 1;
+      await sleep(WRITE_DELAY_MS);
+    } catch (err) {
+      errores.push(`Variante ${v.id}: ${err.message}`);
+      if (nota) nuevas.push(nota); // quedó como estaba: se restaura con lo anotado
+    }
+  }
+  // Variantes anotadas que ya no están en el catálogo: se conservan para restaurarlas.
+  for (const [vid, nota] of anotadas) if (!variants.some((v) => Number(v.id) === vid)) nuevas.push(nota);
+
+  if (displayPromo !== undefined) {
+    await pool.query('UPDATE products_cache SET promo_price = $2 WHERE id = $1', [id, displayPromo]).catch(() => {});
+  }
+  await reflejarEnCopia(id, escritas);
+
+  const items = [...cfg.items];
+  items[pos] = item;
+  await putConfig({ ...cfg, items, applied: { ...libreta, variants: [...otras, ...nuevas] } });
+  return { ok: true, id, name: prod.name, variantes_escritas: writes, precio: displayPromo != null ? displayPromo : null, errores };
+}
+
 /* La página de la oferta (src/flashPagina.js). Prendida y con la oferta activa:
    sus productos adentro. Apagada o con la oferta terminada: vacía. El botón
    "Ver todas" de la sección apunta a la página mientras nadie haya escrito
@@ -767,4 +846,4 @@ async function getBlock() {
 
 function invalidate() { cache = { block: null, at: 0 }; }
 
-module.exports = { precioRedondo, promoDeVariante, addItems, programar, cancelarProgramada, maybeAutoStart, getConfig, getConfigDetailed, saveConfig, search, activate, end, maybeAutoEnd, getBlock, invalidate };
+module.exports = { precioRedondo, promoDeVariante, addItems, editItem, programar, cancelarProgramada, maybeAutoStart, getConfig, getConfigDetailed, saveConfig, search, activate, end, maybeAutoEnd, getBlock, invalidate };

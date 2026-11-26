@@ -1766,6 +1766,12 @@ button .cost-tag { margin-left: 8px; }
 .flash-chip .fc-pct { display: flex; align-items: center; gap: 4px; }
 .flash-chip .fc-pct input { width: 58px; text-align: center; padding: 6px; }
 .flash-chip .fc-pct span { color: var(--muted); font-size: .8rem; }
+.flash-chip:has(.fc-edit) { flex-wrap: wrap; }
+.flash-chip .fc-edit { flex-basis: 100%; display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-top: 8px; border-top: 1px dashed var(--line); }
+.flash-chip .fc-edit label { display: flex; align-items: center; gap: 4px; font-size: .8rem; color: var(--muted); }
+.flash-chip .fc-edit input { width: 84px; padding: 6px; }
+.flash-chip .fc-edit .hint { margin: 0; }
+.flash-chip .fc-edit p.hint { flex-basis: 100%; }
 .flash-chip .fc-remove {
   background: none; border: 0; color: var(--muted); cursor: pointer; font-size: 1.3rem; line-height: 1;
   padding: 4px 6px; border-radius: 8px; flex-shrink: 0;
