@@ -1665,6 +1665,12 @@ app.post('/api/flash/activate', wrap(async (req, res) => {
   res.json(await flashSale.activate());
 }));
 
+// Suma productos a la oferta YA prendida: escribe sólo el precio de los nuevos
+// y los anota en la libreta para restaurarlos al terminar (src/flashSale.js).
+app.post('/api/flash/add', wrap(async (req, res) => {
+  res.json(await flashSale.addItems(req.body || {}));
+}));
+
 // Restaura los precios anteriores y apaga la sección.
 app.post('/api/flash/end', wrap(async (req, res) => {
   res.json(await flashSale.end());

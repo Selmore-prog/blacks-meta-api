@@ -7002,7 +7002,7 @@ async function bnEjemplo(i, btn) {
   } finally { btn.disabled = false; btn.textContent = antes; }
 }
 
-const flashState = { cfg: null, chosen: [], searchTimer: null };
+const flashState = { cfg: null, chosen: [], nuevos: [], searchTimer: null };
 
 function flashMoney(n) {
   if (n === null || n === undefined || n === '') return '';
@@ -7129,6 +7129,13 @@ function renderFlash() {
     <div class="field"><label>Link del botón "Ver todas" (opcional)</label>
       <input class="input" id="flash-url" value="${esc(cfg.url || '')}" placeholder="Vacío = sin botón 'Ver todas'" /></div>
 
+    <div class="field flash-pagina">
+      <label class="check"><input type="checkbox" id="flash-pagina" ${cfg.pagina ? 'checked' : ''} />
+        Crear una página con todos los productos de la oferta ${tip('Es una categoría de Tiendanube, oculta del menú, con los productos de la oferta y su precio tachado. El botón "Ver todas" de la sección lleva ahí, salvo que escribas otro link arriba. Al terminar la oferta queda vacía.')}</label>
+      <input class="input" id="flash-pagina-nombre" maxlength="60" value="${esc(cfg.pagina_nombre || '')}" placeholder="Nombre de la página (vacío = el título de la oferta)" />
+      ${flashPaginaEstado(cfg)}
+    </div>
+
     <div class="grid-2">
       <div class="field"><label>Calcular el % sobre ${tip('Elegí sobre qué precio se aplica el descuento. "Precio actual": si el producto ya tiene una oferta, el % se suma sobre esa (nunca sube el precio que se ve). "Precio real": siempre sobre el precio sin descuento — ojo, si el producto ya tenía una oferta mayor, esto podría dejar un precio más alto que el actual.')}</label>
         <select class="input" id="flash-base" ${editDisabled}>
@@ -7141,19 +7148,19 @@ function renderFlash() {
 
     <div class="field">
       <label>Productos en oferta ${tip('Buscá por nombre. Sólo aparecen productos minoristas (con precio y stock). El orden en que los agregás es el orden en que se ven en el home.')}</label>
-      ${active
-        ? '<p class="hint">Para cambiar los productos o los %, primero <b>Terminá</b> la oferta.</p>'
-        : `<div class="flash-search">
-             <input class="input" id="flash-search-input" placeholder="Buscar producto para agregar…" autocomplete="off" />
-             <div class="flash-results" id="flash-results"></div>
-           </div>`}
+      <div class="flash-search">
+        <input class="input" id="flash-search-input" placeholder="${active ? 'Buscar producto para sumar a la oferta prendida…' : 'Buscar producto para agregar…'}" autocomplete="off" />
+        <div class="flash-results" id="flash-results"></div>
+      </div>
+      ${active ? '<div class="flash-chosen flash-nuevos" id="flash-nuevos"></div>' : ''}
       <div class="flash-chosen" id="flash-chosen"></div>
       ${!active && flashState.chosen.length > 1 ? '<p class="flash-order-hint">Se muestran en este orden en el home.</p>' : ''}
     </div>
 
     <div class="flash-actions">
       ${active
-        ? `<button class="btn-primary btn-sm" onclick="flashSave(true)">${icon('check')} Guardar cambios (título / fecha)</button>`
+        ? `<button class="btn-ghost btn-sm" onclick="flashSave(true)">${icon('check')} Guardar cambios (título / fecha / página)</button>
+           <button class="btn-primary btn-sm" id="flash-sumar" onclick="flashSumar()" hidden>${icon('bolt')} Sumar a la oferta</button>`
         : `<button class="btn-ghost btn-sm" onclick="flashSave(false)">${icon('save')} Guardar borrador</button>
            <button class="btn-primary btn-sm" onclick="flashActivate()">${icon('bolt')} Activar oferta real</button>`}
     </div>
@@ -7161,7 +7168,79 @@ function renderFlash() {
 
   hydrateIcons(box);
   renderFlashChosen();
+  renderFlashNuevos();
   bindFlashInputs();
+}
+
+/* Estado de la página de la oferta: link y, si algo falló, el aviso. */
+function flashPaginaEstado(cfg) {
+  const info = cfg.pagina_info;
+  if (!cfg.pagina || !info) return '';
+  const url = info.url ? 'https://blacksindumentaria.com.ar' + info.url : null;
+  return `<p class="hint" style="margin:6px 2px 0;">${url && cfg.active ? `Página: <a href="${esc(url)}" target="_blank" rel="noopener">${esc(info.url)}</a>` : 'Se arma al activar la oferta.'}${info.error ? ` <span style="color:var(--orange);">⚠ ${esc(info.error)}</span>` : ''}</p>`;
+}
+
+/* Productos para SUMAR a la oferta prendida: cada uno con su precio Black.
+   Vacío = el % por defecto sobre su precio de hoy. */
+function flashPrecioSugerido(it) {
+  const base = flashBase(it);
+  const x = base * (1 - flashDefaultPct() / 100);
+  return x < 1000 ? Math.floor(x) : Math.floor((x + 1) / 100) * 100 - 1;
+}
+function renderFlashNuevos() {
+  const wrap = document.getElementById('flash-nuevos');
+  const btn = document.getElementById('flash-sumar');
+  if (!wrap) return;
+  if (btn) { btn.hidden = !flashState.nuevos.length; btn.innerHTML = `${icon('bolt')} Sumar ${flashState.nuevos.length} a la oferta`; }
+  if (!flashState.nuevos.length) { wrap.innerHTML = ''; return; }
+  wrap.innerHTML = '<p class="flash-order-hint" style="margin-top:0;">Para sumar (todavía no se escribió nada):</p>' + flashState.nuevos.map((it, i) => {
+    const hoy = Number(it.promo_now) > 0 && Number(it.promo_now) < Number(it.price) ? Number(it.promo_now) : Number(it.price);
+    return `<div class="flash-chip flash-chip-nuevo">
+      ${it.image ? `<img src="${esc(it.image)}" alt="">` : ''}
+      <div class="fc-info">
+        <div class="fc-name">${esc(it.name || ('#' + it.id))}</div>
+        <div class="fc-price">Hoy ${flashMoney(hoy)} <s>${flashMoney(it.price)}</s></div>
+      </div>
+      <div class="fc-pct">
+        <span>$</span>
+        <input class="input" type="number" min="100" step="1" data-flash-nuevo="${i}" value="${it.precio || ''}"
+               placeholder="${flashPrecioSugerido(it)}" title="Precio Black (vacío = ${flashDefaultPct()}% menos que hoy)" style="width:92px;" />
+      </div>
+      <button class="fc-remove" onclick="flashQuitarNuevo(${i})" title="Quitar">&times;</button>
+    </div>`;
+  }).join('');
+  wrap.querySelectorAll('[data-flash-nuevo]').forEach((el) => {
+    el.addEventListener('input', () => {
+      const v = Number(el.value);
+      flashState.nuevos[Number(el.dataset.flashNuevo)].precio = Number.isFinite(v) && v >= 100 ? Math.round(v) : null;
+    });
+  });
+}
+function flashQuitarNuevo(i) {
+  flashState.nuevos.splice(i, 1);
+  renderFlashNuevos();
+}
+async function flashSumar() {
+  const lista = flashState.nuevos.map((it) => ({ ...it, final: it.precio || flashPrecioSugerido(it) }));
+  if (!lista.length) return;
+  const caro = lista.find((it) => !(it.final < Number(it.price)));
+  if (caro) { toast(`${caro.name}: el precio Black tiene que ser menor que ${flashMoney(caro.price)}.`, 'warn'); return; }
+  const detalle = lista.map((it) => `· ${it.name}: ${flashMoney(it.final)} (antes ${flashMoney(it.price)})`).join('\n');
+  if (!confirm(`Vas a escribir el precio de oferta REAL en Tiendanube:\n\n${detalle}\n\nSe suman a la oferta prendida y se restauran con el resto cuando termine. ¿Sumar ahora?`)) return;
+  const btn = document.getElementById('flash-sumar');
+  if (btn) { btn.disabled = true; btn.innerHTML = 'Escribiendo precios… no cierres esta pestaña'; }
+  try {
+    const r = await api('/api/flash/add', { method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ items: lista.map((it) => ({ id: it.id, precio: it.final })) }) });
+    flashState.nuevos = [];
+    if (r.errores && r.errores.length) { toast(`Sumados con ${r.errores.length} aviso(s): ${r.errores[0]}`, 'warn'); console.warn('[flash] sumar:', r.errores); }
+    else toast(`Sumados ${r.sumados.length} productos (${r.variantes_escritas} precios escritos).`, 'ok');
+    await loadFlash();
+    if (typeof previewHomeRails === 'function') previewHomeRails({ silent: true });
+  } catch (err) {
+    toast(err.message, 'warn');
+    if (btn) { btn.disabled = false; renderFlashNuevos(); }
+  }
 }
 
 function renderFlashChosen() {
@@ -7213,6 +7292,9 @@ function bindFlashInputs() {
   bind('flash-subtitle', 'subtitle');
   bind('flash-url', 'url');
   bind('flash-default-pct', 'default_pct', true);
+  bind('flash-pagina-nombre', 'pagina_nombre');
+  const pag = document.getElementById('flash-pagina');
+  if (pag) pag.addEventListener('change', () => { cfg.pagina = pag.checked; });
   const ends = document.getElementById('flash-ends');
   if (ends) ends.addEventListener('input', () => { cfg.ends_at = localInputToIso(ends.value); });
   const dp = document.getElementById('flash-default-pct');
@@ -7243,7 +7325,7 @@ async function flashDoSearch(q) {
   if (!results) return;
   try {
     const rows = await api('/api/flash/search?q=' + encodeURIComponent(q));
-    const chosenIds = new Set(flashState.chosen.map((c) => c.id));
+    const chosenIds = new Set([...flashState.chosen, ...flashState.nuevos].map((c) => c.id));
     const avail = rows.filter((r) => !chosenIds.has(r.id));
     if (!avail.length) {
       results.innerHTML = '<div class="flash-empty">Sin resultados minoristas nuevos para "' + esc(q) + '".</div>';
@@ -7266,8 +7348,17 @@ async function flashDoSearch(q) {
 }
 
 function flashAdd(prod) {
-  if (flashState.chosen.some((c) => c.id === prod.id)) return;
-  if (flashState.chosen.length >= 12) { toast('La sección admite hasta 12 productos.', 'warn'); return; }
+  if ([...flashState.chosen, ...flashState.nuevos].some((c) => c.id === prod.id)) return;
+  if (flashState.chosen.length + flashState.nuevos.length >= 12) { toast('La sección admite hasta 12 productos.', 'warn'); return; }
+  if (flashState.cfg && flashState.cfg.active) {
+    flashState.nuevos.push({ id: prod.id, name: prod.name, image: prod.image, price: prod.price, promo_now: prod.promo_price || null, stock: prod.stock, precio: null });
+    const inp = document.getElementById('flash-search-input');
+    const res = document.getElementById('flash-results');
+    if (inp) inp.value = '';
+    if (res) { res.classList.remove('open'); res.innerHTML = ''; }
+    renderFlashNuevos();
+    return;
+  }
   flashState.chosen.push({ id: prod.id, name: prod.name, image: prod.image, price: prod.price, promo_now: prod.promo_price || null, stock: prod.stock, pct: null });
   const input = document.getElementById('flash-search-input');
   const results = document.getElementById('flash-results');
@@ -7291,6 +7382,8 @@ function flashPayload() {
     default_pct: Number(cfg.default_pct) || 20,
     discount_base: cfg.discount_base === 'regular' ? 'regular' : 'current',
     accent: cfg.accent || '#111111',
+    pagina: !!cfg.pagina,
+    pagina_nombre: cfg.pagina_nombre || '',
     items: flashState.chosen.map((c) => (c.pct ? { id: c.id, pct: c.pct } : { id: c.id })),
   };
 }

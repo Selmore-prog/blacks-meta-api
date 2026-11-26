@@ -54,6 +54,11 @@ const DEFAULT = {
   badge: null,            // texto del chip de arriba (null = "OFERTA RELÁMPAGO")
   despues: null,          // config de la oferta que vuelve sola cuando ésta termina (ver _end)
   programada: null,       // { inicia_at, config }: la oferta que arranca sola a esa hora (ver maybeAutoStart)
+  // Página con todos los productos de la oferta (src/flashPagina.js, 26-nov-2026):
+  // una categoría oculta del menú. pagina_info = { category_id, handle, url } de la última.
+  pagina: false,
+  pagina_nombre: null,
+  pagina_info: null,
   items: [],              // [{ id, pct?, precio? }]  pct opcional: si falta, usa default_pct.
                           // precio = precio de oferta EXACTO (gana sobre el %): con % enteros
                           // no se llega a un número redondo ($43.999 → $39.999 es 9,09 %).
@@ -231,11 +236,16 @@ async function saveConfig(input) {
   // La oferta que vuelve cuando ésta termina (ver _end). El panel no la manda: se conserva.
   const despues = input.despues === undefined ? (current.despues || null)
     : (input.despues && typeof input.despues === 'object' && Array.isArray(input.despues.items) ? input.despues : null);
+  const pagina = input.pagina === undefined ? Boolean(current.pagina) : Boolean(input.pagina);
+  const pagina_nombre = input.pagina_nombre === undefined ? (current.pagina_nombre || null)
+    : (String(input.pagina_nombre || '').trim().slice(0, 60) || null);
   if (current.active) {
     // Con la oferta activa sólo cambian cosas de PRESENTACIÓN (no la base ni el %,
     // que ya están escritos en Tiendanube con su libreta de restauración).
-    const next = { ...current, title, subtitle, url, ends_at, accent: accentActive, estilo, badge, despues };
+    // Prender o apagar la página sí se hace en el acto.
+    let next = { ...current, title, subtitle, url, ends_at, accent: accentActive, estilo, badge, despues, pagina, pagina_nombre };
     await putConfig(next);
+    if (pagina || current.pagina) next = await acomodarPagina(next);
     return next;
   }
 
@@ -274,7 +284,7 @@ async function saveConfig(input) {
     }));
 
   const discount_base = input.discount_base === 'regular' ? 'regular' : 'current';
-  const next = { ...current, title, subtitle, url, ends_at, default_pct, discount_base, accent: accentActive, estilo, badge, despues, items, active: false };
+  const next = { ...current, title, subtitle, url, ends_at, default_pct, discount_base, accent: accentActive, estilo, badge, despues, pagina, pagina_nombre, items, active: false };
   await putConfig(next);
   return { ...next, rejected };
 }
@@ -362,62 +372,167 @@ async function _activate() {
   const variantsBook = [];
   const productsBook = [];
   const errors = [];
-  let writes = 0;
+  const cuenta = { writes: 0 };
 
   for (const prod of chosen) {
-    const item = itemOf.get(Number(prod.id)) || { id: prod.id };
-    let raw = prod.raw;
-    if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch (_) { raw = null; } }
-    const variants = (raw && Array.isArray(raw.variants)) ? raw.variants : [];
-    // Guardamos el promo a nivel producto del cache para restaurar el "display".
-    productsBook.push({ id: Number(prod.id), prior_promo_price: money(prod.promo_price) });
-
-    // La variante "de precio" (la que Tiendanube muestra) define el promo de display
-    // que va al cache — así el resto del sitio ve el mismo número que la vidriera.
-    const pricedVariant = variants.find((v) => Number(v.price) > 0);
-    let displayPromo = null;
-    const escritas = new Map();
-
-    for (const v of variants) {
-      // Precio fijo del ítem o % sobre la BASE elegida (precio actual vs. regular).
-      const promo = promoDeVariante(v, item, cfg);
-      if (!promo) continue; // sin precio, o ya muestra uno igual o más bajo
-      if (writes >= MAX_WRITES) { errors.push(`Tope de ${MAX_WRITES} escrituras alcanzado.`); break; }
-      try {
-        await setVariantPromotionalPrice(prod.id, v.id, promo);
-        variantsBook.push({ product_id: Number(prod.id), variant_id: v.id, prior_promo: v.promotional_price ? money(v.promotional_price) : null });
-        escritas.set(Number(v.id), promo);
-        if (pricedVariant && v.id === pricedVariant.id) displayPromo = promo;
-        writes += 1;
-        await sleep(WRITE_DELAY_MS);
-      } catch (err) {
-        errors.push(`Producto ${prod.id} variante ${v.id}: ${err.message}`);
-      }
-    }
-
-    // Reflejar el precio de display en el cache ya, sin esperar el próximo sync,
-    // para que el resto del sitio (y el riel "ofertas") lo vea en el acto.
-    if (displayPromo != null) {
-      await pool.query('UPDATE products_cache SET promo_price = $2 WHERE id = $1', [Number(prod.id), displayPromo]).catch(() => {});
-    }
-    await reflejarEnCopia(prod.id, escritas);
+    const r = await escribirProducto(prod, itemOf.get(Number(prod.id)) || { id: prod.id }, cfg, cuenta, errors);
+    productsBook.push(r.product);
+    variantsBook.push(...r.variants);
   }
 
-  const next = {
+  let next = {
     ...cfg,
     active: true,
     applied_at: new Date().toISOString(),
     applied: { variants: variantsBook, products: productsBook },
   };
   await putConfig(next);
+  if (next.pagina) next = await acomodarPagina(next);
 
   return {
     ok: true,
     active: true,
     productos: chosen.length,
-    variantes_escritas: writes,
+    variantes_escritas: cuenta.writes,
     errores: errors,
+    pagina: next.pagina ? next.pagina_info : null,
   };
+}
+
+/* Escribe el precio de oferta de UN producto (todas sus variantes) y devuelve
+   lo que hace falta para restaurarlo. Lo usan activar y sumar. */
+async function escribirProducto(prod, item, cfg, cuenta, errors) {
+  let raw = prod.raw;
+  if (typeof raw === 'string') { try { raw = JSON.parse(raw); } catch (_) { raw = null; } }
+  const variants = (raw && Array.isArray(raw.variants)) ? raw.variants : [];
+  // Guardamos el promo a nivel producto del cache para restaurar el "display".
+  const product = { id: Number(prod.id), prior_promo_price: money(prod.promo_price) };
+  const libreta = [];
+
+  // La variante "de precio" (la que Tiendanube muestra) define el promo de display
+  // que va al cache — así el resto del sitio ve el mismo número que la vidriera.
+  const pricedVariant = variants.find((v) => Number(v.price) > 0);
+  let displayPromo = null;
+  const escritas = new Map();
+
+  for (const v of variants) {
+    // Precio fijo del ítem o % sobre la BASE elegida (precio actual vs. regular).
+    const promo = promoDeVariante(v, item, cfg);
+    if (!promo) continue; // sin precio, o ya muestra uno igual o más bajo
+    if (cuenta.writes >= MAX_WRITES) { errors.push(`Tope de ${MAX_WRITES} escrituras alcanzado.`); break; }
+    try {
+      await setVariantPromotionalPrice(prod.id, v.id, promo);
+      libreta.push({ product_id: Number(prod.id), variant_id: v.id, prior_promo: v.promotional_price ? money(v.promotional_price) : null });
+      escritas.set(Number(v.id), promo);
+      if (pricedVariant && v.id === pricedVariant.id) displayPromo = promo;
+      cuenta.writes += 1;
+      await sleep(WRITE_DELAY_MS);
+    } catch (err) {
+      errors.push(`Producto ${prod.id} variante ${v.id}: ${err.message}`);
+    }
+  }
+
+  // Reflejar el precio de display en el cache ya, sin esperar el próximo sync,
+  // para que el resto del sitio (y el riel "ofertas") lo vea en el acto.
+  if (displayPromo != null) {
+    await pool.query('UPDATE products_cache SET promo_price = $2 WHERE id = $1', [Number(prod.id), displayPromo]).catch(() => {});
+  }
+  await reflejarEnCopia(prod.id, escritas);
+  return { product, variants: libreta };
+}
+
+/* SUMAR PRODUCTOS CON LA OFERTA PRENDIDA (26-nov-2026). Antes había que
+   terminarla y volver a prenderla, y al terminarla volvía sola la oferta de
+   `despues` (en Black Friday, la de verano). Acá sólo se escribe el precio de
+   los NUEVOS y se anotan en la misma libreta: al terminar se restauran con
+   todos los demás. Cada ítem: { id, precio } (precio exacto) o { id, pct };
+   sin ninguno usa el % por defecto. */
+let adding = null;
+async function addItems(input) {
+  if (adding) return adding;
+  adding = conCandado(() => _addItems(input));
+  try { return await adding; } finally { adding = null; }
+}
+
+async function _addItems(input) {
+  const cfg = await getConfig();
+  if (!cfg.active) throw badRequest('La oferta no está prendida: agregá los productos en la lista y activala.');
+  if (cfg.ends_at && new Date(cfg.ends_at).getTime() <= Date.now()) throw badRequest('La oferta ya terminó.');
+  const pedidos = Array.isArray(input && input.items) ? input.items : [];
+  const yaEstan = new Set((cfg.items || []).map((i) => Number(i.id)));
+  const nuevos = [];
+  for (const it of pedidos) {
+    const id = Number(it && (it.id !== undefined ? it.id : it));
+    if (!Number.isFinite(id) || yaEstan.has(id) || nuevos.some((n) => n.id === id)) continue;
+    const pct = clampPct(it && it.pct);
+    const precio = precioFijo(it && it.precio);
+    nuevos.push({ id, ...(precio ? { precio } : pct ? { pct } : {}) });
+  }
+  if (!nuevos.length) throw badRequest('No hay productos nuevos para sumar.');
+  if ((cfg.items || []).length + nuevos.length > MAX_ITEMS) {
+    throw badRequest(`La sección admite hasta ${MAX_ITEMS} productos y ya tiene ${(cfg.items || []).length}.`);
+  }
+
+  const chosen = await loadChosen(nuevos.map((n) => n.id));
+  const validos = new Set(chosen.map((r) => Number(r.id)));
+  const errores = [];
+  const cuenta = { writes: 0 };
+  const libreta = cfg.applied || { variants: [], products: [] };
+  const variants = [...(libreta.variants || [])];
+  const products = [...(libreta.products || [])];
+  const sumados = [];
+  for (const prod of chosen) {
+    const item = nuevos.find((n) => n.id === Number(prod.id));
+    // Un precio fijo que no baja nada no es oferta: se avisa y no se suma.
+    if (item.precio && !(Number(item.precio) < Number(prod.price))) { errores.push(`${prod.name}: $${item.precio} no es menor que su precio de lista.`); validos.delete(Number(prod.id)); continue; }
+    const r = await escribirProducto(prod, item, cfg, cuenta, errores);
+    products.push(r.product);
+    variants.push(...r.variants);
+    sumados.push({ id: Number(prod.id), name: prod.name, variantes: r.variants.length });
+  }
+
+  let next = {
+    ...cfg,
+    items: [...cfg.items, ...nuevos.filter((n) => validos.has(n.id))],
+    applied: { variants, products },
+  };
+  await putConfig(next);
+  if (next.pagina) next = await acomodarPagina(next);
+  return {
+    ok: true,
+    sumados,
+    rechazados: nuevos.filter((n) => !validos.has(n.id)).map((n) => n.id),
+    variantes_escritas: cuenta.writes,
+    errores,
+    pagina: next.pagina ? next.pagina_info : null,
+  };
+}
+
+/* La página de la oferta (src/flashPagina.js). Prendida y con la oferta activa:
+   sus productos adentro. Apagada o con la oferta terminada: vacía. El botón
+   "Ver todas" de la sección apunta a la página mientras nadie haya escrito
+   otro link a mano. Un error acá NUNCA frena los precios: queda anotado. */
+async function acomodarPagina(cfg) {
+  const pagina = require('./flashPagina');
+  const info = cfg.pagina_info || null;
+  const urlAuto = info && info.url;
+  let next = { ...cfg };
+  try {
+    if (cfg.pagina && cfg.active) {
+      const r = await pagina.sincronizar(cfg);
+      next.pagina_info = { category_id: r.category_id, handle: r.handle, nombre: r.nombre, url: r.url, error: r.errores.length ? r.errores.join(' · ').slice(0, 300) : null, at: new Date().toISOString() };
+      if (r.url && (!cfg.url || cfg.url === urlAuto)) next.url = r.url;
+    } else if (info) {
+      const r = await pagina.vaciar(info);
+      next.pagina_info = { ...info, error: r.errores.length ? r.errores.join(' · ').slice(0, 300) : null, at: new Date().toISOString() };
+      if (urlAuto && cfg.url === urlAuto) next.url = null;
+    }
+  } catch (err) {
+    console.error('[flashSale] página de la oferta:', err.message);
+    next.pagina_info = { ...(info || {}), error: err.message.slice(0, 300), at: new Date().toISOString() };
+  }
+  await putConfig(next);
+  return next;
 }
 
 /* opts.auto: la terminó el contador (no una persona). Si el candado está
@@ -458,8 +573,9 @@ async function _end({ auto = false, siguiente = true } = {}) {
   }
   for (const [pid, cambios] of porProducto) await reflejarEnCopia(pid, cambios);
 
-  const next = { ...cfg, active: false, applied_at: null, applied: { variants: [], products: [] } };
+  let next = { ...cfg, active: false, applied_at: null, applied: { variants: [], products: [] } };
   await putConfig(next);
+  if (next.pagina_info) next = await acomodarPagina(next);
 
   const resultado = { ok: true, active: false, restauradas: restored, errores: errors, auto };
 
@@ -633,4 +749,4 @@ async function getBlock() {
 
 function invalidate() { cache = { block: null, at: 0 }; }
 
-module.exports = { precioRedondo, promoDeVariante, programar, cancelarProgramada, maybeAutoStart, getConfig, getConfigDetailed, saveConfig, search, activate, end, maybeAutoEnd, getBlock, invalidate };
+module.exports = { precioRedondo, promoDeVariante, addItems, programar, cancelarProgramada, maybeAutoStart, getConfig, getConfigDetailed, saveConfig, search, activate, end, maybeAutoEnd, getBlock, invalidate };

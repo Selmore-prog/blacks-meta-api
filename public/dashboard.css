@@ -1775,6 +1775,10 @@ button .cost-tag { margin-left: 8px; }
 
 .flash-actions { display: flex; gap: 10px; justify-content: flex-end; margin-top: 16px; flex-wrap: wrap; }
 .flash-order-hint { font-size: .74rem; color: var(--muted); margin: 8px 2px 0; }
+.flash-pagina label.check { display: flex; align-items: center; gap: 8px; cursor: pointer; margin-bottom: 8px; }
+.flash-pagina label.check input { width: 16px; height: 16px; accent-color: var(--orange); }
+.flash-nuevos { margin-top: 10px; }
+.flash-chip-nuevo { border-style: dashed; border-color: rgba(232,93,27,.5); background: rgba(232,93,27,.05); }
 
 /* ---------- catálogo de Meta vs stock real (selección por talle) ---------- */
 /* Cada producto es un bloque con sus talles desalineados; el saldo de la derecha
