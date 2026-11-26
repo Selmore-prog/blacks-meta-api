@@ -219,3 +219,23 @@ test('modo oscuro: el logo va en una imagen sin transparencia y el botón lleva 
     assert.match(html, /border:1px solid #[0-9a-f]{6};border-radius:6px/);
   }
 });
+
+test('el botón Comprar se nombra con el producto al que lleva', () => {
+  const n = campanas.nombresDeLinks([
+    { i: 0, etiqueta: 'Logo', url: 'https://x.com/' },
+    { i: 1, etiqueta: 'Jean Recto', url: 'https://x.com/productos/jean/?utm_source=mail' },
+    { i: 2, etiqueta: 'Comprar', url: 'https://x.com/productos/jean?utm_source=mail&utm_content=2' },
+    { i: 3, etiqueta: 'Comprar', url: 'https://x.com/productos/sin-titulo' },
+  ]);
+  assert.strictEqual(n.get(2).nombre, 'Jean Recto');
+  assert.strictEqual(n.get(0).nombre, 'Logo');
+  assert.strictEqual(n.get(3).nombre, 'Comprar');
+});
+
+test('varios links en el mismo segundo es el antivirus, no una persona', () => {
+  const t = Date.parse('2026-11-26T10:00:00Z');
+  const en = (ms, link) => ({ link, fecha: new Date(t + ms) });
+  assert.strictEqual(campanas.esRobot([en(0, 1), en(300, 4), en(900, 7)]), true);
+  assert.strictEqual(campanas.esRobot([en(0, 1), en(5000, 4), en(60000, 7)]), false);
+  assert.strictEqual(campanas.esRobot([en(0, 1), en(200, 1), en(400, 1)]), false);
+});

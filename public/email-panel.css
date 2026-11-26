@@ -147,6 +147,8 @@
 .em-tabla td b { overflow-wrap: anywhere; }
 .em-tabla tr:last-child td { border-bottom: 0; }
 .em-tabla small { display: block; color: var(--muted); overflow-wrap: anywhere; }
+.em-tabla small.em-tocados { color: var(--text, inherit); margin-top: 2px; }
+.em-tabla small.em-robot { margin-top: 2px; font-style: italic; }
 .em-tabla th:not(:first-child), .em-tabla td:not(:first-child) { white-space: nowrap; }
 .em-filtros { display: flex; gap: 6px; flex-wrap: wrap; margin: 0 0 10px; }
 .em-horas { display: flex; align-items: flex-end; gap: 2px; height: 110px; }

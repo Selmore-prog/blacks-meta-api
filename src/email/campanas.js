@@ -573,18 +573,68 @@ async function mapa(id) {
   return renderizar(c, { productos: await productosDeCache(c.bloques, c.precios), modo: 'calor', conteos, baseLogo: '', base: urlBase(), empresa: a.empresa }).html.replace(/%%NOMBRE%%/g, '');
 }
 
+const LINK_GENERICO = /^(comprar|ver|ver m[aá]s|ver producto|link|aprovech[aá]|quiero)$/i;
+const sinUtm = (u) => String(u || '').replace(/[?&]utm_[^&]*/g, '').replace(/[?#].*$/, '').replace(/\/+$/, '');
+
+/** Índice de link → nombre legible. Un botón genérico toma el nombre del producto al que lleva. */
+function nombresDeLinks(links) {
+  const porUrl = new Map();
+  for (const l of links) if (l.etiqueta && !LINK_GENERICO.test(l.etiqueta.trim()) && !porUrl.has(sinUtm(l.url))) porUrl.set(sinUtm(l.url), l.etiqueta);
+  return new Map(links.map((l) => [l.i, { nombre: (LINK_GENERICO.test((l.etiqueta || '').trim()) && porUrl.get(sinUtm(l.url))) || l.etiqueta || 'Link', url: l.url }]));
+}
+
+/**
+ * Los antivirus de las empresas abren todos los links del mail de una vez, a veces
+ * medio minuto después de que llega. Una persona no toca 3 links distintos en 2 segundos.
+ */
+function esRobot(clics) {
+  for (let i = 0; i < clics.length; i++) {
+    const t = new Date(clics[i].fecha).getTime();
+    const juntos = new Set(clics.filter((c) => { const d = new Date(c.fecha).getTime() - t; return d >= 0 && d <= 2000; }).map((c) => c.link));
+    if (juntos.size >= 3) return true;
+  }
+  return false;
+}
+
 async function actividad(id, { ver = 'todos', pagina = 1 } = {}) {
   const filtro = { todos: 'true', abrieron: 's.aperturas > 0', tocaron: 's.clicks > 0', no_abrieron: "s.aperturas = 0 AND s.estado='enviado'", rebotes: "s.estado IN ('rebote','queja','fallido')", bajas: 's.baja_en IS NOT NULL' }[ver] || 'true';
   const p = Math.max(1, Number(pagina) || 1);
   const { rows } = await pool.query(
-    `SELECT k.email, k.nombre, s.estado, s.enviado_en, s.primera_apertura, s.aperturas, s.primer_click, s.clicks, s.baja_en, s.error, count(*) OVER()::int AS total
+    `SELECT s.id, k.email, k.nombre, s.estado, s.enviado_en, s.primera_apertura, s.aperturas, s.primer_click, s.clicks, s.baja_en, s.error, count(*) OVER()::int AS total
        FROM email_sends s JOIN email_contacts k ON k.id = s.contact_id WHERE s.campaign_id=$1 AND ${filtro}
       ORDER BY s.clicks DESC, s.aperturas DESC, s.orden LIMIT 50 OFFSET $2`, [id, (p - 1) * 50],
   );
-  return { filas: rows, total: rows[0] ? rows[0].total : 0, pagina: p };
+  // Qué tocó cada uno. Un "Comprar" se nombra con el producto al que lleva, y la foto,
+  // el título y el botón del mismo producto cuentan juntos.
+  const conClic = rows.filter((f) => f.clicks > 0).map((f) => f.id);
+  const tocados = new Map();
+  if (conClic.length) {
+    const [ev, camp] = await Promise.all([
+      pool.query("SELECT send_id, link, fecha FROM email_events WHERE campaign_id=$1 AND tipo='click' AND send_id = ANY($2::bigint[]) ORDER BY send_id, fecha", [id, conClic]),
+      pool.query('SELECT links FROM email_campaigns WHERE id=$1', [id]),
+    ]);
+    const nombres = nombresDeLinks((camp.rows[0] || {}).links || []);
+    const porEnvio = new Map();
+    for (const e of ev.rows) {
+      if (!porEnvio.has(e.send_id)) porEnvio.set(e.send_id, []);
+      porEnvio.get(e.send_id).push(e);
+    }
+    for (const [sendId, clics] of porEnvio) {
+      const cuenta = new Map();
+      for (const e of clics) {
+        const n = nombres.get(e.link) || { nombre: 'Link', url: null };
+        const x = cuenta.get(n.nombre) || { etiqueta: n.nombre, url: n.url, veces: 0 };
+        x.veces++;
+        cuenta.set(n.nombre, x);
+      }
+      tocados.set(sendId, { links: [...cuenta.values()].sort((x, y) => y.veces - x.veces), robot: esRobot(clics) });
+    }
+  }
+  const filas = rows.map(({ id: sendId, ...f }) => ({ ...f, links: (tocados.get(sendId) || {}).links || [], robot: !!(tocados.get(sendId) || {}).robot }));
+  return { filas, total: rows[0] ? rows[0].total : 0, pagina: p };
 }
 
 module.exports = {
   crear, duplicar, guardar, eliminar, recuperar, reprogramar, lista, una, vista, archivo, prueba, programar, pausar, seguir, cancelar, procesar, cuantos,
-  abrio, toco, destino, darDeBaja, avisoDelProveedor, reporte, mapa, actividad, preciosProgramados, productosDeCache, limpiarBloques, asuntoPara, personalizar, primerNombre, GIF, PLANTILLAS, urlBase,
+  abrio, toco, destino, darDeBaja, avisoDelProveedor, reporte, mapa, actividad, nombresDeLinks, esRobot, preciosProgramados, productosDeCache, limpiarBloques, asuntoPara, personalizar, primerNombre, GIF, PLANTILLAS, urlBase,
 };

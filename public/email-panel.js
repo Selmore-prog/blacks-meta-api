@@ -736,13 +736,22 @@ async function emReporte(id) {
 }
 window.emReporte = emReporte;
 
+/* Los links que tocó una persona, con las veces si fue más de una. */
+function emTocados(links, robot) {
+  if (!links || !links.length) return '';
+  const lista = links.map((l) => `<span title="${emE(l.url ? l.url.replace(/[?&]utm_[^&]*/g, '') : '')}">${emE(l.etiqueta)}${l.veces > 1 ? ` (${l.veces})` : ''}</span>`).join(' · ');
+  return robot
+    ? `<small class="em-robot">Probablemente el antivirus de su empresa: abrió varios links en el mismo segundo. ${lista}</small>`
+    : `<small class="em-tocados">Tocó: ${lista}</small>`;
+}
+
 async function emQuien(id, ver, pagina) {
   const cont = document.getElementById('em-quien');
   if (!cont) return;
   try {
     const r = await api(`/api/email/campanias/${id}/actividad?ver=${ver}&pagina=${pagina}`);
     const paginas = Math.ceil(r.total / 50);
-    cont.innerHTML = r.filas.length ? `<table class="em-tabla"><thead><tr><th>Persona</th><th>Abrió</th><th>Tocó</th></tr></thead><tbody>${r.filas.map((f) => `<tr><td><b>${emE(f.email)}</b><small>${emE(f.baja_en ? 'se dio de baja' : f.error || (f.enviado_en ? emFecha(f.enviado_en) : 'pendiente'))}</small></td><td>${f.aperturas || '—'}</td><td>${f.clicks || '—'}</td></tr>`).join('')}</tbody></table>
+    cont.innerHTML = r.filas.length ? `<table class="em-tabla"><thead><tr><th>Persona</th><th>Abrió</th><th>Tocó</th></tr></thead><tbody>${r.filas.map((f) => `<tr><td><b>${emE(f.email)}</b><small>${emE(f.baja_en ? 'se dio de baja' : f.error || (f.enviado_en ? emFecha(f.enviado_en) : 'pendiente'))}</small>${emTocados(f.links, f.robot)}</td><td>${f.aperturas || '—'}</td><td>${f.clicks || '—'}</td></tr>`).join('')}</tbody></table>
       ${paginas > 1 ? `<div class="em-paginas"><button class="btn-ghost btn-sm" ${pagina <= 1 ? 'disabled' : ''} onclick="emQuien(${id}, '${ver}', ${pagina - 1})">Anterior</button><span>${pagina} de ${paginas}</span><button class="btn-ghost btn-sm" ${pagina >= paginas ? 'disabled' : ''} onclick="emQuien(${id}, '${ver}', ${pagina + 1})">Siguiente</button></div>` : ''}` : '<p class="em-sub">Nadie por ahora.</p>';
   } catch (e) { cont.innerHTML = `<p class="em-sub em-mal">${emE(e.message)}</p>`; }
 }
