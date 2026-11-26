@@ -49,9 +49,17 @@ async function asegurar(cfg) {
   const nombre = nombreDe(cfg);
   const todas = await tnRequest('GET', `/categories?per_page=${POR_PAGINA}&fields=id,name,handle,parent`) || [];
   const igual = todas.find((c) => !Number(c.parent) && String((c.name && c.name.es) || '').trim().toLowerCase() === nombre.toLowerCase());
-  const c = igual || await tnRequest('POST', '/categories', { name: { es: nombre }, visibility: 'hidden' });
+  let c = igual || await tnRequest('POST', '/categories', { name: { es: nombre }, visibility: 'hidden' });
   if (!igual && c.visibility && c.visibility !== 'hidden') {
     await tnRequest('PUT', `/categories/${c.id}`, { visibility: 'hidden' }).catch(() => {});
+  }
+  // Tiendanube le agrega un sufijo al azar a la dirección (black-friday-2icfq,
+  // visto el 26-nov) aunque la limpia esté libre: se le pide la limpia y, si no
+  // se puede, queda la que dio.
+  const limpia = nombre.toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
+  if (!igual && limpia && handleDe(c) !== limpia) {
+    const otra = await tnRequest('PUT', `/categories/${c.id}`, { handle: { es: limpia } }).catch(() => null);
+    if (otra && handleDe(otra) === limpia) c = otra;
   }
   return { category_id: Number(c.id), handle: handleDe(c), nombre: (c.name && c.name.es) || nombre };
 }
