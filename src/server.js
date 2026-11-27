@@ -2233,7 +2233,8 @@ let attributionCache = { data: null, at: 0 };
 app.get('/api/metrics/attribution', wrap(async (req, res) => {
   const { runReport, isEnabled } = require('./analytics');
   if (!isEnabled()) return res.json({ enabled: false });
-  if (attributionCache.data && Date.now() - attributionCache.at < 60 * 60 * 1000) {
+  // 15 min: Analytics ya tarda horas en procesar las campañas; no sumarle una hora más.
+  if (attributionCache.data && Date.now() - attributionCache.at < 15 * 60 * 1000) {
     return res.json(attributionCache.data);
   }
 
@@ -2241,13 +2242,28 @@ app.get('/api/metrics/attribution', wrap(async (req, res) => {
   // contenido dice qué historia fue ('p<id del producto>' o 'portada').
   const report = await runReport({
     dateRanges: [{ startDate: '28daysAgo', endDate: 'today' }],
-    dimensions: [{ name: 'sessionCampaignName' }, { name: 'sessionManualAdContent' }],
+    // + la página de llegada: los links de las cadenas armadas antes del 27-nov dicen todos
+    // utm_content=cadena, pero cada uno lleva a la ficha de SU producto, así que la página
+    // de llegada igual dice qué historia fue.
+    dimensions: [{ name: 'sessionCampaignName' }, { name: 'sessionManualAdContent' }, { name: 'landingPage' }],
     metrics: [{ name: 'sessions' }, { name: 'ecommercePurchases' }, { name: 'purchaseRevenue' }],
     dimensionFilter: {
       filter: { fieldName: 'sessionCampaignName', stringFilter: { matchType: 'BEGINS_WITH', value: 'engine_' } },
     },
-    limit: 500,
+    limit: 1000,
   }).catch((err) => { console.warn('[server] Atribución GA falló:', err.message); return null; });
+
+  // Handle de la ficha → id del producto, para las llegadas sin utm_content propio.
+  const handles = [...new Set(((report && report.rows) || [])
+    .map((r) => (r.dimensionValues[2].value.match(/^\/productos\/([^/?#]+)/) || [])[1]).filter(Boolean))];
+  const porHandle = new Map();
+  if (handles.length) {
+    const { rows: hr } = await pool.query(
+      `SELECT id, COALESCE(permalink, raw->'handle'->>'es') AS handle FROM products_cache
+        WHERE COALESCE(permalink, raw->'handle'->>'es') = ANY($1)`, [handles]
+    );
+    hr.forEach((r) => porHandle.set(r.handle, Number(r.id)));
+  }
 
   const porCampana = new Map();
   for (const r of (report && report.rows) || []) {
@@ -2263,8 +2279,19 @@ app.get('/api/metrics/attribution', wrap(async (req, res) => {
     }
     const it = porCampana.get(campaign);
     it.sessions += m.sessions; it.purchases += m.purchases; it.revenue += m.revenue;
-    const prod = contenido.match(/^p(\d+)$/);
-    if (prod || contenido === 'portada') it.historias.push({ contenido, product_id: prod ? Number(prod[1]) : null, ...m });
+    const landing = r.dimensionValues[2].value;
+    let prod = contenido.match(/^p(\d+)$/);
+    let clave = prod || contenido === 'portada' ? contenido : null;
+    if (!clave && contenido === 'cadena') {
+      const handle = (landing.match(/^\/productos\/([^/?#]+)/) || [])[1];
+      if (handle && porHandle.has(handle)) { prod = [null, porHandle.get(handle)]; clave = `p${porHandle.get(handle)}`; }
+      else if (landing === '/' || landing === '') clave = 'portada';
+    }
+    if (clave) {
+      const ya = it.historias.find((h) => h.contenido === clave);
+      if (ya) { ya.sessions += m.sessions; ya.purchases += m.purchases; ya.revenue += m.revenue; }
+      else it.historias.push({ contenido: clave, product_id: prod ? Number(prod[1]) : null, ...m });
+    }
   }
   const parsed = [...porCampana.values()];
 
