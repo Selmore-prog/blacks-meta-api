@@ -2523,6 +2523,34 @@ app.get('/api/story-chain/products', wrap(async (req, res) => {
   res.json({ productos: await storyChain.productosDeCategoria(req.query.category) });
 }));
 
+// "Corregir esta historia": rehace UNA historia de la cadena (composición, otra foto del
+// producto, otro titular o escena con IA). Responde cuando está lista (segundos; con IA,
+// hasta ~30 s).
+app.post('/api/assets/:assetId/chain-story', wrap(async (req, res) => {
+  const id = intParam(req.params.assetId);
+  if (!id) return res.status(400).json({ error: 'assetId inválido' });
+  const body = req.body || {};
+  try {
+    const r = await storyChain.corregirHistoria({ assetId: id, index: body.index, ajustes: body });
+    res.json({ ok: true, ...r });
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    throw err;
+  }
+}));
+
+// Qué composiciones admite una foto del producto (el modal apaga las que no van).
+app.get('/api/story-chain/composiciones', wrap(async (req, res) => {
+  const productId = intParam(req.query.product);
+  if (!productId) return res.status(400).json({ error: 'Falta el producto.' });
+  try {
+    res.json(await storyChain.composicionesDeFoto(productId, typeof req.query.url === 'string' ? req.query.url : null));
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    throw err;
+  }
+}));
+
 app.post('/api/story-chain', wrap(async (req, res) => {
   const body = req.body || {};
   const slotId = Number(body.slot_id) > 0 ? Number(body.slot_id) : null;
@@ -2632,6 +2660,7 @@ app.post('/api/assets/:assetId/restore-version', wrap(async (req, res) => {
   // Sin versionId se vuelve a la última guardada (el "deshacer" de un clic).
   const versionId = req.body && req.body.versionId ? intParam(req.body.versionId) : null;
   const restored = await require('./assetVersions').restoreVersion(id, versionId);
+  await storyChain.sincronizarAjustes(id).catch(() => {}); // cadena: ajustes = los de la versión vuelta
   res.json({ ok: true, ...restored });
 }));
 

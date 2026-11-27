@@ -1298,9 +1298,12 @@ function openPreview(item) {
     const shots = storyChainShots(item);
     holder.insertAdjacentHTML('beforeend', `<button class="c-nav prev">‹</button><button class="c-nav next">›</button>`);
     const box = overlay.querySelector('.preview-box');
+    const editable = item.asset_id && statusOf(item) !== 'published';
     box.insertAdjacentHTML('beforeend', `<div class="slide-fix-bar sc-story-bar"><span class="sc-story-name"></span>
+      ${editable ? `<button class="btn-ghost btn-sm sc-story-fix">${icon('wand')} Corregir esta historia</button>` : ''}
       <button class="btn-ghost btn-sm sc-story-link">${icon('copy')} Copiar link</button>
-      ${item.asset_id && statusOf(item) !== 'published' ? `<button class="btn-ghost btn-sm sc-story-edit">${icon('edit')} Editar cadena</button>` : ''}</div>`);
+      ${editable ? `<button class="btn-ghost btn-sm sc-story-back">${icon('refresh')} Volver atrás</button>
+        <button class="btn-ghost btn-sm sc-story-edit">${icon('edit')} Editar cadena</button>` : ''}</div>`);
     const nameEl = box.querySelector('.sc-story-name');
     const linkBtn = box.querySelector('.sc-story-link');
     let actual = 0;
@@ -1321,6 +1324,21 @@ function openPreview(item) {
     });
     const edit = box.querySelector('.sc-story-edit');
     if (edit) edit.addEventListener('click', (e) => { e.stopPropagation(); overlay.remove(); openStoryChain(item); });
+    const fix = box.querySelector('.sc-story-fix');
+    if (fix) fix.addEventListener('click', (e) => {
+      e.stopPropagation();
+      openChainStoryFix(item, actual, (r) => {
+        // La historia nueva reemplaza a la vieja ahí mismo, sin cerrar la vista.
+        item.slides = r.slides; item.slides_meta = r.slides_meta; item.image_path = r.image_path;
+        const imgs = car.querySelectorAll('img');
+        r.slides.forEach((u, n) => { if (imgs[n] && imgs[n].getAttribute('src') !== u) imgs[n].src = u; });
+        shots.splice(0, shots.length, ...storyChainShots(item));
+        pintar();
+        reloadKeepScroll();
+      });
+    });
+    const back = box.querySelector('.sc-story-back');
+    if (back) back.addEventListener('click', (e) => { e.stopPropagation(); openVersionHistory(item, overlay); });
     pintar();
     return;
   }

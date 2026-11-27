@@ -83,6 +83,7 @@ function aTarjeta(r) {
     stock: r.stock === null ? null : Number(r.stock),
     sales_30d: Number(r.sales_30d) || 0,
     url: productUrl(r.permalink),
+    fotos: fotosDe(r).slice(0, 12),
     publicable: Boolean(r.image_url) && (r.stock === null || Number(r.stock) > 0) && r.published !== false && num(r.price) > 0,
   };
 }
@@ -156,6 +157,9 @@ function normalizarConfig(raw = {}) {
     arte: ARTES.includes(c.arte) ? c.arte : 'foto',
     portada: c.portada !== false,
     categoria_id: Number(c.categoria_id) > 0 ? Number(c.categoria_id) : null,
+    // Correcciones a mano por historia: { <product_id> | 'portada': { composicion, foto, titulo, arte } }.
+    ajustes: Object.fromEntries(Object.entries(c.ajustes && typeof c.ajustes === 'object' ? c.ajustes : {})
+      .map(([k, v]) => [k, normalizarAjustes(v)]).filter(([, v]) => Object.keys(v).length)),
   };
 }
 
@@ -227,6 +231,12 @@ async function crearSlot(body = {}) {
   // Editar la misma cadena, o reemplazar la historia que ya había ese día.
   const destino = slotId || (existente ? Number(existente.id) : null);
   if (destino) {
+    // Las correcciones a mano de cada historia se conservan al editar la cadena (las de
+    // los productos que siguen en la lista, y la de la portada).
+    const { rows: previa } = await pool.query('SELECT story_chain FROM content_calendar WHERE id = $1', [destino]);
+    const antes = previa[0] && previa[0].story_chain ? normalizarConfig(previa[0].story_chain).ajustes : {};
+    cfg.ajustes = Object.fromEntries(Object.entries(antes).filter(([k]) => k === 'portada' || ids.includes(Number(k))));
+    valores[8] = JSON.stringify(cfg);
     const { rows } = await pool.query(
       `UPDATE content_calendar
           SET scheduled_date = $2, scheduled_time = $3, theme_title = $4, pillar_detail = $5,
@@ -253,23 +263,122 @@ async function crearSlot(body = {}) {
   return { slot: rows[0] };
 }
 
+/** Las fotos del producto (la principal primero), como URLs. */
+function fotosDe(fila) {
+  const extra = (Array.isArray(fila.images) ? fila.images : [])
+    .map((x) => (typeof x === 'string' ? x : x && (x.src || x.url)))
+    .filter(Boolean);
+  return [...new Set([fila.image_url, ...extra].filter(Boolean))];
+}
+
+const COMPOSICIONES = ['estudio_abajo', 'estudio_arriba', 'estudio_lado', 'estudio_escena'];
+
+/** Ajustes a mano de UNA historia ("Corregir esta historia"), saneados. */
+function normalizarAjustes(raw = {}) {
+  const a = raw && typeof raw === 'object' ? raw : {};
+  const out = {};
+  if (COMPOSICIONES.includes(a.composicion)) out.composicion = a.composicion;
+  if (typeof a.foto === 'string' && /^https:\/\//.test(a.foto)) out.foto = a.foto.slice(0, 600);
+  const titulo = texto(a.titulo, 34);
+  if (titulo) out.titulo = titulo;
+  if (ARTES.includes(a.arte)) out.arte = a.arte;
+  return out;
+}
+
+const linkDe = (slotId, url) => (url ? utmLink(url, { calendarId: slotId, pillar: 'cadena' }) : null);
+
+/** Renderiza la PORTADA: afiche oscuro con el nombre de la cadena y las prendas en fila. */
+async function renderPortada(slot, cfg, usables, sello, ajustes = {}) {
+  const { renderPostBuffer } = require('./imageRenderer');
+  const offs = usables.map((x) => x.card.off).filter(Boolean);
+  const maxOff = offs.length ? Math.max(...offs) : null;
+  const r = await renderPostBuffer({
+    format: 'story',
+    template: 'estudio_titular',
+    overlayTitle: ajustes.titulo || cfg.nombre,
+    badgeText: maxOff ? `Hasta ${maxOff}% OFF` : 'Hoy',
+    deck: `${usables.length} productos${maxOff ? ' con descuento' : ''}. Pasá para ver cada precio.`,
+    hasProduct: false,
+    ctaLabel: 'Deslizá',
+    productImageUrls: usables.map((x) => x.card.image_url).filter(Boolean).slice(0, 4),
+    pillar: 'promo',
+    layoutSeed: Number(slot.id),
+    filename: `cadena-${slot.id}-${sello}-00.jpg`,
+  });
+  const shot = { kind: 'portada', name: `Portada · ${cfg.nombre}`, link: linkDe(slot.id, `https://${config.brand.site}`) };
+  if (Object.keys(ajustes).length) shot.ajustes = ajustes;
+  return { url: r.url, costo: r.costUsd || 0, shot };
+}
+
+/** Renderiza la historia de UN producto, con los ajustes a mano si los tiene. */
+async function renderHistoria(slot, cfg, { fila, card }, n, sello, ajustes = {}) {
+  const { renderPostBuffer, extractSpecTags } = require('./imageRenderer');
+  const studio = require('./templatesStudio');
+  const fotos = fotosDe(fila);
+  // Sólo una foto DEL producto: la URL viene del panel y la abre el navegador del render.
+  const principal = ajustes.foto && fotos.includes(ajustes.foto) ? ajustes.foto : card.image_url;
+  const arte = ajustes.arte || cfg.arte;
+  const r = await renderPostBuffer({
+    format: 'story',
+    // Foto arriba y texto abajo (como la historia que se tomó de modelo). Si la foto
+    // pide otra composición (prenda ancha, escena), el sistema Estudio la corrige solo,
+    // salvo que el dueño la haya fijado a mano.
+    template: ajustes.composicion || 'estudio_abajo',
+    composicionFija: Boolean(ajustes.composicion),
+    overlayTitle: ajustes.titulo || titularDe(cfg, fila),
+    displayTitle: studio.nombreCorto(fila.name),
+    productName: fila.name,
+    hasProduct: true,
+    badgeText: cfg.volanta,
+    price: card.price,
+    promoPrice: card.off ? card.promo_price : null,
+    specs: datosDe(extractSpecTags, fila),
+    ctaLabel: cfg.cta,
+    productImageUrl: principal,
+    productImageUrls: fotos.filter((u) => u !== principal).slice(0, 3),
+    useAiProductScene: arte === 'ia',
+    bgTheme: fila.name,
+    pillar: 'promo',
+    layoutSeed: Number(slot.id) + n,
+    filename: `cadena-${slot.id}-${sello}-${String(n).padStart(2, '0')}.jpg`,
+  });
+  const shot = {
+    kind: 'producto',
+    product_id: card.id,
+    name: fila.name,
+    price: card.price,
+    promo_price: card.off ? card.promo_price : null,
+    off: card.off,
+    url: card.url,
+    link: linkDe(slot.id, card.url),
+    comp: r.studioComp || null,
+  };
+  if (Object.keys(ajustes).length) shot.ajustes = ajustes;
+  return { url: r.url, costo: r.costUsd || 0, shot };
+}
+
+async function productosUsables(slot) {
+  const filas = await productosPorId(slot.forced_product_ids);
+  const productos = filas.map((r) => ({ fila: r, card: aTarjeta(r) }));
+  return {
+    usables: productos.filter((x) => x.card.publicable),
+    fuera: productos.filter((x) => !x.card.publicable).map((x) => x.card.name),
+  };
+}
+
 /**
  * Genera las historias de un slot de cadena y guarda la pieza (una imagen por historia
  * en `slides`, con el producto y su link en `slides_meta`). La llama generateForSlot,
  * así que la usan igual el botón "Rehacer", la generación diaria y la creación.
+ * Los ajustes a mano de cada historia (cfg.ajustes) se respetan al rehacer la cadena.
  */
 async function generarParaSlot(slot, overrides = {}) {
-  // Carga perezosa: el renderer levanta Puppeteer y no hace falta para listar categorías.
-  const { renderPostBuffer, extractSpecTags } = require('./imageRenderer');
   const studio = require('./templatesStudio');
   const cfg = normalizarConfig(slot.story_chain);
   if (overrides.artMode === 'generativa') cfg.arte = 'ia';
   else if (overrides.artMode === 'foto' || overrides.artMode === 'tipografica') cfg.arte = 'foto';
 
-  const filas = await productosPorId(slot.forced_product_ids);
-  const productos = filas.map((r) => ({ fila: r, card: aTarjeta(r) }));
-  const fuera = productos.filter((x) => !x.card.publicable).map((x) => x.card.name);
-  const usables = productos.filter((x) => x.card.publicable);
+  const { usables, fuera } = await productosUsables(slot);
   if (!usables.length) {
     throw new Error('Ninguno de los productos de la cadena tiene stock, foto y precio. Sincronizá el catálogo o elegí otros.');
   }
@@ -279,72 +388,15 @@ async function generarParaSlot(slot, overrides = {}) {
   const shots = [];
   let costo = 0;
   const sello = Date.now();
-  const linkDe = (url) => (url ? utmLink(url, { calendarId: slot.id, pillar: 'cadena' }) : null);
-
-  // PORTADA: afiche oscuro con el nombre de la cadena y las prendas en fila.
   if (cfg.portada && usables.length > 1) {
-    const offs = usables.map((x) => x.card.off).filter(Boolean);
-    const maxOff = offs.length ? Math.max(...offs) : null;
-    const r = await renderPostBuffer({
-      format: 'story',
-      template: 'estudio_titular',
-      overlayTitle: cfg.nombre,
-      badgeText: maxOff ? `Hasta ${maxOff}% OFF` : 'Hoy',
-      deck: `${usables.length} productos${maxOff ? ' con descuento' : ''}. Pasá para ver cada precio.`,
-      hasProduct: false,
-      ctaLabel: 'Deslizá',
-      productImageUrls: usables.map((x) => x.card.image_url).filter(Boolean).slice(0, 4),
-      pillar: 'promo',
-      layoutSeed: Number(slot.id),
-      filename: `cadena-${slot.id}-${sello}-00.jpg`,
-    });
-    slides.push(r.url);
-    shots.push({ kind: 'portada', name: `Portada · ${cfg.nombre}`, link: linkDe(`https://${config.brand.site}`) });
-    costo += r.costUsd || 0;
+    const r = await renderPortada(slot, cfg, usables, sello, cfg.ajustes.portada);
+    slides.push(r.url); shots.push(r.shot); costo += r.costo;
   }
-
   // Una a la vez a propósito: Render tiene 512 MB y cada historia abre una página de
   // Chromium (el semáforo del renderer igual limita a 2, pero no hay apuro).
   for (let i = 0; i < usables.length; i += 1) {
-    const { fila, card } = usables[i];
-    const otras = (Array.isArray(fila.images) ? fila.images : [])
-      .map((x) => (typeof x === 'string' ? x : x && (x.src || x.url)))
-      .filter((u) => u && u !== card.image_url)
-      .slice(0, 3);
-    const r = await renderPostBuffer({
-      format: 'story',
-      // Foto arriba y texto abajo (como la historia que se tomó de modelo). Si la foto
-      // pide otra composición (prenda ancha, escena), el sistema Estudio la corrige solo.
-      template: 'estudio_abajo',
-      overlayTitle: titularDe(cfg, fila),
-      displayTitle: studio.nombreCorto(fila.name),
-      productName: fila.name,
-      hasProduct: true,
-      badgeText: cfg.volanta,
-      price: card.price,
-      promoPrice: card.off ? card.promo_price : null,
-      specs: datosDe(extractSpecTags, fila),
-      ctaLabel: cfg.cta,
-      productImageUrl: card.image_url,
-      productImageUrls: otras,
-      useAiProductScene: cfg.arte === 'ia',
-      bgTheme: fila.name,
-      pillar: 'promo',
-      layoutSeed: Number(slot.id) + i + 1,
-      filename: `cadena-${slot.id}-${sello}-${String(i + 1).padStart(2, '0')}.jpg`,
-    });
-    slides.push(r.url);
-    costo += r.costUsd || 0;
-    shots.push({
-      kind: 'producto',
-      product_id: card.id,
-      name: fila.name,
-      price: card.price,
-      promo_price: card.off ? card.promo_price : null,
-      off: card.off,
-      url: card.url,
-      link: linkDe(card.url),
-    });
+    const r = await renderHistoria(slot, cfg, usables[i], i + 1, sello, cfg.ajustes[usables[i].card.id]);
+    slides.push(r.url); shots.push(r.shot); costo += r.costo;
   }
 
   const lineas = usables.map(({ card }) => `• ${studio.nombreCorto(card.name)}: ${money(card.off ? card.promo_price : card.price)}${card.off ? ` (antes ${money(card.price)}, ${card.off}% OFF)` : ''}`);
@@ -359,8 +411,113 @@ async function generarParaSlot(slot, overrides = {}) {
   const { cancelQueuedForCalendar } = require('./publishService');
   await cancelQueuedForCalendar(slot.id).catch(() => {});
   await pool.query(`UPDATE content_calendar SET status = 'draft' WHERE id = $1 AND status <> 'published'`, [slot.id]);
-  console.log(`[cadena] Slot #${slot.id} (${cfg.nombre}): ${slides.length} historias${cfg.arte === 'ia' ? ` · IA US$${costo.toFixed(2)}` : ''}${fuera.length ? ` · ${fuera.length} fuera por stock/foto` : ''}`);
+  console.log(`[cadena] Slot #${slot.id} (${cfg.nombre}): ${slides.length} historias${costo > 0 ? ` · IA US$${costo.toFixed(2)}` : ''}${fuera.length ? ` · ${fuera.length} fuera por stock/foto` : ''}`);
   return { slides: slides.length, costo, fuera };
+}
+
+/**
+ * "CORREGIR ESTA HISTORIA": rehace UNA historia de la cadena con lo que eligió el dueño
+ * (composición, otra foto del producto, otro titular, escena con IA) sin tocar las demás.
+ * Guarda la versión anterior (Volver atrás) y anota el ajuste en la cadena para que
+ * "Rehacer cadena" no lo pierda.
+ */
+async function corregirHistoria({ assetId, index, ajustes: crudos }) {
+  const { rows } = await pool.query(
+    `SELECT a.*, c.story_chain, c.forced_product_ids
+       FROM generated_assets a JOIN content_calendar c ON c.id = a.calendar_id
+      WHERE a.id = $1`, [assetId]
+  );
+  const asset = rows[0];
+  if (!asset) throw Object.assign(new Error('No existe esa pieza.'), { status: 404 });
+  const receta = recetaDe(asset);
+  const slides = Array.isArray(asset.slides) ? [...asset.slides] : [];
+  if (!receta || !asset.story_chain) throw Object.assign(new Error('Esta pieza no es una cadena de historias.'), { status: 400 });
+  if (asset.status === 'published') throw Object.assign(new Error('La cadena ya está publicada: no se puede corregir.'), { status: 409 });
+  const i = Number(index);
+  if (!Number.isInteger(i) || i < 0 || i >= slides.length) throw Object.assign(new Error('Historia inválida.'), { status: 400 });
+
+  const slot = { id: asset.calendar_id, forced_product_ids: asset.forced_product_ids, story_chain: asset.story_chain };
+  const cfg = normalizarConfig(asset.story_chain);
+  const shot = receta.shots[i] || {};
+  const ajustes = normalizarAjustes(crudos);
+  const sello = Date.now();
+  const { usables } = await productosUsables(slot);
+  let r;
+  let clave;
+  if (shot.kind === 'portada') {
+    clave = 'portada';
+    r = await renderPortada(slot, cfg, usables, sello, ajustes.titulo ? { titulo: ajustes.titulo } : {});
+  } else {
+    clave = String(shot.product_id);
+    const prod = usables.find((x) => x.card.id === Number(shot.product_id))
+      || (await productosPorId([shot.product_id])).map((f) => ({ fila: f, card: aTarjeta(f) }))[0];
+    if (!prod) throw Object.assign(new Error('El producto de esa historia ya no está en el catálogo.'), { status: 409 });
+    r = await renderHistoria(slot, cfg, prod, i, sello, ajustes);
+  }
+
+  await require('./assetVersions').snapshotAsset(asset.id, `Historia ${i + 1}: antes de corregirla`);
+  slides[i] = r.url;
+  const shots = [...receta.shots];
+  shots[i] = r.shot;
+  const meta = { ...receta, shots };
+  await pool.query(
+    `UPDATE generated_assets SET slides = $2::jsonb, slides_meta = $3::jsonb, image_path = $4,
+            est_cost_usd = COALESCE(est_cost_usd, 0) + $5, updated_at = now()
+      WHERE id = $1`,
+    [asset.id, JSON.stringify(slides), JSON.stringify(meta), slides[0], r.costo]
+  );
+  // El ajuste queda en la cadena: si después se rehace entera, esta historia sale igual.
+  const nuevaCfg = { ...cfg, ajustes: { ...cfg.ajustes } };
+  if (Object.keys(r.shot.ajustes || {}).length) nuevaCfg.ajustes[clave] = r.shot.ajustes;
+  else delete nuevaCfg.ajustes[clave];
+  await pool.query('UPDATE content_calendar SET story_chain = $2::jsonb WHERE id = $1', [asset.calendar_id, JSON.stringify(nuevaCfg)]);
+  console.log(`[cadena] Asset #${asset.id}: historia ${i + 1} corregida ${JSON.stringify(ajustes)}${r.costo ? ` · IA US$${r.costo.toFixed(2)}` : ''}`);
+  return { slides, slides_meta: meta, image_path: slides[0], costo: r.costo };
+}
+
+/**
+ * Qué composiciones se pueden elegir a mano con ESTA foto del producto (el panel apaga
+ * las demás). Sólo fotos del propio producto: la URL la abre el servidor para medirla.
+ */
+async function composicionesDeFoto(productId, url) {
+  const [fila] = await productosPorId([productId]);
+  if (!fila) throw Object.assign(new Error('No existe ese producto.'), { status: 404 });
+  const foto = url && fotosDe(fila).includes(url) ? url : fila.image_url;
+  const analysis = await require('./photoStage').analyzeUrl(foto);
+  const studio = require('./templatesStudio');
+  const t = (analysis && analysis.touches) || {};
+  const corte = t.top && t.bottom ? 'viene cortada arriba y abajo'
+    : t.top ? 'viene cortada arriba' : t.bottom ? 'viene cortada abajo' : null;
+  return {
+    foto,
+    validas: analysis ? studio.composicionesManuales(analysis, 'story') : [],
+    automatica: analysis ? studio.composiciones(analysis, 'story')[0] : null,
+    corte,
+    estudio: Boolean(analysis && analysis.studio),
+  };
+}
+
+/**
+ * Después de "Volver atrás" en una cadena: los ajustes guardados en la cadena pasan a ser
+ * los de la versión restaurada, para que "Rehacer cadena" no reviva una corrección
+ * que se deshizo.
+ */
+async function sincronizarAjustes(assetId) {
+  const { rows } = await pool.query(
+    `SELECT a.slides_meta, a.calendar_id, c.story_chain FROM generated_assets a
+       JOIN content_calendar c ON c.id = a.calendar_id WHERE a.id = $1`, [assetId]
+  );
+  const r = rows[0];
+  const receta = r && recetaDe(r);
+  if (!receta || !r.story_chain) return;
+  const cfg = normalizarConfig(r.story_chain);
+  cfg.ajustes = {};
+  receta.shots.forEach((sh) => {
+    const a = normalizarAjustes(sh.ajustes);
+    if (!Object.keys(a).length) return;
+    cfg.ajustes[sh.kind === 'portada' ? 'portada' : String(sh.product_id)] = a;
+  });
+  await pool.query('UPDATE content_calendar SET story_chain = $2::jsonb WHERE id = $1', [r.calendar_id, JSON.stringify(cfg)]);
 }
 
 /** La receta guardada de una cadena ({ mode:'cadena', shots }) o null si no es cadena. */
@@ -372,5 +529,5 @@ function recetaDe(asset) {
 
 module.exports = {
   ensureSchema, categorias, productosDeCategoria, productosPorId: async (ids) => (await productosPorId(ids)).map(aTarjeta),
-  crearSlot, generarParaSlot, recetaDe, normalizarConfig, productUrl, MAX_PRODUCTOS,
+  crearSlot, generarParaSlot, corregirHistoria, sincronizarAjustes, composicionesDeFoto, recetaDe, normalizarConfig, productUrl, MAX_PRODUCTOS,
 };

@@ -253,7 +253,12 @@ function composiciones(analysis, format) {
   const b = analysis.bbox;
   const aspecto = ((b.x1 - b.x0) * analysis.aspect) / (b.y1 - b.y0); // ancho/alto real de la prenda
   const story = format === 'story';
-  if (t.top && t.bottom) return ['estudio_lado'];
+  /* Cortada arriba Y abajo: va al costado, a todo el alto. Pero en una HISTORIA la
+     columna de la foto mide ~600 x 1920 y sólo la llena una prenda muy angosta: el jean
+     de la cadena de Black Friday (foto cuadrada, cintura a zapatos) quedaba a media
+     altura con ~800 px de papel vacío arriba y la línea del corte flotando. Ahí va
+     grande arriba, a todo el ancho, fundida en el papel donde va el texto. */
+  if (t.top && t.bottom) return story && aspecto > 0.36 ? ['estudio_escena'] : ['estudio_lado'];
   const out = [];
   if (aspecto < 0.62 && !story) out.push('estudio_lado');
   if (!t.bottom) out.push('estudio_abajo');
@@ -262,8 +267,21 @@ function composiciones(analysis, format) {
   return out.length ? out : ['estudio_escena'];
 }
 
-function resolverComposicion(template, analysis, format) {
+/**
+ * Las que se pueden ELEGIR A MANO para esta foto ("Corregir esta historia" de la
+ * cadena): las automáticas más la foto grande fundida, que con una foto de estudio
+ * siempre funciona (va arriba a todo el ancho y se funde en el papel del texto). Las
+ * demás no: "texto arriba" con una foto cortada en la cintura dejaba el pantalón
+ * encima del titular (probado el 27-nov).
+ */
+function composicionesManuales(analysis, format) {
+  const base = composiciones(analysis, format);
+  return analysis && analysis.studio && !base.includes('estudio_escena') ? [...base, 'estudio_escena'] : base;
+}
+
+function resolverComposicion(template, analysis, format, fija = false) {
   if (template === 'estudio_titular' || template === 'estudio_linea') return template;
+  if (fija && composicionesManuales(analysis, format).includes(template)) return template;
   const validas = composiciones(analysis, format);
   return validas.includes(template) ? template : validas[0];
 }
@@ -473,7 +491,7 @@ function banda(opts, G, def) {
 
 function buildEstudio(opts, G, f) {
   const a = f.analysis;
-  const comp = resolverComposicion(opts.template, a, opts.format);
+  const comp = resolverComposicion(opts.template, a, opts.format, opts.composicionFija);
   if (comp === 'estudio_escena') return buildEscena({ ...opts, template: opts.template }, G, f);
   const t = a.touches || {};
   const lienzo = { x: 0, y: 0, w: G.W, h: G.H };
@@ -915,6 +933,6 @@ async function renderOnPage(page, opts, { waitUntil = 'networkidle0', timeout = 
 }
 
 module.exports = {
-  NAMES, INFO, REQUIREMENTS, isStudio, buildHtml, fitText, renderOnPage, composiciones, resolverComposicion,
+  NAMES, INFO, REQUIREMENTS, isStudio, buildHtml, fitText, renderOnPage, composiciones, composicionesManuales, resolverComposicion,
   llenaCuadro, escenificar, titulares, conTildes, oracion, marcaDe, nombreCorto, sceneBrief, luzEnBanda, geometry, PAPER, INK, ACCENT,
 };

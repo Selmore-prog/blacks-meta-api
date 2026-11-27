@@ -331,3 +331,130 @@ function openChainManualPublish(data) {
     for (let i = 0; i < stories.length; i += 1) await saveFile(stories[i].image_url, nombre(i));
   });
 }
+
+/* ---------------------------------------------------------------------------
+ * CORREGIR UNA HISTORIA DE LA CADENA (pedido del 27-nov: "la primera foto quedó
+ * rara, con mucho espacio en blanco; poner algo para corregir esas cosas en la
+ * pieza de la cadena"). Rehace SÓLO esa historia: cómo se acomoda la foto, otra
+ * foto del producto, otro titular o escena con IA. Queda guardada la anterior
+ * (Volver atrás) y el ajuste se respeta si después se rehace la cadena entera.
+ * ------------------------------------------------------------------------- */
+const SC_COMPOSICIONES = [
+  { v: '', t: 'Automática', d: 'La elige el sistema según cómo viene cortada la foto' },
+  { v: 'estudio_abajo', t: 'Foto arriba, texto abajo', d: 'La prenda arriba y el precio abajo' },
+  { v: 'estudio_arriba', t: 'Texto arriba, foto abajo', d: 'Para calzado, remeras y prendas anchas' },
+  { v: 'estudio_escena', t: 'Foto grande, fundida', d: 'A todo el ancho, se funde con el fondo del texto' },
+  { v: 'estudio_lado', t: 'Texto al costado', d: 'Sólo para prendas largas y angostas' },
+];
+
+async function openChainStoryFix(item, index, onDone) {
+  const shots = storyChainShots(item);
+  const shot = shots[index] || {};
+  const slides = parseSlides(item.slides) || [];
+  const portada = shot.kind === 'portada';
+  const previo = shot.ajustes || {};
+  const st = { composicion: previo.composicion || '', foto: previo.foto || '', fotos: [] };
+
+  const body = `
+    <div class="sc-fix">
+      <img class="sc-fix-actual" src="${scAttr(slides[index] || '')}" alt="Historia actual"/>
+      <div class="sc-fix-form">
+        <p class="hint" style="margin-top:0;">Historia ${index + 1} de ${slides.length} · <b>${esc(shot.name || '')}</b>. Se rehace sólo ésta; la de ahora queda guardada en <b>Volver atrás</b>.</p>
+        ${portada ? '' : `
+        <div class="field"><label>Cómo se acomoda la foto</label>
+          <p class="hint" id="scf-comp-hint" style="margin:0 0 6px;"></p>
+          <div class="sc-comp">${SC_COMPOSICIONES.map((c) => `<button type="button" class="sc-comp-opt${c.v === st.composicion ? ' on' : ''}" data-v="${c.v}"><b>${esc(c.t)}</b><small>${esc(c.d)}</small></button>`).join('')}</div>
+        </div>
+        <div class="field"><label>Foto del producto</label><div class="sc-fotos" id="scf-fotos">${skeleton('rows', 1)}</div></div>`}
+        <div class="field"><label>Titular ${portada ? '' : '(vacío = el de la cadena)'}</label>
+          <input class="input" id="scf-titulo" maxlength="34" value="${scAttr(previo.titulo || '')}" placeholder="${portada ? 'BLACK FRIDAY' : (shot.off ? `${shot.off}% OFF` : 'Titular')}" /></div>
+        ${portada ? '' : `<label class="check-row"><input type="checkbox" id="scf-ia" ${previo.arte === 'ia' ? 'checked' : ''}/> Escena con IA sólo para esta historia · ${scAttr(scCostoIa())}</label>`}
+        <div style="display:flex; gap:8px; justify-content:flex-end; margin-top:14px;">
+          <button class="btn-discard" id="scf-cancel">Cancelar</button>
+          <button class="btn-primary" id="scf-go">${icon('wand')} Rehacer esta historia</button>
+        </div>
+      </div>
+    </div>`;
+  const ov = showInfoModal('Corregir esta historia', body);
+  ov.querySelector('.modal').classList.add('sc-modal');
+  const $ = (sel) => ov.querySelector(sel);
+  $('#scf-cancel').addEventListener('click', () => ov.remove());
+  const marcarComp = () => ov.querySelectorAll('.sc-comp-opt').forEach((x) => x.classList.toggle('on', x.dataset.v === st.composicion));
+  ov.querySelectorAll('.sc-comp-opt').forEach((b) => b.addEventListener('click', () => {
+    if (b.disabled) return;
+    st.composicion = b.dataset.v;
+    marcarComp();
+  }));
+
+  /* Cada foto admite algunas composiciones y no otras (una foto cortada en la cintura no
+     puede ir con el texto arriba: el pantalón queda encima del titular). Se mide la foto
+     elegida y se apagan las que no van; el servidor igual lo controla. */
+  let pedido = 0;
+  async function revisarComposiciones() {
+    if (portada || !shot.product_id) return;
+    const n = ++pedido;
+    const hint = $('#scf-comp-hint');
+    hint.textContent = 'Mirando cómo viene la foto…';
+    try {
+      const r = await api(`/api/story-chain/composiciones?product=${shot.product_id}${st.foto ? `&url=${encodeURIComponent(st.foto)}` : ''}`);
+      if (n !== pedido) return;
+      const validas = new Set(r.validas || []);
+      ov.querySelectorAll('.sc-comp-opt').forEach((b) => {
+        const ok = !b.dataset.v || validas.has(b.dataset.v);
+        b.disabled = !ok;
+        b.title = ok ? '' : `No va con esta foto${r.corte ? ` (${r.corte})` : ''}`;
+      });
+      if (st.composicion && !validas.has(st.composicion)) { st.composicion = ''; marcarComp(); }
+      const auto = SC_COMPOSICIONES.find((c) => c.v === r.automatica);
+      hint.textContent = !r.estudio ? 'Esta foto no es de estudio: va a sangre, con el texto encima.'
+        : `${r.corte ? `La foto ${r.corte}. ` : ''}${auto ? `Automática = ${auto.t.toLowerCase()}. ` : ''}Las apagadas no van con esta foto.`;
+    } catch (_) {
+      if (n === pedido) hint.textContent = '';
+    }
+  }
+
+  // Fotos del producto: la elegida (o la principal) marcada.
+  if (!portada && shot.product_id) {
+    try {
+      const r = await api(`/api/story-chain/products?ids=${shot.product_id}`);
+      st.fotos = ((r.productos || [])[0] || {}).fotos || [];
+    } catch (_) { st.fotos = []; }
+    const cont = $('#scf-fotos');
+    if (cont) {
+      const actual = st.foto || st.fotos[0];
+      cont.innerHTML = st.fotos.length
+        ? st.fotos.map((u) => `<button type="button" class="sc-foto${u === actual ? ' on' : ''}" data-u="${scAttr(u)}"><img src="${scAttr(u)}" alt="" loading="lazy"/></button>`).join('')
+        : '<p class="hint">Este producto tiene una sola foto.</p>';
+      cont.querySelectorAll('.sc-foto').forEach((b) => b.addEventListener('click', () => {
+        st.foto = b.dataset.u === st.fotos[0] ? '' : b.dataset.u; // la principal = sin ajuste
+        cont.querySelectorAll('.sc-foto').forEach((x) => x.classList.toggle('on', x === b));
+        revisarComposiciones();
+      }));
+    }
+    revisarComposiciones();
+  }
+
+  $('#scf-go').addEventListener('click', async () => {
+    const go = $('#scf-go');
+    const ia = !portada && $('#scf-ia').checked;
+    go.disabled = true; go.innerHTML = `${icon('refresh', 'spin')} ${ia ? 'Generando la escena (hasta 30 s)…' : 'Rehaciendo…'}`;
+    try {
+      const r = await api(`/api/assets/${item.asset_id}/chain-story`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          index,
+          composicion: portada ? '' : st.composicion,
+          foto: portada ? '' : st.foto,
+          titulo: $('#scf-titulo').value.trim(),
+          arte: ia ? 'ia' : '',
+        }),
+      });
+      ov.remove();
+      toast(`Historia ${index + 1} rehecha`, 'ok');
+      if (onDone) onDone(r);
+    } catch (err) {
+      toast(`No pude rehacerla: ${err.message}`, 'err');
+      go.disabled = false; go.innerHTML = `${icon('wand')} Rehacer esta historia`;
+    }
+  });
+}
