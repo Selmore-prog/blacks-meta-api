@@ -43,6 +43,20 @@
         "/private/tmp/claude-501/-Users-sebastianelmore-tiendanube-tpl/bc8b34f5-c856-44f2-aa89-0268614a3794/scratchpad"
       ],
       "port": 4607
+    },
+    {
+      "name": "motor-sin-mails",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "EMAIL_PROVIDER=apagado",
+        "RESEND_API_KEY=",
+        "EMAIL_SES_KEY=",
+        "EMAIL_SES_SECRET=",
+        "PORT=8093",
+        "npm",
+        "start"
+      ],
+      "port": 8093
     }
   ]
 }

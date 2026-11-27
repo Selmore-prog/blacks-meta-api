@@ -51,6 +51,7 @@ const storeHome = require('./storeHome');
 const storeCategories = require('./storeCategories');
 const whatsappChannel = require('./whatsappChannel');
 const whatsappVisual = require('./whatsappVisual');
+const storyChain = require('./storyChain');
 const emailRutas = require('./email/rutas');
 const emailCampanas = require('./email/campanas');
 
@@ -2437,7 +2438,9 @@ app.post('/api/generate/:calendarId', wrap(async (req, res) => {
   const body = req.body || {};
   const newDetail = typeof body.pillarDetail === 'string' ? body.pillarDetail.trim() : null;
   const newTheme = typeof body.theme === 'string' ? body.theme.trim() : null;
-  const hasProductSelection = body.productIds !== undefined || body.product_ids !== undefined || body.product_id !== undefined;
+  // En una cadena de historias los productos se cambian desde "Editar cadena" (hasta 15);
+  // acá la lista tiene tope de 4 y la recortaría.
+  const hasProductSelection = !slot.story_chain && (body.productIds !== undefined || body.product_ids !== undefined || body.product_id !== undefined);
   const selectedProductIds = hasProductSelection
     ? idListParam(body.productIds ?? body.product_ids, body.product_id)
     : null;
@@ -2469,6 +2472,16 @@ app.post('/api/generate/:calendarId', wrap(async (req, res) => {
   // una imagen por slide. Sólo aplica si el slot es carrusel; si no, se ignora sola.
   const carouselStyle = ['continuo', 'clasico'].includes(body.carouselStyle) ? body.carouselStyle : null;
 
+  await generateInBackground(slot, { pillarDetail: newDetail || slot.pillar_detail, template, artMode, artBrief, carouselStyle });
+  res.json({ ok: true, generating: true });
+}));
+
+/**
+ * Genera la pieza de un slot en segundo plano: se responde ya y el panel muestra
+ * "generando" y poolea /api/generating. Lo usan "Generar/Rehacer" y la cadena de historias.
+ */
+async function generateInBackground(slot, overrides = {}) {
+  const id = slot.id;
   // Guardamos qué versiones había ANTES: recién las descartamos si la nueva sale bien.
   // (Antes se descartaba primero y, si la generación en segundo plano fallaba, la pieza
   // quedaba "descartada" sin reemplazo y no se podía aprobar — bug real jul-2026.)
@@ -2477,13 +2490,10 @@ app.post('/api/generate/:calendarId', wrap(async (req, res) => {
   );
   const prevIds = prevRows.map((r) => r.id);
 
-  // Segundo plano: respondemos ya (el panel muestra "generando" y poolea /api/generating).
   generatingSlots.set(id, { startedAt: Date.now(), error: null });
-  const slotForGen = slot;
-  const detailForGen = newDetail || slot.pillar_detail;
   (async () => {
     try {
-      await generateForSlot(slotForGen, { pillarDetail: detailForGen, template, artMode, artBrief, carouselStyle });
+      await generateForSlot(slot, overrides);
       // La nueva se creó OK → recién ahora descartamos las viejas y limpiamos su cola.
       if (prevIds.length) {
         await pool.query(`UPDATE generated_assets SET status = 'discarded', updated_at = now() WHERE id = ANY($1)`, [prevIds]);
@@ -2497,8 +2507,39 @@ app.post('/api/generate/:calendarId', wrap(async (req, res) => {
       setTimeout(() => { const cur = generatingSlots.get(id); if (cur && cur.error) generatingSlots.delete(id); }, 30000);
     }
   })();
+}
 
-  res.json({ ok: true, generating: true });
+/* ---------------- CADENA DE HISTORIAS (ver src/storyChain.js) ----------------
+   Varias historias seguidas, una por producto (por ej. los de la categoría Black
+   Friday), con la foto real, el % OFF y el precio. Ocupa la historia del día. */
+app.get('/api/story-chain/categories', wrap(async (req, res) => {
+  res.json(await storyChain.categorias());
+}));
+
+app.get('/api/story-chain/products', wrap(async (req, res) => {
+  if (req.query.ids) {
+    return res.json({ productos: await storyChain.productosPorId(String(req.query.ids).split(',')) });
+  }
+  res.json({ productos: await storyChain.productosDeCategoria(req.query.category) });
+}));
+
+app.post('/api/story-chain', wrap(async (req, res) => {
+  const body = req.body || {};
+  const slotId = Number(body.slot_id) > 0 ? Number(body.slot_id) : null;
+  if (slotId && generatingSlots.has(slotId) && !generatingSlots.get(slotId).error) {
+    return res.status(409).json({ error: 'Esta cadena ya se está generando.' });
+  }
+  let r;
+  try {
+    r = await storyChain.crearSlot(body);
+  } catch (err) {
+    if (err.status) return res.status(err.status).json({ error: err.message });
+    throw err;
+  }
+  // El día ya tiene una historia: el panel pregunta si se reemplaza.
+  if (r.conflicto) return res.status(409).json({ error: 'Ese día ya tiene una historia.', conflicto: r.conflicto });
+  await generateInBackground(r.slot);
+  res.json({ ok: true, slot: r.slot, generating: true });
 }));
 
 /**
@@ -2779,7 +2820,13 @@ app.post('/api/assets/:assetId/republish', wrap(async (req, res) => {
   const id = intParam(req.params.assetId);
   if (!id) return res.status(400).json({ error: 'assetId inválido' });
   const { rows } = await pool.query(
-    `UPDATE generated_assets SET status = 'approved', meta_post_id = NULL, updated_at = now()
+    // Cadena de historias: se borran las marcas de "ya publicada" de cada historia (sirven
+    // para que un reintento no duplique); si no, republicar no subiría ninguna.
+    `UPDATE generated_assets SET status = 'approved', meta_post_id = NULL, updated_at = now(),
+            slides_meta = CASE WHEN slides_meta->>'mode' = 'cadena'
+              THEN jsonb_set(slides_meta, '{shots}', COALESCE((SELECT jsonb_agg(sh - 'published_id' ORDER BY n)
+                     FROM jsonb_array_elements(slides_meta->'shots') WITH ORDINALITY AS t(sh, n)), '[]'::jsonb))
+              ELSE slides_meta END
      WHERE id = $1 AND status = 'published' RETURNING calendar_id`,
     [id]
   );

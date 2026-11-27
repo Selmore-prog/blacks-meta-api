@@ -1496,6 +1496,10 @@ function dropUnfoundedCutClaims(check, clippedText, slotId) {
 }
 
 async function generateForSlot(slot, overrides = {}) {
+  // CADENA DE HISTORIAS: N historias con la foto real y los datos de cada producto, sin
+  // copy de IA (ver src/storyChain.js). Va acá para que la usen igual "Rehacer", la
+  // generación diaria y la actualización de borradores.
+  if (slot.story_chain) return require('../src/storyChain').generarParaSlot(slot, overrides);
   const brandProfile = await getBrandProfile();
   // Permite regenerar cambiando el tema/ángulo del contenido sin cambiar el pilar.
   const pillarDetail = overrides.pillarDetail || slot.pillar_detail;
@@ -2888,6 +2892,7 @@ async function regenerateSlide({ assetId, index, overlay, instructions, photo })
   if (!asset) throw new Error('No existe el asset.');
   const urls = Array.isArray(asset.slides) ? [...asset.slides] : (asset.slides ? JSON.parse(asset.slides) : []);
   if (!urls.length) throw new Error('Esta pieza no es un carrusel (no tiene slides).');
+  if (asset.template === 'cadena') throw new Error('Esta es una cadena de historias: para cambiar una historia, tocá "Editar cadena" y rehacela (es gratis con la foto real).');
   const i = Number(index);
   if (!Number.isInteger(i) || i < 0 || i >= urls.length) throw new Error('Índice de slide inválido.');
 

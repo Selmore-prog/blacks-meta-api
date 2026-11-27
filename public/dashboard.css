@@ -3269,3 +3269,29 @@ button .cost-tag { margin-left: 8px; }
 /* Ofertas flash: del 13 en adelante van sólo a la página de la oferta */
 .flash-corte { display: flex; align-items: center; gap: 6px; font-size: .76rem; color: var(--muted); margin: 6px 2px 2px; padding-top: 10px; border-top: 1px dashed var(--line); }
 .flash-chip-pagina { background: transparent; border-style: dashed; }
+
+/* ---------- Cadena de historias (story-chain-panel.js) ---------- */
+.sc-modal { max-width: 760px; }
+.sc-prods { max-height: 340px; overflow-y: auto; border: 1px solid var(--line); border-radius: 12px; padding: 0 12px; background: var(--panel-2); }
+.sc-prods .hint { padding: 10px 0; }
+.sc-row { gap: 10px; }
+.sc-row:first-child { border-top: none; }
+.sc-row.off img, .sc-row.off .prod-info { opacity: .45; }
+.sc-row .sc-chk { width: 18px; height: 18px; accent-color: var(--orange); flex: none; }
+.sc-row .prod-sub s { color: var(--muted); }
+.sc-off { color: var(--orange); font-weight: 800; }
+.sc-warn { color: #e8a33d; font-weight: 700; }
+.sc-move { display: flex; gap: 4px; flex: none; }
+.sc-move .btn-sm { padding: 4px 9px; min-width: 0; }
+.sc-bulk { display: flex; gap: 8px; justify-content: flex-end; padding: 8px 0 10px; border-top: 1px solid var(--line); }
+.ig-story.chain .carousel { position: absolute; inset: 0; }
+.ig-story.chain .bars span { background: rgba(255,255,255,.38); }
+.ig-story.chain .bars span.on { background: #fff; }
+.sc-story-bar { align-items: center; flex-wrap: wrap; }
+.sc-story-name { flex: 1 1 100%; text-align: center; font-size: 12.5px; font-weight: 700; color: var(--muted); }
+.sc-pub-list { display: flex; flex-direction: column; gap: 10px; }
+.sc-pub-row { display: flex; gap: 12px; align-items: flex-start; padding: 10px; border: 1px solid var(--line); border-radius: 12px; background: var(--panel-2); }
+.sc-pub-row img { width: 64px; aspect-ratio: 9 / 16; object-fit: cover; border-radius: 8px; flex: none; background: #000; }
+.sc-pub-info { flex: 1; min-width: 0; display: flex; flex-direction: column; gap: 6px; }
+.sc-pub-info .input { font-size: 12px; padding: 7px 9px; }
+.sc-pub-actions { display: flex; gap: 6px; flex-wrap: wrap; }

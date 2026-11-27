@@ -39,6 +39,7 @@ const ICONS = {
   search: '<circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>',
   route: '<circle cx="6" cy="19" r="3"/><path d="M9 19h8.5a3.5 3.5 0 0 0 0-7h-11a3.5 3.5 0 0 1 0-7H15"/><circle cx="18" cy="5" r="3"/>',
   mail: '<rect x="3" y="5" width="18" height="14" rx="2"/><polyline points="3 7 12 13 21 7"/>',
+  stories: '<rect x="7" y="3" width="10" height="18" rx="2"/><path d="M4 6v12M20 6v12"/>',
   cart: '<circle cx="9" cy="21" r="1"/><circle cx="20" cy="21" r="1"/><path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"/>',
 };
 function icon(name, extra = '') {
@@ -1185,7 +1186,8 @@ function renderPreview(item) {
 
   // "CONTINUO" avisa que los cuadros son recortes de una sola tira: al mirarlos de a uno
   // no se nota, y es lo primero que hay que saber antes de aprobar o corregir la pieza.
-  const label = isCarousel ? `CARRUSEL${slidesRecipe(item).mode === 'panorama' ? ' CONTINUO' : ''} · ${slides.length} · 4:5`
+  const label = isCarousel && isStory ? `CADENA · ${slides.length} HISTORIAS · 9:16`
+    : isCarousel ? `CARRUSEL${slidesRecipe(item).mode === 'panorama' ? ' CONTINUO' : ''} · ${slides.length} · 4:5`
     : isStory ? (item.post_type === 'reel' ? 'REEL · 9:16' : 'HISTORIA · 9:16') : 'FEED · 4:5';
   return `<div class="preview-wrap">
     <div class="phone ${isStory ? 'story' : 'feed'}">${media}${chrome}</div>
@@ -1200,6 +1202,10 @@ function renderPreview(item) {
  */
 function carouselBadge(item) {
   const slides = parseSlides(item.slides);
+  if (isStoryChain(item)) {
+    return slides && slides.length ? `<span class="badge whole">${icon('stories')} Cadena · ${slides.length} historia${slides.length === 1 ? '' : 's'}</span>`
+      : `<span class="badge whole">${icon('stories')} Cadena de historias</span>`;
+  }
   if (slides && slides.length > 1) return `<span class="badge whole">${icon('grid')} Carrusel · ${slides.length}</span>`;
   if (item.carousel && item.asset_id) return `<span class="badge semi" title="Marcaste este slot como carrusel después de generar la pieza. Tocá Regenerar para que salga como carrusel.">${icon('grid')} Carrusel — regenerá para aplicar</span>`;
   if (item.carousel) return `<span class="badge semi">${icon('grid')} Carrusel</span>`;
@@ -1259,10 +1265,12 @@ function openPreview(item) {
       ${item.hashtags ? `<div class="ig-tags">${esc(item.hashtags)}</div>` : ''}
     </div>`;
   } else {
+    const cadena = !vid && slides && slides.length > 1;
     const media = vid ? `<video src="${esc(vid)}" controls autoplay loop playsinline></video>`
+      : cadena ? `<div class="carousel">${slides.map((u) => `<img src="${esc(u)}"/>`).join('')}</div>`
       : (img ? `<img src="${esc(img)}"/>` : '<div class="ig-empty">Sin imagen generada</div>');
-    inner = `<div class="ig-story">
-      <div class="ig-story-top"><div class="bars"><span></span></div>
+    inner = `<div class="ig-story${cadena ? ' chain' : ''}">
+      <div class="ig-story-top"><div class="bars">${cadena ? slides.map((_, i) => `<span class="${i === 0 ? 'on' : ''}"></span>`).join('') : '<span></span>'}</div>
         <div class="who"><div class="ig-av sm">B</div><span class="n">blacks.indumentaria</span><span class="t">1 h</span></div></div>
       ${media}
       ${isReel ? `<div class="ig-rail"><span>${icon('heart')}<i>1.2k</i></span><span>${icon('comment')}<i>44</i></span><span>${icon('send')}</span><span>${icon('bookmark')}</span></div>` : ''}
@@ -1281,6 +1289,41 @@ function openPreview(item) {
     ${inner}${note}</div>`;
   overlay.addEventListener('click', (e) => { if (e.target === overlay || e.target.closest('.preview-close')) overlay.remove(); });
   document.body.appendChild(overlay);
+
+  // CADENA DE HISTORIAS: flechas, barritas de progreso y, abajo, el producto y el link
+  // de la historia que se está viendo (para el sticker de link).
+  if (isStory && overlay.querySelector('.ig-story.chain .carousel')) {
+    const car = overlay.querySelector('.ig-story.chain .carousel');
+    const holder = car.parentElement;
+    const shots = storyChainShots(item);
+    holder.insertAdjacentHTML('beforeend', `<button class="c-nav prev">‹</button><button class="c-nav next">›</button>`);
+    const box = overlay.querySelector('.preview-box');
+    box.insertAdjacentHTML('beforeend', `<div class="slide-fix-bar sc-story-bar"><span class="sc-story-name"></span>
+      <button class="btn-ghost btn-sm sc-story-link">${icon('copy')} Copiar link</button>
+      ${item.asset_id && statusOf(item) !== 'published' ? `<button class="btn-ghost btn-sm sc-story-edit">${icon('edit')} Editar cadena</button>` : ''}</div>`);
+    const nameEl = box.querySelector('.sc-story-name');
+    const linkBtn = box.querySelector('.sc-story-link');
+    let actual = 0;
+    const pintar = () => {
+      holder.querySelectorAll('.bars span').forEach((b, i) => b.classList.toggle('on', i <= actual));
+      const s = shots[actual] || {};
+      nameEl.textContent = `${actual + 1}/${slides.length} · ${s.name || 'Historia'}`;
+      linkBtn.style.display = s.link ? '' : 'none';
+    };
+    const goto = (dir) => car.scrollBy({ left: dir * car.clientWidth, behavior: 'smooth' });
+    holder.querySelector('.c-nav.prev').addEventListener('click', (e) => { e.stopPropagation(); goto(-1); });
+    holder.querySelector('.c-nav.next').addEventListener('click', (e) => { e.stopPropagation(); goto(1); });
+    car.addEventListener('scroll', () => { actual = Math.round(car.scrollLeft / car.clientWidth); pintar(); }, { passive: true });
+    linkBtn.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const s = shots[actual];
+      if (s && s.link) navigator.clipboard.writeText(s.link).then(() => toast(`Link de la historia ${actual + 1} copiado`, 'ok'));
+    });
+    const edit = box.querySelector('.sc-story-edit');
+    if (edit) edit.addEventListener('click', (e) => { e.stopPropagation(); overlay.remove(); openStoryChain(item); });
+    pintar();
+    return;
+  }
 
   // Carrusel: flechas para pasar de slide (además del swipe) + contador en vivo.
   const car = overlay.querySelector('.carousel');
@@ -1696,7 +1739,9 @@ function renderCard(item) {
     `<span class="badge commercial" title="${esc(d.angle || '')}">${icon('tag')} ${esc(d.title)}</span>`
   ).join('');
 
-  const regenBtn = `<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Rehacer pieza</button>`;
+  const regenBtn = isStoryChain(item)
+    ? `<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('stories')} Editar cadena</button>`
+    : `<button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('wand')} Rehacer pieza</button>`;
   // Siempre disponible si hay imagen/video: para retocar en el celular (stickers,
   // música) o publicar a mano.
   const downloadBtn = (aid && (item.image_path || item.video_path))
@@ -1729,6 +1774,10 @@ function renderCard(item) {
     actions = `<span class="badge semi gen-chip">${icon('refresh', 'spin')} Generando en segundo plano…</span>`;
   } else if (isRepost) {
     actions = `<span style="color:var(--muted); font-size:13px;">Día de descanso / repost — sin generación automática.</span>${planBtn}`;
+  } else if (!aid && isStoryChain(item)) {
+    // Cadena sin pieza (la generación falló o se borró): se rehace tal cual o se edita.
+    actions = `<button class="btn-primary" data-act="generate" data-id="${item.id}">${icon('bolt')} Generar cadena ${costTag(scConfigDe(item)?.arte === 'ia' ? genCostLabel() : 'Gratis')}</button>
+      <button class="btn-ghost btn-sm" data-act="regen" data-id="${item.id}">${icon('stories')} Editar cadena</button>`;
   } else if (!aid) {
     // Reels: se genera SOLO el copy + imagen base (el video no se auto-genera nunca;
     // lo hacés en Gemini/Veo con el prompt y lo subís).
@@ -1760,7 +1809,11 @@ function renderCard(item) {
   }
 
   const stickerSpec = (isSemi && status !== 'published') ? stickerSpecHtml(item.sticker) : '';
-  const interaction = (isSemi && (item.interaction_hint || stickerSpec) && status !== 'published')
+  const chainNote = isStoryChain(item) && aid && status !== 'published'
+    ? `<div class="reel-note">${icon('stories')} ${isSemi
+      ? 'La subís vos: a cada historia ponele el <b>sticker de link</b> con el link de su producto. Están en <b>ver</b> (historia por historia) y, al aprobarla, en <b>Cómo publicarla</b>.'
+      : 'Se publican solas, en orden, a la hora del slot. Instagram no deja poner el sticker de link por API: si querés el link, cambiala a "La subo yo" en <b>Editar cadena</b>.'}</div>` : '';
+  const interactionBox = (isSemi && (item.interaction_hint || stickerSpec) && status !== 'published')
     ? `<div class="interaction-box" style="background: linear-gradient(135deg, rgba(232,93,27,.14) 0%, rgba(255,139,77,.06) 100%); border: 1.5px solid #FF6B1A; border-radius: 14px; padding: 16px 20px; margin: 16px 0; color: #fff;">
         <div style="display:flex; align-items:center; gap:8px; font-weight:800; color:#FF8B4D; font-size:15px; margin-bottom:6px;">
           ${icon('alert')} PUBLICÁS VOS · STICKER MANUAL
@@ -1768,6 +1821,7 @@ function renderCard(item) {
         ${stickerSpec || `<div style="font-size:14px; line-height:1.5; color:rgba(255,255,255,.92); font-weight:500;">${esc(item.interaction_hint)}</div>
         <div style="font-size:12px; color:rgba(255,255,255,.6); margin-top:8px;">Al subir la historia, tocá el ícono de stickers y agregá lo indicado. Regenerá la pieza para que la IA te deje la pregunta y las opciones exactas.</div>`}
       </div>` : '';
+  const interaction = chainNote || interactionBox;
 
   // Reels: el video NUNCA se auto-genera (nada de imagen estática con zoom).
   // El copy y la imagen base salen del panel; el video lo generás en Gemini/Veo.
@@ -1866,7 +1920,8 @@ async function handleAction(act, id, btn, card, item) {
     } else if (act === 'edit') {
       openEdit(id);
     } else if (act === 'regen') {
-      openRegen(item || calItems.find((x) => String(x.id) === String(id)));
+      const it = item || calItems.find((x) => String(x.id) === String(id));
+      if (isStoryChain(it)) openStoryChain(it); else openRegen(it);
     } else if (act === 'regen-topic') {
       btn.disabled = true; btn.innerHTML = `${icon('refresh', 'spin')} Buscando tema…`;
       await api(`/api/calendar/${id}/regenerate-topic`, { method: 'POST' });
@@ -1884,7 +1939,8 @@ async function handleAction(act, id, btn, card, item) {
     } else if (act === 'editvideo') {
       openVideoEditor(id);
     } else if (act === 'planslot') {
-      openPlanSlot(item || calItems.find((x) => String(x.id) === String(id)));
+      const it = item || calItems.find((x) => String(x.id) === String(id));
+      if (isStoryChain(it)) openStoryChain(it); else openPlanSlot(it);
     } else if (act === 'download') {
       openDownload(item || calItems.find((x) => String(x.asset_id) === String(id)));
     } else if (act === 'publish') {
@@ -1931,7 +1987,8 @@ function openDownload(item) {
   const slides = parseSlides(item.slides);
   const files = [];
   if (item.video_path) files.push({ url: item.edited_video_path || item.video_path, label: item.edited_video_path ? 'Video final' : 'Video del Reel', ext: 'mp4' });
-  if (slides && slides.length > 1) slides.forEach((u, i) => files.push({ url: u, label: `Slide ${i + 1} de ${slides.length}`, ext: 'jpg' }));
+  const shots = storyChainShots(item);
+  if (slides && slides.length > 1) slides.forEach((u, i) => files.push({ url: u, label: shots.length ? `Historia ${i + 1} · ${(shots[i] && shots[i].name) || ''}` : `Slide ${i + 1} de ${slides.length}`, ext: 'jpg' }));
   else if (item.image_path) files.push({ url: item.image_path, label: item.video_path ? 'Imagen base' : 'Imagen', ext: 'jpg' });
   if (!files.length) { toast('Esta pieza todavía no tiene imagen ni video.'); return; }
 
@@ -3597,7 +3654,11 @@ async function doPublish(id, btn) {
   const data = await api(`/api/assets/${id}/publish`, {
     method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({}),
   });
-  if (data && data.manual) { btn.disabled = false; btn.innerHTML = original; openManualPublish(data); return; }
+  if (data && data.manual) {
+    btn.disabled = false; btn.innerHTML = original;
+    if (Array.isArray(data.stories) && data.stories.length) openChainManualPublish(data); else openManualPublish(data);
+    return;
+  }
   toast('¡Publicado en redes!', 'ok'); reloadKeepScroll();
 }
 
@@ -4040,9 +4101,16 @@ function openEdit(assetId) {
   const regenBtn = document.getElementById('edit-regen-btn');
   const historyBtn = document.getElementById('edit-history-btn');
   visualBtn.onclick = () => { const current = editingItem; closeEdit(); if (current) openPieceCorrect(current, null); };
-  regenBtn.onclick = () => { const current = editingItem; closeEdit(); if (current) openRegen(current); };
+  regenBtn.onclick = () => {
+    const current = editingItem; closeEdit();
+    if (current && isStoryChain(current)) openStoryChain(current); else if (current) openRegen(current);
+  };
   historyBtn.onclick = () => { const current = editingItem; closeEdit(); if (current) openVersionHistory(current, null); };
   historyBtn.disabled = !it || !it.image_path;
+  // Cadena de historias: no hay "ajustar imagen" de una pieza suelta; se edita la cadena.
+  const cadena = isStoryChain(it);
+  visualBtn.style.display = cadena ? 'none' : '';
+  regenBtn.innerHTML = cadena ? `${icon('stories')} Editar cadena` : `${icon('wand')} Rehacer pieza o producto`;
   updateEditCount();
   document.getElementById('edit-caption').oninput = updateEditCount;
   document.getElementById('edit-modal').classList.remove('hidden');

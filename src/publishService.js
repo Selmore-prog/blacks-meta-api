@@ -3,12 +3,14 @@ const config = require('./config');
 const { getPublicUrl } = require('./storage');
 const { utmLink, storeUtmLink } = require('./utm');
 const { publishToInstagram, publishToFacebook, publishCarouselToInstagram } = require('./metaPublisher');
+const { recetaDe, productUrl } = require('./storyChain');
 
 async function loadAsset(assetId) {
   const { rows } = await pool.query(
     `SELECT a.*, c.platform, c.post_type, c.pillar, c.format, c.scheduled_date,
             c.automation_level, c.interaction_hint, c.status AS calendar_status,
-            p.permalink AS product_permalink,
+            -- El handle está en permalink sólo desde ago-2026; el catálogo viejo lo tiene en raw.
+            COALESCE(p.permalink, p.raw->'handle'->>'es', p.raw->>'canonical_url') AS product_permalink,
             (SELECT MAX(id) FROM generated_assets ga
              WHERE ga.calendar_id = a.calendar_id AND ga.status <> 'discarded') AS latest_asset_id
      FROM generated_assets a
@@ -42,6 +44,43 @@ async function cancelQueuedForCalendar(calendarId) {
   );
   if (rowCount) console.log(`[publishService] ${rowCount} entrada(s) de cola canceladas para el slot #${calendarId}.`);
   return rowCount;
+}
+
+/** Las historias de una cadena, en orden, con la imagen y el link de cada producto. */
+function storiesDeCadena(asset) {
+  const receta = recetaDe(asset);
+  const slides = Array.isArray(asset.slides) ? asset.slides : null;
+  if (!receta || !slides || !slides.length) return null;
+  return slides.map((url, i) => {
+    const shot = receta.shots[i] || {};
+    return { image_url: getPublicUrl(url), name: shot.name || `Historia ${i + 1}`, link_url: shot.link || null, kind: shot.kind || 'producto' };
+  });
+}
+
+/**
+ * Sube las historias de una cadena UNA POR UNA y en orden (Instagram no tiene "carrusel
+ * de historias" por API). Cada historia publicada se anota en slides_meta: si una falla
+ * a mitad, el reintento sigue desde ahí y no duplica las que ya salieron.
+ */
+async function publicarCadena(asset, slides) {
+  let meta = asset.slides_meta;
+  if (typeof meta === 'string') { try { meta = JSON.parse(meta); } catch (_) { meta = null; } }
+  meta = meta && typeof meta === 'object' && !Array.isArray(meta) ? meta : { mode: 'cadena', shots: [] };
+  meta.shots = Array.isArray(meta.shots) ? meta.shots : [];
+  const ids = [];
+  for (let i = 0; i < slides.length; i += 1) {
+    meta.shots[i] = meta.shots[i] || {};
+    if (meta.shots[i].published_id) { ids.push(meta.shots[i].published_id); continue; }
+    try {
+      const id = await publishToInstagram({ imageUrl: getPublicUrl(slides[i]), caption: '', mediaType: 'STORIES' });
+      meta.shots[i].published_id = String(id || `pub_${Date.now()}`);
+      ids.push(meta.shots[i].published_id);
+      await pool.query('UPDATE generated_assets SET slides_meta = $2::jsonb, updated_at = now() WHERE id = $1', [asset.id, JSON.stringify(meta)]);
+    } catch (err) {
+      throw new Error(`Se publicaron ${ids.length} de ${slides.length} historias; la ${i + 1} falló: ${err.message}. Al reintentar sigue desde ahí.`);
+    }
+  }
+  return ids.join(',');
 }
 
 /**
@@ -90,9 +129,13 @@ async function publishAssetById(assetId, { force = false } = {}) {
       sticker: asset.sticker || null,
       // Link con UTMs para el sticker de link de la historia: al usarlo, Google
       // Analytics registra la campaña engine_<calendarId> y la pieza queda atribuida.
-      link_url: asset.product_permalink
-        ? utmLink(asset.product_permalink, { calendarId: asset.calendar_id, pillar: asset.pillar })
+      // BUG (hasta nov-2026): se pasaba el handle pelado ("chomba-micropique-pampero") y
+      // utmLink lo convertía en https://chomba-micropique-pampero/?utm_…, un link roto.
+      link_url: productUrl(asset.product_permalink)
+        ? utmLink(productUrl(asset.product_permalink), { calendarId: asset.calendar_id, pillar: asset.pillar })
         : storeUtmLink({ calendarId: asset.calendar_id, pillar: asset.pillar }),
+      // Cadena de historias: cada historia con su imagen y el link de SU producto, en orden.
+      stories: storiesDeCadena(asset),
     };
   }
 
@@ -118,7 +161,10 @@ async function publishAssetById(assetId, { force = false } = {}) {
   console.log(`[publishService] Publicando asset #${assetId} (${isCarousel ? 'CARRUSEL' : mediaType})...`);
 
   let metaPostId = null;
-  if (isCarousel) {
+  const cadena = asset.post_type === 'story' && slides && slides.length >= 2 ? slides : null;
+  if (cadena) {
+    metaPostId = await publicarCadena(asset, cadena);
+  } else if (isCarousel) {
     metaPostId = await publishCarouselToInstagram({ imageUrls: slides.map(getPublicUrl), caption: fullCaption });
   } else if (asset.platform === 'facebook') {
     metaPostId = await publishToFacebook({ imageUrl, videoUrl, caption: fullCaption });

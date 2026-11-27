@@ -75,6 +75,7 @@
               <div class="action-menu-pop right">
                 <button onclick="openPieceFromText(); this.closest('details').removeAttribute('open')"><span data-ic="sparkles"></span><span><b>Desde una idea</b><small>Escribí una frase y la IA arma todo</small></span></button>
                 <button onclick="openReelFromIdea(); this.closest('details').removeAttribute('open')"><span data-ic="film"></span><span><b>Video desde una idea</b><small>Te armo el guion completo para grabarlo</small></span></button>
+                <button onclick="openStoryChain(); this.closest('details').removeAttribute('open')"><span data-ic="stories"></span><span><b>Cadena de historias</b><small>Una historia por producto en oferta, con precio</small></span></button>
                 <button onclick="openPlanSlot(); this.closest('details').removeAttribute('open')"><span data-ic="calendar"></span><span><b>Planificar una pieza</b><small>Elegí fecha, formato y producto</small></span></button>
                 <button id="btn-month-plan" onclick="generateMonthPlan(); this.closest('details').removeAttribute('open')"><span data-ic="grid"></span><span><b>Plan del mes con IA</b><small>Generá una grilla editorial completa</small></span></button>
               </div>
@@ -760,6 +761,7 @@
   <div id="toast" class="toast"></div>
   <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.9/dist/chart.umd.min.js" defer></script>
   <script src="/dashboard.js"></script>
+  <script src="/story-chain-panel.js"></script>
   <script src="/whatsapp-visual.js"></script>
   <script src="/whatsapp-channel-panel.js"></script>
   <!-- Panel de trabajos con bordado. Va aparte porque lo comparte con el portal
