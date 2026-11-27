@@ -464,11 +464,11 @@ a.hb-tile:hover .hb-tile-media img { transform: scale(1.04); }
   font-size: 11px; font-weight: 700; letter-spacing: .04em; padding: 4px 8px; border-radius: 3px;
 }
 .hb-p-body { padding: 10px 2px 0; }
-.hb-p-nombre { margin: 0; font-size: 14px; font-weight: 600; line-height: 1.3; color: inherit;
+.hb-p-nombre { margin: 0; font-size: 14px; font-weight: 400; line-height: 1.3; color: inherit;
   display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
-.hb-p--grande .hb-p-nombre { font-size: clamp(17px, 3.4vw, 22px); -webkit-line-clamp: 3; }
+.hb-p--grande .hb-p-nombre { font-size: clamp(17px, 3.4vw, 22px); font-weight: 600; -webkit-line-clamp: 3; }
 .hb-p-precio { margin-top: 6px; font-size: 15px; display: flex; align-items: baseline; gap: 8px; flex-wrap: wrap; }
-.hb-p-final { font-weight: 700; }
+.hb-p-final { font-weight: 600; }
 .hb-p-tachado { text-decoration: line-through; color: var(--hb-muted); font-size: 13px; }
 .hb-prods--scroll {
   grid-auto-flow: column; grid-auto-columns: 46%; grid-template-columns: none; overflow-x: auto;
