@@ -285,7 +285,11 @@ function normalizarAjustes(raw = {}) {
   return out;
 }
 
-const linkDe = (slotId, url) => (url ? utmLink(url, { calendarId: slotId, pillar: 'cadena' }) : null);
+/* Link con UTM de cada historia. La campaña es la cadena (engine_<slot>) y el
+   utm_content dice QUÉ historia fue: 'p<id del producto>' o 'portada'. Con el mismo
+   contenido para todas ('cadena', hasta el 27-nov) Analytics sólo sabía que vino de la
+   cadena, no de qué producto. Va el id y no la posición: reordenar no rompe el dato. */
+const linkDe = (slotId, url, contenido) => (url ? utmLink(url, { calendarId: slotId, pillar: contenido || 'cadena' }) : null);
 
 /** Renderiza la PORTADA: afiche oscuro con el nombre de la cadena y las prendas en fila. */
 async function renderPortada(slot, cfg, usables, sello, ajustes = {}) {
@@ -305,7 +309,7 @@ async function renderPortada(slot, cfg, usables, sello, ajustes = {}) {
     layoutSeed: Number(slot.id),
     filename: `cadena-${slot.id}-${sello}-00.jpg`,
   });
-  const shot = { kind: 'portada', name: `Portada · ${cfg.nombre}`, link: linkDe(slot.id, `https://${config.brand.site}`) };
+  const shot = { kind: 'portada', name: `Portada · ${cfg.nombre}`, link: linkDe(slot.id, `https://${config.brand.site}`, 'portada') };
   if (Object.keys(ajustes).length) shot.ajustes = ajustes;
   return { url: r.url, costo: r.costUsd || 0, shot };
 }
@@ -350,7 +354,7 @@ async function renderHistoria(slot, cfg, { fila, card }, n, sello, ajustes = {})
     promo_price: card.off ? card.promo_price : null,
     off: card.off,
     url: card.url,
-    link: linkDe(slot.id, card.url),
+    link: linkDe(slot.id, card.url, `p${card.id}`),
     comp: r.studioComp || null,
   };
   if (Object.keys(ajustes).length) shot.ajustes = ajustes;

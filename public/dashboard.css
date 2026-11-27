@@ -3310,3 +3310,8 @@ button .cost-tag { margin-left: 8px; }
 .sc-foto.on { border-color: var(--orange); }
 .sc-story-bar .btn-sm { flex: 0 0 auto; }
 @media (max-width: 640px) { .sc-fix { flex-direction: column; } .sc-fix-actual { width: 110px; position: static; } }
+
+.attr-row { align-items: flex-start; }
+.attr-stories { margin-top: 8px; display: flex; flex-direction: column; gap: 4px; padding-left: 10px; border-left: 2px solid var(--line); }
+.attr-story { display: flex; justify-content: space-between; gap: 12px; font-size: 12.5px; color: var(--muted); }
+.attr-story span:first-child { color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

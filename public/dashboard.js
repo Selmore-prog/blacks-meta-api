@@ -1307,12 +1307,21 @@ function openPreview(item) {
     const nameEl = box.querySelector('.sc-story-name');
     const linkBtn = box.querySelector('.sc-story-link');
     let actual = 0;
+    let stats = null;
+    const statsDe = (s) => {
+      if (!stats || !s) return '';
+      const clave = s.kind === 'portada' ? 'portada' : `p${s.product_id}`;
+      const h = (stats.historias || []).find((x) => x.contenido === clave);
+      if (!h) return statusOf(item) === 'published' ? ' · sin visitas por el link todavía' : '';
+      return ` · ${h.sessions} visita${h.sessions === 1 ? '' : 's'}${h.purchases ? `, ${h.purchases} compra${h.purchases === 1 ? '' : 's'}` : ''}`;
+    };
     const pintar = () => {
       holder.querySelectorAll('.bars span').forEach((b, i) => b.classList.toggle('on', i <= actual));
       const s = shots[actual] || {};
-      nameEl.textContent = `${actual + 1}/${slides.length} · ${s.name || 'Historia'}`;
+      nameEl.textContent = `${actual + 1}/${slides.length} · ${s.name || 'Historia'}${statsDe(s)}`;
       linkBtn.style.display = s.link ? '' : 'none';
     };
+    chainStats(item.id).then((r) => { stats = r; pintar(); });
     const goto = (dir) => car.scrollBy({ left: dir * car.clientWidth, behavior: 'smooth' });
     holder.querySelector('.c-nav.prev').addEventListener('click', (e) => { e.stopPropagation(); goto(-1); });
     holder.querySelector('.c-nav.next').addEventListener('click', (e) => { e.stopPropagation(); goto(1); });
@@ -4951,28 +4960,43 @@ function renderAdsAudit(audit) {
   out.scrollIntoView({ behavior: 'smooth', block: 'start' });
 }
 
-/* Atribución por pieza: qué posts del motor trajeron visitas/compras (via UTMs + GA). */
+/* Atribución por pieza: qué posts del motor trajeron visitas/compras (via UTMs + GA).
+   En las cadenas de historias, además, cuál historia (qué producto) trajo cada visita. */
 async function loadAttribution() {
   const el = document.getElementById('attribution-out');
   if (!el) return;
   try {
     const d = await api('/api/metrics/attribution');
-    if (!d.enabled || !d.items || !d.items.length) { el.innerHTML = ''; return; }
+    if (!d.enabled) { el.innerHTML = ''; return; }
     const money = (n) => '$' + Math.round(Number(n)).toLocaleString('es-AR');
+    const resultado = (x) => (x.purchases ? `<b style="color:var(--green)">${x.purchases} compra${x.purchases === 1 ? '' : 's'} · ${money(x.revenue)}</b>` : 'sin compras todavía');
+    const items = d.items || [];
     el.innerHTML = `
       <div class="panel">
         <h3>Qué piezas trajeron tráfico (links con seguimiento)</h3>
-        <p class="hint">Visitas y compras registradas por Google Analytics para los links con UTM del motor (sticker de historias, bio). Últimos ${d.days} días.</p>
-        ${d.items.slice(0, 10).map((i) => `
-          <div class="prod-row">
+        <p class="hint">Visitas y compras que registró Google Analytics desde los links con seguimiento del motor: el sticker de link de las historias (en las cadenas, separado por historia) y la bio. Últimos ${d.days} días. Analytics tarda unas horas en mostrar las visitas nuevas.</p>
+        ${items.length ? items.slice(0, 12).map((i) => `
+          <div class="prod-row attr-row">
             <div class="prod-info">
               <div class="prod-name">${esc(i.slot ? (i.slot.theme_title || i.slot.pillar_detail || i.campaign) : i.campaign)}</div>
-              <div class="prod-sub">${i.slot ? `${esc(i.slot.pillar)} · ${esc(String(i.slot.scheduled_date).slice(0, 10))} · ` : ''}${i.purchases ? `<b style="color:var(--green)">${i.purchases} compra(s) · ${money(i.revenue)}</b>` : 'sin compras registradas'}</div>
+              <div class="prod-sub">${i.slot ? `${esc(i.slot.pillar)} · ${esc(String(i.slot.scheduled_date).slice(0, 10))} · ` : ''}${resultado(i)}</div>
+              ${(i.historias || []).length ? `<div class="attr-stories">${i.historias.map((h) => `
+                <div class="attr-story"><span>${esc(h.name)}</span><span>${h.sessions} visita${h.sessions === 1 ? '' : 's'}${h.purchases ? ` · <b style="color:var(--green)">${h.purchases} compra${h.purchases === 1 ? '' : 's'} · ${money(h.revenue)}</b>` : ''}</span></div>`).join('')}</div>` : ''}
             </div>
             <div class="prod-metric"><b>${i.sessions}</b><span>visitas</span></div>
-          </div>`).join('')}
+          </div>`).join('')
+        : `<p class="empty" style="margin:8px 0 0;">Todavía no entró nadie por un link con seguimiento. Cuando alguien toque el sticker de link de una historia, aparece acá: qué pieza, y en las cadenas qué historia, con las visitas y las compras.</p>`}
       </div>`;
   } catch (_) { el.innerHTML = ''; }
+}
+
+/** Visitas y compras de cada historia de una cadena (por producto), para la vista previa. */
+async function chainStats(calendarId) {
+  try {
+    const d = await api('/api/metrics/attribution');
+    const it = (d.items || []).find((x) => Number(x.calendarId) === Number(calendarId));
+    return it || null;
+  } catch (_) { return null; }
 }
 
 /* ¿Por qué no compran? Auditoría del embudo (GA + Meta + Tiendanube) con IA. */

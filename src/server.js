@@ -2237,37 +2237,64 @@ app.get('/api/metrics/attribution', wrap(async (req, res) => {
     return res.json(attributionCache.data);
   }
 
+  // Por campaña (= pieza del calendario) Y por utm_content: en una cadena de historias el
+  // contenido dice qué historia fue ('p<id del producto>' o 'portada').
   const report = await runReport({
     dateRanges: [{ startDate: '28daysAgo', endDate: 'today' }],
-    dimensions: [{ name: 'sessionCampaignName' }],
+    dimensions: [{ name: 'sessionCampaignName' }, { name: 'sessionManualAdContent' }],
     metrics: [{ name: 'sessions' }, { name: 'ecommercePurchases' }, { name: 'purchaseRevenue' }],
     dimensionFilter: {
       filter: { fieldName: 'sessionCampaignName', stringFilter: { matchType: 'BEGINS_WITH', value: 'engine_' } },
     },
-    limit: 50,
+    limit: 500,
   }).catch((err) => { console.warn('[server] Atribución GA falló:', err.message); return null; });
 
-  const rows = (report && report.rows) || [];
-  const parsed = rows.map((r) => ({
-    campaign: r.dimensionValues[0].value,
-    calendarId: Number((r.dimensionValues[0].value.match(/^engine_(\d+)$/) || [])[1]) || null,
-    sessions: Number(r.metricValues[0].value),
-    purchases: Number(r.metricValues[1].value),
-    revenue: Number(r.metricValues[2].value),
-  }));
+  const porCampana = new Map();
+  for (const r of (report && report.rows) || []) {
+    const campaign = r.dimensionValues[0].value;
+    const contenido = r.dimensionValues[1].value;
+    const m = { sessions: Number(r.metricValues[0].value), purchases: Number(r.metricValues[1].value), revenue: Number(r.metricValues[2].value) };
+    if (!porCampana.has(campaign)) {
+      porCampana.set(campaign, {
+        campaign,
+        calendarId: Number((campaign.match(/^engine_(\d+)$/) || [])[1]) || null,
+        sessions: 0, purchases: 0, revenue: 0, historias: [],
+      });
+    }
+    const it = porCampana.get(campaign);
+    it.sessions += m.sessions; it.purchases += m.purchases; it.revenue += m.revenue;
+    const prod = contenido.match(/^p(\d+)$/);
+    if (prod || contenido === 'portada') it.historias.push({ contenido, product_id: prod ? Number(prod[1]) : null, ...m });
+  }
+  const parsed = [...porCampana.values()];
 
-  // Cruce con el calendario para mostrar QUÉ pieza era (tema, pilar, fecha).
+  // Cruce con el calendario para mostrar QUÉ pieza era (tema, pilar, fecha) y, en las
+  // cadenas, el nombre del producto de cada historia.
   const ids = parsed.map((p) => p.calendarId).filter(Boolean);
   let slots = new Map();
   if (ids.length) {
     const { rows: slotRows } = await pool.query(
-      `SELECT id, theme_title, pillar_detail, pillar, post_type, scheduled_date
+      `SELECT id, theme_title, pillar_detail, pillar, post_type, scheduled_date, story_chain IS NOT NULL AS cadena
        FROM content_calendar WHERE id = ANY($1)`, [ids]
-    );
+    ).catch(() => pool.query(
+      `SELECT id, theme_title, pillar_detail, pillar, post_type, scheduled_date FROM content_calendar WHERE id = ANY($1)`, [ids]
+    ));
     slots = new Map(slotRows.map((s) => [s.id, s]));
   }
+  const prodIds = [...new Set(parsed.flatMap((p) => p.historias.map((h) => h.product_id)).filter(Boolean))];
+  const nombres = new Map();
+  if (prodIds.length) {
+    const { rows: pr } = await pool.query('SELECT id, name FROM products_cache WHERE id = ANY($1::bigint[])', [prodIds]);
+    pr.forEach((r) => nombres.set(Number(r.id), r.name));
+  }
   const items = parsed
-    .map((p) => ({ ...p, slot: slots.get(p.calendarId) || null }))
+    .map((p) => ({
+      ...p,
+      historias: p.historias
+        .map((h) => ({ ...h, name: h.contenido === 'portada' ? 'Portada' : (nombres.get(h.product_id) || `Producto ${h.product_id}`) }))
+        .sort((a, b) => b.sessions - a.sessions),
+      slot: slots.get(p.calendarId) || null,
+    }))
     .sort((a, b) => b.sessions - a.sessions);
 
   const out = { enabled: true, days: 28, items };
