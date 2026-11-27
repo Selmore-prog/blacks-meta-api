@@ -1,0 +1,102 @@
+{
+  "adset": "120251580525560783",
+  "piezas": [
+    {
+      "nombre": "BF1 · Jean · $39.999",
+      "tipo": "imagen",
+      "feed": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/black-friday/45/01-jean_45.jpg",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/black-friday/916/01-jean_916.jpg",
+      "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/black-friday/11/01-jean_11.jpg",
+      "titulo": "Jean clásico recto — $39.999",
+      "descripcion": "$35.999 por transferencia · Llevá 2: envío gratis y 6 cuotas",
+      "url": "https://blacksindumentaria.com.ar/productos/pantalones-jean-vaquero-clasico-recto-original/",
+      "texto_feed": "BLACK FRIDAY 🖤 El jean clásico recto que más vendemos baja de $43.999 a $39.999, y a $35.999 pagando por transferencia. Llevando 2 tenés envío gratis y 6 cuotas sin interés. Del 40 al 54, en 5 colores, 100% algodón y hecho en Argentina. Sólo hasta el domingo 29.",
+      "texto_vertical": "BLACK FRIDAY 🖤 Jean clásico recto a $39.999 ($35.999 por transferencia). Llevando 2, envío gratis y 6 cuotas."
+    },
+    {
+      "nombre": "BF2 · 2 Jeans · $79.998",
+      "tipo": "imagen",
+      "feed": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/black-friday/45/02-jean-x2_45.jpg",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/black-friday/916/02-jean-x2_916.jpg",
+      "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/black-friday/11/02-jean-x2_11.jpg",
+      "titulo": "2 jeans por $79.998 con envío gratis",
+      "descripcion": "6 cuotas sin interés · $71.998 por transferencia",
+      "url": "https://blacksindumentaria.com.ar/productos/pantalones-jean-vaquero-clasico-recto-original/",
+      "texto_feed": "BLACK FRIDAY 🖤 Llevate 2 jeans clásicos por $79.998 con envío gratis y 6 cuotas sin interés ($71.998 por transferencia). Combiná colores y talles: claro, medio, estático, azul oscuro y negro, del 40 al 54. Sólo hasta el domingo 29.",
+      "texto_vertical": "BLACK FRIDAY 🖤 2 jeans por $79.998 con envío gratis y 6 cuotas sin interés. Combiná colores y talles."
+    },
+    {
+      "nombre": "BF3 · Video · Jean $39.999",
+      "tipo": "video",
+      "feed": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/black-friday/videos/video-jean-black-friday_45.mp4",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/black-friday/videos/video-jean-black-friday_916.mp4",
+      "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/black-friday/videos/video-jean-black-friday_11.mp4",
+      "portada_feed": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/black-friday/videos/video-jean-black-friday_45.jpg",
+      "portada_vertical": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/black-friday/videos/video-jean-black-friday_916.jpg",
+      "portada_cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/black-friday/videos/video-jean-black-friday_11.jpg",
+      "titulo": "Jean clásico recto — $39.999",
+      "descripcion": "Llevá 2: envío gratis y 6 cuotas sin interés",
+      "url": "https://blacksindumentaria.com.ar/productos/pantalones-jean-vaquero-clasico-recto-original/",
+      "texto_feed": "BLACK FRIDAY 🖤 Jean clásico recto 100% algodón, hecho en Argentina, a $39.999 ($35.999 por transferencia). Del 40 al 54 y en cinco colores. Llevando 2 tenés envío gratis y 6 cuotas sin interés. Sólo hasta el domingo 29.",
+      "texto_vertical": "BLACK FRIDAY 🖤 Jean clásico recto a $39.999. Llevando 2, envío gratis y 6 cuotas."
+    },
+    {
+      "nombre": "BF4 · Carrusel · Precios Black",
+      "tipo": "carrusel",
+      "url": "https://blacksindumentaria.com.ar/",
+      "cta": "SHOP_NOW",
+      "ordenar_por_rendimiento": true,
+      "texto_feed": "BLACK FRIDAY 🖤 Los más vendidos de Blacks con precio Black, sólo hasta el domingo 29: jean $39.999, chomba $30.999, pack x2 remeras $37.999, alpargatas $26.999 y remera $19.999. 10% menos por transferencia y hasta 6 cuotas sin interés.",
+      "tarjetas": [
+        {
+          "imagen": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/black-friday/11/01-jean_11.jpg",
+          "titulo": "Jean clásico — $39.999",
+          "descripcion": "$35.999 por transferencia",
+          "url": "https://blacksindumentaria.com.ar/productos/pantalones-jean-vaquero-clasico-recto-original/"
+        },
+        {
+          "imagen": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/black-friday/11/02-jean-x2_11.jpg",
+          "titulo": "2 jeans — $79.998",
+          "descripcion": "Envío gratis y 6 cuotas",
+          "url": "https://blacksindumentaria.com.ar/productos/pantalones-jean-vaquero-clasico-recto-original/"
+        },
+        {
+          "imagen": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/black-friday/11/03-chomba_11.jpg",
+          "titulo": "Chomba micropiqué — $30.999",
+          "descripcion": "$27.899 por transferencia",
+          "url": "https://blacksindumentaria.com.ar/productos/chomba-micropique-pampero/"
+        },
+        {
+          "imagen": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/black-friday/11/04-pack-remeras_11.jpg",
+          "titulo": "Pack x2 remeras — $37.999",
+          "descripcion": "$34.199 por transferencia",
+          "url": "https://blacksindumentaria.com.ar/productos/pack-x2-remera-lisa-algodon-pampero/"
+        },
+        {
+          "imagen": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/black-friday/11/05-alpargatas_11.jpg",
+          "titulo": "Alpargatas Rueda — $26.999",
+          "descripcion": "$24.299 por transferencia",
+          "url": "https://blacksindumentaria.com.ar/productos/alpargatas-rueda-yute-clasica-argentina-original-lbbwl/"
+        },
+        {
+          "imagen": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/black-friday/11/06-remera_11.jpg",
+          "titulo": "Remera de algodón — $19.999",
+          "descripcion": "$17.999 por transferencia",
+          "url": "https://blacksindumentaria.com.ar/productos/remera-lisa-algodon-pampero/"
+        }
+      ]
+    },
+    {
+      "nombre": "BF5 · Más vendidos · Precio Black",
+      "tipo": "imagen",
+      "feed": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/black-friday/45/08-general_45.jpg",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/black-friday/916/08-general_916.jpg",
+      "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/black-friday/11/08-general_11.jpg",
+      "titulo": "Black Friday en Blacks",
+      "descripcion": "Jean $39.999 · Chomba $30.999 · Remera $19.999",
+      "url": "https://blacksindumentaria.com.ar/",
+      "texto_feed": "BLACK FRIDAY 🖤 Los más vendidos de Blacks con precio Black hasta el domingo 29: jean $39.999, chomba $30.999 y remera $19.999. Llevando 2 jeans, envío gratis y 6 cuotas sin interés. Sólo en la tienda online.",
+      "texto_vertical": "BLACK FRIDAY 🖤 Jean $39.999, chomba $30.999 y remera $19.999. Sólo hasta el domingo 29."
+    }
+  ]
+}

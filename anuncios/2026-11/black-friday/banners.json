@@ -1,0 +1,84 @@
+{
+  "_que_es": "Banners del carrusel del home para Black Friday (escritorio 1920x823, celular 1080x1440, grilla 1200x1200). b0 GENÉRICO (sin precios, sólo evento y fechas) va primero. Además uno por producto con su precio y su link (b1 jean, b3 2 jeans, b4 chomba, b5 pack remeras, b6 alpargatas) + b2 general. Tiendanube no tiene API para el carrusel: se suben a mano en Diseño. Regenerar: python3 scripts/piezas-black-friday.py anuncios/2026-11/black-friday/banners.json ~/Desktop/piezas-motor/noviembre/black-friday/banners --banners",
+  "fecha": "26 al 29 de noviembre",
+  "banners": [
+    {
+      "clave": "b0-generico",
+      "fuente": "/Users/sebastianelmore/Desktop/piezas-motor/nuevas 4.5/chomba y vaquero.png",
+      "recorte": 0.5,
+      "fecha_grande": "DEL JUEVES 26|AL DOMINGO 29 DE NOVIEMBRE",
+      "beneficio": "Precio Black en los más vendidos de la tienda|Sólo online",
+      "boton": "Ver ofertas",
+      "url": "/#js-flash-sale",
+      "fecha_grande_mobile": "DEL JUEVES 26|AL DOMINGO 29|DE NOVIEMBRE",
+      "fecha_grande_grid": "DEL JUEVES 26|AL DOMINGO 29|DE NOVIEMBRE"
+    },
+    {
+      "clave": "b1-jean",
+      "fuente": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/vaqueros4.5.png",
+      "fuente_mobile": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/vaqueros4.5.png",
+      "recorte": 0.6,
+      "titular": "JEAN CLÁSICO RECTO",
+      "lista": 50999,
+      "precio": 39999,
+      "beneficio": "$35.999 por transferencia|Llevá 2: envío gratis y 6 cuotas",
+      "boton": "Comprar ahora",
+      "url": "/productos/pantalones-jean-vaquero-clasico-recto-original/"
+    },
+    {
+      "clave": "b2-general",
+      "fuente": "/Users/sebastianelmore/Desktop/piezas-motor/nuevas 4.5/chomba y vaquero.png",
+      "recorte": 0.5,
+      "titular": "LOS MÁS VENDIDOS|CON PRECIO BLACK",
+      "beneficio": "Jean $39.999 · Chomba $30.999|Remera $19.999 · Alpargatas $26.999",
+      "boton": "Ver ofertas",
+      "url": "/#js-flash-sale"
+    },
+    {
+      "clave": "b3-2-jeans",
+      "fuente": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/vaqueros4.5.png",
+      "recorte": 0.6,
+      "titular": "2 JEANS",
+      "lista": 101998,
+      "precio": 79998,
+      "beneficio": "Envío gratis y 6 cuotas sin interés|$71.998 por transferencia",
+      "boton": "Elegir los míos",
+      "url": "/productos/pantalones-jean-vaquero-clasico-recto-original/"
+    },
+    {
+      "clave": "b4-chomba",
+      "fuente": "/Users/sebastianelmore/Desktop/piezas-motor/nuevas 4.5/chombamicropique.png",
+      "recorte": 0.15,
+      "recorte_mobile": 0.08,
+      "titular": "CHOMBA MICROPIQUÉ",
+      "lista": 39999,
+      "precio": 30999,
+      "beneficio": "$27.899 por transferencia|Del S al XXXL · 4 colores",
+      "boton": "Comprar ahora",
+      "url": "/productos/chomba-micropique-pampero/"
+    },
+    {
+      "clave": "b5-pack-remeras",
+      "fuente": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/remera-colores_11.png",
+      "recorte": 0.5,
+      "titular": "PACK X2 REMERAS",
+      "lista": 51999,
+      "precio": 37999,
+      "beneficio": "$34.199 por transferencia|100% algodón · Del S al XXXL",
+      "boton": "Comprar ahora",
+      "url": "/productos/pack-x2-remera-lisa-algodon-pampero/",
+      "recorte_mobile": 0.35
+    },
+    {
+      "clave": "b6-alpargatas",
+      "fuente": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/alpargatas4.5.png",
+      "recorte": 0.85,
+      "titular": "ALPARGATAS RUEDA",
+      "lista": 36999,
+      "precio": 26999,
+      "beneficio": "$24.299 por transferencia|Del 4 al 12 US · 3 colores",
+      "boton": "Comprar ahora",
+      "url": "/productos/alpargatas-rueda-yute-clasica-argentina-original-lbbwl/"
+    }
+  ]
+}

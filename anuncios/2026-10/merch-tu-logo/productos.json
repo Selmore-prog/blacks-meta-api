@@ -1,0 +1,11 @@
+{
+  "productos": [
+    { "clave": "gorra",    "id": "4375", "color": "Negro",      "lugar": "FRENTE",            "logo": "linea-claro",   "bordado": true,  "titulo": "Gorras",      "tecnica": "Bordada" },
+    { "clave": "mochila",  "id": "3934", "color": "Azul",       "lugar": "FRENTE",            "logo": "apilado-claro", "bordado": true,  "titulo": "Mochilas",    "tecnica": "Bordada", "ocupa": 0.62 },
+    { "clave": "mate",     "id": "4536", "color": "Verde",      "lugar": "FRENTE",            "logo": "apilado-claro", "bordado": false, "titulo": "Mates",       "tecnica": "Grabado" },
+    { "clave": "termo",    "id": "5044", "color": "Negro",      "lugar": "FRENTE 360",        "logo": "apilado-claro", "bordado": false, "titulo": "Termos",      "tecnica": "Grabado" },
+    { "clave": "botella",  "id": "4637", "color": "Gris Claro", "lugar": "FRENTE",            "logo": "linea-oscuro",  "bordado": false, "titulo": "Botellas",    "tecnica": "Estampada", "girar": true },
+    { "clave": "cuaderno", "id": "5469", "color": "Blanco",     "lugar": "FRENTE",            "logo": "apilado-oscuro","bordado": false, "titulo": "Cuadernos",   "tecnica": "Estampado", "ocupa": 0.42 },
+    { "clave": "lapicera", "id": "5788", "color": "Turquesa",   "lugar": "FRENTE IZQUIERDO",  "logo": "texto-oscuro",  "bordado": false, "titulo": "Lapiceras",   "tecnica": "Grabadas" }
+  ]
+}

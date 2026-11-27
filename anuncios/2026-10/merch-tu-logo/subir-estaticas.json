@@ -1,0 +1,81 @@
+{
+  "adset": "120251097890420783",
+  "piezas": [
+    {
+      "nombre": "Merch · Imagen · Regalos de fin de año",
+      "tipo": "imagen",
+      "feed": "salida/estaticas/feed-4x5.jpg",
+      "vertical": "salida/estaticas/historia-9x16.jpg",
+      "titulo": "Probá tu logo gratis",
+      "descripcion": "Regalos empresariales con tu logo",
+      "cta": "LEARN_MORE",
+      "url": "https://blacksindumentaria.com.ar/merchandising/",
+      "texto_feed": "¿Ya pensaste los regalos de fin de año para tu equipo? 🎁 Mates, termos, gorras, mochilas, botellas y cuadernos con el logo de tu empresa. Subí tu logo en la web, miralo puesto en el producto y cotizá al instante. Hasta 20% off por cantidad.",
+      "texto_vertical": "Regalos de fin de año con el logo de tu empresa 🎁 Probá tu logo gratis en la web."
+    },
+    {
+      "nombre": "Merch · Carrusel · 7 productos con tu logo",
+      "tipo": "carrusel",
+      "url": "https://blacksindumentaria.com.ar/merchandising/",
+      "cta": "LEARN_MORE",
+      "ordenar_por_rendimiento": false,
+      "texto_feed": "Regalos de fin de año con el logo de tu empresa 🎁 Elegí el producto, subí tu logo y miralo puesto al instante. Hasta 20% off por cantidad.",
+      "tarjetas": [
+        {
+          "imagen": "salida/estaticas/carrusel-00-tapa.jpg",
+          "titulo": "Regalos con tu logo",
+          "descripcion": "Probá tu logo gratis",
+          "url": "https://blacksindumentaria.com.ar/merchandising/"
+        },
+        {
+          "imagen": "salida/estaticas/carrusel-01-mate.jpg",
+          "titulo": "Mates con tu logo",
+          "descripcion": "Probá tu logo gratis",
+          "url": "https://blacksindumentaria.com.ar/merchandising/?producto=4536"
+        },
+        {
+          "imagen": "salida/estaticas/carrusel-02-termo.jpg",
+          "titulo": "Termos con tu logo",
+          "descripcion": "Probá tu logo gratis",
+          "url": "https://blacksindumentaria.com.ar/merchandising/?producto=5044"
+        },
+        {
+          "imagen": "salida/estaticas/carrusel-03-gorra.jpg",
+          "titulo": "Gorras bordadas",
+          "descripcion": "Probá tu logo gratis",
+          "url": "https://blacksindumentaria.com.ar/merchandising/?producto=4375"
+        },
+        {
+          "imagen": "salida/estaticas/carrusel-04-mochila.jpg",
+          "titulo": "Mochilas con tu logo",
+          "descripcion": "Probá tu logo gratis",
+          "url": "https://blacksindumentaria.com.ar/merchandising/?producto=3934"
+        },
+        {
+          "imagen": "salida/estaticas/carrusel-05-botella.jpg",
+          "titulo": "Botellas con tu logo",
+          "descripcion": "Probá tu logo gratis",
+          "url": "https://blacksindumentaria.com.ar/merchandising/?producto=4637"
+        },
+        {
+          "imagen": "salida/estaticas/carrusel-06-cuaderno.jpg",
+          "titulo": "Cuadernos con tu logo",
+          "descripcion": "Probá tu logo gratis",
+          "url": "https://blacksindumentaria.com.ar/merchandising/?producto=5469"
+        },
+        {
+          "imagen": "salida/estaticas/carrusel-07-lapicera.jpg",
+          "titulo": "Lapiceras grabadas",
+          "descripcion": "Probá tu logo gratis",
+          "url": "https://blacksindumentaria.com.ar/merchandising/?producto=5788"
+        },
+        {
+          "imagen": "salida/estaticas/carrusel-08-cierre.jpg",
+          "titulo": "Probá tu logo gratis",
+          "descripcion": "Probá tu logo gratis",
+          "url": "https://blacksindumentaria.com.ar/merchandising/"
+        }
+      ]
+    }
+  ]
+}

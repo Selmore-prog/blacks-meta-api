@@ -1,0 +1,18 @@
+<!doctype html><html><head><meta charset="utf-8">
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@800&display=block" rel="stylesheet">
+<style>
+  html, body { margin: 0; background: transparent; }
+  .logo { display: inline-flex; align-items: center; font-family: Manrope, sans-serif; font-weight: 800; letter-spacing: -.02em; padding: 20px; }
+  .apilado { flex-direction: column; gap: 26px; font-size: 150px; line-height: .9; }
+  .linea { gap: 36px; font-size: 170px; line-height: 1; }
+  .texto { font-size: 200px; line-height: 1; }
+  .marca { width: 1.25em; height: 1.25em; border-radius: 50%; background: #EC6C32; display: grid; place-items: center; flex: none; }
+  .marca svg { width: 62%; height: 62%; }
+  .claro { color: #fff; } .oscuro { color: #141414; }
+</style></head><body>
+<script>
+const SPARK = '<svg viewBox="0 0 100 100"><path d="M50 4 C54 34 66 46 96 50 C66 54 54 66 50 96 C46 66 34 54 4 50 C34 46 46 34 50 4Z" fill="#fff"/></svg>';
+const v = new URLSearchParams(location.search);
+const forma = v.get('forma'), tono = v.get('tono');
+document.body.innerHTML = `<div class="logo ${forma} ${tono}" id="l">${forma === 'texto' ? '' : `<div class="marca">${SPARK}</div>`}<span>TU LOGO</span></div>`;
+</script></body></html>

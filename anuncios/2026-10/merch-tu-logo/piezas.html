@@ -1,0 +1,188 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Merchandising con tu logo · piezas</title>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=block" rel="stylesheet">
+<style>
+/* Piezas estáticas del merchandising (23-oct-2026): feed 4:5, historia 9:16 y
+   carrusel 1:1. Fondo hueso de la casa, tinta casi negra y el naranja Blacks.
+   Las fotos son las de Zecat con el logo de muestra (renders/, renders.mjs). */
+:root { --fondo: #F3F1ED; --tinta: #141414; --gris: #6f6a63; --naranja: #EC6C32; --naranja-texto: #C9501A; --linea: #e4dfd7; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--fondo); }
+body { font-family: Manrope, sans-serif; color: var(--tinta); -webkit-font-smoothing: antialiased; }
+#pieza { position: relative; overflow: hidden; background: var(--fondo); }
+
+.ceja { display: inline-flex; align-items: center; gap: 12px; padding: 11px 20px 11px 16px; border-radius: 999px;
+  background: rgba(236,108,50,.10); border: 1.5px solid rgba(236,108,50,.32); color: var(--naranja-texto);
+  font-weight: 800; font-size: 21px; letter-spacing: .14em; text-transform: uppercase; white-space: nowrap; }
+.ceja i { width: 11px; height: 11px; border-radius: 50%; background: var(--naranja); box-shadow: 0 0 0 5px rgba(236,108,50,.18); }
+.titular { font-weight: 800; letter-spacing: -.04em; line-height: 1.0; white-space: nowrap; }
+.titular em { font-style: normal; color: var(--naranja-texto); }
+.bajada { font-weight: 600; color: var(--gris); letter-spacing: -.01em; line-height: 1.35; }
+
+/* Las tarjetas de producto: la foto de estudio sobre blanco, el nombre y la técnica. */
+.grilla { display: grid; gap: 16px; }
+.tile { position: relative; background: #fff; border-radius: 24px; overflow: hidden; box-shadow: 0 1px 0 rgba(0,0,0,.04), 0 10px 30px rgba(60,45,30,.07); }
+.tile .foto { position: relative; width: 100%; aspect-ratio: 1 / 1; }
+.tile .foto { overflow: hidden; }
+.historia .tile .foto { aspect-ratio: 4 / 5; }
+img[data-k] { position: absolute; max-width: none; }
+.tile .pie { display: flex; align-items: baseline; justify-content: space-between; gap: 8px; padding: 0 20px 18px; margin-top: -6px; }
+.tile .pie b { font-size: 25px; font-weight: 800; letter-spacing: -.02em; }
+.tile .pie small { font-size: 16px; font-weight: 700; color: var(--naranja-texto); letter-spacing: .02em; white-space: nowrap; }
+
+.ventajas { display: flex; flex-wrap: wrap; gap: 10px 26px; font-weight: 700; color: #2a2a2a; letter-spacing: -.01em; }
+.ventajas span { display: inline-flex; align-items: center; gap: 10px; white-space: nowrap; }
+.ventajas svg { width: 1.15em; height: 1.15em; flex: none; }
+.cta { display: flex; align-items: center; justify-content: space-between; gap: 16px; border-radius: 999px; background: var(--tinta); color: #fff;
+  font-weight: 800; letter-spacing: -.02em; box-shadow: 0 16px 40px rgba(20,20,20,.22); }
+.cta .flecha { flex: none; display: grid; place-items: center; border-radius: 50%; background: var(--naranja); }
+.cta .flecha svg { width: 46%; height: 46%; }
+.cta small { display: block; font-weight: 600; color: rgba(255,255,255,.62); letter-spacing: 0; }
+.chispa { display: grid; place-items: center; border-radius: 50%; background: var(--naranja); flex: none; }
+.chispa svg { width: 62%; height: 62%; }
+
+/* Carrusel */
+.marco { position: absolute; background: #fff; border-radius: 28px; overflow: hidden; box-shadow: 0 1px 0 rgba(0,0,0,.04), 0 14px 40px rgba(60,45,30,.08); }
+
+.num { font-weight: 800; color: var(--gris); letter-spacing: .1em; font-size: 20px; }
+.paso { display: flex; align-items: flex-start; gap: 22px; }
+.paso .n { flex: none; width: 58px; height: 58px; border-radius: 50%; border: 2px solid rgba(255,255,255,.25); display: grid; place-items: center; font-weight: 800; font-size: 26px; color: var(--naranja); }
+.paso b { display: block; font-size: 36px; font-weight: 800; letter-spacing: -.025em; color: #fff; }
+.paso span { display: block; font-size: 24px; font-weight: 600; color: rgba(255,255,255,.6); margin-top: 4px; }
+</style>
+</head>
+<body>
+<div id="pieza"></div>
+<script src="datos.js"></script>
+<script>
+const P = Object.fromEntries(DATOS.map((d) => [d.clave, d]));
+const SPARK = '<svg viewBox="0 0 100 100"><path d="M50 4 C54 34 66 46 96 50 C66 54 54 66 50 96 C46 66 34 54 4 50 C34 46 46 34 50 4Z" fill="#fff"/></svg>';
+const CHECK = '<svg viewBox="0 0 24 24"><circle cx="12" cy="12" r="11" fill="#EC6C32"/><path d="M7 12.5l3.2 3.2L17 9" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const FLECHA = '<svg viewBox="0 0 24 24"><path d="M5 12h14M13 6l6 6-6 6" stroke="#fff" stroke-width="2.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+const TECNICA = { gorra: 'Bordada', mochila: 'Bordada', mate: 'Grabado', termo: 'Grabado', botella: 'Grabada', cuaderno: 'Estampado', lapicera: 'Grabada' };
+const h = (html) => { const t = document.createElement('template'); t.innerHTML = html.trim(); return t.content.firstChild; };
+const foto = (k, ocupa = .8) => `<img src="${P[k].foto}" data-k="${k}" data-ocupa="${ocupa}">`;
+const tile = (k) => `<div class="tile"><div class="foto">${foto(k)}</div><div class="pie"><b>${P[k].titulo}</b><small>${TECNICA[k]}</small></div></div>`;
+const ventajas = (tam) => `<div class="ventajas" style="font-size:${tam}px">
+  <span>${CHECK}Probá tu logo online</span><span>${CHECK}Precio al instante</span><span>${CHECK}Hasta −20% por cantidad</span></div>`;
+// El logo de Blacks al lado de la dirección (pedido del dueño, 23-oct): blanco y naranja sobre la pastilla negra.
+const cta = (tam, alto) => `<div class="cta" style="height:${alto}px;padding:0 ${alto * .14}px 0 ${alto * .3}px;font-size:${tam}px">
+  <img src="logos/blacks-b-claro.png" style="width:${alto * .5}px;height:${alto * .5}px;flex:none">
+  <span style="flex:1">Probá tu logo y cotizá<small style="font-size:${tam * .62}px">blacksindumentaria.com.ar · Merchandising</small></span>
+  <span class="flecha" style="width:${alto * .72}px;height:${alto * .72}px">${FLECHA}</span></div>`;
+
+const pieza = new URLSearchParams(location.search).get('pieza') || 'feed';
+const raiz = document.getElementById('pieza');
+const tam = (w, hh) => { raiz.style.width = w + 'px'; raiz.style.height = hh + 'px'; };
+
+const SEIS = ['gorra', 'termo', 'mate', 'mochila', 'cuaderno', 'botella'];
+
+if (pieza === 'feed') {
+  tam(1080, 1350);
+  raiz.innerHTML = `<div style="position:absolute;inset:60px 64px 60px">
+    <div class="ceja"><i></i>Merchandising para empresas</div>
+    <h1 class="titular" data-max="84" style="font-size:84px;margin-top:26px">Regalos de fin de año<br><em>con el logo de tu empresa</em></h1>
+    <div class="grilla" style="grid-template-columns:repeat(3,1fr);margin-top:34px">${SEIS.map(tile).join('')}</div>
+    <div style="position:absolute;left:0;right:0;bottom:0">${ventajas(23)}<div style="margin-top:22px">${cta(31, 104)}</div></div>
+  </div>`;
+}
+
+if (pieza === 'story') {
+  // Zonas seguras de las historias: arriba 250 px y abajo 340 px sin nada importante.
+  tam(1080, 1920);
+  raiz.innerHTML = `<div style="position:absolute;left:64px;right:64px;top:250px;bottom:330px">
+    <div class="ceja"><i></i>Merchandising para empresas</div>
+    <h1 class="titular" data-max="96" style="font-size:96px;margin-top:28px">Regalos de fin de año<br><em>con el logo de tu empresa</em></h1>
+    <div class="grilla historia" style="grid-template-columns:repeat(3,1fr);margin-top:40px">${SEIS.map(tile).join('')}</div>
+    <div style="position:absolute;left:0;right:0;bottom:0">${ventajas(24)}<div style="margin-top:24px">${cta(33, 112)}</div></div>
+  </div>`;
+}
+
+// Carrusel 1:1: tapa, una tarjeta por producto y el cierre.
+const FRASES = {
+  mate: ['El mate de la oficina,', 'con tu marca.'],
+  termo: ['Termos con tu logo', 'para todo el equipo.'],
+  gorra: ['Gorras bordadas', 'con tu logo.'],
+  mochila: ['Mochilas con tu', 'logo bordado.'],
+  botella: ['Botellas con tu marca,', 'para todos los días.'],
+  cuaderno: ['Cuadernos con tu logo', 'para cada reunión.'],
+  lapicera: ['Lapiceras grabadas', 'con tu logo.'],
+};
+const TECNICA_LARGA = {
+  gorra: 'Bordado o estampado', mochila: 'Bordado o estampado', mate: 'Grabado láser o estampado', termo: 'Serigrafía o grabado láser',
+  botella: 'Grabado láser', cuaderno: 'Estampado o hot stamping', lapicera: 'Grabado láser',
+};
+const ORDEN = ['mate', 'termo', 'gorra', 'mochila', 'botella', 'cuaderno', 'lapicera'];
+
+if (pieza === 'tapa') {
+  tam(1080, 1080);
+  raiz.innerHTML = `<div style="position:absolute;inset:56px 60px">
+    <div class="ceja"><i></i>Merchandising para empresas</div>
+    <h1 class="titular" data-max="80" style="font-size:80px;margin-top:22px">Regalos de fin de año<br><em>con el logo de tu empresa</em></h1>
+    <div class="grilla" style="grid-template-columns:repeat(4,1fr);gap:14px;margin-top:34px">${['mate', 'gorra', 'termo', 'mochila', 'botella', 'cuaderno', 'lapicera'].map((k) => `<div class="tile"><div class="foto">${foto(k, .82)}</div></div>`).join('')}
+      <div class="tile" style="background:var(--naranja);display:grid;place-items:center;text-align:center;color:#fff"><div style="font-weight:800;font-size:30px;line-height:1.05;letter-spacing:-.02em">y cientos<br>de productos<br>más</div></div></div>
+    <div style="position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:space-between">
+      <div class="bajada" style="font-size:27px;max-width:640px">Mates, termos, gorras, mochilas, botellas, cuadernos y más. Probá tu logo en cada uno.</div>
+      <div style="display:flex;align-items:center;gap:12px;font-weight:800;font-size:26px">Deslizá<span class="chispa" style="width:58px;height:58px">${FLECHA}</span></div>
+    </div>
+  </div>`;
+}
+
+if (ORDEN.includes(pieza)) {
+  tam(1080, 1080);
+  const i = ORDEN.indexOf(pieza) + 1;
+  raiz.innerHTML = `<div class="marco" style="left:40px;top:40px;width:1000px;height:740px">${foto(pieza, pieza === 'lapicera' ? .8 : .84)}</div>
+    <div style="position:absolute;left:68px;top:66px" class="ceja"><i></i>${P[pieza].titulo}</div>
+    <div style="position:absolute;left:64px;right:64px;top:812px">
+      <div class="titular" style="font-size:54px;line-height:1.04">${FRASES[pieza][0]}<br><em>${FRASES[pieza][1]}</em></div>
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-top:22px">
+        <span class="bajada" style="font-size:25px">${TECNICA_LARGA[pieza]} · Probá tu logo en la web</span>
+        <span class="num">${String(i).padStart(2, '0')}/${String(ORDEN.length).padStart(2, '0')}</span>
+      </div>
+    </div>`;
+}
+
+if (pieza === 'cierre') {
+  tam(1080, 1080);
+  raiz.style.background = '#111';
+  raiz.innerHTML = `<div style="position:absolute;inset:64px 70px">
+    <img src="logos/blacks-b-claro.png" style="width:84px;height:84px;display:block">
+    <h1 class="titular" style="font-size:66px;margin-top:30px;color:#fff">Probá tu logo y <em style="color:#FF8A4C">cotizá al instante</em></h1>
+    <div style="display:flex;flex-direction:column;gap:30px;margin-top:46px">
+      <div class="paso"><span class="n">1</span><div><b>Elegí el producto</b><span>Mates, termos, gorras, mochilas y más</span></div></div>
+      <div class="paso"><span class="n">2</span><div><b>Subí tu logo y miralo puesto</b><span>Bordado, estampado o grabado</span></div></div>
+      <div class="paso"><span class="n">3</span><div><b>Armá tu pedido por color y talle</b><span>Te lo cotizamos por WhatsApp</span></div></div>
+    </div>
+    <div style="position:absolute;left:0;right:0;bottom:150px;font-weight:700;font-size:24px;color:rgba(255,255,255,.55)">+3.500 empresas ya trabajan con Blacks</div>
+    <div style="position:absolute;left:0;right:0;bottom:0;display:flex;align-items:center;justify-content:space-between;gap:20px;
+      padding:22px 28px 22px 26px;border-radius:999px;background:#fff;color:#111">
+      <span style="display:flex;align-items:center;gap:20px"><img src="logos/blacks-b-oscuro.png" style="width:60px;height:60px"><span style="font-weight:800;font-size:30px;letter-spacing:-.02em">blacksindumentaria.com.ar<small style="display:block;font-size:20px;color:#6f6a63;font-weight:700">Sección Merchandising</small></span></span>
+      <span class="chispa" style="width:72px;height:72px">${FLECHA}</span>
+    </div>
+  </div>`;
+}
+// Cada producto ocupa lo mismo en su lugar: su caja (medir.py) centrada y al "ocupa" del lugar.
+function encuadrar() {
+  for (const im of document.querySelectorAll('img[data-k]')) {
+    const [x0, y0, x1, y1] = P[im.dataset.k].caja;
+    const W = im.parentElement.clientWidth, H = im.parentElement.clientHeight, ocupa = Number(im.dataset.ocupa);
+    const D = Math.min((ocupa * W) / (x1 - x0), (ocupa * H) / (y1 - y0));
+    Object.assign(im.style, { width: D + 'px', height: D + 'px', left: W / 2 - ((x0 + x1) / 2) * D + 'px', top: H / 2 - ((y0 + y1) / 2) * D + 'px' });
+  }
+}
+// El titular en dos renglones: se achica hasta que el más largo entra.
+function ajustar() {
+  for (const t of document.querySelectorAll('.titular[data-max]')) {
+    let f = Number(t.dataset.max);
+    const ancho = t.parentElement.clientWidth;
+    while (t.scrollWidth > ancho && f > 30) t.style.fontSize = --f + 'px';
+  }
+}
+window.listo = document.fonts.ready.then(() => Promise.all([...document.images].map((im) => (im.complete ? 1 : new Promise((r) => { im.onload = im.onerror = r; })))))
+  .then(() => { ajustar(); encuadrar(); });
+</script>
+</body>
+</html>

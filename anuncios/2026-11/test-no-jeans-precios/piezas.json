@@ -1,0 +1,94 @@
+[
+  {
+    "clave": "jean-clasico",
+    "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/nuevas 4.5/jean-vaquero.png",
+    "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/nuevas 9.16/jean vaquero.png",
+    "titular": "JEAN CLÁSICO RECTO",
+    "bajada": "Del 40 al 54, en cinco colores",
+    "chip": "$43.999",
+    "beneficio": "Llevando 2: envío gratis y 6 cuotas",
+    "recorte_11": 0.5,
+    "bajada_11": null,
+    "beneficio_11": null,
+    "productos": [
+      298859922,
+      298859922
+    ],
+    "precio": 43999,
+    "envio_gratis": true
+  },
+  {
+    "clave": "jean-alpargatas",
+    "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/jean-alpargatas_4x5_v2.png",
+    "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/jean-alpargatas_9x16_v2.png",
+    "posicion": "arriba",
+    "titular": "JEAN + ALPARGATAS",
+    "bajada": "El combo de primavera, con envío gratis",
+    "chip": "$73.998 LOS DOS",
+    "beneficio": "Hasta 6 cuotas sin interés",
+    "recorte_11": 1,
+    "bajada_11": null,
+    "beneficio_11": null,
+    "productos": [
+      298859922,
+      354993720
+    ],
+    "precio_total": 73998,
+    "envio_gratis": true
+  },
+  {
+    "clave": "jean-remera",
+    "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/rem-vaq.4.5.png",
+    "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/rem+vaq 9.16.png",
+    "titular": "JEAN + REMERA",
+    "bajada": "El básico de todos los días, con envío gratis",
+    "chip": "$66.998 LOS DOS",
+    "beneficio": "Hasta 6 cuotas sin interés",
+    "recorte_11": 0.45,
+    "bajada_11": null,
+    "beneficio_11": null,
+    "productos": [
+      298859922,
+      136305274
+    ],
+    "precio_total": 66998,
+    "envio_gratis": true
+  },
+  {
+    "clave": "cargo-slim",
+    "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/cargo-slim_4x5_v1.png",
+    "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/cargo-slim_9x16_v1.png",
+    "posicion": "arriba",
+    "titular": "CÓMODO|Y ELASTIZADO",
+    "bajada": "El cargo slim fit que se mueve con vos",
+    "chip": "ENVÍO GRATIS",
+    "beneficio": "3 cuotas sin interés",
+    "recorte_11": 0.7,
+    "bajada_11": null,
+    "beneficio_11": null,
+    "productos": [
+      74186959
+    ],
+    "precio": 63999,
+    "envio_gratis": true
+  },
+  {
+    "clave": "remera-colores",
+    "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/remera-colores_45.png",
+    "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/remera-colores_916.png",
+    "fuente_11": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/remera-colores_11.png",
+    "posicion": "arriba",
+    "titular": "REMERA LISA PAMPERO",
+    "bajada": "Jersey peinado, en cuatro colores",
+    "chip": "$22.999",
+    "beneficio": "3 cuotas sin interés",
+    "beneficio_916": null,
+    "bajada_11": null,
+    "beneficio_11": null,
+    "productos": [
+      136305274
+    ],
+    "precio": 22999,
+    "beneficio_45": null
+  }
+]

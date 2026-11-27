@@ -1,0 +1,29 @@
+{
+  "adset": "120251232002060783",
+  "piezas": [
+    {
+      "nombre": "C1 · Cyber Blacks · Más vendidos (sin precio)",
+      "tipo": "imagen",
+      "feed": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/cyber-blacks/45/10-general-sin-precio_45.jpg",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/cyber-blacks/916/10-general-sin-precio_916.jpg",
+      "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/cyber-blacks/11/10-general-sin-precio_11.jpg",
+      "titulo": "CYBER BLACKS: los más vendidos a precio Cyber",
+      "descripcion": "2, 3 y 4 de noviembre · Sólo en la tienda online",
+      "url": "https://blacksindumentaria.com.ar/",
+      "texto_feed": "CYBER BLACKS 🖤 2, 3 y 4 de noviembre. Los más vendidos de la tienda a precio Cyber: jeans, chombas, cargos, alpargatas y más. Hasta 6 cuotas sin interés y envío gratis desde $45.000. Sólo en blacksindumentaria.com.ar",
+      "texto_vertical": "CYBER BLACKS 🖤 2, 3 y 4 de noviembre. Los más vendidos a precio Cyber, sólo en la tienda online."
+    },
+    {
+      "nombre": "C2 · Cyber Blacks · Jeans (sin precio)",
+      "tipo": "imagen",
+      "feed": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/cyber-blacks/45/11-jean-sin-precio_45.jpg",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/cyber-blacks/916/11-jean-sin-precio_916.jpg",
+      "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/cyber-blacks/11/11-jean-sin-precio_11.jpg",
+      "titulo": "Jeans a precio Cyber",
+      "descripcion": "Clásico recto · Del 40 al 54 · 5 colores",
+      "url": "https://blacksindumentaria.com.ar/productos/pantalones-jean-vaquero-clasico-recto-original/",
+      "texto_feed": "CYBER BLACKS 🖤 2, 3 y 4 de noviembre. El jean clásico recto que más vendemos, a precio Cyber: del 40 al 54 y en 5 colores. Hasta 6 cuotas sin interés y envío gratis desde $45.000. Sólo en la tienda online.",
+      "texto_vertical": "CYBER BLACKS 🖤 El jean que más vendemos, a precio Cyber. 2, 3 y 4 de noviembre, sólo online."
+    }
+  ]
+}

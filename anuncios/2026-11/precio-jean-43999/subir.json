@@ -1,0 +1,32 @@
+{
+  "adset": "120250779709150783",
+  "piezas": [
+    {
+      "nombre": "22 · Jean en 5 Colores",
+      "tipo": "imagen",
+      "feed": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/precio-jean-43999/45/jean-cinco-colores_45.jpg",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/precio-jean-43999/916/jean-cinco-colores_916.jpg",
+      "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/precio-jean-43999/11/jean-cinco-colores_11.jpg",
+      "titulo": "Jean Vaquero Clásico — $43.999",
+      "descripcion": "Llevando 2: envío gratis y 6 cuotas sin interés",
+      "url": "https://blacksindumentaria.com.ar/productos/pantalones-jean-vaquero-clasico-recto-original/",
+      "texto_feed": "El jean clásico recto en cinco colores: claro, medio, estático, azul oscuro y negro. Del talle 40 al 54, 100% algodón y hecho en Argentina. A $43.999, y llevando 2 tenés envío gratis y 6 cuotas sin interés.",
+      "texto_vertical": "Jean clásico recto en 5 colores, del 40 al 54: $43.999. Llevando 2, envío gratis."
+    },
+    {
+      "nombre": "18 · Video · Jean Clásico Recto",
+      "tipo": "video",
+      "feed": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/precio-jean-43999/videos/video-jean-clasico_45.mp4",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/precio-jean-43999/videos/video-jean-clasico_916.mp4",
+      "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/precio-jean-43999/videos/video-jean-clasico_11.mp4",
+      "portada_feed": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/precio-jean-43999/videos/video-jean-clasico_45.jpg",
+      "portada_vertical": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/precio-jean-43999/videos/video-jean-clasico_916.jpg",
+      "portada_cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/precio-jean-43999/videos/video-jean-clasico_11.jpg",
+      "titulo": "Jean Vaquero Clásico — $43.999",
+      "descripcion": "Llevando 2: envío gratis y 6 cuotas sin interés",
+      "url": "https://blacksindumentaria.com.ar/productos/pantalones-jean-vaquero-clasico-recto-original/",
+      "texto_feed": "Jean clásico recto hecho en Argentina: 100% algodón, cierre YKK y remaches. Del talle 40 al 54 y en cinco colores, a $43.999. Llevando 2 tenés envío gratis y 6 cuotas sin interés.",
+      "texto_vertical": "Jean clásico recto 100% algodón, hecho en Argentina, a $43.999. Llevando 2, envío gratis."
+    }
+  ]
+}

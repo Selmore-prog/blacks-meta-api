@@ -1,0 +1,219 @@
+{
+  "salida": "placas",
+  "tarjetas": [
+    {
+      "clave": "01-298859922",
+      "fotos": [
+        {
+          "src": "https://acdn-us.mitiendanube.com/stores/339/112/products/c1-e7510221f49897197e17915644102637-1024-1024.webp",
+          "foco": [
+            0.5,
+            0.55
+          ],
+          "zoom": 1
+        },
+        {
+          "src": "https://acdn-us.mitiendanube.com/stores/339/112/products/c4-cc055e443ee739f33c17915644112341-1024-1024.webp",
+          "foco": [
+            0.5,
+            0.4
+          ],
+          "zoom": 1
+        },
+        {
+          "src": "https://acdn-us.mitiendanube.com/stores/339/112/products/ne1-d4ec8192a8c3951a4917915644105745-1024-1024.webp",
+          "foco": [
+            0.5,
+            0.55
+          ],
+          "zoom": 1
+        }
+      ],
+      "titular": "Jean Clásico Recto",
+      "detalle": "Del 40 al 54 · 5 colores",
+      "precio": 38999,
+      "lista": 48999,
+      "off": 20,
+      "etiqueta": "MÁS VENDIDO",
+      "pie": "Hasta 6 cuotas sin interés"
+    },
+    {
+      "clave": "02-203561925",
+      "fotos": [
+        {
+          "src": "https://acdn-us.mitiendanube.com/stores/339/112/products/271203_pampero_ecom_1517-8a5fcf1c59d53e79da17829234863961-1024-1024.jpg",
+          "foco": [
+            0.5,
+            0.5
+          ],
+          "zoom": 1
+        },
+        {
+          "src": "https://acdn-us.mitiendanube.com/stores/339/112/products/271203_pampero_ecom_1494-b92a348b097250efcd17829237839906-1024-1024.jpg",
+          "foco": [
+            0.5,
+            0.55
+          ],
+          "zoom": 1
+        },
+        {
+          "src": "https://acdn-us.mitiendanube.com/stores/339/112/products/chmp3-0d02216f8511df64cb17624402767911-1024-1024.jpg",
+          "foco": [
+            0.5,
+            0.55
+          ],
+          "zoom": 1
+        }
+      ],
+      "titular": "Chomba Micropiqué",
+      "detalle": "Del S al XXXL · 4 colores",
+      "precio": 26999,
+      "lista": 39999,
+      "off": 32,
+      "etiqueta": "MÁS VENDIDO",
+      "pie": "Hasta 6 cuotas sin interés"
+    },
+    {
+      "clave": "03-136305274",
+      "fotos": [
+        {
+          "src": "https://acdn-us.mitiendanube.com/stores/339/112/products/271203_pampero_ecom_1801-1-2701950b75392e80e517872646114135-1024-1024-f0a3fe154af949b8a017876834775293-1024-1024.jpg",
+          "foco": [
+            0.5,
+            0.5
+          ],
+          "zoom": 1
+        },
+        {
+          "src": "https://acdn-us.mitiendanube.com/stores/339/112/products/271203_pampero_ecom_1711-51184fb18726796bfc17872646116202-1024-1024-442c492533c8964d0d17876834790911-1024-1024.jpg",
+          "foco": [
+            0.5,
+            0.45
+          ],
+          "zoom": 1
+        },
+        {
+          "src": "https://acdn-us.mitiendanube.com/stores/339/112/products/251203_pampero_ecom_0377-742c752e2a8873a6ee17872646103073-1024-1024-4f07409b53adee62db17876834977995-1024-1024.jpg",
+          "foco": [
+            0.5,
+            0.45
+          ],
+          "zoom": 1
+        }
+      ],
+      "titular": "Remera Lisa Pampero",
+      "detalle": "Del S al XXXL · 4 colores",
+      "precio": 19999,
+      "etiqueta": "MÁS VENDIDO",
+      "pie": "Hasta 6 cuotas sin interés"
+    },
+    {
+      "clave": "04-354993720",
+      "fotos": [
+        {
+          "src": "https://acdn-us.mitiendanube.com/stores/339/112/products/1-da6518df3fa3b6be5817915634420890-1024-1024.webp",
+          "foco": [
+            0.5,
+            0.5
+          ],
+          "zoom": 1
+        },
+        {
+          "src": "https://acdn-us.mitiendanube.com/stores/339/112/products/b5-8f0653fc8ccc0fd8f817915634422206-1024-1024.webp",
+          "foco": [
+            0.5,
+            0.5
+          ],
+          "zoom": 1
+        },
+        {
+          "src": "https://acdn-us.mitiendanube.com/stores/339/112/products/j1-7724ba186e53dcfa6a17915634421186-1024-1024.webp",
+          "foco": [
+            0.5,
+            0.5
+          ],
+          "zoom": 1
+        }
+      ],
+      "titular": "Alpargatas Rueda",
+      "detalle": "Del 4 al 12 US · 3 colores",
+      "precio": 28999,
+      "lista": 36999,
+      "off": 21,
+      "etiqueta": "MÁS VENDIDO",
+      "pie": "Hasta 6 cuotas sin interés"
+    },
+    {
+      "clave": "05-100696539",
+      "fotos": [
+        {
+          "src": "https://acdn-us.mitiendanube.com/stores/339/112/products/b2-70a50a547feeb709bc17567388999654-1024-1024.webp",
+          "foco": [
+            0.5,
+            0.5
+          ],
+          "zoom": 1
+        },
+        {
+          "src": "https://acdn-us.mitiendanube.com/stores/339/112/products/b4-75e92d12f5518a151f17567389002621-1024-1024.webp",
+          "foco": [
+            0.5,
+            0.5
+          ],
+          "zoom": 1
+        },
+        {
+          "src": "https://acdn-us.mitiendanube.com/stores/339/112/products/a5-914c491a28fc248ac217567389007056-1024-1024.webp",
+          "foco": [
+            0.5,
+            0.5
+          ],
+          "zoom": 1
+        }
+      ],
+      "titular": "Pantalón de Trabajo",
+      "detalle": "Del 38 al 58",
+      "precio": 38999,
+      "lista": 51999,
+      "off": 25,
+      "etiqueta": "MÁS VENDIDO",
+      "pie": "Hasta 6 cuotas sin interés"
+    },
+    {
+      "clave": "06-344297681",
+      "fotos": [
+        {
+          "src": "https://acdn-us.mitiendanube.com/stores/339/112/products/medio21-256371ddff215e1c5e17805815276291-1024-1024.webp",
+          "foco": [
+            0.5,
+            0.5
+          ],
+          "zoom": 1
+        },
+        {
+          "src": "https://acdn-us.mitiendanube.com/stores/339/112/products/medio34-9cd7e4cd135770ea1217805814343035-1024-1024.webp",
+          "foco": [
+            0.5,
+            0.5
+          ],
+          "zoom": 1
+        },
+        {
+          "src": "https://acdn-us.mitiendanube.com/stores/339/112/products/regneg1-aa552813aa48cb53e017805813789048-1024-1024.webp",
+          "foco": [
+            0.5,
+            0.5
+          ],
+          "zoom": 1
+        }
+      ],
+      "titular": "Jean Regular Elastizado",
+      "detalle": "Del 40 al 58 · 4 colores",
+      "precio": 39999,
+      "lista": 54999,
+      "off": 27,
+      "etiqueta": "MÁS VENDIDO",
+      "pie": "Hasta 6 cuotas sin interés"
+    }
+  ]
+}

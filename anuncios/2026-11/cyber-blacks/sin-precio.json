@@ -1,0 +1,28 @@
+{
+  "_que_es": "Placas de CYBER BLACKS SIN PRECIO (pedido de Sebastián, 1-nov-2026: 'que sea más de que hay cyber en mi página'). Salen apenas Meta las aprueba, aunque los precios Cyber todavía no estén cargados: no prometen ningún número, así que el verificador de precios no las controla. La remera no se nombra porque el 1-nov no tenía descuento en la tienda. Regenerar: python3 scripts/piezas-cyber.py anuncios/2026-11/cyber-blacks/sin-precio.json ~/Desktop/piezas-motor/noviembre/cyber-blacks",
+  "evento": "CYBER BLACKS",
+  "fecha": "2, 3 y 4 de noviembre",
+  "banda_derecha": "Hasta 6 cuotas|sin interés",
+  "piezas": [
+    {
+      "clave": "10-general-sin-precio",
+      "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/nuevas 4.5/chomba y vaquero.png",
+      "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/nuevas 9.16/chomba y jean .png",
+      "titular": "LOS MÁS VENDIDOS|A PRECIO CYBER",
+      "bajada": "Jeans, chombas, cargos, alpargatas y más",
+      "beneficio": "Sólo en la tienda online · blacksindumentaria.com.ar",
+      "productos": []
+    },
+    {
+      "clave": "11-jean-sin-precio",
+      "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/vaqueros4.5.png",
+      "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/vaqueros9.16.png",
+      "posicion": "arriba",
+      "recorte": 0.0,
+      "titular": "JEANS A PRECIO CYBER",
+      "bajada": "Clásico recto · Del 40 al 54 · 5 colores",
+      "beneficio": "Sólo en la tienda online · blacksindumentaria.com.ar",
+      "productos": [298859922]
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+{
+  "adset": "120250935876340783",
+  "piezas": [
+    {
+      "nombre": "25 · Kit x3 Remeras",
+      "tipo": "imagen",
+      "feed": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/kits-x3/45/kit-remeras_45.jpg",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/kits-x3/916/kit-remeras_916.jpg",
+      "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/kits-x3/11/kit-remeras_11.jpg",
+      "titulo": "Kit x3 remeras — $56.997 con envío gratis",
+      "descripcion": "10% OFF pagando por transferencia",
+      "url": "https://blacksindumentaria.com.ar/productos/kit-remeras-pampero-x3/",
+      "texto_feed": "Llegó el calor: 3 remeras lisas de algodón Pampero por $56.997, con envío gratis a todo el país. Armás el kit a tu gusto: elegís el color y el talle de cada una. Hasta 6 cuotas sin interés.",
+      "texto_vertical": "3 remeras de algodón por $56.997, con envío gratis. Elegí color y talle de cada una."
+    },
+    {
+      "nombre": "26 · Kit x3 Chombas",
+      "tipo": "imagen",
+      "feed": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/kits-x3/45/kit-chombas_45.jpg",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/kits-x3/916/kit-chombas_916.jpg",
+      "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/kits-x3/11/kit-chombas_11.jpg",
+      "titulo": "Kit x3 chombas — $76.947 con envío gratis",
+      "descripcion": "10% OFF pagando por transferencia",
+      "url": "https://blacksindumentaria.com.ar/productos/kit-chombas-pampero-x3/",
+      "texto_feed": "Para el verano, chombas de micropiqué Pampero: 3 por $76.947 con envío gratis a todo el país. Elegís el color y el talle de cada una, y no se encogen ni destiñen con los lavados. Hasta 6 cuotas sin interés.",
+      "texto_vertical": "3 chombas de micropiqué por $76.947, con envío gratis. Elegí color y talle de cada una."
+    }
+  ]
+}

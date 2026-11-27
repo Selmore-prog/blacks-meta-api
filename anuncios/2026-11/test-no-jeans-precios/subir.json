@@ -1,0 +1,160 @@
+{
+  "adset": "120251309337870783",
+  "piezas": [
+    {
+      "nombre": "12 · Jean Clásico Recto",
+      "tipo": "imagen",
+      "feed": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/test-no-jeans-precios/45/jean-clasico_45.jpg",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/test-no-jeans-precios/916/jean-clasico_916.jpg",
+      "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/test-no-jeans-precios/11/jean-clasico_11.jpg",
+      "titulo": "Jean Vaquero Clásico — $43.999",
+      "descripcion": "Llevando 2: envío gratis y 6 cuotas sin interés",
+      "url": "https://blacksindumentaria.com.ar/productos/pantalones-jean-vaquero-clasico-recto-original/",
+      "texto_feed": "Jean clásico recto de trabajo. Tela firme, corte de siempre, del talle 40 al 54 y en cinco colores. A $43.999, y llevando 2 tenés envío gratis y 6 cuotas sin interés.",
+      "texto_vertical": "Jean clásico recto, del 40 al 54: $43.999. Llevando 2, envío gratis."
+    },
+    {
+      "nombre": "13 · Combo Jean + Alpargatas",
+      "tipo": "imagen",
+      "feed": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/test-no-jeans-precios/45/jean-alpargatas_45.jpg",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/test-no-jeans-precios/916/jean-alpargatas_916.jpg",
+      "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/test-no-jeans-precios/11/jean-alpargatas_11.jpg",
+      "titulo": "Jean + alpargatas: $73.998 los dos",
+      "descripcion": "Envío gratis a todo el país",
+      "url": "https://blacksindumentaria.com.ar/urbano/",
+      "texto_feed": "El combo de primavera: jean clásico recto ($43.999) + alpargatas Rueda de lona y yute con el sol bordado ($29.999). Juntos pasan los $45.000 y el envío es gratis. Hasta 6 cuotas sin interés.",
+      "texto_vertical": "Jean clásico + alpargatas: $73.998 los dos, con envío gratis."
+    },
+    {
+      "nombre": "15 · Cargo Slim Fit",
+      "tipo": "imagen",
+      "feed": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/test-no-jeans-precios/45/cargo-slim_45.jpg",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/test-no-jeans-precios/916/cargo-slim_916.jpg",
+      "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/test-no-jeans-precios/11/cargo-slim_11.jpg",
+      "titulo": "Cargo Slim Fit Elastizado — $63.999",
+      "descripcion": "Envío gratis a todo el país",
+      "url": "https://blacksindumentaria.com.ar/productos/pantalon-fit-cargo-elastizado-pampero/",
+      "texto_feed": "Cómodo y elastizado: gabardina que acompaña cada movimiento, costuras reforzadas y bolsillos con tapa. Cargo slim fit Pampero a $63.999, con envío gratis y 3 cuotas sin interés.",
+      "texto_vertical": "Cargo slim fit Pampero: cómodo, elastizado y con envío gratis."
+    },
+    {
+      "nombre": "16 · Chomba Micropique",
+      "tipo": "imagen",
+      "feed": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/verano-sin-jean/45/chomba-micropique_45.jpg",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/verano-sin-jean/916/chomba-micropique_916.jpg",
+      "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/verano-sin-jean/11/chomba-micropique_11.jpg",
+      "titulo": "Chomba micropiqué Pampero — $33.999",
+      "descripcion": "10% OFF pagando por transferencia",
+      "cta": "SHOP_NOW",
+      "url": "https://blacksindumentaria.com.ar/productos/chomba-micropique-pampero/",
+      "texto_feed": "Chomba de micropiqué Pampero a $33.999: no se encoge ni destiñe con los lavados. En gris, negro, azul y blanco. 3 cuotas sin interés y 10% OFF pagando por transferencia.",
+      "texto_vertical": "Chomba de micropiqué Pampero a $33.999. 3 cuotas sin interés."
+    },
+    {
+      "nombre": "17 · Remera Lisa Pampero",
+      "tipo": "imagen",
+      "feed": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/test-no-jeans-precios/45/remera-colores_45.jpg",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/test-no-jeans-precios/916/remera-colores_916.jpg",
+      "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/test-no-jeans-precios/11/remera-colores_11.jpg",
+      "titulo": "Remera Lisa Pampero — $22.999",
+      "descripcion": "3 cuotas sin interés",
+      "url": "https://blacksindumentaria.com.ar/productos/remera-lisa-algodon-pampero/",
+      "texto_feed": "La remera de todos los días: jersey peinado suave y transpirable, cuello en rib y costuras reforzadas en cuello y hombros. En azul, gris, negro y blanco, a $22.999.",
+      "texto_vertical": "Remera lisa Pampero de jersey peinado: $22.999, en cuatro colores."
+    },
+    {
+      "nombre": "18 · Video · Jean Clásico Recto",
+      "tipo": "video",
+      "feed": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/precio-jean-43999/videos/video-jean-clasico_45.mp4",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/precio-jean-43999/videos/video-jean-clasico_916.mp4",
+      "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/precio-jean-43999/videos/video-jean-clasico_11.mp4",
+      "portada_feed": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/precio-jean-43999/videos/video-jean-clasico_45.jpg",
+      "portada_vertical": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/precio-jean-43999/videos/video-jean-clasico_916.jpg",
+      "portada_cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/precio-jean-43999/videos/video-jean-clasico_11.jpg",
+      "titulo": "Jean Vaquero Clásico — $43.999",
+      "descripcion": "Llevando 2: envío gratis y 6 cuotas sin interés",
+      "url": "https://blacksindumentaria.com.ar/productos/pantalones-jean-vaquero-clasico-recto-original/",
+      "texto_feed": "Jean clásico recto hecho en Argentina: 100% algodón, cierre YKK y remaches. Del talle 40 al 54 y en cinco colores, a $43.999. Llevando 2 tenés envío gratis y 6 cuotas sin interés.",
+      "texto_vertical": "Jean clásico recto 100% algodón, hecho en Argentina, a $43.999. Llevando 2, envío gratis."
+    },
+    {
+      "nombre": "20 · Video · Jean + Alpargatas",
+      "tipo": "video",
+      "feed": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/test-no-jeans-precios/videos/video-jean-alpargatas_45.mp4",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/test-no-jeans-precios/videos/video-jean-alpargatas_916.mp4",
+      "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/test-no-jeans-precios/videos/video-jean-alpargatas_11.mp4",
+      "portada_feed": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/test-no-jeans-precios/videos/video-jean-alpargatas_45.jpg",
+      "portada_vertical": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/test-no-jeans-precios/videos/video-jean-alpargatas_916.jpg",
+      "portada_cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/test-no-jeans-precios/videos/video-jean-alpargatas_11.jpg",
+      "titulo": "Jean + alpargatas: $73.998 los dos",
+      "descripcion": "Envío gratis a todo el país",
+      "url": "https://blacksindumentaria.com.ar/urbano/",
+      "texto_feed": "El combo de primavera: jean clásico recto ($43.999) + alpargatas Rueda de lona y yute con el sol bordado ($29.999). Juntos pasan los $45.000 y el envío es gratis. Hasta 6 cuotas sin interés.",
+      "texto_vertical": "Jean clásico + alpargatas: $73.998 los dos, con envío gratis."
+    },
+    {
+      "nombre": "21 · Combo Jean + Remera",
+      "tipo": "imagen",
+      "feed": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/test-no-jeans-precios/45/jean-remera_45.jpg",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/test-no-jeans-precios/916/jean-remera_916.jpg",
+      "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/test-no-jeans-precios/11/jean-remera_11.jpg",
+      "titulo": "Jean + remera: $66.998 los dos",
+      "descripcion": "Envío gratis a todo el país",
+      "url": "https://blacksindumentaria.com.ar/urbano/",
+      "texto_feed": "El básico de todos los días: jean clásico recto ($43.999) + remera lisa Pampero de jersey peinado ($22.999). Juntos pasan los $45.000 y el envío es gratis. Hasta 6 cuotas sin interés.",
+      "texto_vertical": "Jean clásico + remera lisa: $66.998 los dos, con envío gratis."
+    },
+    {
+      "nombre": "23 · Alpargatas Rueda",
+      "tipo": "imagen",
+      "feed": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/verano-sin-jean/45/alpargatas-rueda_45.jpg",
+      "vertical": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/verano-sin-jean/916/alpargatas-rueda_916.jpg",
+      "cuadrado": "/Users/sebastianelmore/Desktop/piezas-motor/noviembre/verano-sin-jean/11/alpargatas-rueda_11.jpg",
+      "titulo": "Alpargatas Rueda — $29.999",
+      "descripcion": "10% OFF pagando por transferencia",
+      "cta": "SHOP_NOW",
+      "url": "https://blacksindumentaria.com.ar/productos/alpargatas-rueda-yute-clasica-argentina-original-lbbwl/",
+      "texto_feed": "Las clásicas Rueda de lona y yute, con el sol bordado, a $29.999. En tostado, crudo y jean. 3 cuotas sin interés y 10% OFF pagando por transferencia.",
+      "texto_vertical": "Alpargatas Rueda de lona y yute a $29.999. 3 cuotas sin interés."
+    },
+    {
+      "nombre": "Carrusel · Los más vendidos · 2026-10",
+      "tipo": "carrusel",
+      "url": "https://blacksindumentaria.com.ar/eshop/",
+      "cta": "SHOP_NOW",
+      "texto_feed": "Lo que más se llevan en Blacks, con las fotos reales de la tienda. Envío gratis a todo el país desde $45.000. Deslizá y elegí el tuyo 👉",
+      "tarjetas": [
+        {
+          "imagen": "/Users/sebastianelmore/blacks-content-engine/anuncios/2026-11/test-no-jeans-precios/tarjetas/01-298859922.jpg",
+          "titulo": "Jean Clásico Recto — $43.999",
+          "descripcion": "13% OFF · Talles del 40 al 54",
+          "url": "https://blacksindumentaria.com.ar/productos/pantalones-jean-vaquero-clasico-recto-original/"
+        },
+        {
+          "imagen": "/Users/sebastianelmore/blacks-content-engine/anuncios/2026-11/test-no-jeans-precios/tarjetas/03-136305274.jpg",
+          "titulo": "Remera Lisa Pampero — $22.999",
+          "descripcion": "36% OFF",
+          "url": "https://blacksindumentaria.com.ar/productos/remera-lisa-algodon-pampero/"
+        },
+        {
+          "imagen": "/Users/sebastianelmore/blacks-content-engine/anuncios/2026-11/test-no-jeans-precios/tarjetas/04-354993720.jpg",
+          "titulo": "Alpargatas Rueda — $29.999",
+          "descripcion": "18% OFF",
+          "url": "https://blacksindumentaria.com.ar/productos/alpargatas-rueda-yute-clasica-argentina-original-lbbwl/"
+        },
+        {
+          "imagen": "/Users/sebastianelmore/blacks-content-engine/anuncios/2026-11/test-no-jeans-precios/tarjetas/05-353824358.jpg",
+          "titulo": "Pack x2 Remeras Pampero — $41.999",
+          "descripcion": "19% OFF",
+          "url": "https://blacksindumentaria.com.ar/productos/pack-x2-remera-lisa-algodon-pampero/"
+        },
+        {
+          "imagen": "/Users/sebastianelmore/blacks-content-engine/anuncios/2026-11/test-no-jeans-precios/tarjetas/06-100696539.jpg",
+          "titulo": "Pantalón de Trabajo Clásico Pampero — $38.999",
+          "descripcion": "25% OFF",
+          "url": "https://blacksindumentaria.com.ar/productos/pantalon-de-trabajo-clasico-pampero/"
+        }
+      ]
+    }
+  ]
+}

@@ -1,0 +1,111 @@
+{
+  "_que_es": "Piezas de CYBER BLACKS (2, 3 y 4 de noviembre de 2026). Precios Cyber = PROPUESTA del 27-oct (~10% menos que el precio de ese día; tachado = precio de lista de la tienda), pendientes del OK de Sebastián. Las piezas con precio sólo pueden salir cuando la tienda ya cobra ese precio (y hay que pasarlas al manifiesto); el teaser no tiene precio. Si se extiende el evento, cambiar 'fecha' y regenerar: python3 scripts/piezas-cyber.py anuncios/2026-11/cyber-blacks/piezas.json ~/Desktop/piezas-motor/noviembre/cyber-blacks --guia",
+  "evento": "CYBER BLACKS",
+  "fecha": "2, 3 y 4 de noviembre",
+  "banda_derecha": "Hasta 6 cuotas|sin interés",
+  "piezas": [
+    {
+      "clave": "00-teaser",
+      "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/nuevas 4.5/chomba y vaquero.png",
+      "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/nuevas 9.16/chomba y jean .png",
+      "fecha": "Se viene · 2, 3 y 4 de noviembre",
+      "titular": "LOS MÁS VENDIDOS|A PRECIO CYBER",
+      "bajada": "Jeans, cargos, chombas, remeras y alpargatas",
+      "beneficio": "Precios Cyber sólo en la tienda online",
+      "productos": []
+    },
+    {
+      "clave": "01-jean-clasico",
+      "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/vaqueros4.5.png",
+      "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/vaqueros9.16.png",
+      "posicion": "arriba",
+      "recorte": 0.0,
+      "titular": "JEAN CLÁSICO RECTO",
+      "bajada": "Del 40 al 54 · 5 colores",
+      "lista": 48999,
+      "precio": 34999,
+      "beneficio": "Llevando 2, envío gratis",
+      "productos": [
+        298859922
+      ]
+    },
+    {
+      "clave": "02-cargo-slim",
+      "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/cargo-slim_4x5_v1.png",
+      "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/cargo-slim_9x16_v1.png",
+      "posicion": "arriba",
+      "recorte": 1.0,
+      "titular": "CARGO SLIM FIT",
+      "bajada": "Elastizado · Del 38 al 54 · 5 colores",
+      "lista": 78299,
+      "precio": 54999,
+      "beneficio": "Envío gratis",
+      "productos": [
+        74186959
+      ]
+    },
+    {
+      "clave": "03-chomba",
+      "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/nuevas 4.5/chombamicropique.png",
+      "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/nuevas 9.16/chomba micropique.png",
+      "recorte": 0.0,
+      "titular": "CHOMBA MICROPIQUÉ",
+      "bajada": "Del S al XXXL · 4 colores",
+      "lista": 39999,
+      "precio": 28999,
+      "beneficio": "Llevando 2, envío gratis",
+      "productos": [
+        203561925
+      ]
+    },
+    {
+      "clave": "04-remera",
+      "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/remera-colores_45.png",
+      "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/remera-colores_916.png",
+      "fuente_11": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/remera-colores_11.png",
+      "posicion": "arriba",
+      "recorte": 1.0,
+      "titular": "REMERA DE ALGODÓN",
+      "bajada": "Del S al XXXL · 4 colores",
+      "lista": 19999,
+      "precio": 17999,
+      "beneficio": "Llevando 3, envío gratis",
+      "productos": [
+        136305274
+      ],
+      "escala_45": 0.8,
+      "escala_916": 0.78,
+      "escala_11": 0.62
+    },
+    {
+      "clave": "05-cargo-ripstop",
+      "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/nuevas 4.5/pantalonripstop.png",
+      "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/nuevas 9.16/cargo ripstop.png",
+      "recorte": 1.0,
+      "titular": "CARGO RIPSTOP",
+      "bajada": "Antidesgarro · Del 38 al 54 · 3 colores",
+      "lista": 72399,
+      "precio": 55999,
+      "beneficio": "Envío gratis",
+      "productos": [
+        74186334
+      ],
+      "posicion": "arriba"
+    },
+    {
+      "clave": "06-alpargatas",
+      "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/alpargatas4.5.png",
+      "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/alpargatas 9.16",
+      "posicion": "arriba",
+      "recorte": 1.0,
+      "titular": "ALPARGATAS RUEDA",
+      "bajada": "Del 4 al 12 US · 3 colores",
+      "lista": 36999,
+      "precio": 26999,
+      "beneficio": "Llevando 2, envío gratis",
+      "productos": [
+        354993720
+      ]
+    }
+  ]
+}

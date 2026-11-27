@@ -1,0 +1,51 @@
+{
+  "adset": "120250935876340783",
+  "piezas": [
+    {
+      "nombre": "27 · Carrusel · Placas · Más vendidos",
+      "tipo": "carrusel",
+      "url": "https://blacksindumentaria.com.ar/eshop/",
+      "cta": "SHOP_NOW",
+      "ordenar_por_rendimiento": false,
+      "texto_feed": "Lo más vendido de Black's, con las fotos reales de la tienda. Envío gratis a todo el país desde $45.000, hasta 6 cuotas sin interés y 30 días para cambiar el talle. Deslizá y elegí el tuyo 👉",
+      "tarjetas": [
+        {
+          "imagen": "placas/01-298859922.jpg",
+          "titulo": "Jean Clásico Recto — $38.999",
+          "descripcion": "20% OFF · Talles del 40 al 54",
+          "url": "https://blacksindumentaria.com.ar/productos/pantalones-jean-vaquero-clasico-recto-original/"
+        },
+        {
+          "imagen": "placas/02-203561925.jpg",
+          "titulo": "Chomba Micropiqué — $26.999",
+          "descripcion": "32% OFF · Talles del S al XXXL",
+          "url": "https://blacksindumentaria.com.ar/productos/chomba-micropique-pampero/"
+        },
+        {
+          "imagen": "placas/03-136305274.jpg",
+          "titulo": "Remera Lisa Pampero — $19.999",
+          "descripcion": "Talles del S al XXXL",
+          "url": "https://blacksindumentaria.com.ar/productos/remera-lisa-algodon-pampero/"
+        },
+        {
+          "imagen": "placas/04-354993720.jpg",
+          "titulo": "Alpargatas Rueda — $28.999",
+          "descripcion": "21% OFF · Talles del 4 al 12 US",
+          "url": "https://blacksindumentaria.com.ar/productos/alpargatas-rueda-yute-clasica-argentina-original-lbbwl/"
+        },
+        {
+          "imagen": "placas/05-100696539.jpg",
+          "titulo": "Pantalón de Trabajo Clásico — $38.999",
+          "descripcion": "25% OFF · Talles del 38 al 58",
+          "url": "https://blacksindumentaria.com.ar/productos/pantalon-de-trabajo-clasico-pampero/"
+        },
+        {
+          "imagen": "placas/06-344297681.jpg",
+          "titulo": "Jean Regular Elastizado — $39.999",
+          "descripcion": "27% OFF · Talles del 40 al 58",
+          "url": "https://blacksindumentaria.com.ar/productos/pantalones-jean-vaquero-regular-elastizado-original/"
+        }
+      ]
+    }
+  ]
+}

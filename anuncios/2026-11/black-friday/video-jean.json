@@ -1,0 +1,20 @@
+{
+  "clave": "video-jean-black-friday",
+  "titular": "BLACK FRIDAY",
+  "bajada": "Jean clásico recto · Del 40 al 54",
+  "chip": "$39.999",
+  "beneficio": "Llevá 2: envío gratis y 6 cuotas",
+  "entra_titular": 0.3,
+  "entra_chip": 2.6,
+  "recorte_45": 0.45,
+  "productos": [
+    298859922,
+    298859922
+  ],
+  "recorte_11": 0.5,
+  "bajada_11": null,
+  "beneficio_11": null,
+  "clip": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/escenas sin texto/veo-jean-sin-texto.mp4",
+  "precio": 39999,
+  "envio_gratis": true
+}

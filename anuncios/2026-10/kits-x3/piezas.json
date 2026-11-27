@@ -1,0 +1,36 @@
+[
+  {
+    "clave": "kit-remeras",
+    "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/kits-x3/escenas/remeras_45.png",
+    "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/kits-x3/escenas/remeras_916.png",
+    "posicion": "arriba",
+    "titular": "KIT X3 REMERAS",
+    "bajada": "Elegí color y talle de cada una",
+    "chip": "$56.997 · ENVÍO GRATIS",
+    "beneficio": "Hasta 6 cuotas sin interés",
+    "recorte_11": 0.6,
+    "bajada_11": null,
+    "beneficio_11": null,
+    "productos": [370642347],
+    "stock_de": [136305274],
+    "precio": 56997,
+    "envio_gratis": true
+  },
+  {
+    "clave": "kit-chombas",
+    "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/kits-x3/escenas/chombas_45.png",
+    "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/kits-x3/escenas/chombas_916.png",
+    "posicion": "arriba",
+    "titular": "KIT X3 CHOMBAS",
+    "bajada": "Elegí color y talle de cada una",
+    "chip": "$76.947 · ENVÍO GRATIS",
+    "beneficio": "Hasta 6 cuotas sin interés",
+    "recorte_11": 0.6,
+    "bajada_11": null,
+    "beneficio_11": null,
+    "productos": [370693101],
+    "stock_de": [203561925],
+    "precio": 76947,
+    "envio_gratis": true
+  }
+]

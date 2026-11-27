@@ -1,0 +1,15 @@
+[
+  {
+    "clave": "jean-transferencia",
+    "fuente_45": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/vaqueros4.5.png",
+    "fuente_916": "/Users/sebastianelmore/Desktop/piezas-motor/octubre/nuevAS/vaqueros9.16.png",
+    "posicion": "arriba",
+    "titular": "JEAN EN 5 COLORES",
+    "precio": 43999,
+    "descuento_transferencia": 10,
+    "tarjeta": "Con tarjeta {precio}",
+    "beneficio": "Llevando 2: envío gratis",
+    "recorte_11": 0.5,
+    "productos": [298859922]
+  }
+]

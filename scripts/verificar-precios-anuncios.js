@@ -12,8 +12,8 @@
  *
  * QUÉ HACE
  * Lee anuncios/manifiesto-meta.json (qué promete cada anuncio: precio,
- * descuento, precio del combo, envío gratis) y lo compara con Tiendanube en
- * vivo. Sólo mira los anuncios que en Meta están entregando o por entregar.
+ * descuento, precio del combo, envío gratis, precio por transferencia) y lo
+ * compara con Tiendanube en vivo. Sólo mira los anuncios que en Meta están entregando o por entregar.
  *
  *   ✗ ERROR  → el anuncio promete algo MEJOR que la tienda (precio más bajo,
  *              más descuento, envío gratis que ya no aplica) o el producto se
@@ -91,6 +91,7 @@ async function estadoProducto(id) {
   return {
     id,
     nombre: (p.name && (p.name.es || Object.values(p.name)[0])) || String(id),
+    url: p.canonical_url,
     publicado: p.published !== false,
     final,
     descuento,
@@ -99,6 +100,28 @@ async function estadoProducto(id) {
     conStock,
     tallesAgotados,
   };
+}
+
+/** % que la ficha descuenta pagando por transferencia ("10% de descuento
+ *  pagando con Transferencia", del modal de medios de pago). La API de
+ *  Tiendanube no lo expone. Si la página no lo dice, 0: el anuncio que promete
+ *  precio por transferencia salta como error, que es lo seguro. */
+const _transferencia = {};
+async function descuentoTransferencia(url) {
+  if (!url) return 0;
+  if (!(url in _transferencia)) {
+    try {
+      const html = await (await fetch(url, { signal: AbortSignal.timeout(15_000) })).text();
+      // En el HTML va "<strong>10% de descuento</strong>\n pagando con Transferencia".
+      const texto = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ');
+      const m = texto.match(/(\d+(?:[.,]\d+)?)\s*% de descuento pagando con Transferencia/i);
+      _transferencia[url] = m ? Number(m[1].replace(',', '.')) : 0;
+    } catch (err) {
+      console.warn(`No pude leer el descuento por transferencia de ${url}: ${err.message}`);
+      _transferencia[url] = 0;
+    }
+  }
+  return _transferencia[url];
 }
 
 async function estadoEnMeta(adId) {
@@ -146,6 +169,17 @@ async function pausar(adId) {
       // Tolerancia de $1: el kit cobra $56.997,15 y el anuncio dice $56.997.
       if (real > a.precio + 1) problemas.push(`dice ${pesos(a.precio)} y la tienda cobra ${pesos(real)}`);
       else if (real < a.precio) notas.push(`dice ${pesos(a.precio)} y la tienda bajó a ${pesos(real)}`);
+    }
+    // Precio por transferencia (placas de piezas-transferencia.py): lo que cobra
+    // la tienda menos el % de transferencia que muestra HOY la ficha.
+    if (a.precio_transferencia != null) {
+      const pct = await descuentoTransferencia(ps[0].url);
+      const real = ps[0].final * (1 - pct / 100);
+      if (real > a.precio_transferencia + 1) {
+        problemas.push(`dice ${pesos(a.precio_transferencia)} por transferencia y la tienda cobra ${pesos(real)} (${pct}% de descuento)`);
+      } else if (real < a.precio_transferencia - 1) {
+        notas.push(`dice ${pesos(a.precio_transferencia)} por transferencia y la tienda bajó a ${pesos(real)}`);
+      }
     }
     if (a.descuento != null) {
       const real = ps[0].descuento;

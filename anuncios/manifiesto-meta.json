@@ -221,10 +221,11 @@
       "ad_id": "120250779712290783",
       "nombre": "18 · Video · Jean Clásico Recto",
       "productos": [
+        298859922,
         298859922
       ],
-      "precio": 38999,
-      "descuento": 20
+      "precio": 43999,
+      "envio_gratis": true
     },
     {
       "ad_id": "120250779711600783",
@@ -292,10 +293,11 @@
       "ad_id": "120250779709530783",
       "nombre": "22 · Jean en 5 Colores",
       "productos": [
+        298859922,
         298859922
       ],
-      "precio": 38999,
-      "descuento": 20
+      "precio": 43999,
+      "envio_gratis": true
     },
     {
       "ad_id": "120250779653700783",
@@ -306,6 +308,398 @@
       "ad_id": "120250779654550783",
       "nombre": "Catálogo · Portada automática (remarketing curado)",
       "productos": []
+    },
+    {
+      "ad_id": "120250935885600783",
+      "nombre": "25 · Kit x3 Remeras",
+      "productos": [
+        370642347
+      ],
+      "stock_de": [
+        136305274
+      ],
+      "precio": 56997,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120250935887730783",
+      "nombre": "26 · Kit x3 Chombas",
+      "productos": [
+        370693101
+      ],
+      "stock_de": [
+        203561925
+      ],
+      "precio": 76947,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120250953183910783",
+      "nombre": "27 · Carrusel · Placas · Más vendidos",
+      "productos": [
+        298859922,
+        203561925,
+        136305274,
+        354993720,
+        100696539,
+        344297681
+      ],
+      "tarjetas": [
+        {
+          "producto": 298859922,
+          "precio": 38999,
+          "descuento": 20
+        },
+        {
+          "producto": 203561925,
+          "precio": 26999,
+          "descuento": 32
+        },
+        {
+          "producto": 136305274,
+          "precio": 19999
+        },
+        {
+          "producto": 354993720,
+          "precio": 28999,
+          "descuento": 21
+        },
+        {
+          "producto": 100696539,
+          "precio": 38999,
+          "descuento": 25
+        },
+        {
+          "producto": 344297681,
+          "precio": 39999,
+          "descuento": 27
+        }
+      ]
+    },
+    {
+      "ad_id": "120251471002210783",
+      "nombre": "V1 · Alpargatas Rueda",
+      "productos": [
+        354993720
+      ],
+      "precio": 29999
+    },
+    {
+      "ad_id": "120251471005960783",
+      "nombre": "V2 · Kit x3 Remeras Pampero",
+      "productos": [
+        370642347
+      ],
+      "stock_de": [
+        136305274
+      ],
+      "precio": 65547,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120251471008840783",
+      "nombre": "V3 · Kit x3 Chombas",
+      "productos": [
+        370693101
+      ],
+      "stock_de": [
+        203561925
+      ],
+      "precio": 96897,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120251471011970783",
+      "nombre": "V4 · Chomba Micropique",
+      "productos": [
+        203561925
+      ],
+      "precio": 33999
+    },
+    {
+      "ad_id": "120251471018190783",
+      "nombre": "V5 · Bermuda Cargo Gurre",
+      "productos": [
+        260499993
+      ],
+      "precio": 32999
+    },
+    {
+      "ad_id": "120251471023920783",
+      "nombre": "V6 · Kit x3 Remeras Gurre",
+      "productos": [
+        377647555
+      ],
+      "stock_de": [
+        305284348
+      ],
+      "precio": 54147,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120251471028440783",
+      "nombre": "V7 · Cargo Gurre Reforzado",
+      "productos": [
+        203578926
+      ],
+      "precio": 48999,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120251471034340783",
+      "nombre": "V8 · Cargo Fit Gurre",
+      "productos": [
+        203580897
+      ],
+      "precio": 53999,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120251470985630783",
+      "nombre": "Catálogo · Verano sin jean",
+      "productos": []
+    },
+    {
+      "ad_id": "120251309337580783",
+      "nombre": "17 · Remera Lisa Pampero (TEST NO JEANS)",
+      "productos": [
+        136305274
+      ],
+      "precio": 22999
+    },
+    {
+      "ad_id": "120251309337790783",
+      "nombre": "Carrusel · Los más vendidos · 2026-10 (TEST NO JEANS)",
+      "productos": [
+        298859922,
+        136305274,
+        354993720,
+        353824358,
+        100696539
+      ],
+      "tarjetas": [
+        {
+          "producto": 298859922,
+          "precio": 43999,
+          "descuento": 13
+        },
+        {
+          "producto": 136305274,
+          "precio": 22999,
+          "descuento": 36
+        },
+        {
+          "producto": 354993720,
+          "precio": 29999,
+          "descuento": 18
+        },
+        {
+          "producto": 353824358,
+          "precio": 41999,
+          "descuento": 19
+        },
+        {
+          "producto": 100696539,
+          "precio": 38999,
+          "descuento": 25
+        }
+      ]
+    },
+    {
+      "ad_id": "120251309337720783",
+      "nombre": "15 · Cargo Slim Fit (TEST NO JEANS)",
+      "productos": [
+        74186959
+      ],
+      "precio": 63999,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120251309337780783",
+      "nombre": "24 · Video · Temporada · Donde estés (TEST NO JEANS)",
+      "productos": []
+    },
+    {
+      "ad_id": "120251309337760783",
+      "nombre": "18 · Video · Jean Clásico Recto (TEST NO JEANS)",
+      "productos": [
+        298859922,
+        298859922
+      ],
+      "precio": 43999,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120251309337730783",
+      "nombre": "16 · Chomba Micropique (TEST NO JEANS)",
+      "productos": [
+        203561925
+      ],
+      "precio": 33999
+    },
+    {
+      "ad_id": "120251309337750783",
+      "nombre": "23 · Alpargatas Rueda (TEST NO JEANS)",
+      "productos": [
+        354993720
+      ],
+      "precio": 29999
+    },
+    {
+      "ad_id": "120251309337680783",
+      "nombre": "12 · Jean Clásico Recto (TEST NO JEANS)",
+      "productos": [
+        298859922,
+        298859922
+      ],
+      "precio": 43999,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120251309337770783",
+      "nombre": "20 · Video · Jean + Alpargatas (TEST NO JEANS)",
+      "productos": [
+        298859922,
+        354993720
+      ],
+      "precio_total": 73998,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120251309337700783",
+      "nombre": "13 · Combo Jean + Alpargatas (TEST NO JEANS)",
+      "productos": [
+        298859922,
+        354993720
+      ],
+      "precio_total": 73998,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120251309337710783",
+      "nombre": "21 · Combo Jean + Remera (TEST NO JEANS)",
+      "productos": [
+        298859922,
+        136305274
+      ],
+      "precio_total": 66998,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120251543088850783",
+      "nombre": "25 · Jean · $39.599 por transferencia",
+      "productos": [
+        298859922,
+        298859922
+      ],
+      "precio": 43999,
+      "precio_transferencia": 39599,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120251580529610783",
+      "nombre": "BF1 · Jean · $39.999 (Black Friday)",
+      "productos": [
+        298859922,
+        298859922
+      ],
+      "precio": 39999,
+      "descuento": 21,
+      "precio_transferencia": 35999,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120251580531190783",
+      "nombre": "BF2 · 2 Jeans · $79.998 (Black Friday)",
+      "productos": [
+        298859922,
+        298859922
+      ],
+      "precio_total": 79998,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120251580539600783",
+      "nombre": "BF3 · Video · Jean $39.999 (Black Friday)",
+      "productos": [
+        298859922,
+        298859922
+      ],
+      "precio": 39999,
+      "envio_gratis": true
+    },
+    {
+      "ad_id": "120251580540380783",
+      "nombre": "BF4 · Carrusel · Precios Black (Black Friday)",
+      "productos": [
+        298859922,
+        203561925,
+        353824358,
+        354993720,
+        136305274
+      ],
+      "tarjetas": [
+        {
+          "producto": 298859922,
+          "precio": 39999,
+          "descuento": 21
+        },
+        {
+          "producto": 203561925,
+          "precio": 30999,
+          "descuento": 22
+        },
+        {
+          "producto": 353824358,
+          "precio": 37999,
+          "descuento": 26
+        },
+        {
+          "producto": 354993720,
+          "precio": 26999,
+          "descuento": 27
+        },
+        {
+          "producto": 136305274,
+          "precio": 19999,
+          "descuento": 44
+        }
+      ]
+    },
+    {
+      "ad_id": "120251580542090783",
+      "nombre": "BF5 · Más vendidos · Precio Black (Black Friday)",
+      "productos": [
+        298859922,
+        203561925,
+        136305274
+      ],
+      "tarjetas": [
+        {
+          "producto": 298859922,
+          "precio": 39999
+        },
+        {
+          "producto": 203561925,
+          "precio": 30999
+        },
+        {
+          "producto": 136305274,
+          "precio": 19999
+        }
+      ]
+    },
+    {
+      "ad_id": "120251580577430783",
+      "nombre": "BF7 · Jean · Último día (Black Friday)",
+      "productos": [
+        298859922,
+        298859922
+      ],
+      "precio": 39999,
+      "descuento": 21,
+      "precio_transferencia": 35999,
+      "envio_gratis": true
     }
   ]
 }

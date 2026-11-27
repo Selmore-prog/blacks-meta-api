@@ -1,0 +1,316 @@
+<!doctype html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<title>Merchandising con tu logo · motion</title>
+<link href="https://fonts.googleapis.com/css2?family=Manrope:wght@600;700;800&display=block" rel="stylesheet">
+<style>
+/* Motion del merchandising (23-oct-2026), 15 s a 120 BPM: la pregunta, el logo
+   que se estampa en cada producto al ritmo, la grilla y el cierre a la web.
+   Mismo método que lusqtoff-bienvenida: renderAt(t) determinístico, render.cjs
+   saca los cuadros y ffmpeg arma el video. ?fmt=feed (4:5) | story (9:16). */
+:root { --fondo: #F3F1ED; --tinta: #141414; --gris: #6f6a63; --naranja: #EC6C32; --naranja-texto: #C9501A; }
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--fondo); overflow: hidden; }
+#stage { position: relative; overflow: hidden; background: var(--fondo); font-family: Manrope, sans-serif; color: var(--tinta); -webkit-font-smoothing: antialiased; }
+.abs { position: absolute; left: 0; top: 0; }
+#glow { position: absolute; border-radius: 50%; background: radial-gradient(circle, rgba(236,108,50,.16), rgba(236,108,50,0) 62%); }
+#dots { position: absolute; inset: 0; opacity: .5; background-image: radial-gradient(rgba(20,20,20,.07) 1.3px, transparent 1.5px); background-size: 34px 34px; }
+#grain { position: absolute; inset: -200px; opacity: .05; mix-blend-mode: multiply; pointer-events: none;
+  background-image: url("data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='240' height='240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='.9' numOctaves='3' stitchTiles='stitch'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>"); }
+
+.linea { position: absolute; left: 0; right: 0; display: flex; justify-content: center; text-align: center; white-space: nowrap; }
+.mask { overflow: hidden; padding: .06em .08em .24em; }
+.pal { display: inline-block; will-change: transform; }
+.tit { font-weight: 800; letter-spacing: -.045em; line-height: 1.02; }
+.nar { color: var(--naranja-texto); }
+
+.ceja { position: absolute; display: inline-flex; align-items: center; gap: 12px; padding: 12px 22px 12px 18px; border-radius: 999px; white-space: nowrap;
+  background: rgba(236,108,50,.10); border: 1.5px solid rgba(236,108,50,.32); color: var(--naranja-texto); font-weight: 800; letter-spacing: .14em; }
+.ceja i { width: 12px; height: 12px; border-radius: 50%; background: var(--naranja); box-shadow: 0 0 0 5px rgba(236,108,50,.18); }
+
+/* La tarjeta de cada producto: la foto sin logo y, encima, la misma con el logo
+   que aparece en un círculo desde el lugar del logo. */
+.card { position: absolute; background: #fff; border-radius: 44px; overflow: hidden; opacity: 0; will-change: transform, opacity;
+  box-shadow: 0 1px 0 rgba(0,0,0,.04), 0 30px 70px rgba(60,45,30,.14); }
+.card img { position: absolute; max-width: none; }
+.ring { position: absolute; border-radius: 50%; border: 3px solid var(--naranja); opacity: 0; pointer-events: none; }
+.flash { position: absolute; border-radius: 50%; background: radial-gradient(circle, rgba(255,255,255,.95), rgba(255,255,255,0) 65%); opacity: 0; pointer-events: none; }
+.flota { position: absolute; background: #fff; border-radius: 30px; overflow: hidden; opacity: 0; box-shadow: 0 1px 0 rgba(0,0,0,.04), 0 18px 40px rgba(60,45,30,.12); }
+.flota img { position: absolute; max-width: none; }
+#pie { position: absolute; left: 0; right: 0; display: flex; align-items: center; justify-content: center; gap: 12px; font-weight: 700; color: #4a4640; opacity: 0; }
+#pie .sp { display: grid; place-items: center; border-radius: 50%; background: var(--naranja); }
+.chip { position: absolute; display: inline-flex; align-items: center; gap: 10px; padding: 12px 22px; border-radius: 999px; background: var(--tinta); color: #fff;
+  font-weight: 800; white-space: nowrap; opacity: 0; box-shadow: 0 14px 30px rgba(20,20,20,.2); }
+.chip b { color: #FF8A4C; font-weight: 800; }
+.tec { position: absolute; left: 0; right: 0; text-align: center; font-weight: 700; color: #4a4640; opacity: 0; }
+
+.tile { position: absolute; background: #fff; border-radius: 26px; overflow: hidden; opacity: 0; box-shadow: 0 1px 0 rgba(0,0,0,.04), 0 12px 30px rgba(60,45,30,.08); }
+.tile img { position: absolute; max-width: none; }
+.tile.mas { background: var(--naranja); color: #fff; display: grid; place-items: center; text-align: center; font-weight: 800; letter-spacing: -.02em; line-height: 1.05; }
+.check { position: absolute; display: inline-flex; align-items: center; gap: 14px; font-weight: 700; white-space: nowrap; opacity: 0; color: #222; }
+.check svg { flex: none; }
+#cta { position: absolute; display: flex; align-items: center; justify-content: space-between; gap: 20px; border-radius: 999px; background: var(--tinta); color: #fff;
+  font-weight: 800; letter-spacing: -.02em; opacity: 0; box-shadow: 0 22px 50px rgba(20,20,20,.28); }
+#cta small { display: block; font-weight: 600; color: rgba(255,255,255,.62); letter-spacing: 0; }
+#cta .fl { flex: none; display: grid; place-items: center; border-radius: 50%; background: var(--naranja); }
+#pulso { position: absolute; border-radius: 999px; border: 3px solid var(--naranja); opacity: 0; }
+#prueba { position: absolute; left: 0; right: 0; text-align: center; font-weight: 700; color: var(--gris); opacity: 0; }
+</style>
+</head>
+<body>
+<div id="stage">
+  <div id="glow"></div><div id="dots"></div>
+  <div id="capa"></div>
+  <div id="grain"></div>
+</div>
+<script src="datos.js"></script>
+<script>
+const FMT = new URLSearchParams(location.search).get('fmt') || 'feed';
+const W = 1080, H = FMT === 'story' ? 1920 : 1350, ST = FMT === 'story';
+const stage = document.getElementById('stage'), capa = document.getElementById('capa');
+stage.style.width = W + 'px'; stage.style.height = H + 'px';
+const P = Object.fromEntries(DATOS.map((d) => [d.clave, d]));
+
+// ---------- utilidades ----------
+const cl = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
+const seg = (t, a, b) => cl((t - a) / (b - a));
+const eOut = (x) => 1 - Math.pow(1 - x, 3);
+const eExpo = (x) => (x >= 1 ? 1 : 1 - Math.pow(2, -10 * x));
+const eInOut = (x) => (x < .5 ? 4 * x * x * x : 1 - Math.pow(-2 * x + 2, 3) / 2);
+const eBack = (x, s = 1.7) => 1 + (s + 1) * Math.pow(x - 1, 3) + s * Math.pow(x - 1, 2);
+const eIn = (x) => x * x * x;
+const lerp = (a, b, x) => a + (b - a) * x;
+const el = (tag, cls, html = '') => { const n = document.createElement(tag); if (cls) n.className = cls; n.innerHTML = html; capa.appendChild(n); return n; };
+const SPARK = '<svg viewBox="0 0 100 100" width="100%" height="100%"><path d="M50 4 C54 34 66 46 96 50 C66 54 54 66 50 96 C46 66 34 54 4 50 C34 46 46 34 50 4Z" fill="#fff"/></svg>';
+const CHECK = (s) => `<svg viewBox="0 0 24 24" width="${s}" height="${s}"><circle cx="12" cy="12" r="11" fill="#EC6C32"/><path d="M7 12.5l3.2 3.2L17 9" stroke="#fff" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>`;
+const FLECHA = '<svg viewBox="0 0 24 24" width="46%" height="46%"><path d="M5 12h14M13 6l6 6-6 6" stroke="#fff" stroke-width="2.8" fill="none" stroke-linecap="round" stroke-linejoin="round"/></svg>';
+
+// La foto encuadrada por la caja del producto (renders.json), al "ocupa" del lugar.
+function encuadre(k, W0, H0, ocupa) {
+  const [x0, y0, x1, y1] = P[k].caja;
+  const D = Math.min((ocupa * W0) / (x1 - x0), (ocupa * H0) / (y1 - y0));
+  return { D, left: W0 / 2 - ((x0 + x1) / 2) * D, top: H0 / 2 - ((y0 + y1) / 2) * D };
+}
+
+// Palabras que suben desde una máscara.
+function frase(html, y, tam, cls = '') {
+  const l = el('div', 'linea'); l.style.top = y + 'px';
+  const m = document.createElement('div'); m.className = 'mask'; l.appendChild(m);
+  const t = document.createElement('div'); t.className = 'tit ' + cls; t.style.fontSize = tam + 'px'; m.appendChild(t);
+  const pals = html.split(' ').map((w) => { const s = document.createElement('span'); s.className = 'pal'; s.innerHTML = w + '&nbsp;'; t.appendChild(s); return s; });
+  pals.at(-1).innerHTML = pals.at(-1).innerHTML.replace(/&nbsp;$/, '');
+  return { l, pals };
+}
+// entra (a0) y sale (s0) palabra por palabra
+function animFrase(f, t, a0, s0, paso = .06, dur = .5) {
+  f.pals.forEach((p, i) => {
+    const a = eExpo(seg(t, a0 + i * paso, a0 + i * paso + dur));
+    const s = s0 == null ? 0 : eIn(seg(t, s0 + i * .03, s0 + i * .03 + .32));
+    p.style.transform = `translateY(${(1 - a) * 115 - s * 115}%)`;
+  });
+}
+
+// ---------- disposición por formato ----------
+// Historia: nada importante en los 250 px de arriba ni en los 340 de abajo.
+const L = ST ? {
+  gancho: [640, 752, 864], ganchoTam: 100, arriba: 290, arribaTam: 70, card: { x: 110, y: 455, s: 860 }, chipY: 1350, tecY: 1440, pie: 1520,
+  titG: [290, 368], titGTam: 70, grilla: { x: 106, y: 470, cols: 3, s: 276, gap: 16 }, checks: 1350, cta: { y: 1440, h: 124 }, prueba: 1355,
+  flotan: [[70, 280, -8, 230], [790, 320, 7, 230], [70, 1130, 6, 230], [790, 1110, -6, 230]],
+} : {
+  gancho: [400, 510, 620], ganchoTam: 100, arriba: 52, arribaTam: 62, card: { x: 190, y: 238, s: 700 }, chipY: 966, tecY: 1050, pie: 1240,
+  titG: [62, 136], titGTam: 64, grilla: { x: 76, y: 262, cols: 4, s: 220, gap: 16 }, checks: 760, cta: { y: 1060, h: 118 }, prueba: 1220,
+  flotan: [[64, 96, -8, 220], [796, 120, 7, 220], [64, 930, 6, 220], [800, 900, -6, 220]],
+};
+const glow = document.getElementById('glow');
+Object.assign(glow.style, { width: '1500px', height: '1500px', left: (W / 2 - 750) + 'px', top: (H / 2 - 750) + 'px' });
+
+// ---------- escena 1: la pregunta ----------
+const g1 = frase('¿Regalos de fin', L.gancho[0], L.ganchoTam);
+const g2 = frase('de año para', L.gancho[1], L.ganchoTam);
+const g3 = frase('tu equipo?', L.gancho[2], L.ganchoTam, 'nar');
+// productos con el logo que flotan alrededor de la pregunta
+const flotan = ['mate', 'gorra', 'termo', 'mochila'].map((k, i) => {
+  const [x, y, rot, s] = L.flotan[i];
+  const n = el('div', 'flota'); Object.assign(n.style, { left: x + 'px', top: y + 'px', width: s + 'px', height: s + 'px' });
+  const e = encuadre(k, s, s, .8); const im = document.createElement('img'); im.src = P[k].foto;
+  Object.assign(im.style, { width: e.D + 'px', height: e.D + 'px', left: e.left + 'px', top: e.top + 'px' }); n.appendChild(im);
+  return { n, rot, i };
+});
+
+// ---------- escena 2: el logo en cada producto ----------
+const a1 = frase('Con el logo de', L.arriba, L.arribaTam);
+const a2 = frase('tu empresa', L.arriba + L.arribaTam * 1.02, L.arribaTam, 'nar');
+const ORDEN = ['gorra', 'mate', 'termo', 'mochila', 'botella', 'cuaderno', 'lapicera'];
+// gorra entra a los 2,0 y se estampa a los 3,0; después uno por segundo (entra en el tiempo, se estampa medio tiempo después)
+const ENTRA = { gorra: 2.0, mate: 4.0, termo: 5.0, mochila: 6.0, botella: 7.0, cuaderno: 8.0, lapicera: 9.0 };
+const SALE = { gorra: 4.0, mate: 5.0, termo: 6.0, mochila: 7.0, botella: 8.0, cuaderno: 9.0, lapicera: 10.0 };
+const SELLO = (k) => (k === 'gorra' ? 3.0 : ENTRA[k] + .5);
+const TEC = { gorra: 'Bordada con tu logo', mate: 'Grabado con tu logo', termo: 'Grabado con tu logo', mochila: 'Bordada con tu logo',
+  botella: 'Grabada con tu logo', cuaderno: 'Estampado con tu logo', lapicera: 'Grabada con tu logo' };
+const NOMBRE = { gorra: 'Gorras', mate: 'Mates', termo: 'Termos', mochila: 'Mochilas', botella: 'Botellas', cuaderno: 'Cuadernos', lapicera: 'Lapiceras' };
+
+const cards = ORDEN.map((k) => {
+  const c = el('div', 'card');
+  const s = L.card.s;
+  Object.assign(c.style, { left: L.card.x + 'px', top: L.card.y + 'px', width: s + 'px', height: s + 'px' });
+  const e = encuadre(k, s, s, k === 'lapicera' ? .86 : .78);
+  const sin = document.createElement('img'); sin.src = P[k].sin;
+  const con = document.createElement('img'); con.src = P[k].foto;
+  for (const im of [sin, con]) Object.assign(im.style, { width: e.D + 'px', height: e.D + 'px', left: e.left + 'px', top: e.top + 'px' });
+  const ring = document.createElement('div'); ring.className = 'ring';
+  const flash = document.createElement('div'); flash.className = 'flash';
+  const lx = e.left + P[k].logo[0] * e.D, ly = e.top + P[k].logo[1] * e.D;
+  c.append(sin, con, flash, ring);
+  const chip = el('div', 'chip', `${NOMBRE[k]}`); chip.style.fontSize = (ST ? 40 : 36) + 'px';
+  const tec = el('div', 'tec', TEC[k]); Object.assign(tec.style, { top: L.tecY + 'px', fontSize: (ST ? 36 : 32) + 'px' });
+  return { k, c, sin, con, ring, flash, lx, ly, e, chip, tec };
+});
+
+// ---------- escena 3: la grilla ----------
+const t1 = frase('Probá tu logo online', L.titG[0], L.titGTam);
+const t2 = frase('y cotizá al instante', L.titG[1], L.titGTam, 'nar');
+const G = L.grilla;
+const tiles = [...ORDEN, 'mas'].map((k, i) => {
+  const n = el('div', 'tile' + (k === 'mas' ? ' mas' : ''), k === 'mas' ? 'y cientos<br>de productos<br>más' : '');
+  const col = i % G.cols, fil = Math.floor(i / G.cols);
+  Object.assign(n.style, { left: G.x + col * (G.s + G.gap) + 'px', top: G.y + fil * (G.s + G.gap) + 'px', width: G.s + 'px', height: G.s + 'px' });
+  if (k === 'mas') n.style.fontSize = (ST ? 38 : 30) + 'px';
+  else {
+    const e = encuadre(k, G.s, G.s, .8); const im = document.createElement('img'); im.src = P[k].foto;
+    Object.assign(im.style, { width: e.D + 'px', height: e.D + 'px', left: e.left + 'px', top: e.top + 'px' }); n.appendChild(im);
+  }
+  return n;
+});
+// En la historia la grilla de 3 columnas usa 3 filas: se centra el "y más" en la última.
+if (ST) { tiles[6].style.left = G.x + (G.s + G.gap) / 2 + 'px'; tiles[7].style.left = G.x + (G.s + G.gap) * 1.5 + 'px'; }
+const CHECKS = ['Bordado, estampado o grabado', 'Hasta −20% por cantidad', 'Armá tu pedido por color y talle'];
+const checks = CHECKS.map((txt, i) => {
+  const n = el('div', 'check', CHECK(ST ? 40 : 34) + `<span>${txt}</span>`); n.style.fontSize = (ST ? 36 : 31) + 'px';
+  return n;
+});
+
+// ---------- escena 4: el cierre ----------
+const cta = el('div', '', `<img class="b" src="../logos/blacks-b-claro.png"><span style="flex:1">blacksindumentaria.com.ar<small>Sección Merchandising · probá tu logo gratis</small></span><span class="fl">${FLECHA}</span>`);
+cta.id = 'cta';
+const pulso = el('div'); pulso.id = 'pulso';
+const prueba = el('div'); prueba.id = 'prueba'; prueba.textContent = '+3.500 empresas ya trabajan con Blacks';
+// El logo de Blacks al lado de la dirección (pedido del dueño, 23-oct).
+const pie = el('div', '', `<img src="../logos/blacks-b-oscuro.png" style="width:${ST ? 46 : 40}px;height:${ST ? 46 : 40}px"><span>blacksindumentaria.com.ar · Merchandising</span>`);
+pie.id = 'pie'; Object.assign(pie.style, { top: L.pie + 'px', fontSize: (ST ? 30 : 26) + 'px' });
+
+function layoutCierre() {
+  const h = L.cta.h, w = 920;
+  Object.assign(cta.style, { left: (W - w) / 2 + 'px', top: L.cta.y + 'px', width: w + 'px', height: h + 'px', padding: `0 ${h * .14}px 0 ${h * .28}px`, fontSize: (ST ? 40 : 38) + 'px' });
+  Object.assign(cta.querySelector('.b').style, { width: h * .52 + 'px', height: h * .52 + 'px', flex: 'none' });
+  cta.querySelector('small').style.fontSize = (ST ? 24 : 22) + 'px';
+  Object.assign(cta.querySelector('.fl').style, { width: h * .72 + 'px', height: h * .72 + 'px' });
+  Object.assign(pulso.style, { left: (W - w) / 2 + 'px', top: L.cta.y + 'px', width: w + 'px', height: h + 'px' });
+  Object.assign(prueba.style, { top: L.prueba + 'px', fontSize: (ST ? 30 : 26) + 'px' });
+}
+layoutCierre();
+
+// ---------- renderAt ----------
+window.renderAt = (t) => {
+  // fondo: el brillo naranja respira con el pulso (120 BPM) y viaja un poco
+  const beat = (t % .5) / .5, golpe = t > 2 ? Math.exp(-beat * 5) : 0;
+  glow.style.opacity = .55 + .35 * golpe;
+  glow.style.transform = `translate(${Math.sin(t * .6) * 90}px, ${Math.cos(t * .45) * 70 - (ST ? 60 : 40)}px) scale(${1 + .04 * golpe})`;
+
+  // 1 · la pregunta (0 → 1,9)
+  // la pregunta se lee entera desde el primer cuadro (es lo que se ve al empezar la reproducción automática)
+  animFrase(g1, t, -.62, 1.7, .05, .45);
+  animFrase(g2, t, -.52, 1.76, .05, .45);
+  animFrase(g3, t, -.42, 1.82, .06, .45);
+  const ganchoZoom = 1 + .04 * eOut(seg(t, 0, 1.9));
+  for (const f of [g1, g2, g3]) f.l.style.transform = `scale(${ganchoZoom})`;
+  for (const f of flotan) {
+    const a = -.1 + f.i * .1, p = eBack(seg(t, a, a + .5), 1.5), s = eIn(seg(t, 1.62 + f.i * .05, 1.92 + f.i * .05));
+    f.n.style.opacity = t >= a ? cl(seg(t, a, a + .15)) * (1 - s) : 0;
+    const flot = Math.sin(t * 2.2 + f.i * 1.7) * 10;
+    f.n.style.transform = `translateY(${(1 - p) * 70 + flot}px) rotate(${f.rot * (1 - .3 * s)}deg) scale(${lerp(.6, 1, cl(p, 0, 1.2)) * (1 - .4 * s)})`;
+  }
+
+  // 2 · "Con el logo de tu empresa" arriba, mientras pasan los productos (2,0 → 10,0)
+  animFrase(a1, t, 2.05, 9.78, .05, .5);
+  animFrase(a2, t, 2.2, 9.84, .06, .5);
+
+  for (const c of cards) {
+    const a = ENTRA[c.k], s = SALE[c.k], sello = SELLO(c.k), primero = c.k === 'gorra';
+    const ent = primero ? eBack(seg(t, a, a + .55), 1.3) : eExpo(seg(t, a, a + .42));
+    const sal = eIn(seg(t, s, s + .3));
+    const vis = t >= a && t < s + .3;
+    c.c.style.opacity = vis ? (primero ? cl(seg(t, a, a + .25)) : 1) : 0;
+    const x = primero ? 0 : (1 - ent) * W * .95;
+    const y = primero ? (1 - ent) * 180 : 0;
+    const xs = -sal * W * .95;
+    const rot = primero ? 0 : (1 - ent) * 7 - sal * 7;
+    // el sello: la tarjeta se hunde y rebota
+    const ps = seg(t, sello, sello + .38);
+    const bump = t >= sello ? Math.sin(ps * Math.PI) * (1 - ps) * .06 : 0;
+    const sc = (primero ? lerp(.9, 1, ent) : 1) * (1 - bump * .6) + (t >= sello + .08 ? bump : 0);
+    c.c.style.transform = `translate(${x + xs}px, ${y}px) rotate(${rot}deg) scale(${sc})`;
+    // el logo aparece en un círculo que crece desde su lugar
+    const r = eOut(seg(t, sello, sello + .3)) * c.e.D * .95;
+    c.con.style.clipPath = `circle(${r}px at ${c.lx - c.e.left}px ${c.ly - c.e.top}px)`;
+    c.con.style.opacity = t >= sello ? 1 : 0;
+    // un anillo fino que se abre desde el logo y un destello blanco cortito
+    const pr = seg(t, sello + .04, sello + .45), rr = lerp(.08, primero ? .5 : .42, eOut(pr)) * c.e.D;
+    Object.assign(c.ring.style, { left: c.lx - rr + 'px', top: c.ly - rr + 'px', width: 2 * rr + 'px', height: 2 * rr + 'px',
+      opacity: t >= sello + .04 && pr < 1 ? .85 * (1 - pr) : 0 });
+    const pf = seg(t, sello, sello + .18), rf = .16 * c.e.D;
+    Object.assign(c.flash.style, { left: c.lx - rf + 'px', top: c.ly - rf + 'px', width: 2 * rf + 'px', height: 2 * rf + 'px',
+      opacity: t >= sello && pf < 1 ? .5 * Math.sin(pf * Math.PI) : 0 });
+    // el nombre y la técnica
+    const ca = eBack(seg(t, a + .12, a + .5), 2.2), cs = eIn(seg(t, s - .12, s + .08));
+    const chipVis = t >= a + .12 && t < s + .08;
+    const cw = c.chip.offsetWidth;
+    Object.assign(c.chip.style, { left: (W - cw) / 2 + 'px', top: L.chipY + 'px', opacity: chipVis ? cl(ca * 1.5) * (1 - cs) : 0,
+      transform: `translateY(${(1 - ca) * 40 + cs * -20}px) scale(${lerp(.8, 1, cl(ca))})` });
+    const ta = eOut(seg(t, sello + .05, sello + .4));
+    c.tec.style.opacity = t >= sello && t < s ? ta * (1 - cs) : 0;
+    c.tec.style.transform = `translateY(${(1 - ta) * 16}px)`;
+  }
+
+  // 3 · la grilla (10,0 → 12,5)
+  animFrase(t1, t, 10.0, null, .05, .5);
+  animFrase(t2, t, 10.14, null, .05, .5);
+  tiles.forEach((n, i) => {
+    const a = 10.1 + i * .07, p = eBack(seg(t, a, a + .45), 1.6);
+    n.style.opacity = t >= a ? cl(seg(t, a, a + .15)) : 0;
+    n.style.transform = `translateY(${(1 - p) * 60}px) scale(${lerp(.7, 1, cl(p, 0, 1.2))})`;
+  });
+  checks.forEach((n, i) => {
+    const a = 11.0 + i * .5, p = eExpo(seg(t, a, a + .4));
+    const y = ST ? L.checks + i * 0 : L.checks + i * 56;
+    n.style.opacity = t >= a ? p : 0;
+    // en la historia los tildes se reemplazan uno a otro (el cierre ocupa lo de abajo); en el feed se apilan
+    if (ST) {
+      const fuera = i < 2 ? eIn(seg(t, a + .42, a + .5)) : eIn(seg(t, 12.3, 12.5));
+      n.style.opacity = t >= a ? p * (1 - fuera) : 0;
+    }
+    const w = n.offsetWidth;
+    n.style.left = (W - w) / 2 + 'px'; n.style.top = y + 'px';
+    n.style.transform = `translateY(${(1 - p) * 24}px)`;
+  });
+
+  // 4 · el cierre (12,5 → 15,0)
+  const ca = eBack(seg(t, 12.5, 12.95), 1.4);
+  cta.style.opacity = t >= 12.5 ? cl(seg(t, 12.5, 12.7)) : 0;
+  cta.style.transform = `translateY(${(1 - ca) * 80}px) scale(${lerp(.92, 1, cl(ca))})`;
+  const pp = t >= 13 ? ((t - 13) % 1) : 1;
+  pulso.style.opacity = t >= 13 && t < 14.9 ? (1 - pp) * .7 : 0;
+  pulso.style.transform = `scale(${1 + eOut(pp) * .08}, ${1 + eOut(pp) * .35})`;
+  cta.querySelector('.fl').style.transform = `translateX(${t >= 13 ? Math.max(0, Math.sin(((t - 13) % 1) * Math.PI * 2)) * 8 : 0}px)`;
+  const pa = eOut(seg(t, 13.1, 13.5));
+  prueba.style.opacity = pa; prueba.style.transform = `translateY(${(1 - pa) * 16}px)`;
+  // la dirección de la web abajo mientras pasan los productos
+  const pa2 = eOut(seg(t, 2.4, 2.9)), ps2 = eIn(seg(t, 9.8, 10.1));
+  pie.style.opacity = pa2 * (1 - ps2); pie.style.transform = `translateY(${(1 - pa2) * 20}px)`;
+};
+
+window.listo = document.fonts.ready.then(() => Promise.all([...document.images].map((im) => (im.complete ? 1 : new Promise((r) => { im.onload = im.onerror = r; })))))
+  .then(() => window.renderAt(0));
+</script>
+</body>
+</html>
